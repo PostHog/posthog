@@ -3,7 +3,7 @@ import React, { useMemo } from 'react'
 import { IconPerson } from 'lib/components/icons'
 import './PersonHeader.scss'
 
-export function PersonHeader({ person }: { person: Partial<PersonType> }): JSX.Element {
+export function PersonHeader({ person }: { person?: Partial<PersonType> | null }): JSX.Element {
     const customIdentifier = person?.properties
         ? person.properties.email || person.properties.name || person.properties.username
         : null

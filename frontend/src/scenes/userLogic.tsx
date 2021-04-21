@@ -2,11 +2,16 @@ import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { userLogicType } from './userLogicType'
-import { UserType, UserUpdateType } from '~/types'
+import { UserType } from '~/types'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 
-export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
+interface UpdateUserPayload {
+    user: Partial<UserType>
+    successCallback?: () => void
+}
+
+export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
     actions: () => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
@@ -43,7 +48,7 @@ export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
                 (user?.team?.is_demo && user?.organization?.teams && user.organization.teams.length == 1) || false,
         ],
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         user: [
             null as UserType | null,
             {
@@ -76,16 +81,24 @@ export const userLogic = kea<userLogicType<UserType, UserUpdateType>>({
                             }
                         }
                         return user
-                    } catch (e) {
-                        console.error(e)
+                    } catch (error) {
+                        console.error(error)
+                        actions.loadUserFailure(error.message)
                     }
                     return null
                 },
-                updateUser: async (payload: Partial<UserType>) => {
+                updateUser: async ({ user, successCallback }: UpdateUserPayload) => {
                     if (!values.user) {
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
-                    return await api.update('api/users/@me/', payload)
+                    try {
+                        const response = await api.update('api/users/@me/', user)
+                        successCallback && successCallback()
+                        return response
+                    } catch (error) {
+                        console.error(error)
+                        actions.updateUserFailure(error.message)
+                    }
                 },
             },
         ],

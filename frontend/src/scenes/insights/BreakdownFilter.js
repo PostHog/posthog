@@ -163,7 +163,7 @@ export function BreakdownFilter({ filters, onChange }) {
                     disabled={shown_as === ShownAsValue.STICKINESS || shown_as === ShownAsValue.LIFECYCLE}
                     data-attr="add-breakdown-button"
                 >
-                    {label || 'Add breakdown'}
+                    <PropertyKeyInfo value={label || 'Add breakdown'} />
                 </Button>
             </Tooltip>
         </Popover>

@@ -2,8 +2,9 @@ import React from 'react'
 import { Select } from 'antd'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
-export function EventName({ value, onChange, isActionStep }) {
+export function EventName({ value, onChange, isActionStep = false }) {
     const { eventNamesGrouped } = useValues(teamLogic)
 
     return (
@@ -13,9 +14,7 @@ export function EventName({ value, onChange, isActionStep }) {
                 allowClear
                 style={{ width: '20%' }}
                 onChange={onChange}
-                filterOption={(input, option) =>
-                    option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
-                }
+                filterOption={(input, option) => option?.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
                 disabled={isActionStep && eventNamesGrouped[0].options.length === 0}
                 value={value}
                 data-attr="event-name-box"
@@ -26,7 +25,7 @@ export function EventName({ value, onChange, isActionStep }) {
                             <Select.OptGroup key={typeGroup.label} label={typeGroup.label}>
                                 {typeGroup.options.map((item, index) => (
                                     <Select.Option key={item.value} value={item.value} data-attr={'prop-val-' + index}>
-                                        {item.label}
+                                        <PropertyKeyInfo value={item.label} />
                                     </Select.Option>
                                 ))}
                             </Select.OptGroup>

@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useRef, useState } from 'react'
 import { Table, TableProps } from 'antd'
 import { Resizable } from 'react-resizable'
 import { getActiveBreakpoint, getFullwidthColumnSize, getMaxColumnWidth, getMinColumnWidth } from './responsiveUtils'
+import { RenderedCell } from 'rc-table/lib/interface'
 
 import './index.scss'
 
@@ -10,8 +11,8 @@ export interface ResizableColumnType<RecordType, V = any> {
     key?: string
     dataIndex?: string
     render?:
-        | ((keyValue: V, record: RecordType, ...rest: any) => JSX.Element | string)
-        | ((record: RecordType, ...rest: any) => JSX.Element | string)
+        | ((keyValue: V, record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
+        | ((record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
     ellipsis?: boolean
     span: number
 }
