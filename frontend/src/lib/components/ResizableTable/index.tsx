@@ -3,6 +3,7 @@ import { Table, TableProps } from 'antd'
 import { ColumnType } from 'antd/lib/table'
 import { ResizableProps } from 'react-resizable'
 import ResizeObserver from 'resize-observer-polyfill'
+import { RenderedCell } from 'rc-table/lib/interface'
 import { getActiveBreakpoint, getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from './responsiveUtils'
 import VirtualTableHeader from './VirtualTableHeader'
 
@@ -11,7 +12,7 @@ import './index.scss'
 export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> {
     title: string | JSX.Element
     key?: string
-    render: (record: RecordType, ...rest: any) => JSX.Element
+    render: (record: RecordType, ...rest: any) => JSX.Element | RenderedCell<RecordType>
     ellipsis?: boolean
     span: number
 }

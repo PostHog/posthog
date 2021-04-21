@@ -1,5 +1,5 @@
 import React, { RefObject } from 'react'
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { ActionType } from '~/types'
 import { EventUsageType } from '~/types'
 import { EntityTypes } from '../../trends/trendsLogic'
@@ -9,8 +9,8 @@ import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
 import { SelectBox, SelectedItem } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
-import { entityFilterLogicType } from './entityFilterLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 interface FilterType {
     filter: {
@@ -40,7 +40,7 @@ export function ActionFilterDropdown({
     onClose,
 }: {
     open: boolean
-    logic: entityFilterLogicType
+    logic: BuiltLogic
     openButtonRef?: RefObject<HTMLElement>
     onClose: () => void
 }): JSX.Element | null {
@@ -90,18 +90,18 @@ export function ActionFilterDropdown({
                         name: event.event,
                         ...event,
                     })),
-                    renderInfo: function suggestions({ item }) {
+                    renderInfo: function renderSuggestions({ item }) {
                         return (
                             <>
                                 <FireOutlined /> Suggestions
                                 <br />
                                 <h3>{item.name}</h3>
-                                {(item?.volume ?? 0) > 0 && (
+                                {(item?.volume ?? 0 > 0) && (
                                     <>
                                         Seen <strong>{item.volume}</strong> times.{' '}
                                     </>
                                 )}
-                                {(item?.usage_count ?? 0) > 0 && (
+                                {(item?.usage_count ?? 0 > 0) && (
                                     <>
                                         Used in <strong>{item.usage_count}</strong> queries.
                                     </>
@@ -149,12 +149,12 @@ export function ActionFilterDropdown({
                                 <ContainerOutlined /> Events
                                 <br />
                                 <h3>{item.name}</h3>
-                                {(item?.volume ?? 0) > 0 && (
+                                {(item?.volume ?? 0 > 0) && (
                                     <>
                                         Seen <strong>{item.volume}</strong> times.{' '}
                                     </>
                                 )}
-                                {(item?.usage_count ?? 0) > 0 && (
+                                {(item?.usage_count ?? 0 > 0) && (
                                     <>
                                         Used in <strong>{item.usage_count}</strong> queries.
                                     </>
@@ -184,7 +184,9 @@ export function ActionInfo({ item }: { item: SelectedItem }): JSX.Element {
                 edit
             </Link>
             <br />
-            <h3>{item.name} </h3>
+            <h3>
+                <PropertyKeyInfo value={item.name} />
+            </h3>
             {item.action && <ActionSelectInfo entity={item.action} />}
         </>
     )

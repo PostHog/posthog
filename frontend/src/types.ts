@@ -12,6 +12,7 @@ import {
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { Dayjs } from 'dayjs'
 
 export type AvailableFeatures =
     | 'zapier'
@@ -43,11 +44,6 @@ export interface UserBasicType {
     distinct_id: string
     first_name: string
     email: string
-}
-
-export interface UserUpdateType {
-    user?: Omit<Partial<UserType>, 'team'>
-    team?: Partial<TeamType>
 }
 
 export interface PluginAccess {
@@ -192,7 +188,7 @@ export interface PropertyFilter {
     key: string
     operator: string | null
     type: string
-    value: string | number
+    value: string | number | (string | number)[]
 }
 
 interface BasePropertyFilter {
@@ -322,6 +318,12 @@ export interface EventType {
     properties: Record<string, any>
     timestamp: string
     person?: Partial<PersonType> | null
+}
+
+export interface EventFormattedType {
+    event: EventType
+    date_break?: Dayjs
+    new_events?: boolean
 }
 
 export interface SessionType {
