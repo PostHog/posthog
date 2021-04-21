@@ -34,7 +34,7 @@ interface ActionFilterRowProps {
     index: number
     hideMathSelector?: boolean
     hidePropertySelector?: boolean
-    singleFilter: boolean
+    singleFilter?: boolean
     showOr?: boolean
     letter?: string | false
 }

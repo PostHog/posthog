@@ -1,21 +1,43 @@
 import './ActionFilter.scss'
 import React, { useEffect } from 'react'
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined, EllipsisOutlined } from '@ant-design/icons'
-import { sortableContainer, sortableElement, sortableHandle } from 'react-sortable-hoc'
+import {
+    SortableContainer as sortableContainer,
+    SortableElement as sortableElement,
+    SortableHandle as sortableHandle
+} from 'react-sortable-hoc'
 import { alphabet } from 'lib/utils'
 import posthog from 'posthog-js'
+import { FilterType } from '~/types'
 
 const DragHandle = sortableHandle(() => (
     <span className="action-filter-drag-handle">
         <EllipsisOutlined />
     </span>
 ))
+
+interface SortableActionFilterRowProps {
+    logic: BuiltLogic
+    filter: any //TODO
+    filterIndex: number
+    hideMathSelector?: boolean
+    hidePropertySelector?: boolean
+    filterCount: number
+}
+
 const SortableActionFilterRow = sortableElement(
-    ({ logic, filter, filterIndex, hideMathSelector, hidePropertySelector, filterCount }) => (
+    ({
+        logic,
+        filter,
+        filterIndex,
+        hideMathSelector,
+        hidePropertySelector,
+        filterCount
+    }: SortableActionFilterRowProps): JSX.Element => (
         <div className="draggable-action-filter">
             {filterCount > 1 && <DragHandle />}
             <ActionFilterRow
@@ -30,9 +52,23 @@ const SortableActionFilterRow = sortableElement(
         </div>
     )
 )
-const SortableContainer = sortableContainer(({ children }) => {
+const SortableContainer = sortableContainer(({ children }: { children: React.ReactChildren }) => {
     return <div>{children}</div>
 })
+
+interface ActionFilterProps {
+    setFilters: (filters: Record<string, any>) => void // TODO
+    filters: FilterType[] // TODO
+    typeKey: string
+    hideMathSelector?: boolean
+    hidePropertySelector?: boolean
+    copy: string
+    disabled?: boolean
+    singleFilter?: boolean
+    sortable?: boolean
+    showLetters?: boolean
+    showOr?: boolean
+}
 
 export function ActionFilter({
     setFilters,
@@ -46,7 +82,8 @@ export function ActionFilter({
     sortable = false,
     showLetters = false,
     showOr = false,
-}) {
+}: ActionFilterProps): JSX.Element {
+
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
     const { localFilters } = useValues(logic)
@@ -58,13 +95,13 @@ export function ActionFilter({
         setLocalFilters(filters)
     }, [filters])
 
-    function onSortEnd({ oldIndex, newIndex }) {
-        const move = (arr, from, to) => {
+    function onSortEnd({ oldIndex, newIndex }: { oldIndex: number, newIndex: number }): void {
+        function move<T>(arr: T[], from: number, to: number): T[] {
             const clone = [...arr]
             Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
             return clone.map((child, order) => ({ ...child, order }))
         }
-        setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
+        setFilters(toFilters(move<typeof localFilters>(localFilters, oldIndex, newIndex))) // TODO
         if (oldIndex !== newIndex) {
             posthog.capture('funnel step reordered')
         }
