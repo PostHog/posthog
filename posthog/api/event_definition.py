@@ -1,6 +1,6 @@
 from typing import List
 
-from rest_framework import mixins, permissions, serializers, viewsets
+from rest_framework import filters, mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import EventDefinition, Team
@@ -28,6 +28,8 @@ class EventDefinitionViewSet(
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "uuid"
     ordering = "name"
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["name"]
 
     def get_queryset(self):
         return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)

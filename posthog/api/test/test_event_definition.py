@@ -2,9 +2,7 @@ import random
 
 from rest_framework import status
 
-from posthog.api import organization
 from posthog.demo import create_demo_team
-from posthog.models import EventDefinition
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
@@ -68,3 +66,26 @@ class TestEventDefinitionAPI(APIBaseTest):
                 len(response.json()["results"]), 100 if i < 2 else 5
             )  # Each page has 100 except the last one
             self.assertEqual(response.json()["results"][0]["name"], f"z_event_{event_checkpoints[i]}")
+
+    def test_cant_see_event_definitions_for_another_team(self):
+        org = Organization.objects.create(name="Separate Org")
+        team = Team.objects.create(organization=org, name="Default Project")
+        team.event_names = self.demo_team.event_names + [f"should_be_invisible_{i}" for i in range(0, 5)]
+        team.save()
+
+        response = self.client.get("/api/projects/@current/event_definitions/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        for item in response.json()["results"]:
+            self.assertNotIn("should_be_invisible", item["name"])
+
+        # Also can't fetch for a team to which the user doesn't have permissions
+        response = self.client.get(f"/api/projects/{team.pk}/event_definitions/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_query_event_definitions(self):
+        response = self.client.get("/api/projects/@current/event_definitions/?search=app")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(response.json()["count"], 2)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["installed_app", "rated_app"])
