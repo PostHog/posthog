@@ -535,7 +535,7 @@ export function dateFilterToText(
     return name
 }
 
-export function humanizeNumber(number: number, digits: number = 1): string {
+export function humanizeNumber(number: number | null, digits: number = 1): string {
     if (number === null) {
         return '-'
     }

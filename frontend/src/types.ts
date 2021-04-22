@@ -678,10 +678,10 @@ export interface EventDefinition {
     query_usage_30_day: number | null
 }
 
-export interface PropertyDefition {
+export interface PropertyDefinition {
     id: string
     name: string
     volume_30_day: number | null
     query_usage_30_day: number | null
-    is_numerical: boolean
+    is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
 }

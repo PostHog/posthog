@@ -14,9 +14,9 @@ export const eventDefinitionsLogic = kea<eventDefinitionsLogicType<EventDefiniti
         eventStorage: [
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
             {
-                loadNextEventDefinitionsSuccess: (state, { eventStorage }) => {
+                loadEventDefinitionsSuccess: (state, { eventStorage }) => {
                     return {
-                        ...state,
+                        count: eventStorage.count,
                         results: [...state.results, ...eventStorage.results],
                         next: eventStorage.next,
                     }
@@ -28,25 +28,27 @@ export const eventDefinitionsLogic = kea<eventDefinitionsLogicType<EventDefiniti
         eventStorage: [
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
             {
-                loadEventDefinitions: async () => await api.get('api/projects/@current/event_definitions/?limit=2'),
-                loadNextEventDefinitions: async () => await api.get(values.eventStorage.next),
+                loadEventDefinitions: async (initial?: boolean) => {
+                    const url = initial ? 'api/projects/@current/event_definitions/?limit=2' : values.eventStorage.next
+                    if (!url) {
+                        throw new Error('Incorrect call to eventDefinitionsLogic.loadEventDefinitions')
+                    }
+                    return await api.get(url)
+                },
             },
         ],
     }),
     listeners: ({ actions }) => ({
         loadEventDefinitionsSuccess: ({ eventStorage }) => {
             if (eventStorage.next) {
-                actions.loadNextEventDefinitions()
-            }
-        },
-        loadNextEventDefinitionsSuccess: ({ eventStorage }) => {
-            if (eventStorage.next) {
-                actions.loadNextEventDefinitions()
+                actions.loadEventDefinitions()
             }
         },
     }),
     events: ({ actions }) => ({
-        afterMount: actions.loadEventDefinitions,
+        afterMount: () => {
+            actions.loadEventDefinitions(true)
+        },
     }),
     selectors: {
         loaded: [
