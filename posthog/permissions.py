@@ -78,8 +78,6 @@ class OrganizationMemberPermissions(BasePermission):
     Returns a generic permission denied response.
     Note: For POST requests, it will **only** work with nested routers that derive from an Organization or Project (Team).
     """
-    
-    message = "You don't belong to the relevant organization."
 
     def has_permission(self, request: Request, view) -> bool:
         # When request is not creating or listing an `Organization`, an object exists, delegate to `has_object_permission`

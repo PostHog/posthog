@@ -126,9 +126,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         email = "x@posthog.com"
         response = self.client.post(f"/api/organizations/{another_org.id}/invites/", {"target_email": email})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json(), self.permission_denied_response("You don't belong to the relevant organization.")
-        )
+        self.assertEqual(response.json(), self.permission_denied_response())
 
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
@@ -222,9 +220,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             response = self.client.post(f"/api/organizations/{another_org.id}/invites/bulk/", payload, format="json",)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.json(), self.permission_denied_response("You don't belong to the relevant organization.")
-        )
+        self.assertEqual(response.json(), self.permission_denied_response())
 
         # No invites created
         self.assertEqual(OrganizationInvite.objects.count(), count)
