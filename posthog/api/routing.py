@@ -18,9 +18,6 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
 
 
 class StructuredViewSetMixin(NestedViewSetMixin):
-    # TODO: The way we use this can be a bit confusing. If this mixin is not combined with the proper permission
-    # classes, it can lead to unexpected data leaks. We should enforce team filtering from here.
-
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     legacy_team_compatibility: bool = False

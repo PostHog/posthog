@@ -65,7 +65,8 @@ class TestTeam(BaseTest):
         team.save()
         expected_events = ["installed_app", "rated_app", "purchase", "entered_free_trial", "uninstalled_app"]
         self.assertEqual(
-            list(EventDefinition.objects.filter(team=team).values_list("name", flat=True)), expected_events,
+            list(EventDefinition.objects.filter(team=team).values_list("name", flat=True)).sort(),
+            expected_events.sort(),
         )
 
         # Test events with usage
@@ -128,7 +129,8 @@ class TestTeam(BaseTest):
             "paid_tier",
         ]
         self.assertEqual(
-            list(PropertyDefinition.objects.filter(team=team).values_list("name", flat=True)), expected_properties,
+            list(PropertyDefinition.objects.filter(team=team).values_list("name", flat=True)).sort(),
+            expected_properties.sort(),
         )
 
         # Test events with usage
