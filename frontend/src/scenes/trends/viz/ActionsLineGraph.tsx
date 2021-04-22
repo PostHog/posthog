@@ -51,6 +51,7 @@ export function ActionsLineGraph({
                                   dataset.action || 'session',
                                   dataset.label,
                                   day,
+                                  day,
                                   dataset.breakdown_value || dataset.status
                               )
                           }

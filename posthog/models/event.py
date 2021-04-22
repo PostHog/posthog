@@ -258,27 +258,7 @@ class EventManager(models.QuerySet):
                     kwargs["elements_hash"] = ElementGroup.objects.create(
                         team_id=kwargs["team_id"], elements=kwargs.pop("elements")
                     ).hash
-            event = super().create(*args, **kwargs)
-
-            # DEPRECATED: ASYNC_EVENT_ACTION_MAPPING is the main approach now, as it works with the plugin server
-            if not settings.ASYNC_EVENT_ACTION_MAPPING:
-                should_post_webhook = False
-                relations = []
-                for action in event.actions:
-                    relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
-                    if is_ee_enabled():
-                        continue  # avoiding duplication here - in EE hooks are handled by webhooks_ee.py
-                    action.on_perform(event)
-                    if action.post_to_slack:
-                        should_post_webhook = True
-                Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-                team = kwargs.get("team", event.team)
-                if (
-                    should_post_webhook and team and team.slack_incoming_webhook and not is_ee_enabled()
-                ):  # ee will handle separately
-                    celery.current_app.send_task("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, site_url))
-
-            return event
+            return super().create(*args, **kwargs)
 
 
 class Event(models.Model):

@@ -46,7 +46,9 @@ def factory_test_process_event(
             self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
             self.team.save()
 
-            num_queries = 17
+            num_queries = (
+                41  # TODO: #4070 temporary; 17 + 24 from running synchronously sync_event_and_properties_definitions
+            )
             if is_ee_enabled():  # extra queries to check for REST hooks
                 num_queries += 4
             with self.assertNumQueries(num_queries):

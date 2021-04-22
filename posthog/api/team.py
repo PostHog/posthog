@@ -37,6 +37,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 
 
 class TeamSerializer(serializers.ModelSerializer):
+
     event_names_with_usage = serializers.SerializerMethodField()
     event_properties_with_usage = serializers.SerializerMethodField()
 
@@ -105,13 +106,13 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         permissions.IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
         PremiumMultiprojectPermissions,
-        OrganizationMemberPermissions,
     ]
     lookup_field = "id"
     ordering = "-created_by"
     organization: Optional[Organization] = None
 
     def get_queryset(self):
+        # This is actually what ensures that a user cannot read/update a project for which they don't have permission
         return super().get_queryset().filter(organization__in=cast(User, self.request.user).organizations.all())
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
