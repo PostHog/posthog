@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Type, cast
+from typing import Any, Dict, Optional, Type, cast
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -10,12 +10,7 @@ from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token
-from posthog.permissions import (
-    CREATE_METHODS,
-    OrganizationAdminWritePermissions,
-    OrganizationMemberPermissions,
-    ProjectMembershipNecessaryPermissions,
-)
+from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, ProjectMembershipNecessaryPermissions
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -62,11 +57,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "data_attributes",
             "session_recording_opt_in",
             "session_recording_retention_period_days",
-            "event_names",
-            "event_properties",
-            "event_properties_numerical",
-            "event_names_with_usage",
-            "event_properties_with_usage",
         )
         read_only_fields = (
             "id",
@@ -77,9 +67,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "ingested_event",
-            "event_names",
-            "event_properties",
-            "event_properties_numerical",
         )
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
@@ -91,12 +78,6 @@ class TeamSerializer(serializers.ModelSerializer):
             request.user.current_team = team
             request.user.save()
         return team
-
-    def get_event_names_with_usage(self, instance: Team) -> List:
-        return instance.get_latest_event_names_with_usage()
-
-    def get_event_properties_with_usage(self, instance: Team) -> List:
-        return instance.get_latest_event_properties_with_usage()
 
 
 class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
