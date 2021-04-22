@@ -14,7 +14,7 @@ export const eventDefinitionsLogic = kea<eventDefinitionsLogicType<EventDefiniti
         eventStorage: [
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
             {
-                loadNextEventDefinitions: (state, { eventStorage }) => {
+                loadNextEventDefinitionsSuccess: (state, { eventStorage }) => {
                     return {
                         ...state,
                         results: [...state.results, ...eventStorage.results],
@@ -28,7 +28,7 @@ export const eventDefinitionsLogic = kea<eventDefinitionsLogicType<EventDefiniti
         eventStorage: [
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
             {
-                loadEventDefinitions: async () => await api.get('api/projects/@current/event_definitions/'),
+                loadEventDefinitions: async () => await api.get('api/projects/@current/event_definitions/?limit=2'),
                 loadNextEventDefinitions: async () => await api.get(values.eventStorage.next),
             },
         ],
@@ -39,9 +39,14 @@ export const eventDefinitionsLogic = kea<eventDefinitionsLogicType<EventDefiniti
                 actions.loadNextEventDefinitions()
             }
         },
+        loadNextEventDefinitionsSuccess: ({ eventStorage }) => {
+            if (eventStorage.next) {
+                actions.loadNextEventDefinitions()
+            }
+        },
     }),
     events: ({ actions }) => ({
-        afterMount: [actions.loadNextEventDefinitions],
+        afterMount: actions.loadEventDefinitions,
     }),
     selectors: {
         loaded: [
