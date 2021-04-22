@@ -33,7 +33,7 @@ export function VolumeTable({
     data,
 }: {
     type: EventTableType
-    data: EventDefinition[] | PropertyDefinition[]
+    data: Array<EventDefinition | PropertyDefinition>
 }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
