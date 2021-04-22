@@ -86,6 +86,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         # Also can't fetch for a team to which the user doesn't have permissions
         response = self.client.get(f"/api/projects/{team.pk}/event_definitions/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
 
     def test_query_event_definitions(self):
         response = self.client.get("/api/projects/@current/event_definitions/?search=app")

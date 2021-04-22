@@ -135,9 +135,9 @@ class TestTeam(BaseTest):
         expected_property_definitions = [
             {"name": "$current_url", "volume_30_day": 264, "query_usage_30_day": 0, "is_numerical": False},
             {"name": "is_first_movie", "volume_30_day": 87, "query_usage_30_day": 0, "is_numerical": False},
-            {"name": "app_rating", "volume_30_day": 73, "query_usage_30_day": 0, "is_numerical": False},
+            {"name": "app_rating", "volume_30_day": 73, "query_usage_30_day": 0, "is_numerical": True},
             {"name": "plan", "volume_30_day": 14, "query_usage_30_day": 0, "is_numerical": False},
-            {"name": "purchase", "volume_30_day": 0, "query_usage_30_day": 0, "is_numerical": False},
+            {"name": "purchase", "volume_30_day": 0, "query_usage_30_day": 0, "is_numerical": True},
             {"name": "paid_tier", "volume_30_day": 0, "query_usage_30_day": 0, "is_numerical": False},
             {"name": "first_visit", "volume_30_day": 0, "query_usage_30_day": 0, "is_numerical": False},
             {"name": "$browser", "volume_30_day": 166, "query_usage_30_day": 349, "is_numerical": True},
@@ -154,3 +154,4 @@ class TestTeam(BaseTest):
             instance = PropertyDefinition.objects.get(name=item["name"], team=team)
             self.assertEqual(instance.volume_30_day, item["volume_30_day"])
             self.assertEqual(instance.query_usage_30_day, item["query_usage_30_day"])
+            self.assertEqual(instance.is_numerical, item["is_numerical"])
