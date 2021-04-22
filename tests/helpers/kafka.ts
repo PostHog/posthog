@@ -7,6 +7,7 @@ import {
     KAFKA_EVENTS_WAL,
     KAFKA_PERSON,
     KAFKA_PERSON_UNIQUE_ID,
+    KAFKA_PLUGIN_LOG_ENTRIES,
     KAFKA_SESSION_RECORDING_EVENTS,
 } from '../../src/shared/ingestion/topics'
 import { delay, UUIDT } from '../../src/shared/utils'
@@ -34,6 +35,7 @@ export async function resetKafka(extraServerConfig: Partial<PluginsServerConfig>
         KAFKA_SESSION_RECORDING_EVENTS,
         KAFKA_PERSON,
         KAFKA_PERSON_UNIQUE_ID,
+        KAFKA_PLUGIN_LOG_ENTRIES,
     ])
 
     await new Promise<void>(async (resolve, reject) => {

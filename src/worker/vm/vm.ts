@@ -25,7 +25,7 @@ export async function createPluginConfigVM(
     })
 
     // Add PostHog utilities to virtual machine
-    vm.freeze(createConsole(), 'console')
+    vm.freeze(createConsole(server, pluginConfig), 'console')
     vm.freeze(createPosthog(server, pluginConfig), 'posthog')
 
     // Add non-PostHog utilities to virtual machine

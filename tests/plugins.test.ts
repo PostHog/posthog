@@ -204,7 +204,7 @@ test('archive plugin with broken plugin.json does not do much', async () => {
     expect(processError).toHaveBeenCalledWith(
         mockServer,
         pluginConfigs.get(39)!,
-        `Can not load plugin.json for plugin "test-maxmind-plugin" (organization ${commonOrganizationId})`
+        `Can not load plugin.json for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
     )
 
     expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
@@ -241,7 +241,7 @@ test('plugin with http urls must have an archive', async () => {
     console.log = jest.fn()
     console.error = jest.fn()
 
-    getPluginRows.mockReturnValueOnce([{ ...plugin60, archive: null }])
+    getPluginRows.mockReturnValueOnce([{ ...plugin60, archive: null, is_global: true }])
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
@@ -252,7 +252,7 @@ test('plugin with http urls must have an archive', async () => {
     expect(processError).toHaveBeenCalledWith(
         mockServer,
         pluginConfigs.get(39)!,
-        `Tried using undownloaded remote plugin "test-maxmind-plugin" (organization ${commonOrganizationId}), which is not supported!`
+        `Tried using undownloaded remote plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId} - global), which is not supported!`
     )
     expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
 })
