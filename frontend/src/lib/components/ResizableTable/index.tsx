@@ -157,7 +157,6 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
 
     useEffect(() => {
         // Update render prop when parent columns change
-        console.log('Effect running.')
         setColumns((cols) => {
             const lastIndex = cols.length
             const nextColumns = cols.map((column, index) =>
