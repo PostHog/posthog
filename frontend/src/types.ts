@@ -671,7 +671,7 @@ export interface LicenseType {
     created_at: string
 }
 
-export interface EventDefition {
+export interface EventDefinition {
     id: string
     name: string
     volume_30_day: number | null
