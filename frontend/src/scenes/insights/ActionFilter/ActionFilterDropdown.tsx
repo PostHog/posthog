@@ -1,8 +1,6 @@
 import React, { RefObject } from 'react'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { ActionType } from '~/types'
-import { EventUsageType } from '~/types'
-import { EntityTypes } from '~/types'
+import { ActionType, EntityTypes, EventUsageType, FilterType } from '~/types'
 import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
@@ -12,19 +10,7 @@ import { Link } from 'lib/components/Link'
 import { teamLogic } from 'scenes/teamLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
-interface FilterType {
-    filter: {
-        id: string
-        type: 'actions' | 'events'
-        name: string
-        order: number
-        math?: string
-        math_property?: string
-        properties?: Array<Record<string, any>>
-    }
-    type: 'actions' | 'events'
-    index: number
-}
+
 
 const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
     return events

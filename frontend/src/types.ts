@@ -257,7 +257,6 @@ export type SessionsPropertyFilter =
     | EventTypePropertyFilter
 
 export type EntityType = 'actions' | 'events' | 'new_entity'
-
 export interface Entity {
     id: string | number
     name: string

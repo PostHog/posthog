@@ -119,7 +119,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<EntityFilter, ActionF
                 [EntityTypes.EVENTS]: events.map((event) => ({ id: event, name: event })),
             }),
         ],
-        filters: [() => [selectors.localFilters], (localFilters) => toFilters(localFilters)],
+        filters: [() => [selectors.localFilters], (localFilters: LocalFilter[]) => toFilters(localFilters)],
     }),
 
     listeners: ({ actions, values, props }) => ({

@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import React, { CSSProperties, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Tooltip, Col, Row, Select } from 'antd'
 import { ActionType, ActionFilter, EntityTypes } from '~/types'
@@ -59,7 +59,7 @@ export function ActionFilterRow({
         updateFilterProperty,
         setEntityFilterVisibility,
     } = useActions(logic)
-    const { eventProperties, eventPropertiesNumerical } = useValues(teamLogic)
+    const { eventPropertiesNumerical } = useValues(teamLogic)
 
     const visible = entityFilterVisible[filter.order]
 
@@ -146,13 +146,13 @@ export function ActionFilterRow({
                     />
                 </Col>
                 <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
-                    {!hideMathSelector && (
+                    {!hideMathSelector && math && (
                         <MathSelector
                             math={math}
                             index={index}
                             onMathSelect={onMathSelect}
                             areEventPropertiesNumericalAvailable={
-                                eventPropertiesNumerical && eventPropertiesNumerical.length > 0
+                                eventPropertiesNumerical?.length > 0
                             }
                             style={{ maxWidth: '100%', width: 'initial' }}
                         />
@@ -200,9 +200,8 @@ export function ActionFilterRow({
                 <div className="ml">
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
-                        properties={eventProperties}
                         propertyFilters={filter.properties}
-                        onChange={(properties) => updateFilterProperty({ properties, index })}
+                        onChange={(properties: EventProperty[]) => updateFilterProperty({ properties, index })}
                         style={{ marginBottom: 0 }}
                     />
                 </div>
@@ -319,9 +318,18 @@ interface MathPropertySelectorProps {
 }
 
 function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
+    console.log('MPS', props)
+    function isPropertyApplicable(value: PropertyFilter['value']): boolean {
+        const includedProperties = ['$time']
+        const excludedProperties = ['distinct_id', 'token']
+        if (typeof value !== 'string' || !value || excludedProperties.includes(value)) {
+            return false
+        }
+        return value[0] !== '$' || includedProperties.includes(value)
+    }
     const applicableProperties = props.properties
-        .filter(({ value }) => (value[0] !== '$' || value === '$time') && value !== 'distinct_id' && value !== 'token')
-        .sort((a, b) => (a.value + '').localeCompare(b.value))
+        .filter(({ value }) => isPropertyApplicable(value))
+        .sort((a, b) => (a.value + '').localeCompare(b.value + ''))
 
     return (
         <SelectGradientOverflow
