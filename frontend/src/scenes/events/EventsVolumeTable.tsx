@@ -176,14 +176,14 @@ export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
 
 export function EventsVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { eventProperties, loaded } = useValues(eventDefinitionsLogic)
+    const { eventDefinitions, loaded } = useValues(eventDefinitionsLogic)
 
     return loaded ? (
         <>
             {preflight && !preflight?.is_event_property_usage_enabled ? (
                 <UsageDisabledWarning tab="Events Stats" />
             ) : (
-                eventProperties[0]?.volume === null && (
+                eventDefinitions[0].volume_30_day === null && (
                     <>
                         <Alert
                             type="warning"
@@ -192,7 +192,7 @@ export function EventsVolumeTable(): JSX.Element | null {
                     </>
                 )
             )}
-            <VolumeTable data={eventProperties} type="event" />
+            <VolumeTable data={eventDefinitions} type="event" />
         </>
     ) : (
         <Skeleton active paragraph={{ rows: 5 }} />

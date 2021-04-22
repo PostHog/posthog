@@ -9,7 +9,7 @@ interface EventDefinitionStorage {
     results: EventDefinition[]
 }
 
-export const eventDefinitionsLogic = kea<eventDefinitionsLogicType<EventDefinitionStorage>>({
+export const eventDefinitionsLogic = kea<eventDefinitionsLogicType<EventDefinitionStorage, EventDefinition>>({
     reducers: {
         eventStorage: [
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
@@ -29,7 +29,7 @@ export const eventDefinitionsLogic = kea<eventDefinitionsLogicType<EventDefiniti
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
             {
                 loadEventDefinitions: async (initial?: boolean) => {
-                    const url = initial ? 'api/projects/@current/event_definitions/?limit=2' : values.eventStorage.next
+                    const url = initial ? 'api/projects/@current/event_definitions/' : values.eventStorage.next
                     if (!url) {
                         throw new Error('Incorrect call to eventDefinitionsLogic.loadEventDefinitions')
                     }
@@ -54,9 +54,12 @@ export const eventDefinitionsLogic = kea<eventDefinitionsLogicType<EventDefiniti
         loaded: [
             // Whether *all* the event definitions are fully loaded
             (s) => [s.eventStorage, s.eventStorageLoading],
-            (eventStorage: EventDefinitionStorage, eventStorageLoading: boolean) =>
+            (eventStorage: EventDefinitionStorage, eventStorageLoading: boolean): boolean =>
                 !eventStorageLoading && !eventStorage.next,
         ],
-        eventProperties: [(s) => [s.eventStorage], (eventStorage: EventDefinitionStorage) => eventStorage.results],
+        eventDefinitions: [
+            (s) => [s.eventStorage],
+            (eventStorage: EventDefinitionStorage): EventDefinition[] => eventStorage.results,
+        ],
     },
 })
