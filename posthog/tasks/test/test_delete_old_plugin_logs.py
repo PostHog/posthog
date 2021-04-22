@@ -7,7 +7,7 @@ from posthog.test.base import APIBaseTest
 
 
 class TestDeleteOldPluginLogs(APIBaseTest):
-    def test_old_logs_are_deleted_while_newer_ones_kept(self):
+    def test_old_logs_are_deleted_while_newer_ones_kept(self) -> None:
         plugin_server_instance_id = str(UUIDT())
         now = timezone.now()
 
