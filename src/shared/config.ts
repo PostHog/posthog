@@ -2,6 +2,7 @@ import os from 'os'
 
 import { LogLevel, PluginsServerConfig } from '../types'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from './ingestion/topics'
+import { stringToBoolean } from './utils'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 export const configHelp = getConfigHelp()
@@ -58,6 +59,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         DISTINCT_ID_LRU_SIZE: 10000,
         INTERNAL_MMDB_SERVER_PORT: 0,
         PLUGIN_SERVER_IDLE: false,
+        ENABLE_PERSISTENT_CONSOLE: false, // TODO: remove when persistent console ships in main repo
     }
 }
 
@@ -121,7 +123,7 @@ export function overrideWithEnv(
             if (typeof defaultConfig[key] === 'number') {
                 newConfig[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
             } else if (typeof defaultConfig[key] === 'boolean') {
-                newConfig[key] = env[key]?.toLowerCase() === 'true' || env[key] === '1'
+                newConfig[key] = stringToBoolean(env[key])
             } else {
                 newConfig[key] = env[key]
             }

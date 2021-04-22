@@ -583,18 +583,15 @@ test('meta.cache incr', async () => {
 })
 
 test('console.log', async () => {
-    console.log = jest.fn()
-    console.error = jest.fn()
-    console.warn = jest.fn()
-    console.info = jest.fn()
-    console.debug = jest.fn()
+    if (!mockServer.ENABLE_PERSISTENT_CONSOLE) {
+        // TODO: remove this return
+        return
+    }
+    jest.spyOn(mockServer.db, 'createPluginLogEntry')
+
     const indexJs = `
         async function processEvent (event, meta) {
             console.log(event.event)
-            console.error(event.event)
-            console.warn(event.event)
-            console.info(event.event)
-            console.debug(event.event)
             return event
         }
     `
@@ -606,11 +603,13 @@ test('console.log', async () => {
     }
 
     await vm.methods.processEvent(event)
-    expect(console.log).toHaveBeenCalledWith('logged event')
-    expect(console.error).toHaveBeenCalledWith('logged event')
-    expect(console.warn).toHaveBeenCalledWith('logged event')
-    expect(console.info).toHaveBeenCalledWith('logged event')
-    expect(console.debug).toHaveBeenCalledWith('logged event')
+
+    expect(mockServer.db.createPluginLogEntry).toHaveBeenCalledWith(
+        pluginConfig39,
+        'LOG',
+        'logged event',
+        expect.anything()
+    )
 })
 
 test('fetch', async () => {

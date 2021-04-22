@@ -24,6 +24,7 @@ describe('e2e postgres ingestion', () => {
 
         await resetTestDatabase(`
             async function processEvent (event) {
+                console.info('amogus')
                 event.properties.processed = 'hell yes'
                 event.properties.upperUuid = event.properties.uuid?.toUpperCase()
                 return event
@@ -56,12 +57,36 @@ describe('e2e postgres ingestion', () => {
 
     test('event captured, processed, ingested', async () => {
         expect((await server.db.fetchEvents()).length).toBe(0)
+
         const uuid = new UUIDT().toString()
-        posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
+
+        posthog.capture('custom event', { name: 'haha', uuid })
+
         await delayUntilEventIngested(() => server.db.fetchEvents())
+
         const events = await server.db.fetchEvents()
+
         expect(events.length).toBe(1)
         expect(events[0].properties.processed).toEqual('hell yes')
         expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
+    })
+
+    test('console logging is persistent', async () => {
+        if (!server.ENABLE_PERSISTENT_CONSOLE) {
+            // TODO: remove this return
+            return
+        }
+        expect((await server.db.fetchEvents()).length).toBe(0)
+
+        posthog.capture('custom event', { name: 'hehe', uuid: new UUIDT().toString() })
+
+        await server.kafkaProducer?.flush()
+        await delayUntilEventIngested(() => server.db.fetchPluginLogEntries())
+
+        const pluginLogEntries = await server.db.fetchPluginLogEntries()
+
+        expect(pluginLogEntries.length).toBe(1)
+        expect(pluginLogEntries[0].type).toEqual('INFO')
+        expect(pluginLogEntries[0].message).toEqual('amogus')
     })
 })

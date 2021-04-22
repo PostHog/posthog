@@ -399,12 +399,16 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
     return redis
 }
 
-export function pluginDigest(plugin: Plugin): string {
-    const extras = [`organization ${plugin.organization_id}`]
-    if (plugin.is_global) {
-        extras.push('GLOBAL')
+export function pluginDigest(plugin: Plugin, teamId?: number): string {
+    const extras = []
+    if (teamId) {
+        extras.push(`team ID ${teamId}`)
     }
-    return `plugin "${plugin.name}" (${extras.join(' - ')})`
+    extras.push(`organization ID ${plugin.organization_id}`)
+    if (plugin.is_global) {
+        extras.push('global')
+    }
+    return `plugin ${plugin.name} ID ${plugin.id} (${extras.join(' - ')})`
 }
 
 export function createPostgresPool(serverConfig: PluginsServerConfig): Pool {
@@ -442,4 +446,35 @@ export function createPostgresPool(serverConfig: PluginsServerConfig): Pool {
 export function sanitizeEvent(event: PluginEvent): PluginEvent {
     event.distinct_id = event.distinct_id?.toString()
     return event
+}
+
+export enum NodeEnv {
+    Development = 'dev',
+    Production = 'prod',
+    Test = 'test',
+}
+
+export function stringToBoolean(value: any): boolean {
+    if (!value) {
+        return false
+    }
+    value = String(value)
+    return ['y', 'yes', 't', 'true', 'on', '1'].includes(value.toLowerCase())
+}
+
+export function determineNodeEnv(): NodeEnv {
+    let nodeEnvRaw = process.env.NODE_ENV
+    if (nodeEnvRaw) {
+        nodeEnvRaw = nodeEnvRaw.toLowerCase()
+        if (nodeEnvRaw.startsWith(NodeEnv.Test)) {
+            return NodeEnv.Test
+        }
+        if (nodeEnvRaw.startsWith(NodeEnv.Development)) {
+            return NodeEnv.Development
+        }
+    }
+    if (stringToBoolean(process.env.DEBUG)) {
+        return NodeEnv.Development
+    }
+    return NodeEnv.Production
 }
