@@ -22,7 +22,7 @@ class StructuredViewSetMixin(NestedViewSetMixin):
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     legacy_team_compatibility: bool = False
 
-    # Rewrite filter queries, so that for example foreign keys can be access
+    # Rewrite filter queries, so that for example foreign keys can be accessed
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
     filter_rewrite_rules: Dict[str, str] = {}
 

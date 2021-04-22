@@ -44,8 +44,8 @@ router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "p
 router.register(r"sessions_filter", sessions_filter.SessionsFilterViewSet)
 
 # Nested endpoints
-projects_router = router.register(r"projects", team.TeamViewSet)
-organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
+projects_router = router.register(r"projects", team.TeamViewSet, "projects")
+organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organizations_router.register(r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"])
 organizations_router.register(
     r"members", organization_member.OrganizationMemberViewSet, "organization_members", ["organization_id"],
