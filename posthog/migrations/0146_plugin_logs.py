@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0144_update_django_3_1_8"),
+        ("posthog", "0145_eventdefinition_propertydefinition"),
     ]
 
     operations = [
