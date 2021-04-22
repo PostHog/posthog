@@ -218,7 +218,6 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "email_service_available": is_email_available(with_absolute_urls=True),
             "is_debug": settings.DEBUG,
             "is_event_property_usage_enabled": settings.ASYNC_EVENT_PROPERTY_USAGE,
-            "is_async_event_action_mapping_enabled": settings.ASYNC_EVENT_ACTION_MAPPING,
             "licensed_users_available": get_licensed_users_available(),
         }
 

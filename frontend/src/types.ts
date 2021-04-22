@@ -625,7 +625,6 @@ export interface PreflightStatus {
     email_service_available?: boolean
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
-    is_async_event_action_mapping_enabled?: boolean
     licensed_users_available: number | null
 }
 
