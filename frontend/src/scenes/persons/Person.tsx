@@ -63,7 +63,7 @@ export function Person(): JSX.Element {
                             {activeTab === 'events' ? (
                                 <EventsTable
                                     pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                                    fixedFilters={{ person_id: person.id, distinct_ids: person.distinct_ids }}
+                                    fixedFilters={{ person_id: person.id }}
                                 />
                             ) : (
                                 <SessionsView
