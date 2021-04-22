@@ -61,5 +61,14 @@ export const eventDefinitionsLogic = kea<eventDefinitionsLogicType<EventDefiniti
             (s) => [s.eventStorage],
             (eventStorage: EventDefinitionStorage): EventDefinition[] => eventStorage.results,
         ],
+        eventNames: [
+            // TODO: This can be improved for performance by enabling downstream components to use `eventDefinitions` directly and getting rid of this selector.
+            (s) => [s.eventDefinitions],
+            (eventDefinitions: EventDefinition[]): string[] => eventDefinitions.map((definition) => definition.name),
+        ],
+        customEventNames: [
+            (s) => [s.eventNames],
+            (eventNames: string[]): string[] => eventNames.filter((event) => !event.startsWith('!')),
+        ],
     },
 })

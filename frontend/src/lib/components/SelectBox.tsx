@@ -19,7 +19,7 @@ export interface SelectBoxItem {
 }
 
 export interface SelectedItem {
-    id?: number // Populated for actions
+    id?: number | string // Populated for actions (string is used for UUIDs)
     name: string
     key: string
     value?: string

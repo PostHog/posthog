@@ -22,6 +22,7 @@ import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { teamLogic } from 'scenes/teamLogic'
+import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 
 interface TrendResponse {
     result: TrendResult[]
@@ -167,7 +168,7 @@ export const trendsLogic = kea<
     },
 
     connect: {
-        values: [teamLogic, ['eventNames'], actionsModel, ['actions']],
+        values: [actionsModel, ['actions']],
     },
 
     loaders: ({ values, props }) => ({
@@ -511,8 +512,8 @@ export const trendsLogic = kea<
             })
             actions.setBreakdownValuesLoading(false)
         },
-        [teamLogic.actionTypes.loadCurrentTeamSuccess]: async () => {
-            actions.setFilters(getDefaultFilters(values.filters, values.eventNames), true)
+        [eventDefinitionsLogic.actionTypes.loadEventDefinitionsSuccess]: async () => {
+            actions.setFilters(getDefaultFilters(values.filters, eventDefinitionsLogic.values.eventNames), true)
         },
     }),
 
@@ -569,7 +570,10 @@ export const trendsLogic = kea<
                     cleanSearchParams['compare'] = false
                 }
 
-                Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams, values.eventNames))
+                Object.assign(
+                    cleanSearchParams,
+                    getDefaultFilters(cleanSearchParams, eventDefinitionsLogic.values.eventNames)
+                )
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)

@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { PropertyDefinition } from '~/types'
+import { PropertyDefinition, SelectOption } from '~/types'
 import { propertyDefinitionsLogicType } from './propertyDefinitionsLogicType'
 
 interface PropertyDefinitionStorage {
@@ -10,7 +10,7 @@ interface PropertyDefinitionStorage {
 }
 
 export const propertyDefinitionsLogic = kea<
-    propertyDefinitionsLogicType<PropertyDefinitionStorage, PropertyDefinition>
+    propertyDefinitionsLogicType<PropertyDefinitionStorage, PropertyDefinition, SelectOption>
 >({
     reducers: {
         propertyStorage: [
@@ -61,7 +61,17 @@ export const propertyDefinitionsLogic = kea<
         ],
         propertyDefinitions: [
             (s) => [s.propertyStorage],
-            (propertyStorage: PropertyDefinitionStorage): PropertyDefinition[] => propertyStorage.results,
+            (propertyStorage: PropertyDefinitionStorage): PropertyDefinition[] => propertyStorage.results || [],
+        ],
+        transformedPropertyDefinitions: [
+            // Transformed propertyDefinitions to use in `Select` components
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinition[]): SelectOption[] =>
+                propertyDefinitions.map((property) => ({
+                    value: property.id,
+                    label: property.name,
+                    is_numerical: property.is_numerical,
+                })),
         ],
     },
 })

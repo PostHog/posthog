@@ -1,7 +1,6 @@
 import React, { RefObject } from 'react'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { ActionType } from '~/types'
-import { EventUsageType } from '~/types'
+import { ActionType, EventDefinition } from '~/types'
 import { EntityTypes } from '../../trends/trendsLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
@@ -9,8 +8,8 @@ import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
 import { SelectBox, SelectedItem } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
-import { teamLogic } from 'scenes/teamLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 
 interface FilterType {
     filter: {
@@ -26,10 +25,10 @@ interface FilterType {
     index: number
 }
 
-const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
+const getSuggestions = (events: EventDefinition[]): EventDefinition[] => {
     return events
-        .filter((event) => event.usage_count > 0)
-        .sort((a, b) => b.usage_count - a.usage_count)
+        .filter((event) => (event.query_usage_30_day || -1) > 0)
+        .sort((a, b) => (b.query_usage_30_day || -1) - (a.query_usage_30_day || -1))
         .slice(0, 3)
 }
 
@@ -52,7 +51,7 @@ export function ActionFilterDropdown({
     const { updateFilter, setEntityFilterVisibility } = useActions(logic)
 
     const { actions } = useValues(actionsModel)
-    const { currentTeam } = useValues(teamLogic)
+    const { eventDefinitions } = useValues(eventDefinitionsLogic)
 
     const handleDismiss = (event: MouseEvent): void => {
         if (openButtonRef?.current?.contains(event.target as Node)) {
@@ -68,7 +67,7 @@ export function ActionFilterDropdown({
             setEntityFilterVisibility(selectedFilter.index, true)
         }
     }
-    const suggestions = getSuggestions(currentTeam?.event_names_with_usage || [])
+    const suggestions = getSuggestions(eventDefinitions || [])
 
     return (
         <SelectBox
@@ -85,10 +84,9 @@ export function ActionFilterDropdown({
                             </Tooltip>
                         </>
                     ),
-                    dataSource: suggestions.map((event) => ({
-                        key: 'suggestions' + event.event,
-                        name: event.event,
-                        ...event,
+                    dataSource: suggestions.map((definition) => ({
+                        key: 'suggestions' + definition.name,
+                        ...definition,
                     })),
                     renderInfo: function renderSuggestions({ item }) {
                         return (
@@ -138,10 +136,9 @@ export function ActionFilterDropdown({
                         </>
                     ),
                     dataSource:
-                        currentTeam?.event_names_with_usage.map((event) => ({
-                            key: EntityTypes.EVENTS + event.event,
-                            name: event.event,
-                            ...event,
+                        eventDefinitions.map((definition) => ({
+                            key: EntityTypes.EVENTS + definition.name,
+                            ...definition,
                         })) || [],
                     renderInfo: function events({ item }) {
                         return (

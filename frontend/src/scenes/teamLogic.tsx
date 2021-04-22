@@ -7,12 +7,7 @@ import { toast } from 'react-toastify'
 import React from 'react'
 import { identifierToHuman, resolveWebhookService } from 'lib/utils'
 
-export interface EventProperty {
-    value: string
-    label: string
-}
-
-export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
+export const teamLogic = kea<teamLogicType<TeamType>>({
     actions: {
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,

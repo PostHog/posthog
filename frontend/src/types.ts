@@ -685,3 +685,8 @@ export interface PropertyDefinition {
     query_usage_30_day: number | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
 }
+
+export interface SelectOption {
+    value: string
+    label: string
+}
