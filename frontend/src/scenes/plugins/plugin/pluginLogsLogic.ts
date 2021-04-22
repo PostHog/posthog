@@ -37,7 +37,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProp
                 return response.results
             },
             loadPluginLogsMore: async () => {
-                const before = values.leadingEntry ? '&before=' + values.leadingEntry.timestamp : ''
+                const before = values.trailingEntry ? '&before=' + values.trailingEntry.timestamp : ''
                 const search = values.searchTerm ? `&search=${values.searchTerm}` : ''
                 const response = await api.get(
                     `api/projects/${teamId}/plugin-configs/${pluginConfigId}/logs?limit=${LOGS_PORTION_LIMIT}${before}${search}`
