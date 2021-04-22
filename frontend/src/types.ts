@@ -508,10 +508,17 @@ export interface FilterType {
     filter_test_accounts?: boolean
 }
 
+export interface SystemStatusSubrows {
+    columns: string[]
+    rows: string[][]
+}
+
 export interface SystemStatus {
     metric: string
     value: string
     key?: string
+    description?: string
+    subrows?: SystemStatusSubrows
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>
