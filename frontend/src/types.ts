@@ -528,10 +528,17 @@ export interface FilterType {
     filter_test_accounts?: boolean
 }
 
+export interface SystemStatusSubrows {
+    columns: string[]
+    rows: string[][]
+}
+
 export interface SystemStatus {
     metric: string
     value: string
     key?: string
+    description?: string
+    subrows?: SystemStatusSubrows
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>
@@ -638,7 +645,6 @@ export interface PreflightStatus {
     email_service_available?: boolean
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
-    is_async_event_action_mapping_enabled?: boolean
     licensed_users_available: number | null
 }
 

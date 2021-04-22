@@ -177,10 +177,6 @@ EE_AVAILABLE = False
 
 PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", not TEST, type_cast=strtobool)
 
-# True if ingesting with the plugin server into Postgres, as it's then not possible to calculate the mapping on the fly
-ASYNC_EVENT_ACTION_MAPPING = PRIMARY_DB == RDBMS.POSTGRES and get_from_env(
-    "ASYNC_EVENT_ACTION_MAPPING", True, type_cast=strtobool
-)
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", False, type_cast=strtobool)

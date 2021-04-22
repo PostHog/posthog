@@ -2,7 +2,6 @@ from typing import cast
 
 from django.conf import settings
 from django.db.models import Model
-from django.views.generic.base import View
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
@@ -28,16 +27,16 @@ def extract_organization(object: Model) -> Organization:
     raise ValueError("Object not compatible with organization-based permissions!")
 
 
-def get_organization_from_view(view: View) -> Organization:
+def get_organization_from_view(view) -> Organization:
     try:
-        organization = view.organization  # type: ignore
+        organization = view.organization
         if isinstance(organization, Organization):
             return organization
     except (KeyError, AttributeError):
         pass
 
     try:
-        organization = view.team.organization  # type: ignore
+        organization = view.team.organization
         if isinstance(organization, Organization):
             return organization
     except (KeyError, AttributeError):
@@ -79,13 +78,12 @@ class OrganizationMemberPermissions(BasePermission):
     Returns a generic permission denied response.
     Note: For POST requests, it will **only** work with nested routers that derive from an Organization or Project (Team).
     """
-
+    
     message = "You don't belong to the relevant organization."
 
-    def has_permission(self, request: Request, view: View) -> bool:
-
-        # When request is not create, an object exists, delegate to `has_object_permission`
-        if request.method != "POST":
+    def has_permission(self, request: Request, view) -> bool:
+        # When request is not creating or listing an `Organization`, an object exists, delegate to `has_object_permission`
+        if view.basename == "organizations" and view.action not in ["list", "create"]:
             return True
 
         organization = get_organization_from_view(view)
@@ -106,10 +104,10 @@ class OrganizationAdminWritePermissions(BasePermission):
 
     message = "Your organization access level is insufficient."
 
-    def has_permission(self, request: Request, view: View) -> bool:
+    def has_permission(self, request: Request, view) -> bool:
 
-        # When request is not create, an object exists, delegate to `has_object_permission`
-        if request.method != "POST":
+        # When request is not creating or listing an `Organization`, an object exists, delegate to `has_object_permission`
+        if view.basename == "organizations" and view.action not in ["list", "create"]:
             return True
 
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`

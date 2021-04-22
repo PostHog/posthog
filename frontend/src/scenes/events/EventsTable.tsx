@@ -5,7 +5,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { Button, Spin, Tooltip } from 'antd'
+import { Button, Spin, Tooltip, Col, Row } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
@@ -212,55 +212,19 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         },
     ]
 
-    function _personInsightLink(): JSX.Element | null {
-        if (fixedFilters && fixedFilters.distinct_ids?.length) {
-            const params = {
-                insight: ViewType.TRENDS,
-                interval: 'day',
-                display: 'ActionsLineGraph',
-                events: [
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 0,
-                    },
-                ],
-                properties: [
-                    {
-                        key: 'distinct_id',
-                        value: fixedFilters.distinct_ids[0],
-                        operator: 'exact',
-                        type: 'event',
-                    },
-                ],
-            }
-            const encodedParams = toParams(params)
-            const personInsightLink = `/insights?${encodedParams}#backTo=person&backToURL=${window.location.pathname}`
-            return (
-                <Link to={personInsightLink} style={{ marginRight: 10 }}>
-                    View Insights
-                </Link>
-            )
-        }
-
-        return null
-    }
-
     return (
         <div className="events" data-attr="events-table">
             {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} /> : null}
-            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start' }}>
-                <div style={{ flex: 1 }}>
+            <Row>
+                <Col span={pageKey === 'events' ? 22 : 20}>
                     <EventName
                         value={eventFilter}
                         onChange={(value: string) => {
                             setEventFilter(value || '')
                         }}
                     />
-                </div>
-                <div>
-                    {_personInsightLink()}
+                </Col>
+                <Col span={pageKey === 'events' ? 2 : 4} className="text-right">
                     <Tooltip title="Up to 100,000 latest events.">
                         <Button
                             type="default"
@@ -276,8 +240,8 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                             Export
                         </Button>
                     </Tooltip>
-                </div>
-            </div>
+                </Col>
+            </Row>
             <div>
                 <ResizableTable
                     dataSource={eventsFormatted}
