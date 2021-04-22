@@ -331,7 +331,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                     event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 3))
 
             response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17",).json()
-            self.assertEqual(len(response["result"]), 50)
+            self.assertEqual(len(response["result"]), 20)
             self.assertIsNone(response.get("pagination"))
 
             for i in range(2):
@@ -339,7 +339,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                     event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 49))
 
             response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17",).json()
-            self.assertEqual(len(response["result"]), 50)
+            self.assertEqual(len(response["result"]), 20)
             self.assertIsNotNone(response["pagination"])
 
         def test_event_sessions_by_id(self):
