@@ -41,11 +41,11 @@ def sync_event_and_properties_definitions(team_uuid: str) -> None:
 
     # Add or update any existing properties
     for property in team.event_properties:
-        instance, _ = PropertyDefinition.objects.get_or_create(team=team, name=property)
-        instance.volume_30_day = transformed_property_usage.get(property, {}).get("volume")
-        instance.query_usage_30_day = transformed_property_usage.get(property, {}).get("usage_count")
-        instance.is_numerical = property in team.event_properties_numerical
-        instance.save()
+        property_instance, _ = PropertyDefinition.objects.get_or_create(team=team, name=property)
+        property_instance.volume_30_day = transformed_property_usage.get(property, {}).get("volume")
+        property_instance.query_usage_30_day = transformed_property_usage.get(property, {}).get("usage_count")
+        property_instance.is_numerical = property in team.event_properties_numerical
+        property_instance.save()
 
     # Remove any deleted properties
     PropertyDefinition.objects.filter(team=team).exclude(name__in=team.event_properties).delete()
