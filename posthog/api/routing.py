@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework_extensions.mixins import NestedViewSetMixin
