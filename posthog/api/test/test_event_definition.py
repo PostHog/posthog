@@ -1,15 +1,17 @@
 import random
+from typing import Dict
 
 from rest_framework import status
 
 from posthog.demo import create_demo_team
-from posthog.models.organization import Organization
-from posthog.models.team import Team
+from posthog.models import EventDefinition, Organization, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
 
 class TestEventDefinitionAPI(APIBaseTest):
+
+    demo_team: Team = None  # type: ignore
 
     EXPECTED_EVENT_DEFINITIONS = [
         {"name": "installed_app", "volume_30_day": 100, "query_usage_30_day": 0},
@@ -36,9 +38,12 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_EVENT_DEFINITIONS))
 
         for item in self.EXPECTED_EVENT_DEFINITIONS:
-            response_item = next((_i for _i in response.json()["results"] if _i["name"] == item["name"]), None)
+            response_item: Dict = next((_i for _i in response.json()["results"] if _i["name"] == item["name"]), {})
             self.assertEqual(response_item["volume_30_day"], item["volume_30_day"])
             self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"])
+            self.assertEqual(
+                response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day,
+            )
 
     def test_pagination_of_event_definitions(self):
         self.demo_team.event_names = self.demo_team.event_names + [f"z_event_{i}" for i in range(1, 301)]
@@ -63,7 +68,7 @@ class TestEventDefinitionAPI(APIBaseTest):
 
             self.assertEqual(response.json()["count"], 305)
             self.assertEqual(
-                len(response.json()["results"]), 100 if i < 2 else 5
+                len(response.json()["results"]), 100 if i < 2 else 5,
             )  # Each page has 100 except the last one
             self.assertEqual(response.json()["results"][0]["name"], f"z_event_{event_checkpoints[i]}")
 

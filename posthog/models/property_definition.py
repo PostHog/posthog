@@ -4,11 +4,14 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
 
 
-class EventDefinition(UUIDModel):
+class PropertyDefinition(UUIDModel):
     team: models.ForeignKey = models.ForeignKey(
-        Team, on_delete=models.CASCADE, related_name="event_definitions", related_query_name="team",
+        Team, on_delete=models.CASCADE, related_name="property_definitions", related_query_name="team",
     )
     name: models.CharField = models.CharField(max_length=400)
+    is_numerical: models.BooleanField = models.BooleanField(
+        default=False,
+    )  # whether the property can be interpreted as a number, and therefore used for math aggregation operations
     volume_30_day: models.IntegerField = models.IntegerField(
         default=None, null=True,
     )  # Volume of events in the last 30 rolling days (computed asynchronously)

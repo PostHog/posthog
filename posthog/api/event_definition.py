@@ -1,9 +1,7 @@
-from typing import List
-
 from rest_framework import filters, mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import EventDefinition, Team
+from posthog.models import EventDefinition
 from posthog.permissions import OrganizationMemberPermissions
 
 
@@ -11,14 +9,11 @@ class EventDefinitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = EventDefinition
         fields = (
-            "uuid",
+            "id",
             "name",
             "volume_30_day",
             "query_usage_30_day",
         )
-
-    def get_event_names_with_usage(self, instance: Team) -> List:
-        return instance.get_latest_event_names_with_usage()
 
 
 class EventDefinitionViewSet(
@@ -26,7 +21,7 @@ class EventDefinitionViewSet(
 ):
     serializer_class = EventDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
-    lookup_field = "uuid"
+    lookup_field = "id"
     ordering = "name"
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
