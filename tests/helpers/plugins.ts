@@ -109,7 +109,9 @@ export const makePluginObjects = (
     pluginAttachmentRows: Omit<PluginAttachmentDB, 'id'>[]
 } => ({
     pluginRows: [mockPluginWithArchive(indexJs)],
-    pluginConfigRows: [pluginConfig39],
+    pluginConfigRows: [
+        { ...pluginConfig39, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    ],
     pluginAttachmentRows: [pluginAttachment1],
 })
 
