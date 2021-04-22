@@ -17,6 +17,7 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
+# TODO: #4070 DEPRECATED; delete when these attributes are fully removed from `Team` model
 DEFERRED_FIELDS = (
     "event_names",
     "event_names_with_usage",
@@ -91,11 +92,6 @@ class Team(UUIDClassicModel):
         max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
     )
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
-    event_names: models.JSONField = models.JSONField(default=list)
-    event_names_with_usage: models.JSONField = models.JSONField(default=list)
-    event_properties: models.JSONField = models.JSONField(default=list)
-    event_properties_with_usage: models.JSONField = models.JSONField(default=list)
-    event_properties_numerical: models.JSONField = models.JSONField(default=list)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
@@ -119,6 +115,13 @@ class Team(UUIDClassicModel):
     users: models.ManyToManyField = models.ManyToManyField(
         "User", blank=True, related_name="teams_deprecated_relationship"
     )
+    # DEPRECATED: in favor of `EventDefinition` model
+    event_names: models.JSONField = models.JSONField(default=list)
+    event_names_with_usage: models.JSONField = models.JSONField(default=list)
+    # DEPRECATED: in favor of `PropertyDefinition` model
+    event_properties: models.JSONField = models.JSONField(default=list)
+    event_properties_with_usage: models.JSONField = models.JSONField(default=list)
+    event_properties_numerical: models.JSONField = models.JSONField(default=list)
 
     objects = TeamManager()
 
@@ -133,6 +136,7 @@ class Team(UUIDClassicModel):
 
     def get_latest_event_names_with_usage(self):
         """
+        TODO: #4070 This has been deprecated in favor of `EventDefinition` and should be removed upon final migration.
         Fetches `event_names_with_usage` but adding any events that may have come in since the
         property was last computed. Ensures all events are included.
         """
@@ -147,6 +151,7 @@ class Team(UUIDClassicModel):
 
     def get_latest_event_properties_with_usage(self):
         """
+        TODO: #4070 This has been deprecated in favor of `EventDefinition` and should be removed upon final migration.
         Fetches `event_properties_with_usage` but adding any properties that may have appeared since the
         property was last computed. Ensures all properties are included.
         """

@@ -11,6 +11,7 @@ from . import (
     dashboard,
     element,
     event,
+    event_definition,
     feature_flag,
     insight,
     organization,
@@ -20,6 +21,7 @@ from . import (
     person,
     personal_api_key,
     plugin,
+    property_definition,
     sessions_filter,
     team,
     user,
@@ -43,8 +45,7 @@ router.register(r"plugin_config", plugin.PluginConfigViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"sessions_filter", sessions_filter.SessionsFilterViewSet)
 
-# Nested endpoints
-projects_router = router.register(r"projects", team.TeamViewSet, "projects")
+# Organization nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organizations_router.register(r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"])
 organizations_router.register(
@@ -55,6 +56,15 @@ organizations_router.register(
 )
 organizations_router.register(
     r"onboarding", organization.OrganizationOnboardingViewset, "organization_onboarding", ["organization_id"],
+)
+
+# Project nested endpoints
+projects_router = router.register(r"projects", team.TeamViewSet, "projects")
+projects_router.register(
+    r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
+)
+projects_router.register(
+    r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
 )
 
 # General endpoints (shared across EE & FOSS)

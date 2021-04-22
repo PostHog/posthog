@@ -34,6 +34,8 @@ class TestTeamAPI(APIBaseTest):
         self.assertIn("event_names", response_data)
         self.assertIn("event_properties", response_data)
         self.assertIn("event_properties_numerical", response_data)
+        self.assertIn("event_names_with_usage", response_data)
+        self.assertIn("event_properties_with_usage", response_data)
 
     def test_cant_retrieve_project_from_another_org(self):
         org = Organization.objects.create(name="New Org")

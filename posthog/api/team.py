@@ -37,6 +37,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 
 
 class TeamSerializer(serializers.ModelSerializer):
+
     event_names_with_usage = serializers.SerializerMethodField()
     event_properties_with_usage = serializers.SerializerMethodField()
 

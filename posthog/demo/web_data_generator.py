@@ -20,6 +20,7 @@ SCREEN_OPTIONS = ("settings", "profile", "movies", "downloads")
 class WebDataGenerator(DataGenerator):
     def create_missing_events_and_properties(self):
         self.add_if_not_contained(self.team.event_properties_numerical, "purchase")
+        self.add_if_not_contained(self.team.event_properties, "purchase")
 
     def create_actions_dashboards(self):
         homepage = Action.objects.create(team=self.team, name="HogFlix homepage view")
