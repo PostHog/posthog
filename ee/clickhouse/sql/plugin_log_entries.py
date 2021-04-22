@@ -30,7 +30,7 @@ SETTINGS index_granularity=512
     table_name=PLUGIN_LOG_ENTRIES_TABLE,
     extra_fields=KAFKA_COLUMNS,
     engine=table_engine(PLUGIN_LOG_ENTRIES_TABLE, "_timestamp"),
-    ttl_period=ttl_period("timestamp"),
+    ttl_period=ttl_period("timestamp", 1),
 )
 
 KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
