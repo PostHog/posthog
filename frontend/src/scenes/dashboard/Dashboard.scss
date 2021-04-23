@@ -42,6 +42,11 @@ $dashboard-title-size: 32px;
             cursor: text;
         }
 
+        .edit-box {
+            display: flex;
+            justify-content: space-between;
+        }
+
         .add-description {
             color: #9c9797;
         }

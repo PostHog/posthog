@@ -265,7 +265,8 @@ export function DashboardHeader(): JSX.Element {
                             />
                         ) : (
                             <div
-                                onDoubleClick={() =>
+                                className="edit-box"
+                                onClick={() =>
                                     setDashboardMode(DashboardMode.Edit, DashboardEventSource.AddDescription)
                                 }
                             >
@@ -274,6 +275,7 @@ export function DashboardHeader(): JSX.Element {
                                 ) : (
                                     <span className="add-description">Add a description...</span>
                                 )}
+                                <EditOutlined />
                             </div>
                         )}
                     </Card>
