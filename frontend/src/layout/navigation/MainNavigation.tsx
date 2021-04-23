@@ -253,10 +253,17 @@ export function MainNavigation(): JSX.Element {
             >
                 <div className="navigation-inner" ref={navRef} onScroll={handleNavScroll}>
                     <div className="nav-logo">
-                        <Link to="/insights">
-                            <img src={smLogo} className="logo-sm" alt="" />
-                            <img src={lgLogo} className="logo-lg" alt="" />
-                        </Link>
+                        {featureFlags[FEATURE_FLAGS.PROJECT_HOME] ? (
+                            <Link to="/home">
+                                <img src={smLogo} className="logo-sm" alt="" />
+                                <img src={lgLogo} className="logo-lg" alt="" />
+                            </Link>
+                        ) : (
+                            <Link to="/insights">
+                                <img src={smLogo} className="logo-sm" alt="" />
+                                <img src={lgLogo} className="logo-lg" alt="" />
+                            </Link>
+                        )}
                     </div>
                     {currentOrganization?.setup.is_active && (
                         <MenuItem

@@ -7,6 +7,8 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from '../lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export enum Scene {
     Dashboards = 'dashboards',
@@ -239,20 +241,37 @@ export const sceneLogic = kea<sceneLogicType>({
         ],
     },
     urlToAction: ({ actions }) => {
+        const unmountFeatFlagLogic = featureFlagLogic.mount()
+        const featFlags = featureFlagLogic.values.featureFlags
+
         const mapping: Record<string, (params: Params) => any> = {}
+
+        let experimentRedirect: string | undefined = undefined
 
         for (const [paths, redirect] of Object.entries(redirects)) {
             for (const path of paths.split('|')) {
+                if (path === '/' && redirect) {
+                    if (featFlags[FEATURE_FLAGS.PROJECT_HOME]) {
+                        experimentRedirect = '/home'
+                    }
+                }
+
                 mapping[path] = (params) =>
-                    router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
+                    router.actions.replace(
+                        typeof redirect === 'function'
+                            ? redirect(params)
+                            : experimentRedirect
+                            ? experimentRedirect
+                            : redirect
+                    )
             }
         }
-
         for (const [paths, scene] of Object.entries(routes)) {
             for (const path of paths.split('|')) {
                 mapping[path] = (params) => actions.loadScene(scene, params)
             }
         }
+        unmountFeatFlagLogic()
         mapping['/*'] = () => actions.loadScene('404', {})
 
         return mapping
