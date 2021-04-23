@@ -22,6 +22,7 @@ import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 
 interface TrendResponse {
     result: TrendResult[]
@@ -315,7 +316,10 @@ export const trendsLogic = kea<
     }),
 
     selectors: () => ({
-        filtersLoading: [() => [eventDefinitionsLogic.selectors.loaded], (loaded: boolean): boolean => !loaded],
+        filtersLoading: [
+            () => [eventDefinitionsLogic.selectors.loaded, propertyDefinitionsLogic.selectors.loaded],
+            (eventsLoaded, propertiesLoaded) => !eventsLoaded || !propertiesLoaded,
+        ],
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
         loadMoreBreakdownUrl: [(selectors) => [selectors._results], (response) => response.next],
