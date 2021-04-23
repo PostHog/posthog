@@ -79,17 +79,6 @@ export function Home(): JSX.Element {
     const { user } = useValues(userLogic)
     const { reportProjectHomeSeen } = useActions(eventUsageLogic)
 
-    const installationSources: TileParams[] = [
-        {
-            icon: <RocketOutlined rotate={45} />,
-            title: 'Install PostHog',
-            targetPath: '/ingestion',
-            hoverText:
-                'Our broad library support and simple API make it easy to install PostHog anywhere in your stack.',
-            class: 'thumbnail-tile-install',
-        },
-    ]
-
     const communitySources: TileParams[] = [
         {
             icon: <SlackOutlined />,
@@ -119,7 +108,16 @@ export function Home(): JSX.Element {
         />
     )
 
-    const lessonsModule = <PostHogLessons />
+    const installationSources: TileParams[] = [
+        {
+            icon: <RocketOutlined />,
+            title: 'Install PostHog',
+            targetPath: '/ingestion',
+            hoverText:
+                'Our broad library support and simple API make it easy to install PostHog anywhere in your stack.',
+            class: 'thumbnail-tile-install',
+        },
+    ]
     const installModule = (
         <TiledIconModule
             tiles={installationSources}
@@ -130,6 +128,7 @@ export function Home(): JSX.Element {
     )
 
     const insightsModule = <DiscoverInsightsModule />
+    const lessonsModule = <PostHogLessons />
     const layoutTeamHasEvents = (
         <React.Fragment>
             {insightsModule}
