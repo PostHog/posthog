@@ -3,6 +3,10 @@ import api from 'lib/api'
 import { PropertyDefinition, SelectOption } from '~/types'
 import { propertyDefinitionsLogicType } from './propertyDefinitionsLogicType'
 
+interface PropertySelectOption extends SelectOption {
+    is_numerical?: boolean
+}
+
 interface PropertyDefinitionStorage {
     count: number
     next: null | string
@@ -10,7 +14,7 @@ interface PropertyDefinitionStorage {
 }
 
 export const propertyDefinitionsLogic = kea<
-    propertyDefinitionsLogicType<PropertyDefinitionStorage, PropertyDefinition, SelectOption>
+    propertyDefinitionsLogicType<PropertyDefinitionStorage, PropertyDefinition, PropertySelectOption>
 >({
     reducers: {
         propertyStorage: [
@@ -56,35 +60,32 @@ export const propertyDefinitionsLogic = kea<
         loaded: [
             // Whether *all* the property definitions are fully loaded
             (s) => [s.propertyStorage, s.propertyStorageLoading],
-            (propertyStorage: PropertyDefinitionStorage, propertyStorageLoading: boolean): boolean =>
-                !propertyStorageLoading && !propertyStorage.next,
+            (propertyStorage, propertyStorageLoading): boolean => !propertyStorageLoading && !propertyStorage.next,
         ],
         propertyDefinitions: [
             (s) => [s.propertyStorage],
-            (propertyStorage: PropertyDefinitionStorage): PropertyDefinition[] => propertyStorage.results || [],
+            (propertyStorage): PropertyDefinition[] => propertyStorage.results || [],
         ],
         transformedPropertyDefinitions: [
             // Transformed propertyDefinitions to use in `Select` components
             (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinition[]): SelectOption[] =>
+            (propertyDefinitions): PropertySelectOption[] =>
                 propertyDefinitions.map((property) => ({
                     value: property.name,
                     label: property.name,
+                    is_numerical: property.is_numerical,
                 })),
         ],
         propertyNames: [
             // TODO: This can be improved for performance by enabling downstream components to use `propertyDefinitions` directly and getting rid of this selector.
             (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinition[]): string[] =>
-                propertyDefinitions.map((definition) => definition.name),
+            (propertyDefinitions): string[] => propertyDefinitions.map((definition) => definition.name),
         ],
         numericalPropertyNames: [
             // TODO: This can be improved for performance by enabling downstream components to use `propertyDefinitions` directly and getting rid of this selector.
-            (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinition[]): string[] =>
-                propertyDefinitions
-                    .filter((definition) => definition.is_numerical)
-                    .map((definition) => definition.name),
+            (s) => [s.transformedPropertyDefinitions],
+            (transformedPropertyDefinitions): PropertySelectOption[] =>
+                transformedPropertyDefinitions.filter((definition) => definition.is_numerical),
         ],
     },
 })

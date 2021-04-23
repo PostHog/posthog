@@ -62,26 +62,22 @@ export const eventDefinitionsLogic = kea<
         loaded: [
             // Whether *all* the event definitions are fully loaded
             (s) => [s.eventStorage, s.eventStorageLoading],
-            (eventStorage: EventDefinitionStorage, eventStorageLoading: boolean): boolean =>
-                !eventStorageLoading && !eventStorage.next,
+            (eventStorage, eventStorageLoading): boolean => !eventStorageLoading && !eventStorage.next,
         ],
-        eventDefinitions: [
-            (s) => [s.eventStorage],
-            (eventStorage: EventDefinitionStorage): EventDefinition[] => eventStorage.results,
-        ],
+        eventDefinitions: [(s) => [s.eventStorage], (eventStorage): EventDefinition[] => eventStorage.results],
         eventNames: [
             // TODO: This can be improved for performance by enabling downstream components to use `eventDefinitions` directly and getting rid of this selector.
             (s) => [s.eventDefinitions],
-            (eventDefinitions: EventDefinition[]): string[] => eventDefinitions.map((definition) => definition.name),
+            (eventDefinitions): string[] => eventDefinitions.map((definition) => definition.name),
         ],
         customEventNames: [
             (s) => [s.eventNames],
-            (eventNames: string[]): string[] => eventNames.filter((event) => !event.startsWith('!')),
+            (eventNames): string[] => eventNames.filter((event) => !event.startsWith('!')),
         ],
         eventNamesGrouped: [
             // TODO: This can be improved for performance by enabling downstream components to use `eventDefinitions` directly and getting rid of this selector.
             (s) => [s.eventNames],
-            (eventNames: string[]): EventsGroupedInterface[] => {
+            (eventNames): EventsGroupedInterface[] => {
                 const data: EventsGroupedInterface[] = [
                     { label: 'Custom events', options: [] },
                     { label: 'PostHog events', options: [] },
