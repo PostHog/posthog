@@ -19,14 +19,14 @@ export interface SelectBoxItem {
 }
 
 export interface SelectedItem {
-    id?: number | string // Populated for actions (string is used for UUIDs)
+    id?: number // Populated for actions
     name: string
     key: string
     value?: string
     action?: ActionType
-    volume_30_day?: number | null // Only for properties or events
-    query_usage_30_day?: number | null // Only for properties or events
-    is_numerical?: boolean // Only for properties
+    event?: string
+    volume?: number
+    usage_count?: number
     category?: string
     cohort?: CohortType
 }

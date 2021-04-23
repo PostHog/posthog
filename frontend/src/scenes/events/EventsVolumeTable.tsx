@@ -1,53 +1,49 @@
 import React, { useEffect, useState } from 'react'
 import { useValues } from 'kea'
-import { Alert, Input, Skeleton, Table, Tooltip } from 'antd'
+import { Alert, Input, Table, Tooltip } from 'antd'
 import Fuse from 'fuse.js'
 import { InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
+import { humanizeNumber } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ColumnsType } from 'antd/lib/table'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { eventDefinitionsLogic } from './eventDefinitionsLogic'
-import { EventDefinition, PropertyDefinition } from '~/types'
 
-type EventTableType = 'event' | 'property'
-
-type EventOrPropType = EventDefinition & PropertyDefinition
-
-interface VolumeTableRecord {
-    eventOrProp: EventOrPropType
+export interface EventOrPropType {
+    event?: string
+    key?: string
+    usage_count: number
+    volume: number
     warnings: string[]
 }
 
-const search = (sources: VolumeTableRecord[], searchQuery: string): VolumeTableRecord[] => {
+type EventTableType = 'event' | 'property'
+
+const searchEvents = (sources: EventOrPropType[], search: string, key: EventTableType): EventOrPropType[] => {
     return new Fuse(sources, {
-        keys: ['eventOrProp.name'],
+        keys: [key],
         threshold: 0.3,
     })
-        .search(searchQuery)
+        .search(search)
         .map((result) => result.item)
 }
 
-export function VolumeTable({
-    type,
-    data,
-}: {
-    type: EventTableType
-    data: Array<EventDefinition | PropertyDefinition>
-}): JSX.Element {
+export function VolumeTable({ type, data }: { type: EventTableType; data: EventOrPropType[] }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState(false as string | false)
-    const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
+    const [dataWithWarnings, setDataWithWarnings] = useState([] as EventOrPropType[])
 
-    const columns: ColumnsType<VolumeTableRecord> = [
+    const key = type === 'property' ? 'key' : type // Properties are stored under `key`
+
+    const columns: ColumnsType<EventOrPropType> = [
         {
-            title: `${capitalizeFirstLetter(type)} name`,
-            render: function Render(_, record): JSX.Element {
+            title: type,
+            render: function RenderEvent(item: EventOrPropType): JSX.Element {
                 return (
                     <span>
                         <span className="ph-no-capture">
-                            <PropertyKeyInfo value={record.eventOrProp.name} />
+                            <PropertyKeyInfo value={item[key]} />
                         </span>
-                        {record.warnings?.map((warning) => (
+                        {item.warnings?.map((warning) => (
                             <Tooltip
                                 key={warning}
                                 color="orange"
@@ -63,7 +59,7 @@ export function VolumeTable({
                     </span>
                 )
             },
-            sorter: (a, b) => ('' + a.eventOrProp.name).localeCompare(b.eventOrProp.name || ''),
+            sorter: (a: EventOrPropType, b: EventOrPropType) => ('' + a[key]).localeCompare(b[key] || ''),
             filters: [
                 { text: 'Has warnings', value: 'warnings' },
                 { text: 'No warnings', value: 'noWarnings' },
@@ -82,13 +78,11 @@ export function VolumeTable({
                     </Tooltip>
                 )
             },
-            render: function RenderVolume(_, record) {
-                return <span className="ph-no-capture">{humanizeNumber(record.eventOrProp.volume_30_day)}</span>
+            render: function RenderVolume(item: EventOrPropType) {
+                return <span className="ph-no-capture">{humanizeNumber(item.volume)}</span>
             },
-            sorter: (a, b) =>
-                a.eventOrProp.volume_30_day == b.eventOrProp.volume_30_day
-                    ? (a.eventOrProp.volume_30_day || -1) - (b.eventOrProp.volume_30_day || -1)
-                    : (a.eventOrProp.volume_30_day || -1) - (b.eventOrProp.volume_30_day || -1),
+            sorter: (a: EventOrPropType, b: EventOrPropType) =>
+                a.volume == b.volume ? a.usage_count - b.usage_count : a.volume - b.volume,
         },
         {
             title: function QueriesTitle() {
@@ -102,34 +96,30 @@ export function VolumeTable({
                     </Tooltip>
                 )
             },
-            render: function Render(_, item) {
-                return <span className="ph-no-capture">{humanizeNumber(item.eventOrProp.query_usage_30_day)}</span>
-            },
-            sorter: (a, b) =>
-                a.eventOrProp.query_usage_30_day == b.eventOrProp.query_usage_30_day
-                    ? (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1)
-                    : (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1),
+            // eslint-disable-next-line react/display-name
+            render: (item: EventOrPropType) => (
+                <span className="ph-no-capture">{humanizeNumber(item.usage_count)}</span>
+            ),
+            sorter: (a: EventOrPropType, b: EventOrPropType) =>
+                a.usage_count == b.usage_count ? a.volume - b.volume : a.usage_count - b.usage_count,
         },
     ]
-
     useEffect(() => {
         setDataWithWarnings(
             data.map(
-                (eventOrProp: EventOrPropType): VolumeTableRecord => {
-                    const record = { eventOrProp } as VolumeTableRecord
-                    record.warnings = []
-                    if (eventOrProp.name?.endsWith(' ')) {
-                        record.warnings.push(`This ${type} ends with a space.`)
+                (item): EventOrPropType => {
+                    item.warnings = []
+                    if (item[key]?.endsWith(' ')) {
+                        item.warnings.push(`This ${type} ends with a space.`)
                     }
-                    if (eventOrProp.name?.startsWith(' ')) {
-                        record.warnings.push(`This ${type} starts with a space.`)
+                    if (item[key]?.startsWith(' ')) {
+                        item.warnings.push(`This ${type} starts with a space.`)
                     }
-                    return record
+                    return item
                 }
             ) || []
         )
     }, [])
-
     return (
         <>
             <Input.Search
@@ -144,9 +134,9 @@ export function VolumeTable({
             <br />
             <br />
             <Table
-                dataSource={searchTerm ? search(dataWithWarnings, searchTerm) : dataWithWarnings}
+                dataSource={searchTerm ? searchEvents(dataWithWarnings, searchTerm, type) : dataWithWarnings}
                 columns={columns}
-                rowKey={(item) => item.eventOrProp.name}
+                rowKey={type}
                 size="small"
                 style={{ marginBottom: '4rem' }}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
@@ -175,15 +165,15 @@ export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
 }
 
 export function EventsVolumeTable(): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
     const { preflight } = useValues(preflightLogic)
-    const { eventDefinitions, loaded } = useValues(eventDefinitionsLogic)
 
-    return loaded ? (
+    return currentTeam?.event_names_with_usage ? (
         <>
             {preflight && !preflight?.is_event_property_usage_enabled ? (
                 <UsageDisabledWarning tab="Events Stats" />
             ) : (
-                eventDefinitions[0].volume_30_day === null && (
+                currentTeam?.event_names_with_usage[0]?.volume === null && (
                     <>
                         <Alert
                             type="warning"
@@ -192,9 +182,7 @@ export function EventsVolumeTable(): JSX.Element | null {
                     </>
                 )
             )}
-            <VolumeTable data={eventDefinitions} type="event" />
+            <VolumeTable data={currentTeam?.event_names_with_usage as EventOrPropType[]} type="event" />
         </>
-    ) : (
-        <Skeleton active paragraph={{ rows: 5 }} />
-    )
+    ) : null
 }

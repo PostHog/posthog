@@ -21,8 +21,7 @@ import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendRe
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 interface TrendResponse {
     result: TrendResult[]
@@ -168,7 +167,7 @@ export const trendsLogic = kea<
     },
 
     connect: {
-        values: [actionsModel, ['actions']],
+        values: [teamLogic, ['eventNames'], actionsModel, ['actions']],
     },
 
     loaders: ({ values, props }) => ({
@@ -249,11 +248,12 @@ export const trendsLogic = kea<
                 FilterType
             >,
             {
-                setFilters: (state, { filters, mergeFilters }) =>
-                    cleanFilters({
+                setFilters: (state, { filters, mergeFilters }) => {
+                    return cleanFilters({
                         ...(mergeFilters ? state : {}),
                         ...filters,
-                    }),
+                    })
+                },
             },
         ],
         people: [
@@ -317,8 +317,8 @@ export const trendsLogic = kea<
 
     selectors: () => ({
         filtersLoading: [
-            () => [eventDefinitionsLogic.selectors.loaded, propertyDefinitionsLogic.selectors.loaded],
-            (eventsLoaded, propertiesLoaded) => !eventsLoaded || !propertiesLoaded,
+            () => [teamLogic.selectors.currentTeamLoading],
+            (currentTeamLoading: any) => currentTeamLoading,
         ],
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
@@ -511,8 +511,8 @@ export const trendsLogic = kea<
             })
             actions.setBreakdownValuesLoading(false)
         },
-        [eventDefinitionsLogic.actionTypes.loadEventDefinitionsSuccess]: async () => {
-            actions.setFilters(getDefaultFilters(values.filters, eventDefinitionsLogic.values.eventNames), true)
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: async () => {
+            actions.setFilters(getDefaultFilters(values.filters, values.eventNames), true)
         },
     }),
 
@@ -569,10 +569,7 @@ export const trendsLogic = kea<
                     cleanSearchParams['compare'] = false
                 }
 
-                Object.assign(
-                    cleanSearchParams,
-                    getDefaultFilters(cleanSearchParams, eventDefinitionsLogic.values.eventNames)
-                )
+                Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams, values.eventNames))
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)

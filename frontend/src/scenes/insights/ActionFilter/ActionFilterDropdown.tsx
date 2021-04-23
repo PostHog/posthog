@@ -1,6 +1,7 @@
 import React, { RefObject } from 'react'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { ActionType, EventDefinition } from '~/types'
+import { ActionType } from '~/types'
+import { EventUsageType } from '~/types'
 import { EntityTypes } from '../../trends/trendsLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
@@ -8,8 +9,8 @@ import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../ActionSelectInfo'
 import { SelectBox, SelectedItem } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
+import { teamLogic } from 'scenes/teamLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 
 interface FilterType {
     filter: {
@@ -25,10 +26,10 @@ interface FilterType {
     index: number
 }
 
-const getSuggestions = (events: EventDefinition[]): EventDefinition[] => {
+const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
     return events
-        .filter((event) => (event.query_usage_30_day || -1) > 0)
-        .sort((a, b) => (b.query_usage_30_day || -1) - (a.query_usage_30_day || -1))
+        .filter((event) => event.usage_count > 0)
+        .sort((a, b) => b.usage_count - a.usage_count)
         .slice(0, 3)
 }
 
@@ -51,7 +52,7 @@ export function ActionFilterDropdown({
     const { updateFilter, setEntityFilterVisibility } = useActions(logic)
 
     const { actions } = useValues(actionsModel)
-    const { eventDefinitions } = useValues(eventDefinitionsLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const handleDismiss = (event: MouseEvent): void => {
         if (openButtonRef?.current?.contains(event.target as Node)) {
@@ -67,7 +68,7 @@ export function ActionFilterDropdown({
             setEntityFilterVisibility(selectedFilter.index, true)
         }
     }
-    const suggestions = getSuggestions(eventDefinitions || [])
+    const suggestions = getSuggestions(currentTeam?.event_names_with_usage || [])
 
     return (
         <SelectBox
@@ -84,9 +85,10 @@ export function ActionFilterDropdown({
                             </Tooltip>
                         </>
                     ),
-                    dataSource: suggestions.map((definition) => ({
-                        ...definition,
-                        key: 'suggestions' + definition.id,
+                    dataSource: suggestions.map((event) => ({
+                        key: 'suggestions' + event.event,
+                        name: event.event,
+                        ...event,
                     })),
                     renderInfo: function renderSuggestions({ item }) {
                         return (
@@ -94,22 +96,22 @@ export function ActionFilterDropdown({
                                 <FireOutlined /> Suggestions
                                 <br />
                                 <h3>{item.name}</h3>
-                                {(item?.volume_30_day ?? 0 > 0) && (
+                                {(item?.volume ?? 0 > 0) && (
                                     <>
-                                        Seen <strong>{item.volume_30_day}</strong> times.{' '}
+                                        Seen <strong>{item.volume}</strong> times.{' '}
                                     </>
                                 )}
-                                {(item?.query_usage_30_day ?? 0 > 0) && (
+                                {(item?.usage_count ?? 0 > 0) && (
                                     <>
-                                        Used in <strong>{item.query_usage_30_day}</strong> queries.
+                                        Used in <strong>{item.usage_count}</strong> queries.
                                     </>
                                 )}
                             </>
                         )
                     },
                     type: EntityTypes.EVENTS,
-                    getValue: (item: SelectedItem) => item.name || '',
-                    getLabel: (item: SelectedItem) => item.name || '',
+                    getValue: (item: SelectedItem) => item.event || '',
+                    getLabel: (item: SelectedItem) => item.event || '',
                 },
                 {
                     name: (
@@ -136,9 +138,10 @@ export function ActionFilterDropdown({
                         </>
                     ),
                     dataSource:
-                        eventDefinitions.map((definition) => ({
-                            ...definition,
-                            key: EntityTypes.EVENTS + definition.id,
+                        currentTeam?.event_names_with_usage.map((event) => ({
+                            key: EntityTypes.EVENTS + event.event,
+                            name: event.event,
+                            ...event,
                         })) || [],
                     renderInfo: function events({ item }) {
                         return (
@@ -146,22 +149,22 @@ export function ActionFilterDropdown({
                                 <ContainerOutlined /> Events
                                 <br />
                                 <h3>{item.name}</h3>
-                                {(item?.volume_30_day ?? 0 > 0) && (
+                                {(item?.volume ?? 0 > 0) && (
                                     <>
-                                        Seen <strong>{item.volume_30_day}</strong> times.{' '}
+                                        Seen <strong>{item.volume}</strong> times.{' '}
                                     </>
                                 )}
-                                {(item?.query_usage_30_day ?? 0 > 0) && (
+                                {(item?.usage_count ?? 0 > 0) && (
                                     <>
-                                        Used in <strong>{item.query_usage_30_day}</strong> queries.
+                                        Used in <strong>{item.usage_count}</strong> queries.
                                     </>
                                 )}
                             </>
                         )
                     },
                     type: EntityTypes.EVENTS,
-                    getValue: (item: SelectedItem) => item.name || '',
-                    getLabel: (item: SelectedItem) => item.name || '',
+                    getValue: (item: SelectedItem) => item.event || '',
+                    getLabel: (item: SelectedItem) => item.event || '',
                 },
             ]}
         />

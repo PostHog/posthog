@@ -8,10 +8,10 @@ import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
 import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import './ActionFilterRow.scss'
+import { teamLogic } from 'scenes/teamLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
@@ -47,7 +47,7 @@ export function ActionFilterRow({
         updateFilterProperty,
         setEntityFilterVisibility,
     } = useActions(logic)
-    const { propertyNames, numericalPropertyNames } = useValues(propertyDefinitionsLogic)
+    const { eventProperties, eventPropertiesNumerical } = useValues(teamLogic)
 
     const visible = entityFilterVisible[filter.order]
 
@@ -58,20 +58,20 @@ export function ActionFilterRow({
     const onClose = () => {
         removeLocalFilter({ value: filter.id, type: filter.type, index })
     }
-    const onMathSelect = (_, selectedMath) => {
+    const onMathSelect = (_, math) => {
         updateFilterMath({
-            math: selectedMath,
-            math_property: MATHS[selectedMath]?.onProperty ? mathProperty : undefined,
-            onProperty: MATHS[selectedMath]?.onProperty,
+            math,
+            math_property: MATHS[math]?.onProperty ? mathProperty : undefined,
+            onProperty: MATHS[math]?.onProperty,
             value: filter.id,
             type: filter.type,
             index: index,
         })
     }
-    const onMathPropertySelect = (_, selectedMathProperty) => {
+    const onMathPropertySelect = (_, mathProperty) => {
         updateFilterMath({
             math: filter.math,
-            math_property: selectedMathProperty,
+            math_property: mathProperty,
             value: filter.id,
             type: filter.type,
             index: index,
@@ -139,7 +139,9 @@ export function ActionFilterRow({
                             math={math}
                             index={index}
                             onMathSelect={onMathSelect}
-                            areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
+                            areEventPropertiesNumericalAvailable={
+                                eventPropertiesNumerical && eventPropertiesNumerical.length > 0
+                            }
                             style={{ maxWidth: '100%', width: 'initial' }}
                         />
                     )}
@@ -166,7 +168,7 @@ export function ActionFilterRow({
                     mathProperty={mathProperty}
                     index={index}
                     onMathPropertySelect={onMathPropertySelect}
-                    properties={numericalPropertyNames}
+                    properties={eventPropertiesNumerical}
                 />
             )}
             {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) && (
@@ -186,7 +188,7 @@ export function ActionFilterRow({
                 <div className="ml">
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
-                        properties={propertyNames}
+                        properties={eventProperties}
                         propertyFilters={filter.properties}
                         onChange={(properties) => updateFilterProperty({ properties, index })}
                         style={{ marginBottom: 0 }}
