@@ -10,10 +10,7 @@
     }
 
     @media only screen and (max-width: 700px) {
-        width: 400px;
-    }
-    @media only screen and (max-width: 600px) {
-        width: 250px;
+        max-width: 315px;
     }
 }
 
@@ -23,9 +20,6 @@
     .dashboard-item {
         width: 250px;
         height: 225px;
-        @media only screen and (max-width: 600px) {
-            width: 200px;
-        }
     }
     .dashboard-item-footer {
         margin-left: 10px;
@@ -39,6 +33,7 @@
 
 .insight-tooltip {
     color: $text_light;
+    padding: 3px;
 }
 
 .lesson-card {
@@ -62,13 +57,10 @@
         margin-left: 10px;
         margin-right: 10px;
     }
+
     .ant-layout-footer {
         padding: 2px !important;
     }
-}
-
-.tutorials-carousel {
-    width: 100%;
 }
 
 /**

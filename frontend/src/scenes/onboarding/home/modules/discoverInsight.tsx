@@ -156,7 +156,6 @@ function InsightPane({
                 breakpoint: 1400,
                 settings: {
                     vertical: false,
-                    centerMode: true,
                     slidesToShow: 3,
                 },
             },
@@ -164,8 +163,8 @@ function InsightPane({
                 breakpoint: 1000,
                 settings: {
                     vertical: false,
-                    centerMode: true,
                     slidesToShow: 2,
+                    slidesToScroll: 2,
                 },
             },
 
@@ -173,9 +172,8 @@ function InsightPane({
                 breakpoint: 700,
                 settings: {
                     vertical: false,
-
-                    centerMode: true,
                     slidesToShow: 1,
+                    slidesToScroll: 1,
                 },
             },
         ],

@@ -102,6 +102,7 @@ function Tutorials(): JSX.Element {
 
                     centerMode: true,
                     slidesToShow: 1,
+                    slidesToScroll: 1,
                 },
             },
         ],
@@ -118,11 +119,7 @@ function Tutorials(): JSX.Element {
         </a>
     ))
 
-    return (
-        <Carousel {...settings} className={'tutorials-carousel'}>
-            {thumbs}
-        </Carousel>
-    )
+    return <Carousel {...settings}>{thumbs}</Carousel>
 }
 
 export function PostHogLessons(): JSX.Element {
