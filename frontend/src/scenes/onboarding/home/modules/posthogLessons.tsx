@@ -126,11 +126,10 @@ export function PostHogLessons(): JSX.Element {
     return (
         <Card className="home-module-card">
             <h2 id="name" className="subtitle">
-                Product Analytics Tutorials
+                Using Product Analytics Effectively
             </h2>
             <Paragraph>
-                Quick tutorials and short guides on how PostHog can help you use product analytics effectively. Written
-                by us, based on you.
+                A series of quick tutorials and short exercises to help your team build the best product.
             </Paragraph>
             <Divider />
             <Space direction={'vertical'}>
