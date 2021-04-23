@@ -39,6 +39,7 @@ import { useGlobalKeyboardHotkeys, useKeyboardHotkeys } from 'lib/hooks/useKeybo
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 // to show the right page in the sidebar
 const sceneOverride: Partial<Record<Scene, string>> = {
@@ -266,7 +267,9 @@ export function MainNavigation(): JSX.Element {
                             hotkey="u"
                         />
                     )}
-                    {true && <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to="/home" />}
+                    {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
+                        <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to="/home" />
+                    )}
                     <MenuItem
                         title="Insights"
                         icon={<IconInsights />}
