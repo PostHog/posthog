@@ -264,11 +264,15 @@ export function DashboardItem({
                                 to={link}
                                 title={item.name}
                                 preventClick
-                                onClick={() => {
-                                    if (!isDraggingRef?.current) {
-                                        router.actions.push(link)
-                                    }
-                                }}
+                                onClick={
+                                    !onClick
+                                        ? () => {
+                                              if (!isDraggingRef?.current) {
+                                                  router.actions.push(link)
+                                              }
+                                          }
+                                        : onClick
+                                }
                                 style={{ fontSize: 16, fontWeight: 500 }}
                             >
                                 {item.name || `${insightTypeDisplayName} query`}

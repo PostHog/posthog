@@ -13,18 +13,18 @@ const { Content, Footer } = Layout
 import { useActions, useValues } from 'kea'
 
 import { teamLogic } from 'scenes/teamLogic'
-import { router } from 'kea-router'
-import { useAnchor } from 'lib/hooks/useAnchor'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { userLogic } from 'scenes/userLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function HeaderCTAs(): JSX.Element {
     const { setInviteMembersModalOpen } = useActions(navigationLogic)
     const { inviteMembersModalOpen } = useValues(navigationLogic)
     const { preflight } = useValues(preflightLogic)
     const [showToolTip, setShowToolTip] = useState(false)
+
     const inviteModal = (
         <div>
             <Tooltip
@@ -76,10 +76,9 @@ function HeaderCTAs(): JSX.Element {
 
 export function Home(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { location } = useValues(router)
-
     const { user } = useValues(userLogic)
-    useAnchor(location.hash)
+    const { reportProjectHomeSeen } = useActions(eventUsageLogic)
+
     const installationSources: TileParams[] = [
         {
             icon: <RocketOutlined rotate={45} />,
@@ -112,6 +111,7 @@ export function Home(): JSX.Element {
     const communityModule = (
         <TiledIconModule
             tiles={communitySources}
+            analyticsModuleKey="community"
             header={'Join the PostHog Community'}
             subHeader={
                 'Share your learnings with other PostHog users. Learn about the latest in product analytics directly from the PostHog team and members in our community.'
@@ -123,6 +123,7 @@ export function Home(): JSX.Element {
     const installModule = (
         <TiledIconModule
             tiles={installationSources}
+            analyticsModuleKey="install"
             header="Install PostHog"
             subHeader="Installation is easy. Choose from one of our libraries or our simple API."
         />
@@ -144,7 +145,8 @@ export function Home(): JSX.Element {
             {lessonsModule}
         </React.Fragment>
     )
-
+    const teamHasData = user?.team?.ingested_event
+    reportProjectHomeSeen(teamHasData)
     return (
         <Layout>
             <div style={{ marginBottom: 128 }} className={'home-container'}>
@@ -152,16 +154,12 @@ export function Home(): JSX.Element {
                     <PageHeader
                         title={`${currentTeam?.name ?? ''} Project Home 🚀`}
                         caption={
-                            !user?.team?.ingested_event
-                                ? `Welcome to PostHog! Install one of our libraries to get started.`
-                                : ` `
+                            !teamHasData ? `Welcome to PostHog! Install one of our libraries to get started.` : ` `
                         }
                         buttons={HeaderCTAs()}
                     />
                     <Content>
-                        <Space direction="vertical">
-                            {!user?.team?.ingested_event ? layoutTeamNeedsEvents : layoutTeamHasEvents}
-                        </Space>
+                        <Space direction="vertical">{teamHasData ? layoutTeamHasEvents : layoutTeamNeedsEvents}</Space>
                     </Content>
                 </Space>
             </div>
