@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Avatar, Card, Carousel, CarouselProps, Divider, List, Space, Tooltip, Typography, Skeleton } from 'antd'
+import { Avatar, Card, Carousel, CarouselProps, Divider, List, Space, Tooltip, Typography, Skeleton, Spin } from 'antd'
 import {
     ArrowLeftOutlined,
     ArrowRightOutlined,
@@ -143,7 +143,7 @@ function InsightPane({
     }, [])
     const settings: CarouselProps = {
         dots: true,
-        slidesToShow: 4,
+        slidesToShow: 5,
         slidesToScroll: 3,
         arrows: true,
         nextArrow: <ArrowRightOutlined />,
@@ -152,6 +152,13 @@ function InsightPane({
         centerMode: false,
         centerPadding: '10px',
         responsive: [
+            {
+                breakpoint: 2000,
+                settings: {
+                    vertical: false,
+                    slidesToShow: 4,
+                },
+            },
             {
                 breakpoint: 1400,
                 settings: {
@@ -180,7 +187,7 @@ function InsightPane({
     }
 
     const thumbs = data.map((insight, idx) => (
-        <Card key={idx} className={'insight-chart-tile'}>
+        <Card key={idx} bordered={false} className={'insight-chart-tile'}>
             <DashboardItem
                 item={{ ...insight, color: null }}
                 key={idx}
@@ -202,23 +209,25 @@ function InsightPane({
             <h3>Recent analyses across your team</h3>
             <Paragraph>Not sure where to start? Jump back into a recent analysis.</Paragraph>
 
-            <Skeleton loading={loading}>
-                {data.length > 0 && (
-                    <React.Fragment>
-                        <div className="home-module-carousel-container">
-                            <Carousel {...settings}>{thumbs}</Carousel>
-                        </div>
-                    </React.Fragment>
-                )}
+            <Spin spinning={loading}>
+                <Skeleton loading={loading}>
+                    {data.length > 0 && (
+                        <React.Fragment>
+                            <div className="home-module-carousel-container">
+                                <Carousel {...settings}>{thumbs}</Carousel>
+                            </div>
+                        </React.Fragment>
+                    )}
 
-                {data.length <= 0 && (
-                    <Space direction={'vertical'}>
-                        <Paragraph style={{ marginTop: 5 }}>
-                            There are no recent analyses. Time to get to work!
-                        </Paragraph>
-                    </Space>
-                )}
-            </Skeleton>
+                    {data.length <= 0 && (
+                        <Space direction={'vertical'}>
+                            <Paragraph style={{ marginTop: 5 }}>
+                                There are no recent analyses. Time to get to work!
+                            </Paragraph>
+                        </Space>
+                    )}
+                </Skeleton>
+            </Spin>
         </React.Fragment>
     )
 }

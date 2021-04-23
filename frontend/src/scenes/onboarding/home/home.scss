@@ -2,6 +2,9 @@
 
 .home-module-carousel-container {
     width: 1200px;
+    @media only screen and (min-width: 2000px) {
+        width: 1600px;
+    }
     @media only screen and (max-width: 1400px) {
         width: 850px;
     }
@@ -20,6 +23,7 @@
     .dashboard-item {
         width: 250px;
         height: 225px;
+        border: 1px solid $hc_navy;
     }
     .dashboard-item-footer {
         margin-left: 10px;
@@ -70,7 +74,11 @@
 .ant-carousel .slick-next {
     color: unset !important;
     font-size: unset !important;
-    top: 35% !important;
+    top: 45% !important;
+    @media only screen and (min-width: 1800px) {
+        margin-left: 10px !important;
+        margin-right: 10px !important;
+    }
 }
 
 .ant-carousel .slick-prev:hover,
