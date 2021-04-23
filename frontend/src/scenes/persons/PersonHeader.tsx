@@ -1,6 +1,6 @@
 import { PersonType } from '~/types'
 import React, { useMemo } from 'react'
-import { IconPerson } from 'lib/components/icons'
+import { PersonAvatar } from 'scenes/persons/PersonAvatar'
 import './PersonHeader.scss'
 
 export function PersonHeader({ person }: { person?: Partial<PersonType> | null }): JSX.Element {
@@ -21,7 +21,7 @@ export function PersonHeader({ person }: { person?: Partial<PersonType> | null }
             {person?.is_identified ? (
                 <div className="person-header identified">
                     <span>
-                        <IconPerson />
+                        <PersonAvatar person={person} />
                     </span>
                     {customIdentifier ? (
                         <span className="ph-no-capture text-ellipsis">{customIdentifier}</span>
@@ -31,7 +31,8 @@ export function PersonHeader({ person }: { person?: Partial<PersonType> | null }
                 </div>
             ) : (
                 <div className="person-header anonymous">
-                    <IconPerson /> Unidentified {customIdentifier || <>user {displayId}</>}
+                    <PersonAvatar person={person} />
+                    Unidentified {customIdentifier || <>user {displayId}</>}
                 </div>
             )}
         </>
