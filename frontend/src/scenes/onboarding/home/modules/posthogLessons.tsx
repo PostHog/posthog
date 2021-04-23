@@ -3,6 +3,9 @@ import React from 'react'
 import { ArrowLeftOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import '../home.scss'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useActions } from 'kea'
+
 const { Paragraph } = Typography
 
 const LESSONS = [
@@ -65,6 +68,7 @@ const LESSONS = [
 ]
 
 function Tutorials(): JSX.Element {
+    const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
     const settings = {
         dots: true,
         slidesToShow: 4,
@@ -107,9 +111,16 @@ function Tutorials(): JSX.Element {
             },
         ],
     }
-
     const thumbs = LESSONS.map((lesson) => (
-        <a key={lesson.target} href={lesson.target} target="_blank">
+        <a
+            key={lesson.target}
+            href={lesson.target}
+            target="_blank"
+            onClick={() => {
+                reportProjectHomeItemClicked('tutorials', lesson.title)
+                return true
+            }}
+        >
             <Tooltip title={lesson.hover ?? ''} placement={'bottom'}>
                 <Card className={'lesson-card'} bordered={false}>
                     <Image src={lesson.imgSrc} className="lesson-image" width={225} preview={false} />

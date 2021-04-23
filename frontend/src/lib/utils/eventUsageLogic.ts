@@ -87,6 +87,8 @@ export const eventUsageLogic = kea<
             device_timezone?: string
         ) => ({ component, project_timezone, device_timezone }),
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
+        reportProjectHomeItemClicked: (module: string, item: string) => ({ module, item }),
+        reportProjectHomeSeen: (hasData: boolean) => ({ hasData }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -331,6 +333,12 @@ export const eventUsageLogic = kea<
         },
         reportIngestionLandingSeen: async ({ isGridView }) => {
             posthog.capture('ingestion landing seen', { grid_view: isGridView })
+        },
+        reportProjectHomeItemClicked: async ({ module, item }) => {
+            posthog.capture('project home item clicked', { module: module, item: item })
+        },
+        reportProjectHomeSeen: async ({ hasData }) => {
+            posthog.capture('project home landing', { team_has_data: hasData })
         },
     },
 })

@@ -1,6 +1,8 @@
 import { Avatar, Card, Divider, List, Tooltip, Typography, Space } from 'antd'
 
 import React from 'react'
+import { useActions } from 'kea'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const { Paragraph } = Typography
 
@@ -17,9 +19,11 @@ export interface TiledIconModuleProps {
     tiles: TileParams[]
     header?: string
     subHeader?: string
+    analyticsModuleKey?: string
 }
 
-export function TiledIconModule({ tiles, header, subHeader }: TiledIconModuleProps): JSX.Element {
+export function TiledIconModule({ tiles, header, subHeader, analyticsModuleKey }: TiledIconModuleProps): JSX.Element {
+    const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
     return (
         <Card className="home-module-card">
             <h2 id="name" className="subtitle">
@@ -33,7 +37,13 @@ export function TiledIconModule({ tiles, header, subHeader }: TiledIconModulePro
                     grid={{}}
                     dataSource={tiles}
                     renderItem={(tile) => (
-                        <a href={tile.targetPath} target={tile.openInNewTab ? '_blank' : '_self'}>
+                        <a
+                            href={tile.targetPath}
+                            target={tile.openInNewTab ? '_blank' : '_self'}
+                            onClick={() => {
+                                reportProjectHomeItemClicked(analyticsModuleKey ?? '', tile.title)
+                            }}
+                        >
                             <Tooltip placement="bottom" title={tile.hoverText ? tile.hoverText : ''}>
                                 <List.Item className="insight-container" key={tile.title}>
                                     <Avatar

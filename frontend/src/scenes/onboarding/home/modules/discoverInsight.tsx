@@ -18,6 +18,7 @@ import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/Dashb
 import { ViewType } from 'scenes/insights/insightLogic'
 import { router } from 'kea-router'
 import dayjs from 'dayjs'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const { Paragraph } = Typography
 
@@ -77,7 +78,10 @@ const insights = [
     },
 ]
 
+const ANALYTICS_MODULE_KEY = 'insights'
 function CreateAnalysisSection(): JSX.Element {
+    const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
+
     const questionsToTooltipTitle = (questions: string[]): ReactNode => {
         const contents = questions.map((question, idx) => (
             <Paragraph className={'insight-tooltip'} key={idx}>
@@ -101,7 +105,12 @@ function CreateAnalysisSection(): JSX.Element {
                 grid={{}}
                 dataSource={insights}
                 renderItem={(insight) => (
-                    <a href={insight.target}>
+                    <a
+                        href={insight.target}
+                        onClick={() => {
+                            reportProjectHomeItemClicked(ANALYTICS_MODULE_KEY, insight.name.toLowerCase())
+                        }}
+                    >
                         <Tooltip color={'#2d2d2d'} title={questionsToTooltipTitle(insight.questions)}>
                             <List.Item className="insight-container" key={insight.name}>
                                 <div>
@@ -136,6 +145,7 @@ function InsightPane({
     footer: (item: DashboardItemType) => JSX.Element
 }): JSX.Element {
     const { loadTeamInsights, loadSavedInsights, loadInsights } = useActions(insightHistoryLogic)
+    const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
     useEffect(() => {
         loadInsights()
         loadSavedInsights()
@@ -192,6 +202,7 @@ function InsightPane({
                 item={{ ...insight, color: null }}
                 key={idx}
                 onClick={() => {
+                    reportProjectHomeItemClicked(ANALYTICS_MODULE_KEY, 'recent analysis')
                     const _type: DisplayedType =
                         insight.filters.insight === ViewType.RETENTION ? 'RetentionContainer' : insight.filters.display
                     router.actions.push(displayMap[_type].link(insight))
