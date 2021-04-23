@@ -9,6 +9,7 @@ import {
     PushpinFilled,
     PlusOutlined,
     SettingOutlined,
+    HomeOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -265,6 +266,7 @@ export function MainNavigation(): JSX.Element {
                             hotkey="u"
                         />
                     )}
+                    {true && <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to="/home" />}
                     <MenuItem
                         title="Insights"
                         icon={<IconInsights />}
