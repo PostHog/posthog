@@ -45,6 +45,8 @@ $dashboard-title-size: 32px;
         .edit-box {
             display: flex;
             justify-content: space-between;
+            align-items: center;
+            column-gap: $default_spacing / 2;
         }
 
         .add-description {
