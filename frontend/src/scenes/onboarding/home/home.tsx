@@ -5,19 +5,7 @@ import { TiledIconModule, TileParams } from './modules/tiledIconModule'
 
 import { DiscoverInsightsModule } from './modules/discoverInsight'
 import { Button, Layout, Space, Tooltip } from 'antd'
-import {
-    SlackOutlined,
-    RightSquareOutlined,
-    LineChartOutlined,
-    FunnelPlotOutlined,
-    FieldTimeOutlined,
-    TableOutlined,
-    FallOutlined,
-    SlidersOutlined,
-    UserAddOutlined,
-    RocketOutlined,
-    GithubOutlined,
-} from '@ant-design/icons'
+import { SlackOutlined, UserAddOutlined, RocketOutlined, GithubOutlined } from '@ant-design/icons'
 
 import './home.scss'
 
@@ -98,76 +86,26 @@ export function Home(): JSX.Element {
             icon: <RocketOutlined rotate={45} />,
             title: 'Install PostHog',
             targetPath: '/ingestion',
-            hoverText: 'Installation is easy. Choose from one of our libraries or do it yourself using our simple API.',
+            hoverText:
+                'Our broad library support and simple API make it easy to install PostHog anywhere in your stack.',
+            class: 'thumbnail-tile-install',
         },
     ]
-    const c = 'thumbnail-tile-community'
+
     const communitySources: TileParams[] = [
         {
             icon: <SlackOutlined />,
             title: 'Join Us in Slack',
             targetPath: 'https://posthog.com/slack?s=app',
             hoverText: '',
-            class: c,
         },
         {
             icon: <GithubOutlined />,
             title: 'Checkout our GitHub',
             targetPath: 'https://github.com/PostHog/posthog',
             hoverText: 'Submit a PR and snag some PostHog merch!',
-            class: c,
         },
     ]
-
-    const insights: TileParams[] = [
-        {
-            title: 'Trends',
-            targetPath: '/insights?insight=TRENDS',
-            hoverText: "Answer questions like 'How many times does this event happen?'",
-            icon: <LineChartOutlined />,
-        },
-        {
-            title: 'Funnels',
-            hoverText:
-                "Answer questions like 'What percentage of users complete key steps?' and 'In which step are my users dropping-off?'",
-            targetPath: '/insights?insight=FUNNELS',
-            icon: <FunnelPlotOutlined />,
-        },
-        {
-            title: 'Sessions',
-            hoverText: 'Answer questions like how long do users spend in my product?',
-            targetPath: '/insights?insight=SESSIONS',
-            icon: <FieldTimeOutlined />,
-        },
-        {
-            title: 'Retention',
-            hoverText:
-                "Answer questions like 'What percentage of users come back after X amount of days, weeks, months?'",
-            targetPath: '/insights?insight=RETENTION',
-            icon: <TableOutlined />,
-        },
-        {
-            title: 'Paths',
-            targetPath: '/insights?insight=PATHS',
-            icon: <RightSquareOutlined />,
-        },
-        {
-            title: 'Stickiness',
-            targetPath: '/insights?insight=STICKINESS',
-            icon: <FallOutlined />,
-        },
-        {
-            title: 'Lifecycle',
-
-            targetPath: '/insights?insight=LIFECYCLE',
-
-            icon: <SlidersOutlined />,
-        },
-    ]
-    const insightsClass = 'thumbnail-tile-insights'
-    insights.forEach((insight) => {
-        insight.class = insightsClass
-    })
 
     const communityModule = (
         <TiledIconModule

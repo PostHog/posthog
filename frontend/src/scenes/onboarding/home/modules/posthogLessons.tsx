@@ -137,7 +137,7 @@ export function PostHogLessons(): JSX.Element {
             </Paragraph>
             <Divider />
             <Space direction={'vertical'}>
-                <div className="tutorials-container">
+                <div className="home-module-carousel-container">
                     <Tutorials />
                 </div>
             </Space>
