@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { EventDefinition } from '~/types'
+import { posthogEvents } from 'lib/utils'
+import { EventDefinition, SelectOption } from '~/types'
 import { eventDefinitionsLogicType } from './eventDefinitionsLogicType'
 
 interface EventDefinitionStorage {
@@ -9,7 +10,14 @@ interface EventDefinitionStorage {
     results: EventDefinition[]
 }
 
-export const eventDefinitionsLogic = kea<eventDefinitionsLogicType<EventDefinitionStorage, EventDefinition>>({
+interface EventsGroupedInterface {
+    label: string
+    options: SelectOption[]
+}
+
+export const eventDefinitionsLogic = kea<
+    eventDefinitionsLogicType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface, SelectOption>
+>({
     reducers: {
         eventStorage: [
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
@@ -69,6 +77,26 @@ export const eventDefinitionsLogic = kea<eventDefinitionsLogicType<EventDefiniti
         customEventNames: [
             (s) => [s.eventNames],
             (eventNames: string[]): string[] => eventNames.filter((event) => !event.startsWith('!')),
+        ],
+        eventNamesGrouped: [
+            // TODO: This can be improved for performance by enabling downstream components to use `eventDefinitions` directly and getting rid of this selector.
+            (s) => [s.eventDefinitions],
+            (eventNames: string[]): EventsGroupedInterface[] => {
+                const data: EventsGroupedInterface[] = [
+                    { label: 'Custom events', options: [] },
+                    { label: 'PostHog events', options: [] },
+                ]
+
+                eventNames.forEach((name: string) => {
+                    const format = { label: name, value: name }
+                    if (posthogEvents.includes(name)) {
+                        return data[1].options.push(format)
+                    }
+                    data[0].options.push(format)
+                })
+
+                return data
+            },
         ],
     },
 })

@@ -24,9 +24,9 @@ export interface SelectedItem {
     key: string
     value?: string
     action?: ActionType
-    event?: string
-    volume?: number
-    usage_count?: number
+    volume_30_day?: number | null // Only for properties or events
+    query_usage_30_day?: number | null // Only for properties or events
+    is_numerical?: boolean // Only for properties
     category?: string
     cohort?: CohortType
 }

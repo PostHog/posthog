@@ -85,8 +85,8 @@ export function ActionFilterDropdown({
                         </>
                     ),
                     dataSource: suggestions.map((definition) => ({
-                        key: 'suggestions' + definition.name,
                         ...definition,
+                        key: 'suggestions' + definition.id,
                     })),
                     renderInfo: function renderSuggestions({ item }) {
                         return (
@@ -94,22 +94,22 @@ export function ActionFilterDropdown({
                                 <FireOutlined /> Suggestions
                                 <br />
                                 <h3>{item.name}</h3>
-                                {(item?.volume ?? 0 > 0) && (
+                                {(item?.volume_30_day ?? 0 > 0) && (
                                     <>
-                                        Seen <strong>{item.volume}</strong> times.{' '}
+                                        Seen <strong>{item.volume_30_day}</strong> times.{' '}
                                     </>
                                 )}
-                                {(item?.usage_count ?? 0 > 0) && (
+                                {(item?.query_usage_30_day ?? 0 > 0) && (
                                     <>
-                                        Used in <strong>{item.usage_count}</strong> queries.
+                                        Used in <strong>{item.query_usage_30_day}</strong> queries.
                                     </>
                                 )}
                             </>
                         )
                     },
                     type: EntityTypes.EVENTS,
-                    getValue: (item: SelectedItem) => item.event || '',
-                    getLabel: (item: SelectedItem) => item.event || '',
+                    getValue: (item: SelectedItem) => item.name || '',
+                    getLabel: (item: SelectedItem) => item.name || '',
                 },
                 {
                     name: (
@@ -137,8 +137,8 @@ export function ActionFilterDropdown({
                     ),
                     dataSource:
                         eventDefinitions.map((definition) => ({
-                            key: EntityTypes.EVENTS + definition.name,
                             ...definition,
+                            key: EntityTypes.EVENTS + definition.id,
                         })) || [],
                     renderInfo: function events({ item }) {
                         return (
@@ -146,22 +146,22 @@ export function ActionFilterDropdown({
                                 <ContainerOutlined /> Events
                                 <br />
                                 <h3>{item.name}</h3>
-                                {(item?.volume ?? 0 > 0) && (
+                                {(item?.volume_30_day ?? 0 > 0) && (
                                     <>
-                                        Seen <strong>{item.volume}</strong> times.{' '}
+                                        Seen <strong>{item.volume_30_day}</strong> times.{' '}
                                     </>
                                 )}
-                                {(item?.usage_count ?? 0 > 0) && (
+                                {(item?.query_usage_30_day ?? 0 > 0) && (
                                     <>
-                                        Used in <strong>{item.usage_count}</strong> queries.
+                                        Used in <strong>{item.query_usage_30_day}</strong> queries.
                                     </>
                                 )}
                             </>
                         )
                     },
                     type: EntityTypes.EVENTS,
-                    getValue: (item: SelectedItem) => item.event || '',
-                    getLabel: (item: SelectedItem) => item.event || '',
+                    getValue: (item: SelectedItem) => item.name || '',
+                    getLabel: (item: SelectedItem) => item.name || '',
                 },
             ]}
         />
