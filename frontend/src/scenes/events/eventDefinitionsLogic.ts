@@ -80,7 +80,7 @@ export const eventDefinitionsLogic = kea<
         ],
         eventNamesGrouped: [
             // TODO: This can be improved for performance by enabling downstream components to use `eventDefinitions` directly and getting rid of this selector.
-            (s) => [s.eventDefinitions],
+            (s) => [s.eventNames],
             (eventNames: string[]): EventsGroupedInterface[] => {
                 const data: EventsGroupedInterface[] = [
                     { label: 'Custom events', options: [] },

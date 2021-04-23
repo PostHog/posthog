@@ -21,7 +21,6 @@ import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendRe
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { teamLogic } from 'scenes/teamLogic'
 import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 
 interface TrendResponse {
@@ -316,10 +315,7 @@ export const trendsLogic = kea<
     }),
 
     selectors: () => ({
-        filtersLoading: [
-            () => [teamLogic.selectors.currentTeamLoading],
-            (currentTeamLoading: any) => currentTeamLoading,
-        ],
+        filtersLoading: [() => [eventDefinitionsLogic.selectors.loaded], (loaded: boolean): boolean => !loaded],
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
         loadMoreBreakdownUrl: [(selectors) => [selectors._results], (response) => response.next],
