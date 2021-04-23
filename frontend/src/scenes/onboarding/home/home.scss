@@ -1,26 +1,6 @@
 @import '~/vars';
 
-.tutorials-container {
-    width: 1200px;
-    //@media only screen and (min-width: 1200px) {
-    //    width: 1000px;
-    //}
-    @media only screen and (max-width: 1400px) {
-        width: 850px;
-    }
-    @media only screen and (max-width: 1000px) {
-        width: 600px;
-    }
-
-    @media only screen and (max-width: 700px) {
-        width: 400px;
-    }
-    @media only screen and (max-width: 600px) {
-        width: 250px;
-    }
-}
-
-.team-insights-container {
+.home-module-carousel-container {
     width: 1200px;
     @media only screen and (max-width: 1400px) {
         width: 850px;
@@ -38,8 +18,8 @@
 }
 
 .insight-chart-tile {
-    margin-bottom: 20px;
     border-radius: 12px;
+    background-color: $bg_light;
     .dashboard-item {
         width: 250px;
         height: 225px;
@@ -54,14 +34,17 @@
 }
 
 .lesson-title {
-    color: $hc_light_lilac;
+    color: $text_light;
+}
+
+.insight-tooltip {
+    color: $text_light;
 }
 
 .lesson-card {
     text-align: center;
     align-items: center;
     background-image: $night_sky;
-    //background-color: $blue_300;
     border-radius: 12px;
     height: 200px;
     width: 275px;
@@ -70,18 +53,14 @@
     margin-left: 10px;
     margin-right: 10px;
     &:hover {
-        //background-image: none;
-        //background-color: $hc_yellow;
         background-image: $sky;
         .lesson-title {
             color: $hc_navy;
         }
     }
     @media only screen and (min-width: 700px) {
-        //padding: 10px;
         margin-left: 10px;
         margin-right: 10px;
-        //margin-bottom: 10px;
     }
     .ant-layout-footer {
         padding: 2px !important;
@@ -92,6 +71,9 @@
     width: 100%;
 }
 
+/**
+/ Make the arrows show up on carousels.
+ */
 .ant-carousel .slick-prev,
 .ant-carousel .slick-next {
     color: unset !important;
@@ -106,19 +88,9 @@
     color: unset !important;
 }
 
-//.lesson-thumbnail {
-//    height: 100%;
-//    margin: 10px;
-//    padding: 2px;
-//    line-height: 160px;
-//    text-align: center;
-//    background: #364d79;
-//    color: #ffffff;
-//}
-
 .lesson-image {
     border-radius: 6px;
-    border: 1px solid $hc_yellow;
+    border: 1px solid $hc_navy;
 }
 
 .insight-container {
@@ -127,7 +99,7 @@
     text-align: center;
 }
 
-.thumbnail-tile-default {
+.thumbnail-tile-install {
     background-image: $sky;
     border-radius: 6px;
     &:hover {
@@ -137,17 +109,7 @@
     }
 }
 
-.thumbnail-tile-insights {
-    background-image: $night_sky;
-    border-radius: 6px;
-    &:hover {
-        background-image: $sky;
-        //background-color: $hc_yellow;
-        cursor: pointer;
-    }
-}
-
-.thumbnail-tile-community {
+.thumbnail-tile-default {
     background-image: $night_sky;
     border-radius: 6px;
     &:hover {
@@ -156,27 +118,13 @@
     }
 }
 
-//.install-thumbnail {
-//    background-image: $sky;
-//    border-radius: 6px;
-//    &:hover {
-//        background-image: none;
-//   background-color: $hc_yellow;
-//    cursor: pointer;
-//    }
-//}
 .insight-text {
     text-align: center;
+    color: $text_muted_alt;
 }
 
-//
 .home-module-card {
     padding: 5px;
     border-radius: 6px;
     background-color: $bg_light;
-    //background-image: $dusk_sky;
 }
-
-//.home-container {
-//    background-image: $dusk_sky;
-//}

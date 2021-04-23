@@ -11,7 +11,7 @@ import {
     SlidersOutlined,
     TableOutlined,
 } from '@ant-design/icons'
-import React, { useEffect } from 'react'
+import React, { ReactNode, useEffect } from 'react'
 import { DashboardItemType } from '~/types'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
@@ -25,59 +25,75 @@ const insights = [
     {
         name: 'Trends',
         target: '/insights?insight=TRENDS',
-        hint: "Answer questions like 'How many times does this event happen?'",
-        description: 'desc',
+        questions: [
+            'How many active users do we have?',
+            'How many times do users perform specific events?',
+            'When are my users most active?',
+        ],
         icon: <LineChartOutlined />,
     },
     {
         name: 'Funnels',
-        description: 'desc',
-        hint:
-            "Answer questions like 'What percentage of users complete key steps?' and 'In which step are my users dropping-off?'",
+        questions: [
+            'What percent of users get through my sign up funnel?',
+            'Where do most of my users experience the most friction?',
+            'Which users complete some steps but not others?',
+        ],
         target: '/insights?insight=FUNNELS',
         icon: <FunnelPlotOutlined />,
     },
     {
         name: 'Sessions',
-        description: 'desc',
-        hint: 'Answer questions like how long do users spend in my product?',
+        questions: ["How much time do users spend when they're using our product?"],
         target: '/insights?insight=SESSIONS',
         icon: <FieldTimeOutlined />,
     },
     {
         name: 'Retention',
-        description: 'desc',
-        hint: "Answer questions like 'What percentage of users come back after X amount of days, weeks, months?'",
+        questions: [
+            'What percentage of users continue to use our product?',
+            'How do different events correlate to more users returning?',
+        ],
         target: '/insights?insight=RETENTION',
         icon: <TableOutlined />,
     },
     {
         name: 'Paths',
-        description: 'desc',
         target: '/insights?insight=PATHS',
+        questions: ['What actions are users taking as they navigate our product?'],
         icon: <RightSquareOutlined />,
     },
     {
         name: 'Stickiness',
-        description: 'desc',
+        questions: ['How often are users repeating specific events across subsequent time periods?'],
         target: '/insights?insight=STICKINESS',
         icon: <FallOutlined />,
     },
     {
         name: 'Lifecycle',
-        description: 'desc',
         target: '/insights?insight=LIFECYCLE',
+        questions: ['How many users are you losing, re-engaging, activating, and acquiring across time periods?'],
         icon: <SlidersOutlined />,
     },
 ]
 
 function CreateAnalysisSection(): JSX.Element {
+    const questionsToTooltipTitle = (questions: string[]): ReactNode => {
+        const contents = questions.map((question, idx) => (
+            <Paragraph className={'insight-tooltip'} key={idx}>
+                {`•` + question}
+            </Paragraph>
+        ))
+
+        return <React.Fragment>{contents}</React.Fragment>
+    }
+
     return (
         <React.Fragment>
             <h3>Start an analysis</h3>
             <Paragraph>
-                Each chart type is built to answer a specific kind of question. Hover over each to learn more about the
-                kinds of questions it helps answer.
+                Each chart type is built to answer specific types of questions. Hover over each to learn more about the
+                kinds of questions it can help answer.
             </Paragraph>
 
             <List
@@ -86,13 +102,13 @@ function CreateAnalysisSection(): JSX.Element {
                 dataSource={insights}
                 renderItem={(insight) => (
                     <a href={insight.target}>
-                        <Tooltip color={'#2d2d2d'} title={insight.hint ? insight.hint : 'no hint'}>
+                        <Tooltip color={'#2d2d2d'} title={questionsToTooltipTitle(insight.questions)}>
                             <List.Item className="insight-container" key={insight.name}>
                                 <div>
                                     <Avatar
                                         size={100}
                                         shape={'square'}
-                                        className={'thumbnail-tile-insights'}
+                                        className={'thumbnail-tile-default'}
                                         icon={insight.icon}
                                     >
                                         {insight.name}
@@ -191,7 +207,7 @@ function InsightPane({
             <Skeleton loading={loading}>
                 {data.length > 0 && (
                     <React.Fragment>
-                        <div className="team-insights-container">
+                        <div className="home-module-carousel-container">
                             <Carousel {...settings}>{thumbs}</Carousel>
                         </div>
                     </React.Fragment>
@@ -200,7 +216,7 @@ function InsightPane({
                 {data.length <= 0 && (
                     <Space direction={'vertical'}>
                         <Paragraph style={{ marginTop: 5 }}>
-                            It looks like there are no recent analyses. Time to get to work!
+                            There are no recent analyses. Time to get to work!
                         </Paragraph>
                     </Space>
                 )}

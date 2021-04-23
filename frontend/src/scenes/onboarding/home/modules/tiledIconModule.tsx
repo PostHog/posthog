@@ -34,7 +34,7 @@ export function TiledIconModule({ tiles, header, subHeader }: TiledIconModulePro
                     dataSource={tiles}
                     renderItem={(tile) => (
                         <a href={tile.targetPath}>
-                            <Tooltip placement="bottom" title={tile.hoverText ? tile.hoverText : 'no hint'}>
+                            <Tooltip placement="bottom" title={tile.hoverText ? tile.hoverText : ''}>
                                 <List.Item className="insight-container" key={tile.title}>
                                     <Avatar
                                         size={85}
