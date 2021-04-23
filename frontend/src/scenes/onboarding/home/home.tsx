@@ -9,7 +9,7 @@ import { SlackOutlined, UserAddOutlined, RocketOutlined, GithubOutlined } from '
 
 import './home.scss'
 
-const { Content } = Layout
+const { Content, Footer } = Layout
 import { useActions, useValues } from 'kea'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,7 +25,6 @@ function HeaderCTAs(): JSX.Element {
     const { inviteMembersModalOpen } = useValues(navigationLogic)
     const { preflight } = useValues(preflightLogic)
     const [showToolTip, setShowToolTip] = useState(false)
-    console.log(!inviteMembersModalOpen)
     const inviteModal = (
         <div>
             <Tooltip
@@ -152,7 +151,7 @@ export function Home(): JSX.Element {
                         caption={
                             !user?.team?.ingested_event
                                 ? `Welcome to PostHog! Install one of our libraries to get started.`
-                                : `Welcome back!`
+                                : ` `
                         }
                         buttons={HeaderCTAs()}
                     />
@@ -163,6 +162,11 @@ export function Home(): JSX.Element {
                     </Content>
                 </Space>
             </div>
+            <Footer>
+                <h5>
+                    PostHog {` ❤ `} {currentTeam?.name ?? 'Your team'}
+                </h5>
+            </Footer>
         </Layout>
     )
 }
