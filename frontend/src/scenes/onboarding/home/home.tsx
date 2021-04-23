@@ -146,7 +146,7 @@ export function Home(): JSX.Element {
         </React.Fragment>
     )
     const teamHasData = user?.team?.ingested_event
-    reportProjectHomeSeen(teamHasData)
+    reportProjectHomeSeen(teamHasData || false)
     return (
         <Layout>
             <div style={{ marginBottom: 128 }} className={'home-container'}>
