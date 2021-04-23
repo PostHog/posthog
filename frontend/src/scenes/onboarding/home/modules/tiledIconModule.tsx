@@ -7,9 +7,9 @@ const { Paragraph } = Typography
 export interface TileParams {
     title: string
     targetPath: string
+    openInNewTab?: boolean
     hoverText?: string
     icon: JSX.Element
-    color?: string
     class?: string
 }
 
@@ -33,7 +33,7 @@ export function TiledIconModule({ tiles, header, subHeader }: TiledIconModulePro
                     grid={{}}
                     dataSource={tiles}
                     renderItem={(tile) => (
-                        <a href={tile.targetPath}>
+                        <a href={tile.targetPath} target={tile.openInNewTab ? '_blank' : '_self'}>
                             <Tooltip placement="bottom" title={tile.hoverText ? tile.hoverText : ''}>
                                 <List.Item className="insight-container" key={tile.title}>
                                     <Avatar

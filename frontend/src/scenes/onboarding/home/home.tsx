@@ -96,12 +96,14 @@ export function Home(): JSX.Element {
             icon: <SlackOutlined />,
             title: 'Hang out in Slack',
             targetPath: 'https://posthog.com/slack?s=app',
+            openInNewTab: true,
             hoverText:
                 'Talk with other PostHog users, get support on issues, and exclusive access to features in beta development.',
         },
         {
             icon: <GithubOutlined />,
             title: 'Clone our code',
+            openInNewTab: true,
             targetPath: 'https://github.com/PostHog/posthog',
             hoverText: 'Submit a PR and snag some PostHog merch!',
         },
@@ -164,7 +166,7 @@ export function Home(): JSX.Element {
                 </Space>
             </div>
             <Footer>
-                <div style={{ float: 'right' }}>
+                <div>
                     <h5>
                         {`🦔 ❤ `} {currentTeam?.name ?? 'Your team'}
                     </h5>
