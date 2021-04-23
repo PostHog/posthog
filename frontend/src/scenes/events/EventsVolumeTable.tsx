@@ -19,12 +19,12 @@ interface VolumeTableRecord {
     warnings: string[]
 }
 
-const search = (sources: VolumeTableRecord[], search: string): VolumeTableRecord[] => {
+const search = (sources: VolumeTableRecord[], searchQuery: string): VolumeTableRecord[] => {
     return new Fuse(sources, {
         keys: ['eventOrProp.name'],
         threshold: 0.3,
     })
-        .search(search)
+        .search(searchQuery)
         .map((result) => result.item)
 }
 
