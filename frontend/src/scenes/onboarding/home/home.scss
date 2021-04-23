@@ -106,6 +106,9 @@
         background-image: none;
         background-color: $hc_yellow;
         cursor: pointer;
+        .anticon-rocket {
+            transform: rotate(45deg);
+        }
     }
 }
 
