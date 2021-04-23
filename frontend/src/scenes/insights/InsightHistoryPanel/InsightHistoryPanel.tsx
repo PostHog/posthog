@@ -117,12 +117,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
     const { loadNextInsights, loadNextSavedInsights, loadNextTeamInsights } = useActions(insightHistoryLogic)
 
     const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
-    console.log(teamInsights)
-    console.log(teamInsights.length)
-    console.log(savedInsights)
-    console.log(savedInsights.length)
-    console.log(insights)
-    console.log(insights.length)
+
     return (
         <div data-attr="insight-history-panel" className="insight-history-panel">
             <Tabs
