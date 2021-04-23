@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function parseProperties(input) {
     if (Array.isArray(input) || !input) {
@@ -103,11 +103,11 @@ export const propertyFilterLogic = kea({
                 }
             }
         },
-        [propertyDefinitionsLogic.actionTypes.loadPropertyDefinitionsSuccess]: async () => {
-            /* Set the event properties in case the `loadPropertyDefinitions` request came later, or the event
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: async () => {
+            /* Set the event properties in case the `currentTeam` request came later, or the event
             properties were updated. */
             if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
-                actions.setProperties(propertyDefinitionsLogic.values.transformedPropertyDefinitions)
+                actions.setProperties(teamLogic.values.eventProperties)
             }
         },
     }),
@@ -136,7 +136,7 @@ export const propertyFilterLogic = kea({
     }),
 
     selectors: {
-        filtersLoading: [() => [propertyDefinitionsLogic.selectors.loaded], (loaded) => !loaded],
+        filtersLoading: [() => [teamLogic.selectors.currentTeamLoading], (currentTeamLoading) => currentTeamLoading],
     },
 
     events: ({ actions, props }) => ({
@@ -145,7 +145,7 @@ export const propertyFilterLogic = kea({
             actions.loadPersonProperties()
             // TODO: Event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
             if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
-                actions.setProperties(propertyDefinitionsLogic.values.transformedPropertyDefinitions)
+                actions.setProperties(teamLogic.values.eventProperties)
             }
         },
     }),

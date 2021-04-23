@@ -9,14 +9,14 @@ import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterDropdown'
 import { FilterSelector, sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { Link } from 'lib/components/Link'
 import { cohortsModel } from '~/models/cohortsModel'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function SessionsFilterBox({ selector }: { selector: FilterSelector }): JSX.Element | null {
     const { openFilter, personProperties } = useValues(sessionsFiltersLogic)
 
     const { closeFilterSelect, dropdownSelected } = useActions(sessionsFiltersLogic)
 
-    const { eventDefinitions } = useValues(eventDefinitionsLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { actions } = useValues(actionsModel)
     const { cohorts } = useValues(cohortsModel)
 
@@ -40,8 +40,8 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
             })),
             renderInfo: ActionInfo,
             type: 'action_type',
-            getValue: (item: SelectedItem) => item.action?.id || '',
-            getLabel: (item: SelectedItem) => item.action?.name || '',
+            getValue: (item: SelectedItem) => item.action?.id,
+            getLabel: (item: SelectedItem) => item.action?.name,
         },
         {
             name: (
@@ -50,9 +50,10 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 </>
             ),
             dataSource:
-                eventDefinitions.map((definition) => ({
-                    key: EntityTypes.EVENTS + definition.name,
-                    ...definition,
+                (currentTeam?.event_names_with_usage ?? []).map((event) => ({
+                    key: EntityTypes.EVENTS + event.event,
+                    name: event.event,
+                    ...event,
                 })) || [],
             renderInfo: function events({ item }) {
                 return (
@@ -60,22 +61,22 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                         <ContainerOutlined /> Events
                         <br />
                         <h3>{item.name}</h3>
-                        {item?.volume_30_day && (
+                        {item?.volume && (
                             <>
-                                Seen <strong>{item.volume_30_day}</strong> times.{' '}
+                                Seen <strong>{item.volume}</strong> times.{' '}
                             </>
                         )}
-                        {item?.query_usage_30_day && (
+                        {item?.usage_count && (
                             <>
-                                Used in <strong>{item.query_usage_30_day}</strong> queries.
+                                Used in <strong>{item.usage_count}</strong> queries.
                             </>
                         )}
                     </>
                 )
             },
             type: 'event_type',
-            getValue: (item: SelectedItem) => item.name,
-            getLabel: (item: SelectedItem) => item.name,
+            getValue: (item: SelectedItem) => item.event,
+            getLabel: (item: SelectedItem) => item.event,
         },
         {
             name: (
@@ -85,7 +86,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
             ),
             dataSource: cohorts.map((cohort: CohortType) => ({
                 key: 'cohorts' + cohort.id,
-                name: cohort.name || '',
+                name: cohort.name,
                 id: cohort.id,
                 cohort,
             })),
@@ -112,7 +113,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 )
             },
             type: 'cohort',
-            getValue: (item: SelectedItem) => item.id || '',
+            getValue: (item: SelectedItem) => item.id,
             getLabel: (item: SelectedItem) => item.name,
         },
     ]
@@ -135,9 +136,9 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                         <UsergroupAddOutlined /> User property
                         <br />
                         <h3>{item.name}</h3>
-                        {item?.query_usage_30_day && (
+                        {item?.usage_count && (
                             <>
-                                <strong>{item.query_usage_30_day}</strong> users have this property.
+                                <strong>{item.usage_count}</strong> users have this property.
                             </>
                         )}
                     </>
@@ -169,7 +170,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
             )
         },
         type: 'recording',
-        getValue: (item: SelectedItem) => item.value || '',
+        getValue: (item: SelectedItem) => item.value,
         getLabel: (item: SelectedItem) => item.name,
     })
 

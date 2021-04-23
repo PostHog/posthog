@@ -56,8 +56,8 @@ class TestTeam(BaseTest):
 
         for obj in EventDefinition.objects.filter(team=team):
             self.assertIn(obj.name, expected_events)
-            self.assertEqual(obj.volume_30_day, None)
-            self.assertEqual(obj.query_usage_30_day, None)
+            self.assertEqual(obj.volume_30_day, 0)
+            self.assertEqual(obj.query_usage_30_day, 0)
 
         # Test adding and removing one event
         team.event_names.pop(0)
@@ -111,8 +111,8 @@ class TestTeam(BaseTest):
 
         for obj in PropertyDefinition.objects.filter(team=team):
             self.assertIn(obj.name, expected_properties)
-            self.assertEqual(obj.volume_30_day, None)
-            self.assertEqual(obj.query_usage_30_day, None)
+            self.assertEqual(obj.volume_30_day, 0)
+            self.assertEqual(obj.query_usage_30_day, 0)
             self.assertEqual(obj.is_numerical, obj.name in numerical_properties)
 
         # Test adding and removing one event

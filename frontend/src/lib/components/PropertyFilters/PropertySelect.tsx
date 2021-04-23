@@ -2,11 +2,13 @@ import React from 'react'
 import { Select } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { SelectOption } from '~/types'
+import { EventProperty } from 'scenes/teamLogic'
+
+type PropertyOption = EventProperty
 
 interface Props {
     optionGroups: Array<PropertyOptionGroup>
-    value: Partial<SelectOption> | null
+    value: Partial<PropertyOption> | null
     onChange: (type: PropertyOptionGroup['type'], value: string) => void
     placeholder: string
     autoOpenIfEmpty?: boolean

@@ -12,10 +12,10 @@ import {
 import { Select } from 'antd'
 import { PropertyValue } from 'lib/components/PropertyFilters'
 import { TestAccountFilter } from '../TestAccountFilter'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function PathTab(): JSX.Element {
-    const { customEventNames } = useValues(eventDefinitionsLogic)
+    const { customEventNames } = useValues(teamLogic)
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
 

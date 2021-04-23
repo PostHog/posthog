@@ -1,13 +1,7 @@
 import React from 'react'
 import { Popover } from 'antd'
-import { KeyMapping } from '~/types'
 
-export interface KeyMappingInterface {
-    event: Record<string, KeyMapping>
-    element: Record<string, KeyMapping>
-}
-
-export const keyMapping: KeyMappingInterface = {
+export const keyMapping = {
     event: {
         $timestamp: {
             label: 'Timestamp',
@@ -363,12 +357,12 @@ export const keyMapping: KeyMappingInterface = {
         $geoip_latitude: {
             label: 'Latitude',
             description: `Approximated latitude matched to this event's IP address.`,
-            examples: ['-33.8591', '13.1337'],
+            examples: [-33.8591, 13.1337],
         },
         $geoip_longitude: {
             label: 'Longitude',
             description: `Approximated longitude matched to this event's IP address.`,
-            examples: ['151.2', '80.8008'],
+            examples: [151.2, 80.8008],
         },
         $geoip_time_zone: {
             label: 'Timezone',
@@ -433,17 +427,16 @@ export const keyMapping: KeyMappingInterface = {
     },
 }
 
-interface PropertyKeyInfoInterface {
-    value: string
-    type?: 'event' | 'element'
-}
-
-export function PropertyKeyInfo({ value, type = 'event' }: PropertyKeyInfoInterface): JSX.Element {
-    let data = null
-    if (value in keyMapping[type]) {
-        data = keyMapping[type][value]
+export function PropertyKeyInfo({ value, type = 'event' }) {
+    let data
+    if (type === 'cohort') {
+        return value.name
     } else {
-        return <>{value}</>
+        data = keyMapping[type][value]
+    }
+
+    if (!data) {
+        return value
     }
 
     return (
