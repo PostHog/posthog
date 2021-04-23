@@ -1,7 +1,7 @@
-import React, { CSSProperties, useRef } from 'react'
+import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Tooltip, Col, Row, Select } from 'antd'
-import { ActionType, ActionFilter, EntityTypes, PropertyFilter } from '~/types'
+import { ActionFilter, EntityTypes, PropertyFilter } from '~/types'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
@@ -77,7 +77,7 @@ export function ActionFilterRow({
             onProperty: MATHS[selectedMath]?.onProperty,
             value: filter.id,
             type: filter.type,
-            index: index,
+            index,
         })
     }
     const onMathPropertySelect = (_: unknown, property: string): void => {
@@ -86,18 +86,18 @@ export function ActionFilterRow({
             math_property: property,
             value: filter.id,
             type: filter.type,
-            index: index,
+            index,
         })
     }
 
     const dropDownCondition = (): boolean =>
-        selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index
+        Boolean(selectedFilter && selectedFilter?.type === filter.type && selectedFilter?.index === index)
 
     const onClick = (): void => {
-        if (selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index) {
+        if (dropDownCondition()) {
             selectFilter(null)
         } else {
-            selectFilter({ filter, type: filter.type, index })
+            selectFilter({ ...filter, index })
         }
     }
 
@@ -105,7 +105,7 @@ export function ActionFilterRow({
         name = null
         value = null
     } else {
-        entity = entities[filter.type]?.filter((action: ActionType) => action.id === filter.id)[0] || {}
+        entity = entities[filter.type]?.filter((action) => action.id === filter.id)[0] || {}
         name = entity.name || filter.name
         value = entity.id || filter.id
     }
@@ -151,9 +151,7 @@ export function ActionFilterRow({
                             math={math}
                             index={index}
                             onMathSelect={onMathSelect}
-                            areEventPropertiesNumericalAvailable={
-                                eventPropertiesNumerical?.length > 0
-                            }
+                            areEventPropertiesNumericalAvailable={eventPropertiesNumerical?.length > 0}
                             style={{ maxWidth: '100%', width: 'initial' }}
                         />
                     )}
@@ -325,7 +323,6 @@ interface SelectOptionType {
 }
 
 function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
-    console.log('MPS', props)
     function isPropertyApplicable(value: PropertyFilter['value']): boolean {
         const includedProperties = ['$time']
         const excludedProperties = ['distinct_id', 'token']
@@ -342,10 +339,9 @@ function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
         <SelectGradientOverflow
             showSearch
             style={{ width: 150 }}
-            onChange={(_property: string, payload: SelectOptionType) => {
-                    props.onMathPropertySelect(props.index, payload?.value)
-                }
-            }
+            onChange={(_property: string, payload) => {
+                props.onMathPropertySelect(props.index, (payload as SelectOptionType)?.value)
+            }}
             className="property-select"
             value={props.mathProperty}
             data-attr="math-property-select"
@@ -361,9 +357,9 @@ function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
                     <Tooltip
                         title={
                             <>
-                                Calculate {MATHS[props.math ?? ''].name.toLowerCase()} from property <code>{label}</code>.
-                                Note that only {props.name} occurences where <code>{label}</code> is set and a number
-                                will be taken into account.
+                                Calculate {MATHS[props.math ?? ''].name.toLowerCase()} from property{' '}
+                                <code>{label}</code>. Note that only {props.name} occurences where <code>{label}</code>{' '}
+                                is set and a number will be taken into account.
                             </>
                         }
                         placement="right"

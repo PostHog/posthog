@@ -271,7 +271,7 @@ export const EntityTypes: Record<string, EntityType> = {
 }
 
 export type EntityFilter = {
-    type: EntityType
+    type?: EntityType
     id: Entity['id'] | null
     name: string | null
 } & Record<string, any>

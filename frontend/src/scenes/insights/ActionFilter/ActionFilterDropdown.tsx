@@ -1,6 +1,6 @@
 import React, { RefObject } from 'react'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { ActionType, EntityTypes, EventUsageType, FilterType } from '~/types'
+import { ActionType, EntityTypes, EventUsageType } from '~/types'
 import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
@@ -9,8 +9,6 @@ import { SelectBox, SelectedItem } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
 import { teamLogic } from 'scenes/teamLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-
-
 
 const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
     return events
@@ -34,7 +32,7 @@ export function ActionFilterDropdown({
         return null
     }
 
-    const selectedFilter: FilterType = useValues(logic).selectedFilter
+    const selectedFilter = useValues(logic).selectedFilter
     const { updateFilter, setEntityFilterVisibility } = useActions(logic)
 
     const { actions } = useValues(actionsModel)
