@@ -182,7 +182,7 @@ function InsightPane({
             />
         </Card>
     ))
-    data.length = 0
+
     return (
         <React.Fragment>
             <h3>Recent analyses across your team</h3>
