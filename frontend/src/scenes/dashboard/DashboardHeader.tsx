@@ -245,7 +245,7 @@ export function DashboardHeader(): JSX.Element {
                             tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
                         />
                     </div>
-                    <Card className="dashboard-description">
+                    <Card className="dashboard-description" bordered={!(dashboardMode === DashboardMode.Edit)}>
                         {dashboardMode === DashboardMode.Edit ? (
                             <Input.TextArea
                                 placeholder="Add a description to your dashboard that helps others understand it better."
