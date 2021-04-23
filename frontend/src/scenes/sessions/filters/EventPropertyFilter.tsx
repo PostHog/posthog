@@ -5,7 +5,7 @@ import { EventTypePropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 
 interface Props {
     filter: EventTypePropertyFilter
@@ -13,7 +13,7 @@ interface Props {
 }
 
 export function EventPropertyFilter({ filter, selector }: Props): JSX.Element {
-    const { eventProperties } = useValues(teamLogic)
+    const { transformedPropertyDefinitions } = useValues(propertyDefinitionsLogic)
     const { updateFilter } = useActions(sessionsFiltersLogic)
 
     const property = filter.properties && filter.properties.length > 0 ? filter.properties[0] : null
@@ -29,7 +29,7 @@ export function EventPropertyFilter({ filter, selector }: Props): JSX.Element {
                     {
                         type: 'event',
                         label: 'Event properties',
-                        options: eventProperties,
+                        options: transformedPropertyDefinitions,
                     },
                 ]}
                 onChange={(_, key) => {
