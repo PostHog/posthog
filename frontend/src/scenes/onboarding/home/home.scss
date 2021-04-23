@@ -1,0 +1,182 @@
+@import '~/vars';
+
+.tutorials-container {
+    width: 1200px;
+    //@media only screen and (min-width: 1200px) {
+    //    width: 1000px;
+    //}
+    @media only screen and (max-width: 1400px) {
+        width: 850px;
+    }
+    @media only screen and (max-width: 1000px) {
+        width: 600px;
+    }
+
+    @media only screen and (max-width: 700px) {
+        width: 400px;
+    }
+    @media only screen and (max-width: 600px) {
+        width: 250px;
+    }
+}
+
+.team-insights-container {
+    width: 1200px;
+    @media only screen and (max-width: 1400px) {
+        width: 850px;
+    }
+    @media only screen and (max-width: 1000px) {
+        width: 600px;
+    }
+
+    @media only screen and (max-width: 700px) {
+        width: 400px;
+    }
+    @media only screen and (max-width: 600px) {
+        width: 250px;
+    }
+}
+
+.insight-chart-tile {
+    margin-bottom: 20px;
+    border-radius: 12px;
+    .dashboard-item {
+        width: 250px;
+        height: 225px;
+        @media only screen and (max-width: 600px) {
+            width: 200px;
+        }
+    }
+    .dashboard-item-footer {
+        margin-left: 10px;
+        margin-bottom: 2px;
+    }
+}
+
+.lesson-title {
+    color: $hc_light_lilac;
+}
+
+.lesson-card {
+    text-align: center;
+    align-items: center;
+    background-image: $night_sky;
+    //background-color: $blue_300;
+    border-radius: 12px;
+    height: 200px;
+    width: 275px;
+    max-width: 275px;
+    margin-bottom: 20px;
+    margin-left: 10px;
+    margin-right: 10px;
+    &:hover {
+        //background-image: none;
+        //background-color: $hc_yellow;
+        background-image: $sky;
+        .lesson-title {
+            color: $hc_navy;
+        }
+    }
+    @media only screen and (min-width: 700px) {
+        //padding: 10px;
+        margin-left: 10px;
+        margin-right: 10px;
+        //margin-bottom: 10px;
+    }
+    .ant-layout-footer {
+        padding: 2px !important;
+    }
+}
+
+.tutorials-carousel {
+    width: 100%;
+}
+
+.ant-carousel .slick-prev,
+.ant-carousel .slick-next {
+    color: unset !important;
+    font-size: unset !important;
+    top: 35% !important;
+}
+
+.ant-carousel .slick-prev:hover,
+.ant-carousel .slick-next:hover,
+.ant-carousel .slick-prev:focus,
+.ant-carousel .slick-next:focus {
+    color: unset !important;
+}
+
+//.lesson-thumbnail {
+//    height: 100%;
+//    margin: 10px;
+//    padding: 2px;
+//    line-height: 160px;
+//    text-align: center;
+//    background: #364d79;
+//    color: #ffffff;
+//}
+
+.lesson-image {
+    border-radius: 6px;
+    border: 1px solid $hc_yellow;
+}
+
+.insight-container {
+    margin: 5px;
+    padding: 2px;
+    text-align: center;
+}
+
+.thumbnail-tile-default {
+    background-image: $sky;
+    border-radius: 6px;
+    &:hover {
+        background-image: none;
+        background-color: $hc_yellow;
+        cursor: pointer;
+    }
+}
+
+.thumbnail-tile-insights {
+    background-image: $night_sky;
+    border-radius: 6px;
+    &:hover {
+        background-image: $sky;
+        //background-color: $hc_yellow;
+        cursor: pointer;
+    }
+}
+
+.thumbnail-tile-community {
+    background-image: $night_sky;
+    border-radius: 6px;
+    &:hover {
+        background-image: $sky;
+        cursor: pointer;
+    }
+}
+
+//.install-thumbnail {
+//    background-image: $sky;
+//    border-radius: 6px;
+//    &:hover {
+//        background-image: none;
+//   background-color: $hc_yellow;
+//    cursor: pointer;
+//    }
+//}
+.insight-text {
+    text-align: center;
+}
+
+//
+.home-module-card {
+    padding: 5px;
+    border-radius: 6px;
+    background-color: $bg_light;
+    //background-image: $dusk_sky;
+}
+
+//.home-container {
+//    background-image: $dusk_sky;
+//}

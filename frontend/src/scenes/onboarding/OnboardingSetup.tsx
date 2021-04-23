@@ -138,7 +138,7 @@ export function OnboardingSetup(): JSX.Element {
 
     return (
         <div className="onboarding-setup">
-            {currentSection ? (
+            {true ? (
                 <>
                     <Row gutter={16}>
                         <Col span={18}>
