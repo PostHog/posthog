@@ -164,9 +164,11 @@ export function Home(): JSX.Element {
                 </Space>
             </div>
             <Footer>
-                <h5>
-                    PostHog {` ❤ `} {currentTeam?.name ?? 'Your team'}
-                </h5>
+                <div style={{ float: 'right' }}>
+                    <h5>
+                        {`🦔 ❤ `} {currentTeam?.name ?? 'Your team'}
+                    </h5>
+                </div>
             </Footer>
         </Layout>
     )
