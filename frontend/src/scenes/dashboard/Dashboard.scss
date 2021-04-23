@@ -46,7 +46,7 @@ $dashboard-title-size: 32px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            column-gap: 8px;
+            column-gap: $default_spacing / 2;
         }
 
         .add-description {
