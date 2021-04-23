@@ -249,12 +249,11 @@ export const trendsLogic = kea<
                 FilterType
             >,
             {
-                setFilters: (state, { filters, mergeFilters }) => {
-                    return cleanFilters({
+                setFilters: (state, { filters, mergeFilters }) =>
+                    cleanFilters({
                         ...(mergeFilters ? state : {}),
                         ...filters,
-                    })
-                },
+                    }),
             },
         ],
         people: [

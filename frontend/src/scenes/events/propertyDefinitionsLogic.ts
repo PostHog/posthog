@@ -70,8 +70,21 @@ export const propertyDefinitionsLogic = kea<
                 propertyDefinitions.map((property) => ({
                     value: property.id,
                     label: property.name,
-                    is_numerical: property.is_numerical,
                 })),
+        ],
+        propertyNames: [
+            // TODO: This can be improved for performance by enabling downstream components to use `propertyDefinitions` directly and getting rid of this selector.
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinition[]): string[] =>
+                propertyDefinitions.map((definition) => definition.name),
+        ],
+        numericalPropertyNames: [
+            // TODO: This can be improved for performance by enabling downstream components to use `propertyDefinitions` directly and getting rid of this selector.
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinition[]): string[] =>
+                propertyDefinitions
+                    .filter((definition) => definition.is_numerical)
+                    .map((definition) => definition.name),
         ],
     },
 })

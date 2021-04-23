@@ -690,3 +690,10 @@ export interface SelectOption {
     value: string
     label: string
 }
+
+export interface KeyMapping {
+    label: string
+    description: string | JSX.Element
+    examples?: string[]
+    hide?: boolean
+}
