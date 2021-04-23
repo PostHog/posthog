@@ -94,13 +94,14 @@ export function Home(): JSX.Element {
     const communitySources: TileParams[] = [
         {
             icon: <SlackOutlined />,
-            title: 'Join Us in Slack',
+            title: 'Hang out in Slack',
             targetPath: 'https://posthog.com/slack?s=app',
-            hoverText: '',
+            hoverText:
+                'Talk with other PostHog users, get support on issues, and exclusive access to features in beta development.',
         },
         {
             icon: <GithubOutlined />,
-            title: 'Checkout our GitHub',
+            title: 'Clone our code',
             targetPath: 'https://github.com/PostHog/posthog',
             hoverText: 'Submit a PR and snag some PostHog merch!',
         },
