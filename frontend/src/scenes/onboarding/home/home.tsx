@@ -90,10 +90,10 @@ export function Home(): JSX.Element {
         },
         {
             icon: <GithubOutlined />,
-            title: 'Clone our code',
+            title: 'Check out our code',
             openInNewTab: true,
             targetPath: 'https://github.com/PostHog/posthog',
-            hoverText: 'Submit a PR and snag some PostHog merch!',
+            hoverText: 'Submit a pull request and snag some PostHog merch!',
         },
     ]
 
