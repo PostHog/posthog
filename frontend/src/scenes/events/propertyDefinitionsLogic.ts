@@ -16,30 +16,23 @@ interface PropertyDefinitionStorage {
 export const propertyDefinitionsLogic = kea<
     propertyDefinitionsLogicType<PropertyDefinitionStorage, PropertyDefinition, PropertySelectOption>
 >({
-    reducers: {
-        propertyStorage: [
-            { results: [], next: null, count: 0 } as PropertyDefinitionStorage,
-            {
-                loadPropertyDefinitionsSuccess: (state, { propertyStorage }) => {
-                    return {
-                        count: propertyStorage.count,
-                        results: [...state.results, ...propertyStorage.results],
-                        next: propertyStorage.next,
-                    }
-                },
-            },
-        ],
-    },
     loaders: ({ values }) => ({
         propertyStorage: [
             { results: [], next: null, count: 0 } as PropertyDefinitionStorage,
             {
                 loadPropertyDefinitions: async (initial?: boolean) => {
-                    const url = initial ? 'api/projects/@current/property_definitions/' : values.propertyStorage.next
+                    const url = initial
+                        ? 'api/projects/@current/property_definitions/?limit=500'
+                        : values.propertyStorage.next
                     if (!url) {
                         throw new Error('Incorrect call to propertyDefinitionsLogic.loadPropertyDefinitions')
                     }
-                    return await api.get(url)
+                    const propertyStorage = await api.get(url)
+                    return {
+                        count: propertyStorage.count,
+                        results: [...values.propertyStorage.results, ...propertyStorage.results],
+                        next: propertyStorage.next,
+                    }
                 },
             },
         ],
@@ -77,12 +70,10 @@ export const propertyDefinitionsLogic = kea<
                 })),
         ],
         propertyNames: [
-            // TODO: This can be improved for performance by enabling downstream components to use `propertyDefinitions` directly and getting rid of this selector.
             (s) => [s.propertyDefinitions],
             (propertyDefinitions): string[] => propertyDefinitions.map((definition) => definition.name),
         ],
         numericalPropertyNames: [
-            // TODO: This can be improved for performance by enabling downstream components to use `propertyDefinitions` directly and getting rid of this selector.
             (s) => [s.transformedPropertyDefinitions],
             (transformedPropertyDefinitions): PropertySelectOption[] =>
                 transformedPropertyDefinitions.filter((definition) => definition.is_numerical),

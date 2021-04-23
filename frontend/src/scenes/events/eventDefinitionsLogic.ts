@@ -18,30 +18,23 @@ interface EventsGroupedInterface {
 export const eventDefinitionsLogic = kea<
     eventDefinitionsLogicType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface, SelectOption>
 >({
-    reducers: {
-        eventStorage: [
-            { results: [], next: null, count: 0 } as EventDefinitionStorage,
-            {
-                loadEventDefinitionsSuccess: (state, { eventStorage }) => {
-                    return {
-                        count: eventStorage.count,
-                        results: [...state.results, ...eventStorage.results],
-                        next: eventStorage.next,
-                    }
-                },
-            },
-        ],
-    },
     loaders: ({ values }) => ({
         eventStorage: [
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
             {
                 loadEventDefinitions: async (initial?: boolean) => {
-                    const url = initial ? 'api/projects/@current/event_definitions/' : values.eventStorage.next
+                    const url = initial
+                        ? 'api/projects/@current/event_definitions/?limit=500'
+                        : values.eventStorage.next
                     if (!url) {
                         throw new Error('Incorrect call to eventDefinitionsLogic.loadEventDefinitions')
                     }
-                    return await api.get(url)
+                    const eventStorage = await api.get(url)
+                    return {
+                        count: eventStorage.count,
+                        results: [...values.eventStorage.results, ...eventStorage.results],
+                        next: eventStorage.next,
+                    }
                 },
             },
         ],
@@ -66,7 +59,6 @@ export const eventDefinitionsLogic = kea<
         ],
         eventDefinitions: [(s) => [s.eventStorage], (eventStorage): EventDefinition[] => eventStorage.results],
         eventNames: [
-            // TODO: This can be improved for performance by enabling downstream components to use `eventDefinitions` directly and getting rid of this selector.
             (s) => [s.eventDefinitions],
             (eventDefinitions): string[] => eventDefinitions.map((definition) => definition.name),
         ],
@@ -75,7 +67,6 @@ export const eventDefinitionsLogic = kea<
             (eventNames): string[] => eventNames.filter((event) => !event.startsWith('!')),
         ],
         eventNamesGrouped: [
-            // TODO: This can be improved for performance by enabling downstream components to use `eventDefinitions` directly and getting rid of this selector.
             (s) => [s.eventNames],
             (eventNames): EventsGroupedInterface[] => {
                 const data: EventsGroupedInterface[] = [
