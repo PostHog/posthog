@@ -68,7 +68,7 @@ export const propertyDefinitionsLogic = kea<
             (s) => [s.propertyDefinitions],
             (propertyDefinitions: PropertyDefinition[]): SelectOption[] =>
                 propertyDefinitions.map((property) => ({
-                    value: property.id,
+                    value: property.name,
                     label: property.name,
                 })),
         ],

@@ -104,10 +104,10 @@ export const propertyFilterLogic = kea({
             }
         },
         [propertyDefinitionsLogic.actionTypes.loadPropertyDefinitionsSuccess]: async () => {
-            /* Set the event properties in case the `currentTeam` request came later, or the event
+            /* Set the event properties in case the `loadPropertyDefinitions` request came later, or the event
             properties were updated. */
             if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
-                actions.setProperties(propertyDefinitionsLogic.values.propertyNames)
+                actions.setProperties(propertyDefinitionsLogic.values.transformedPropertyDefinitions)
             }
         },
     }),
@@ -145,7 +145,7 @@ export const propertyFilterLogic = kea({
             actions.loadPersonProperties()
             // TODO: Event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
             if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
-                actions.setProperties(propertyDefinitionsLogic.values.propertyNames)
+                actions.setProperties(propertyDefinitionsLogic.values.transformedPropertyDefinitions)
             }
         },
     }),
