@@ -1,7 +1,7 @@
 import React, { CSSProperties, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Tooltip, Col, Row, Select } from 'antd'
-import { ActionType, ActionFilter, EntityTypes } from '~/types'
+import { ActionType, ActionFilter, EntityTypes, PropertyFilter } from '~/types'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
@@ -310,11 +310,18 @@ function MathSelector({
 
 interface MathPropertySelectorProps {
     name: string
-    math: string
-    mathProperty: string
+    math?: string
+    mathProperty?: string
     index: number
     onMathPropertySelect: (index: number, value: string) => any
     properties: EventProperty[]
+}
+
+interface SelectOptionType {
+    children: React.ReactChildren
+    ['data-attr']: string
+    key: string
+    value: string
 }
 
 function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
@@ -335,7 +342,10 @@ function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
         <SelectGradientOverflow
             showSearch
             style={{ width: 150 }}
-            onChange={(_, payload) => props.onMathPropertySelect(props.index, payload?.value)}
+            onChange={(_property: string, payload: SelectOptionType) => {
+                    props.onMathPropertySelect(props.index, payload?.value)
+                }
+            }
             className="property-select"
             value={props.mathProperty}
             data-attr="math-property-select"
@@ -351,7 +361,7 @@ function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
                     <Tooltip
                         title={
                             <>
-                                Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
+                                Calculate {MATHS[props.math ?? ''].name.toLowerCase()} from property <code>{label}</code>.
                                 Note that only {props.name} occurences where <code>{label}</code> is set and a number
                                 will be taken into account.
                             </>
