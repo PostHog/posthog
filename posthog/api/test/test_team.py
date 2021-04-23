@@ -17,6 +17,8 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["results"][0]["name"], self.team.name)
         self.assertNotIn("test_account_filters", response_data["results"][0])
         self.assertNotIn("data_attributes", response_data["results"][0])
+
+        # TODO: #4070 These assertions will no longer make sense when we fully remove these attributes from the model
         self.assertNotIn("event_names", response_data["results"][0])
         self.assertNotIn("event_properties", response_data["results"][0])
         self.assertNotIn("event_properties_numerical", response_data["results"][0])
@@ -31,11 +33,13 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["timezone"], "UTC")
         self.assertEqual(response_data["is_demo"], False)
         self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
-        self.assertIn("event_names", response_data)
-        self.assertIn("event_properties", response_data)
-        self.assertIn("event_properties_numerical", response_data)
-        self.assertIn("event_names_with_usage", response_data)
-        self.assertIn("event_properties_with_usage", response_data)
+        # The properties below are no longer included as part of the request
+        # TODO: #4070 These assertions will no longer make sense when we fully remove these attributes from the model
+        self.assertNotIn("event_names", response_data)
+        self.assertNotIn("event_properties", response_data)
+        self.assertNotIn("event_properties_numerical", response_data)
+        self.assertNotIn("event_names_with_usage", response_data)
+        self.assertNotIn("event_properties_with_usage", response_data)
 
     def test_cant_retrieve_project_from_another_org(self):
         org = Organization.objects.create(name="New Org")
