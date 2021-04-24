@@ -120,11 +120,6 @@ export interface TeamBasicType {
 export interface TeamType extends TeamBasicType {
     anonymize_ips: boolean
     app_urls: string[]
-    event_names: string[]
-    event_properties: string[]
-    event_properties_numerical: string[]
-    event_names_with_usage: EventUsageType[]
-    event_properties_with_usage: PropertyUsageType[]
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
@@ -674,4 +669,31 @@ export interface LicenseType {
     valid_until: string
     max_users: string | null
     created_at: string
+}
+
+export interface EventDefinition {
+    id: string
+    name: string
+    volume_30_day: number | null
+    query_usage_30_day: number | null
+}
+
+export interface PropertyDefinition {
+    id: string
+    name: string
+    volume_30_day: number | null
+    query_usage_30_day: number | null
+    is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
+}
+
+export interface SelectOption {
+    value: string
+    label: string
+}
+
+export interface KeyMapping {
+    label: string
+    description: string | JSX.Element
+    examples?: string[]
+    hide?: boolean
 }

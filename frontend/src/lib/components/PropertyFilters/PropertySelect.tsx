@@ -3,13 +3,11 @@ import Fuse from 'fuse.js'
 import { Select } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { EventProperty } from 'scenes/teamLogic'
-
-type PropertyOption = EventProperty
+import { SelectOption } from '~/types'
 
 interface Props {
     optionGroups: Array<PropertyOptionGroup>
-    value: Partial<PropertyOption> | null
+    value: Partial<SelectOption> | null
     onChange: (type: PropertyOptionGroup['type'], value: string) => void
     placeholder: string
     autoOpenIfEmpty?: boolean

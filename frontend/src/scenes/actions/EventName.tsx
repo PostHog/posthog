@@ -1,11 +1,17 @@
 import React from 'react'
 import { Select } from 'antd'
 import { useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 
-export function EventName({ value, onChange, isActionStep = false }) {
-    const { eventNamesGrouped } = useValues(teamLogic)
+interface EventNameInterface {
+    value: string
+    onChange: (value: string) => void
+    isActionStep?: boolean
+}
+
+export function EventName({ value, onChange, isActionStep = false }: EventNameInterface): JSX.Element {
+    const { eventNamesGrouped } = useValues(eventDefinitionsLogic)
 
     return (
         <span>
