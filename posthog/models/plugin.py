@@ -158,7 +158,7 @@ def fetch_plugin_log_entries(
             clickhouse_where_parts.append("message ILIKE %(search)s")
             clickhouse_kwargs["search"] = f"%{search}%"
         clickhouse_query = f"""
-            SELECT id, team_id, plugin_id, plugin_config_id, timestamp, type, message, instance_id FROM plugin_log_entries
+            SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
             WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
         """
         return [PluginLogEntryRaw(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
