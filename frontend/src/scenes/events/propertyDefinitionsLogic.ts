@@ -22,7 +22,7 @@ export const propertyDefinitionsLogic = kea<
             {
                 loadPropertyDefinitions: async (initial?: boolean) => {
                     const url = initial
-                        ? 'api/projects/@current/property_definitions/?limit=500'
+                        ? 'api/projects/@current/property_definitions/?limit=5000'
                         : values.propertyStorage.next
                     if (!url) {
                         throw new Error('Incorrect call to propertyDefinitionsLogic.loadPropertyDefinitions')

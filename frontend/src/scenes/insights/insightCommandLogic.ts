@@ -1,14 +1,6 @@
-import {
-    Command,
-    commandPaletteLogic,
-    CommandRegistrations,
-    CommandResult,
-    CommandFlow,
-    RegExpCommandPairs,
-    CommandResultDisplayable,
-} from 'lib/components/CommandPalette/commandPaletteLogic'
-import { commandPaletteLogicType } from './commandPaletteLogicType'
+import { Command, commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { kea } from 'kea'
+import { insightCommandLogicType } from './insightCommandLogicType'
 import { compareFilterLogic } from 'lib/components/CompareFilter/compareFilterLogic'
 import { RiseOutlined } from '@ant-design/icons'
 import { dateFilterLogic } from 'scenes/insights/DateFilter/dateFilterLogic'
@@ -16,16 +8,7 @@ import { dateMapping } from 'lib/utils'
 
 const INSIGHT_COMMAND_SCOPE = 'insights'
 
-export const insightCommandLogic = kea<
-    commandPaletteLogicType<
-        Command,
-        CommandRegistrations,
-        CommandResult,
-        CommandFlow,
-        RegExpCommandPairs,
-        CommandResultDisplayable
-    >
->({
+export const insightCommandLogic = kea<insightCommandLogicType>({
     connect: [commandPaletteLogic, compareFilterLogic, dateFilterLogic],
     events: () => ({
         afterMount: () => {

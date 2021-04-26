@@ -17,7 +17,7 @@ type WarningType =
     | 'real_project_with_no_events'
     | null
 
-export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, WarningType>>({
+export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, WarningType, OrganizationType>>({
     actions: {
         setMenuCollapsed: (collapsed: boolean) => ({ collapsed }),
         collapseMenu: () => {},
