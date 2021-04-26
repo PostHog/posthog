@@ -1,5 +1,5 @@
 import React, { RefObject } from 'react'
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ActionType, EntityTypes, EventUsageType } from '~/types'
 import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
@@ -9,6 +9,7 @@ import { SelectBox, SelectedItem } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
 import { teamLogic } from 'scenes/teamLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { entityFilterLogic } from './entityFilterLogic'
 
 const getSuggestions = (events: EventUsageType[]): EventUsageType[] => {
     return events
@@ -24,7 +25,7 @@ export function ActionFilterDropdown({
     onClose,
 }: {
     open: boolean
-    logic: BuiltLogic
+    logic: typeof entityFilterLogic
     openButtonRef?: RefObject<HTMLElement>
     onClose: () => void
 }): JSX.Element | null {
@@ -46,8 +47,8 @@ export function ActionFilterDropdown({
     }
 
     const callUpdateFilter = (type: 'actions' | 'events', id: string | number, name: string): void => {
-        updateFilter({ type, id, name, index: selectedFilter.index })
-        if (selectedFilter.filter.properties?.length) {
+        updateFilter({ type, id, name, index: selectedFilter?.index })
+        if (selectedFilter?.properties?.length) {
             // UX: Open the filter details if this series already has filters to avoid filters being missed
             setEntityFilterVisibility(selectedFilter.index, true)
         }
@@ -56,7 +57,7 @@ export function ActionFilterDropdown({
 
     return (
         <SelectBox
-            selectedItemKey={selectedFilter ? selectedFilter.filter.type + selectedFilter.filter.id : undefined}
+            selectedItemKey={selectedFilter?.filter?.type + selectedFilter?.filter?.id ?? undefined}
             onDismiss={handleDismiss}
             onSelect={callUpdateFilter}
             items={[

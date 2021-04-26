@@ -146,7 +146,7 @@ export function ActionFilterRow({
                     />
                 </Col>
                 <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
-                    {!hideMathSelector && math && (
+                    {!hideMathSelector && (
                         <MathSelector
                             math={math}
                             index={index}
