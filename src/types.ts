@@ -176,6 +176,12 @@ export interface PluginAttachmentDB {
     contents: Buffer | null
 }
 
+export enum PluginLogEntrySource {
+    System = 'SYSTEM',
+    Plugin = 'PLUGIN',
+    Console = 'CONSOLE',
+}
+
 export enum PluginLogEntryType {
     Debug = 'DEBUG',
     Log = 'LOG',
@@ -190,6 +196,7 @@ export interface PluginLogEntry {
     plugin_id: number
     plugin_config_id: number
     timestamp: string
+    source: PluginLogEntrySource
     type: PluginLogEntryType
     message: string
     instance_id: string

@@ -1,6 +1,13 @@
 import { clearError, processError } from '../../shared/error'
 import { status } from '../../shared/status'
-import { PluginConfig, PluginConfigVMReponse, PluginsServer, PluginTask } from '../../types'
+import {
+    PluginConfig,
+    PluginConfigVMReponse,
+    PluginLogEntrySource,
+    PluginLogEntryType,
+    PluginsServer,
+    PluginTask,
+} from '../../types'
 import { createPluginConfigVM } from './vm'
 
 export class LazyPluginVM {
@@ -18,10 +25,28 @@ export class LazyPluginVM {
             ) => {
                 try {
                     const vm = await createPluginConfigVM(server, pluginConfig, indexJs)
+                    if (server.ENABLE_PERSISTENT_CONSOLE) {
+                        await server.db.createPluginLogEntry(
+                            pluginConfig,
+                            PluginLogEntrySource.System,
+                            PluginLogEntryType.Info,
+                            `Plugin loaded (instance ID ${server.instanceId}).`,
+                            server.instanceId
+                        )
+                    }
                     status.info('🔌', `Loaded ${logInfo}`)
                     void clearError(server, pluginConfig)
                     resolve(vm)
                 } catch (error) {
+                    if (server.ENABLE_PERSISTENT_CONSOLE) {
+                        await server.db.createPluginLogEntry(
+                            pluginConfig,
+                            PluginLogEntrySource.System,
+                            PluginLogEntryType.Error,
+                            `Plugin failed to load (instance ID ${server.instanceId}).`,
+                            server.instanceId
+                        )
+                    }
                     status.warn('⚠️', `Failed to load ${logInfo}`)
                     void processError(server, pluginConfig, error)
                     resolve(null)

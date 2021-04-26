@@ -2,7 +2,7 @@ import { ConsoleExtension } from '@posthog/plugin-scaffold'
 
 import { status } from '../../../shared/status'
 import { determineNodeEnv, NodeEnv, pluginDigest } from '../../../shared/utils'
-import { PluginConfig, PluginLogEntryType, PluginsServer } from '../../../types'
+import { PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginsServer } from '../../../types'
 
 function consoleFormat(...args: unknown[]): string {
     return args
@@ -26,7 +26,13 @@ export function createConsole(server: PluginsServer, pluginConfig: PluginConfig)
             return
         }
 
-        await server.db.createPluginLogEntry(pluginConfig, type, consoleFormat(...args), server.instanceId)
+        await server.db.createPluginLogEntry(
+            pluginConfig,
+            PluginLogEntrySource.Console,
+            type,
+            consoleFormat(...args),
+            server.instanceId
+        )
     }
 
     return {
