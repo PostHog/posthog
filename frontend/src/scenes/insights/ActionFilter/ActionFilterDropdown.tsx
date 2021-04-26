@@ -57,7 +57,7 @@ export function ActionFilterDropdown({
 
     return (
         <SelectBox
-            selectedItemKey={selectedFilter?.filter?.type + selectedFilter?.filter?.id ?? undefined}
+            selectedItemKey={selectedFilter?.filter?.type + selectedFilter?.filter?.id || undefined}
             onDismiss={handleDismiss}
             onSelect={callUpdateFilter}
             items={[
