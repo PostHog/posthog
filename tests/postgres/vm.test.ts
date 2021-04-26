@@ -606,6 +606,7 @@ test('console.log', async () => {
 
     expect(mockServer.db.createPluginLogEntry).toHaveBeenCalledWith(
         pluginConfig39,
+        'CONSOLE',
         'LOG',
         'logged event',
         expect.anything()

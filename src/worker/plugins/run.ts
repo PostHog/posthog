@@ -100,12 +100,12 @@ export async function runPluginsOnBatch(server: PluginsServer, batch: PluginEven
 export async function runPluginTask(server: PluginsServer, taskName: string, pluginConfigId: number): Promise<any> {
     const timer = new Date()
     let response
+    const pluginConfig = server.pluginConfigs.get(pluginConfigId)
     try {
-        const pluginConfig = server.pluginConfigs.get(pluginConfigId)
         const task = await pluginConfig?.vm?.getTask(taskName)
         response = await task?.exec()
     } catch (error) {
-        await processError(server, pluginConfigId, error)
+        await processError(server, pluginConfig || null, error)
         server.statsd?.increment(`plugin.task.${taskName}.${pluginConfigId}.ERROR`)
     }
     server.statsd?.timing(`plugin.task.${taskName}.${pluginConfigId}`, timer)

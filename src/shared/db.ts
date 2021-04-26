@@ -20,8 +20,8 @@ import {
     PersonDistinctId,
     PluginConfig,
     PluginLogEntry,
+    PluginLogEntrySource,
     PluginLogEntryType,
-    PluginsServerConfig,
     PostgresSessionRecordingEvent,
     RawOrganization,
     RawPerson,
@@ -598,16 +598,19 @@ export class DB {
 
     public async createPluginLogEntry(
         pluginConfig: PluginConfig,
+        source: PluginLogEntrySource,
         type: PluginLogEntryType,
         message: string,
-        instanceId: UUID
+        instanceId: UUID,
+        timestamp: string = new Date().toISOString()
     ): Promise<PluginLogEntry> {
         const entry: PluginLogEntry = {
             id: new UUIDT().toString(),
             team_id: pluginConfig.team_id,
             plugin_id: pluginConfig.plugin_id,
             plugin_config_id: pluginConfig.id,
-            timestamp: new Date().toISOString().replace('T', ' ').replace('Z', ''),
+            timestamp: timestamp.replace('T', ' ').replace('Z', ''),
+            source,
             type,
             message,
             instance_id: instanceId.toString(),
@@ -621,7 +624,7 @@ export class DB {
                 })
             } else {
                 await this.postgresQuery(
-                    'INSERT INTO posthog_pluginlogentry (id, team_id, plugin_id, plugin_config_id, timestamp, type, message, instance_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+                    'INSERT INTO posthog_pluginlogentry (id, team_id, plugin_id, plugin_config_id, timestamp, source,type, message, instance_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
                     Object.values(entry),
                     'insertPluginLogEntry'
                 )
