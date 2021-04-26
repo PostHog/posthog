@@ -60,7 +60,7 @@ django-cors-headers==3.5.0
     # via -r requirements.in
 django-deprecate-fields==0.1.1
     # via -r requirements.in
-django-extensions==3.0.9
+django-extensions==3.1.2
     # via -r requirements.in
 django-filter==2.4.0
     # via -r requirements.in
@@ -74,19 +74,20 @@ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
     # via -r requirements.in
 django-statsd==2.5.2
     # via -r requirements.in
-django==3.0.11
+django==3.1.8
     # via
     #   -r requirements.in
     #   django-axes
     #   django-cors-headers
     #   django-deprecate-fields
+    #   django-extensions
     #   django-filter
     #   django-redis
     #   django-rest-hooks
     #   djangorestframework
 djangorestframework-csv==2.1.0
     # via -r requirements.in
-djangorestframework==3.12.1
+djangorestframework==3.12.2
     # via
     #   -r requirements.in
     #   djangorestframework-csv
@@ -94,7 +95,7 @@ djangorestframework==3.12.1
     #   drf-extensions
 drf-exceptions-hog==0.0.4
     # via -r requirements.in
-drf-extensions==0.6.0
+drf-extensions==0.7.0
     # via -r requirements.in
 future==0.18.2
     # via lzstring
@@ -192,7 +193,6 @@ sentry-sdk==0.19.2
     # via -r requirements.in
 six==1.14.0
     # via
-    #   cryptography
     #   djangorestframework-csv
     #   grpcio
     #   posthoganalytics
@@ -201,9 +201,9 @@ six==1.14.0
     #   social-auth-app-django
     #   social-auth-core
     #   tenacity
-social-auth-app-django==3.1.0
+social-auth-app-django==4.0.0
     # via -r requirements.in
-social-auth-core==3.3.3
+social-auth-core==4.0.2
     # via
     #   -r requirements.in
     #   social-auth-app-django

@@ -10,6 +10,7 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
+from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions
 from posthog.tasks.email import send_invite
 
@@ -103,7 +104,7 @@ class OrganizationInviteViewSet(
 
         organization = Organization.objects.get(id=self.organization_id)
         report_bulk_invited(
-            self.request.user.distinct_id,
+            cast(User, self.request.user).distinct_id,
             invitee_count=len(serializer.validated_data),
             name_count=sum(1 for invite in serializer.validated_data if invite.get("first_name")),
             current_invite_count=organization.active_invites.count(),

@@ -4,7 +4,6 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.models import Cohort, Event, Organization, Person, Team
-from posthog.tasks.process_event import process_event
 from posthog.test.base import APIBaseTest
 
 
@@ -194,27 +193,14 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
         def test_filter_is_identified(self):
             person_anonymous = person_factory(team=self.team, distinct_ids=["xyz"])
             person_identified_already = person_factory(team=self.team, distinct_ids=["tuv"], is_identified=True)
-            person_identified_using_event = person_factory(team=self.team, distinct_ids=["klm"])
 
             # all
             response = self.client.get(
                 "/api/person",
             )  # Make sure the endpoint works with and without the trailing slash
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(len(response.json()["results"]), 3)
+            self.assertEqual(len(response.json()["results"]), 2)
 
-            # person_identified_using_event should have is_identified set to True after an $identify event
-            process_event(
-                person_identified_using_event.distinct_ids[0],
-                "",
-                "",
-                {"event": "$identify"},
-                self.team.pk,
-                timezone.now().isoformat(),
-                timezone.now().isoformat(),
-            )
-
-            self.assertTrue(get_people()[2].is_identified)
             # anonymous
             response = self.client.get("/api/person/?is_identified=false")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -225,9 +211,8 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
             # identified
             response = self.client.get("/api/person/?is_identified=true")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(len(response.json()["results"]), 2)
-            self.assertEqual(response.json()["results"][0]["id"], person_identified_using_event.id)
-            self.assertEqual(response.json()["results"][1]["id"], person_identified_already.id)
+            self.assertEqual(len(response.json()["results"]), 1)
+            self.assertEqual(response.json()["results"][0]["id"], person_identified_already.id)
             self.assertEqual(response.json()["results"][0]["is_identified"], True)
 
         def test_delete_person(self):
@@ -240,35 +225,12 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
 
             response = self.client.delete(f"/api/person/{person.pk}/")
             self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-            self.assertEqual(response.data, None)
+            self.assertEqual(response.content, b"")  # Empty response
             self.assertEqual(len(get_people()), 0)
             self.assertEqual(len(get_events()), 1)
 
             response = self.client.delete(f"/api/person/{person.pk}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-        def test_filters_by_endpoints_are_deprecated(self):
-            person_factory(
-                team=self.team, distinct_ids=["person_1"], properties={"email": "someone@gmail.com"},
-            )
-
-            # By Distinct ID
-            with self.assertWarns(DeprecationWarning) as warnings:
-                response = self.client.get("/api/person/by_distinct_id/?distinct_id=person_1")
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)  # works but it's deprecated
-            self.assertEqual(
-                str(warnings.warning), "/api/person/by_distinct_id/ endpoint is deprecated; use /api/person/ instead.",
-            )
-
-            # By Distinct ID
-            with self.assertWarns(DeprecationWarning) as warnings:
-                response = self.client.get("/api/person/by_email/?email=someone@gmail.com")
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)  # works but it's deprecated
-            self.assertEqual(
-                str(warnings.warning), "/api/person/by_email/ endpoint is deprecated; use /api/person/ instead.",
-            )
 
         def test_filter_id_or_uuid(self) -> None:
             person1 = person_factory(team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"})

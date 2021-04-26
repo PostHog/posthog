@@ -1,5 +1,5 @@
 import csv
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import posthoganalytics
 from django.db.models import Count, QuerySet
@@ -17,6 +17,7 @@ from posthog.models import Cohort, Entity
 from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.stickiness import (
     stickiness_fetch_people,
@@ -83,7 +84,7 @@ class CohortSerializer(serializers.ModelSerializer):
         else:
             try:
                 filter = Filter(request=request)
-                team = request.user.team
+                team = cast(User, request.user).team
                 target_entity = get_target_entity(request)
                 if filter.shown_as == TRENDS_STICKINESS:
                     stickiness_filter = StickinessFilter(

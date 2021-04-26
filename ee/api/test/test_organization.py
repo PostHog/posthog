@@ -51,7 +51,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             response = self.client.delete(f"/api/organizations/{self.organization.id}")
             potential_err_message = f"Somehow managed to delete the org as a level {level} (which is not owner)"
             self.assertEqual(
-                response.data,
+                response.json(),
                 {
                     "attr": None,
                     "detail": "Your organization access level is insufficient.",
@@ -86,7 +86,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             response = self.client.delete(f"/api/organizations/{organization.id}")
             potential_err_message = f"Somehow managed to delete someone else's org as a level {level} in own org"
             self.assertEqual(
-                response.data,
+                response.json(),
                 {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"},
                 potential_err_message,
             )
@@ -102,7 +102,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             if level < OrganizationMembership.Level.ADMIN:
                 potential_err_message = f"Somehow managed to rename the org as a level {level} (which is below admin)"
                 self.assertEqual(
-                    response.data,
+                    response.json(),
                     {
                         "attr": None,
                         "detail": "Your organization access level is insufficient.",
@@ -126,7 +126,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             response = self.client.patch(f"/api/organizations/{organization.id}", {"name": "Mooooooooo"})
             potential_err_message = f"Somehow managed to rename someone else's org as a level {level} in own org"
             self.assertEqual(
-                response.data,
+                response.json(),
                 {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"},
                 potential_err_message,
             )

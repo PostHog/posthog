@@ -24,7 +24,7 @@ describe('Insights', () => {
         cy.reload()
 
         cy.get('[data-attr=menu-item-insights]').click()
-        cy.get('[data-attr=trend-element-subject-0] span').should('contain', '$pageview')
+        cy.get('[data-attr=trend-element-subject-0] span').should('contain', 'Pageview')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.contains('Add graph series').click()
         cy.get('[data-attr=trend-element-subject-1]').should('exist')

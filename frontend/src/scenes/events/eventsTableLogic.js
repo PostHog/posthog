@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { objectsEqual, toParams } from 'lib/utils'
+import { errorToast, objectsEqual, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import dayjs from 'dayjs'
@@ -50,6 +50,7 @@ export const eventsTableLogic = kea({
         fetchEvents: (nextParams = null) => ({ nextParams }),
         fetchEventsSuccess: (events, hasNext = false, isNext = false) => ({ events, hasNext, isNext }),
         fetchNextEvents: true,
+        fetchOrPollFailure: (error) => ({ error }),
         flipSort: true,
         pollEvents: true,
         pollEventsSuccess: (events) => ({ events }),
@@ -82,6 +83,7 @@ export const eventsTableLogic = kea({
                 fetchEvents: (state, { nextParams }) => (nextParams ? state : state || null),
                 setDelayedLoading: () => true,
                 fetchEventsSuccess: () => false,
+                fetchOrPollFailure: () => false,
             },
         ],
         isLoadingNext: [
@@ -222,7 +224,15 @@ export const eventsTableLogic = kea({
                     orderBy: [values.orderBy],
                 })
 
-                const events = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                let events = null
+
+                try {
+                    events = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                } catch (error) {
+                    actions.fetchOrPollFailure(error)
+                    return
+                }
+
                 breakpoint()
                 actions.fetchEventsSuccess(events.results, events.next, !!nextParams)
 
@@ -248,7 +258,15 @@ export const eventsTableLogic = kea({
                 params.after = event.timestamp || event.event.timestamp
             }
 
-            const events = await api.get(`${props.apiUrl || 'api/event/'}?${toParams(params)}`)
+            let events = null
+
+            try {
+                events = await api.get(`${props.apiUrl || 'api/event/'}?${toParams(params)}`)
+            } catch (e) {
+                // We don't call fetchOrPollFailure because we don't to generate an error alert for this
+                return
+            }
+
             breakpoint()
 
             if (props.live) {
@@ -258,6 +276,14 @@ export const eventsTableLogic = kea({
             }
 
             actions.setPollTimeout(setTimeout(actions.pollEvents, POLL_TIMEOUT))
+        },
+        fetchOrPollFailure: ({ error }) => {
+            errorToast(
+                undefined,
+                'There was a problem fetching your events. Please refresh this page to try again.',
+                error.detail,
+                error.code
+            )
         },
     }),
 })

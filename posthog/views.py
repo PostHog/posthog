@@ -104,14 +104,6 @@ def system_status(request):
         }
     )
 
-    metrics.append(
-        {
-            "key": "ingestion_server",
-            "metric": "Event ingestion via",
-            "value": "Plugin Server" if settings.PLUGIN_SERVER_INGESTION else "Django",
-        }
-    )
-
     metrics.append({"key": "plugin_sever_alive", "metric": "Plugin server alive", "value": is_plugin_server_alive()})
     metrics.append(
         {
@@ -131,27 +123,36 @@ def system_status(request):
                 "value": f"{postgres_version // 10000}.{(postgres_version // 100) % 100}.{postgres_version % 100}",
             }
         )
-        event_table_count = get_table_approx_count(Event._meta.db_table)
-        event_table_size = get_table_size(Event._meta.db_table)
 
-        element_table_count = get_table_approx_count(Element._meta.db_table)
-        element_table_size = get_table_size(Element._meta.db_table)
+        if not is_ee_enabled():
+            event_table_count = get_table_approx_count(Event._meta.db_table)
+            event_table_size = get_table_size(Event._meta.db_table)
 
-        session_recording_event_table_count = get_table_approx_count(SessionRecordingEvent._meta.db_table)
-        session_recording_event_table_size = get_table_size(SessionRecordingEvent._meta.db_table)
+            element_table_count = get_table_approx_count(Element._meta.db_table)
+            element_table_size = get_table_size(Element._meta.db_table)
 
-        metrics.append(
-            {"metric": "Postgres elements table size", "value": f"{element_table_count} rows (~{element_table_size})"}
-        )
-        metrics.append(
-            {"metric": "Postgres events table size", "value": f"{event_table_count} rows (~{event_table_size})"}
-        )
-        metrics.append(
-            {
-                "metric": "Postgres session recording table size",
-                "value": f"{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
-            }
-        )
+            session_recording_event_table_count = get_table_approx_count(SessionRecordingEvent._meta.db_table)
+            session_recording_event_table_size = get_table_size(SessionRecordingEvent._meta.db_table)
+
+            metrics.append(
+                {
+                    "metric": "Postgres elements table size",
+                    "value": f"{element_table_count} rows (~{element_table_size})",
+                }
+            )
+            metrics.append(
+                {"metric": "Postgres events table size", "value": f"{event_table_count} rows (~{event_table_size})"}
+            )
+            metrics.append(
+                {
+                    "metric": "Postgres session recording table size",
+                    "value": f"{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
+                }
+            )
+    if is_ee_enabled():
+        from ee.clickhouse.system_status import system_status
+
+        metrics.extend(list(system_status()))
 
     metrics.append({"key": "redis_alive", "metric": "Redis alive", "value": redis_alive})
     if redis_alive:
@@ -209,7 +210,6 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "email_service_available": is_email_available(with_absolute_urls=True),
             "is_debug": settings.DEBUG,
             "is_event_property_usage_enabled": settings.ASYNC_EVENT_PROPERTY_USAGE,
-            "is_async_event_action_mapping_enabled": settings.ASYNC_EVENT_ACTION_MAPPING,
             "licensed_users_available": get_licensed_users_available(),
         }
 

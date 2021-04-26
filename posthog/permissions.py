@@ -1,6 +1,7 @@
+from typing import cast
+
 from django.conf import settings
 from django.db.models import Model
-from django.views.generic.base import View
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
@@ -26,16 +27,16 @@ def extract_organization(object: Model) -> Organization:
     raise ValueError("Object not compatible with organization-based permissions!")
 
 
-def get_organization_from_view(view: View) -> Organization:
+def get_organization_from_view(view) -> Organization:
     try:
-        organization = view.organization  # type: ignore
+        organization = view.organization
         if isinstance(organization, Organization):
             return organization
     except (KeyError, AttributeError):
         pass
 
     try:
-        organization = view.team.organization  # type: ignore
+        organization = view.team.organization
         if isinstance(organization, Organization):
             return organization
     except (KeyError, AttributeError):
@@ -59,7 +60,7 @@ class ProjectMembershipNecessaryPermissions(BasePermission):
     message = "You don't belong to any organization that has a project."
 
     def has_object_permission(self, request: Request, view, object) -> bool:
-        return request.user.team is not None
+        return request.user.is_authenticated and request.user.team is not None
 
 
 class OrganizationMembershipNecessaryPermissions(BasePermission):
@@ -68,7 +69,7 @@ class OrganizationMembershipNecessaryPermissions(BasePermission):
     message = "You don't belong to any organization."
 
     def has_object_permission(self, request: Request, view, object) -> bool:
-        return request.user.organization is not None
+        return request.user.is_authenticated and request.user.organization is not None
 
 
 class OrganizationMemberPermissions(BasePermission):
@@ -78,19 +79,18 @@ class OrganizationMemberPermissions(BasePermission):
     Note: For POST requests, it will **only** work with nested routers that derive from an Organization or Project (Team).
     """
 
-    def has_permission(self, request: Request, view: View) -> bool:
-
-        # When request is not create, an object exists, delegate to `has_object_permission`
-        if request.method != "POST":
+    def has_permission(self, request: Request, view) -> bool:
+        # When request is not creating or listing an `Organization`, an object exists, delegate to `has_object_permission`
+        if view.basename == "organizations" and view.action not in ["list", "create"]:
             return True
 
         organization = get_organization_from_view(view)
 
-        return OrganizationMembership.objects.filter(user=request.user, organization=organization).exists()
+        return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
 
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         organization = extract_organization(object)
-        return OrganizationMembership.objects.filter(user=request.user, organization=organization).exists()
+        return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
 
 
 class OrganizationAdminWritePermissions(BasePermission):
@@ -102,17 +102,17 @@ class OrganizationAdminWritePermissions(BasePermission):
 
     message = "Your organization access level is insufficient."
 
-    def has_permission(self, request: Request, view: View) -> bool:
+    def has_permission(self, request: Request, view) -> bool:
 
-        # When request is not create, an object exists, delegate to `has_object_permission`
-        if request.method != "POST":
+        # When request is not creating or listing an `Organization`, an object exists, delegate to `has_object_permission`
+        if view.basename == "organizations" and view.action not in ["list", "create"]:
             return True
 
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization = get_organization_from_view(view)
 
         return (
-            OrganizationMembership.objects.get(user=request.user, organization=organization).level
+            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
             >= OrganizationMembership.Level.ADMIN
         )
 
@@ -125,7 +125,7 @@ class OrganizationAdminWritePermissions(BasePermission):
         organization = extract_organization(object)
 
         return (
-            OrganizationMembership.objects.get(user=request.user, organization=organization).level
+            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
             >= OrganizationMembership.Level.ADMIN
         )
 
@@ -138,6 +138,6 @@ class OrganizationAdminAnyPermissions(BasePermission):
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         organization = extract_organization(object)
         return (
-            OrganizationMembership.objects.get(user=request.user, organization=organization).level
+            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
             >= OrganizationMembership.Level.ADMIN
         )

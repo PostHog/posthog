@@ -95,7 +95,7 @@ class TestUserAPI(APIBaseTest):
         self.client.logout()
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json(), self.ERROR_RESPONSE_UNAUTHENTICATED)
+        self.assertEqual(response.json(), self.unauthenticated_response())
 
     # CREATING USERS
 
@@ -437,7 +437,7 @@ class TestUserAPI(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json(), self.ERROR_RESPONSE_UNAUTHENTICATED)
+        self.assertEqual(response.json(), self.unauthenticated_response())
 
         self.user.refresh_from_db()
         self.assertNotEqual(self.user.email, "new@posthog.com")

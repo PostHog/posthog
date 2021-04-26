@@ -18,7 +18,6 @@ describe('<Sessions />', () => {
         helpers.setLocation('/sessions')
     })
 
-    given('featureFlags', () => ['filter_by_session_props'])
     given('sessions', () => () => ({ fixture: 'api/event/sessions/demo_sessions' }))
 
     const iterateResponses = (responses) => {

@@ -55,6 +55,7 @@ function FormStepOne(): JSX.Element {
                 showStrengthIndicator
                 validateStatus={signupResponse?.errorAttribute === 'password' ? 'error' : undefined}
                 help={signupResponse?.errorAttribute === 'password' ? signupResponse.errorDetail : undefined}
+                validateMinLength
             />
             <Form.Item>
                 <Button className="rocket-button" htmlType="submit" data-attr="signup-continue" block>

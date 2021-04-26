@@ -15,7 +15,9 @@ export function ToolbarSettings(): JSX.Element {
                     <Switch
                         onChange={() => {
                             updateUser({
-                                toolbar_mode: user?.toolbar_mode === 'disabled' ? 'toolbar' : 'disabled',
+                                user: {
+                                    toolbar_mode: user?.toolbar_mode === 'disabled' ? 'toolbar' : 'disabled',
+                                },
                             })
                         }}
                         defaultChecked={user?.toolbar_mode !== 'disabled'}

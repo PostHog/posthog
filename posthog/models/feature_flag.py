@@ -1,7 +1,6 @@
 import hashlib
 from typing import Any, Dict, List
 
-from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
@@ -28,7 +27,7 @@ class FeatureFlag(models.Model):
         blank=True,
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
 
-    filters: JSONField = JSONField(default=dict)
+    filters: models.JSONField = models.JSONField(default=dict)
     rollout_percentage: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)

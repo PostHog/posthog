@@ -19,6 +19,8 @@ import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
 import { FilterType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import './RetentionTab.scss'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
@@ -62,8 +64,18 @@ export function RetentionTab(): JSX.Element {
         singleMode: true,
     })
 
+    const selectedRetainingEvent =
+        filters.returning_entity?.name ||
+        (filters.returning_entity.id && actionsLookup[filters.returning_entity.id]) ||
+        'Select action'
+
+    const selectedCohortizingEvent =
+        filters.target_entity?.name ||
+        (filters.target_entity.id && actionsLookup[filters.target_entity.id]) ||
+        'Select action'
+
     return (
-        <div data-attr="retention-tab">
+        <div data-attr="retention-tab" className="retention-tab">
             <h4 className="secondary">
                 Cohortizing Event
                 <Tooltip
@@ -74,38 +86,37 @@ export function RetentionTab(): JSX.Element {
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             </h4>
-            <Button
-                ref={node}
-                data-attr="retention-action"
-                onClick={(): void => setOpen(!open)}
-                style={{ marginRight: 8 }}
-            >
-                {filters.target_entity?.name ||
-                    (filters.target_entity.id && actionsLookup[filters.target_entity.id]) ||
-                    'Select action'}
-                <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
-            </Button>
-            <Select
-                value={retentionOptions[filters.retention_type]}
-                onChange={(value): void => setFilters({ retention_type: value })}
-                dropdownMatchSelectWidth={false}
-                style={{ marginTop: 8 }}
-            >
-                {Object.entries(retentionOptions).map(([key, value]) => (
-                    <Select.Option key={key} value={key}>
-                        {value}
-                        <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
-                            <InfoCircleOutlined className="info-indicator" />
-                        </Tooltip>
-                    </Select.Option>
-                ))}
-            </Select>
-            <ActionFilterDropdown
-                open={open}
-                logic={entityLogic as any}
-                openButtonRef={node}
-                onClose={() => setOpen(false)}
-            />
+            <div style={{ display: '-webkit-inline-box', flexWrap: 'wrap' }}>
+                <Button
+                    ref={node}
+                    data-attr="retention-action"
+                    onClick={(): void => setOpen(!open)}
+                    style={{ marginRight: 8, marginBottom: 8 }}
+                >
+                    <PropertyKeyInfo value={selectedCohortizingEvent} />
+                    <DownOutlined className="text-muted svg-fix" style={{ marginRight: '-6px' }} />
+                </Button>
+                <Select
+                    value={retentionOptions[filters.retention_type]}
+                    onChange={(value): void => setFilters({ retention_type: value })}
+                    dropdownMatchSelectWidth={false}
+                >
+                    {Object.entries(retentionOptions).map(([key, value]) => (
+                        <Select.Option key={key} value={key}>
+                            {value}
+                            <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
+                                <InfoCircleOutlined className="info-indicator" />
+                            </Tooltip>
+                        </Select.Option>
+                    ))}
+                </Select>
+                <ActionFilterDropdown
+                    open={open}
+                    logic={entityLogic as any}
+                    openButtonRef={node}
+                    onClose={() => setOpen(false)}
+                />
+            </div>
             <h4 style={{ marginTop: '0.5rem' }} className="secondary">
                 Retaining event
                 <Tooltip
@@ -122,10 +133,8 @@ export function RetentionTab(): JSX.Element {
                 data-attr="retention-returning-action"
                 onClick={(): void => setReturningOpen(!returningOpen)}
             >
-                {filters.returning_entity?.name ||
-                    (filters.returning_entity.id && actionsLookup[filters.returning_entity.id]) ||
-                    'Select action'}
-                <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
+                <PropertyKeyInfo value={selectedRetainingEvent} />
+                <DownOutlined className="text-muted svg-fix" style={{ marginRight: '-6px' }} />
             </Button>
             <ActionFilterDropdown
                 open={returningOpen}

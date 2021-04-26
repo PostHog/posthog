@@ -12,6 +12,7 @@ import {
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { Dayjs } from 'dayjs'
 
 export type AvailableFeatures =
     | 'zapier'
@@ -43,11 +44,6 @@ export interface UserBasicType {
     distinct_id: string
     first_name: string
     email: string
-}
-
-export interface UserUpdateType {
-    user?: Omit<Partial<UserType>, 'team'>
-    team?: Partial<TeamType>
 }
 
 export interface PluginAccess {
@@ -124,11 +120,6 @@ export interface TeamBasicType {
 export interface TeamType extends TeamBasicType {
     anonymize_ips: boolean
     app_urls: string[]
-    event_names: string[]
-    event_properties: string[]
-    event_properties_numerical: string[]
-    event_names_with_usage: EventUsageType[]
-    event_properties_with_usage: PropertyUsageType[]
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
@@ -192,7 +183,7 @@ export interface PropertyFilter {
     key: string
     operator: string | null
     type: string
-    value: string | number
+    value: string | number | (string | number)[]
 }
 
 interface BasePropertyFilter {
@@ -322,6 +313,12 @@ export interface EventType {
     properties: Record<string, any>
     timestamp: string
     person?: Partial<PersonType> | null
+}
+
+export interface EventFormattedType {
+    event: EventType
+    date_break?: Dayjs
+    new_events?: boolean
 }
 
 export interface SessionType {
@@ -506,10 +503,17 @@ export interface FilterType {
     filter_test_accounts?: boolean
 }
 
+export interface SystemStatusSubrows {
+    columns: string[]
+    rows: string[][]
+}
+
 export interface SystemStatus {
     metric: string
     value: string
     key?: string
+    description?: string
+    subrows?: SystemStatusSubrows
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>
@@ -616,7 +620,6 @@ export interface PreflightStatus {
     email_service_available?: boolean
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
-    is_async_event_action_mapping_enabled?: boolean
     licensed_users_available: number | null
 }
 
@@ -666,4 +669,31 @@ export interface LicenseType {
     valid_until: string
     max_users: string | null
     created_at: string
+}
+
+export interface EventDefinition {
+    id: string
+    name: string
+    volume_30_day: number | null
+    query_usage_30_day: number | null
+}
+
+export interface PropertyDefinition {
+    id: string
+    name: string
+    volume_30_day: number | null
+    query_usage_30_day: number | null
+    is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
+}
+
+export interface SelectOption {
+    value: string
+    label: string
+}
+
+export interface KeyMapping {
+    label: string
+    description: string | JSX.Element
+    examples?: string[]
+    hide?: boolean
 }

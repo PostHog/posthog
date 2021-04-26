@@ -1,8 +1,9 @@
-from typing import Type
+from typing import Type, cast
 
-from rest_framework import mixins, response, serializers, status, viewsets
+from rest_framework import mixins, permissions, response, serializers, viewsets
 
 from posthog.models import PersonalAPIKey
+from posthog.models.user import User
 
 
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
@@ -39,7 +40,7 @@ class PersonalAPIKeyViewSet(
     lookup_field = "id"
 
     def get_queryset(self):
-        return PersonalAPIKey.objects.filter(user_id=self.request.user.id).order_by("-created_at")
+        return PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id).order_by("-created_at")
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class

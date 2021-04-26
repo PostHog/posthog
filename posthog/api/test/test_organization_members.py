@@ -1,6 +1,6 @@
 from rest_framework import status
 
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest
 
@@ -19,6 +19,20 @@ class TestOrganizationMembersAPI(APIBaseTest):
 
         # Backwards compatibility
         self.assertEqual(response_data["results"][0]["id"], response_data["results"][0]["membership_id"])
+
+    def test_cant_list_members_for_an_alien_organization(self):
+        org = Organization.objects.create(name="Alien Org")
+        user = User.objects.create(email="another_user@posthog.com")
+        user.join(organization=org)
+
+        response = self.client.get(f"/api/organizations/{org.id}/members/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
+
+        # Even though there's no retrieve for invites, permissions are validated first
+        response = self.client.get(f"/api/organizations/{org.id}/members/{user.id}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
 
     def test_delete_organization_member(self):
         user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")

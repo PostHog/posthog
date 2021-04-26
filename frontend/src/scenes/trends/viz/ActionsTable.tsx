@@ -13,9 +13,9 @@ export function ActionsTable({
     cachedResults,
 }: ChartParams): JSX.Element {
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
-    const { filters, results, resultsLoading } = useValues(logic)
+    const { filters, indexedResults, resultsLoading } = useValues(logic)
 
-    let data = results as TrendResultWithAggregate[]
+    let data = (indexedResults as any) as TrendResultWithAggregate[]
     if (!filters.session && data) {
         data = data.sort((a, b) => b.aggregated_value - a.aggregated_value)
     }

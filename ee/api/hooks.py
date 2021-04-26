@@ -1,9 +1,12 @@
+from typing import cast
+
 from django.conf import settings
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from ee.models.hook import Hook
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions
 
 
@@ -30,5 +33,5 @@ class HookViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = HookSerializer
 
     def perform_create(self, serializer):
-        user = self.request.user
+        user = cast(User, self.request.user)
         serializer.save(user=user, team=user.team)

@@ -327,9 +327,13 @@ export const pluginsLogic = kea<
                 pluginUpdated: (state, { id }) => ({ ...state, [id]: { updated: true } }),
             },
         ],
-        updatingPlugin: [
-            null as number | null,
-            { updatePlugin: (_, { id }) => id, updatePluginSuccess: () => null, updatePluginFailure: () => null },
+        pluginsUpdating: [
+            [] as number[],
+            {
+                updatePlugin: (plugins, { id }) => [...plugins, id],
+                pluginUpdated: (plugins, { id }) => plugins.filter((pluginId) => pluginId !== id),
+                setUpdateError: (plugins, { id }) => plugins.filter((pluginId) => pluginId !== id),
+            },
         ],
         checkingForUpdates: [
             false,
