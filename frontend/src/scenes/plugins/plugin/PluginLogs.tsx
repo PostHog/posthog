@@ -42,12 +42,19 @@ const columns: ResizableColumnType<PluginLogEntry>[] = [
         render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
     },
     {
+        title: 'Source',
+        key: 'source',
+        dataIndex: 'is_system',
+        span: 1,
+        render: (isSystem: boolean) => (isSystem ? 'SYSTEM' : 'PLUGIN'),
+    } as ResizableColumnType<PluginLogEntry>,
+    {
         title: 'Type',
         key: 'type',
         dataIndex: 'type',
         span: 1,
         render: PluginLogEntryTypeDisplay,
-    } as ResizableColumnType<PluginLogEntry, PluginLogEntryType>,
+    } as ResizableColumnType<PluginLogEntry>,
     {
         title: 'Message',
         key: 'message',

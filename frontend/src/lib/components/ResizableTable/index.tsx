@@ -6,13 +6,13 @@ import { RenderedCell } from 'rc-table/lib/interface'
 
 import './index.scss'
 
-export interface ResizableColumnType<RecordType, V = any> {
+export interface ResizableColumnType<RecordType> {
     title: string | JSX.Element
     key?: string
     dataIndex?: string
     render?:
         | ((record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
-        | ((value: V, record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
+        | ((value: any, record?: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
     ellipsis?: boolean
     span: number
 }

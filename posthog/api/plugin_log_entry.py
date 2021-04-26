@@ -13,7 +13,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions
 class PluginLogEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model = PluginLogEntry
-        fields = ["id", "team_id", "plugin_id", "timestamp", "type", "message", "instance_id"]
+        fields = ["id", "team_id", "plugin_id", "timestamp", "type", "is_system", "message", "instance_id"]
         read_only_fields = fields
 
 

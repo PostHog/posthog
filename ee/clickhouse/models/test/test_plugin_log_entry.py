@@ -8,7 +8,14 @@ from posthog.test.test_plugin_log_entry import factory_test_plugin_log_entry
 
 
 def plugin_log_factory_ch(
-    *, team_id: int, plugin_id: int, plugin_config_id: int, type: PluginLogEntry.Type, message: str, instance_id: str
+    *,
+    team_id: int,
+    plugin_id: int,
+    plugin_config_id: int,
+    type: PluginLogEntry.Type,
+    is_system: bool = True,
+    message: str,
+    instance_id: str
 ):
     sync_execute(
         INSERT_PLUGIN_LOG_ENTRY_SQL,
@@ -18,6 +25,7 @@ def plugin_log_factory_ch(
             "plugin_id": plugin_id,
             "plugin_config_id": plugin_config_id,
             "type": type,
+            "is_system": is_system,
             "instance_id": instance_id,
             "message": message,
             "timestamp": timezone.now().strftime("%Y-%m-%dT%H:%M:%S.%f"),

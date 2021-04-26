@@ -13,6 +13,7 @@ CREATE TABLE {table_name}
     plugin_config_id Int64,
     timestamp DateTime64(6, 'UTC'),
     type VARCHAR,
+    is_system Boolean,
     message VARCHAR,
     instance_id UUID
     {extra_fields}
@@ -49,6 +50,7 @@ plugin_id,
 plugin_config_id,
 timestamp,
 type,
+is_system,
 message,
 instance_id,
 _timestamp,
@@ -60,7 +62,7 @@ FROM kafka_{table_name}
 
 
 INSERT_PLUGIN_LOG_ENTRY_SQL = """
-INSERT INTO plugin_log_entries SELECT %(id)s, %(team_id)s, %(plugin_id)s, %(plugin_config_id)s, %(timestamp)s, %(type)s, %(message)s, %(instance_id)s, now(), 0
+INSERT INTO plugin_log_entries SELECT %(id)s, %(team_id)s, %(plugin_id)s, %(plugin_config_id)s, %(timestamp)s, %(type)s, %(is_system)s, %(message)s, %(instance_id)s, now(), 0
 """
 
 DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL = "DROP TABLE plugin_log_entries"

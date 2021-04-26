@@ -105,6 +105,7 @@ class PluginLogEntry(UUIDModel):
     plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now)
     type: models.CharField = models.CharField(max_length=20, choices=Type.choices)
+    is_system: models.BooleanField = models.BooleanField(default=True)
     message: models.TextField = models.TextField(db_index=True)
     instance_id: models.UUIDField = models.UUIDField()
 
