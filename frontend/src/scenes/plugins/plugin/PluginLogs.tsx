@@ -46,7 +46,7 @@ const columns: ResizableColumnType<PluginLogEntry>[] = [
         key: 'source',
         dataIndex: 'is_system',
         span: 1,
-        render: (isSystem: boolean) => (isSystem ? 'SYSTEM' : 'PLUGIN'),
+        render: (isSystem: boolean) => (isSystem ? 'SYSTEM' : 'CONSOLE'),
     } as ResizableColumnType<PluginLogEntry>,
     {
         title: 'Type',

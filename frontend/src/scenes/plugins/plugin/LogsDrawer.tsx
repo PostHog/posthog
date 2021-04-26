@@ -12,7 +12,7 @@ export function LogsDrawer(): JSX.Element {
         <Drawer
             visible={!!showingLogsPlugin}
             onClose={hidePluginLogs}
-            width={'min(90vw, 64rem)'}
+            width={'min(90vw, 80rem)'}
             title={`Viewing Plugin Logs: ${lastShownLogsPlugin?.name}`}
             placement="left"
             destroyOnClose
