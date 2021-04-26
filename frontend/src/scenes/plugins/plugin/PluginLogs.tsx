@@ -44,9 +44,8 @@ const columns: ResizableColumnType<PluginLogEntry>[] = [
     {
         title: 'Source',
         key: 'source',
-        dataIndex: 'is_system',
+        dataIndex: 'source',
         span: 1,
-        render: (isSystem: boolean) => (isSystem ? 'SYSTEM' : 'CONSOLE'),
     } as ResizableColumnType<PluginLogEntry>,
     {
         title: 'Type',
@@ -60,7 +59,7 @@ const columns: ResizableColumnType<PluginLogEntry>[] = [
         key: 'message',
         dataIndex: 'message',
         span: 6,
-    },
+    } as ResizableColumnType<PluginLogEntry>,
 ]
 
 export function PluginLogs({ teamId, pluginConfigId }: PluginLogsProps): JSX.Element {

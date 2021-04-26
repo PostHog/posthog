@@ -25,6 +25,12 @@ class Migration(migrations.Migration):
                 ),
                 ("timestamp", models.DateTimeField(default=django.utils.timezone.now)),
                 (
+                    "source",
+                    models.CharField(
+                        choices=[("SYSTEM", "system"), ("PLUGIN", "plugin"), ("CONSOLE", "console"),], max_length=20,
+                    ),
+                ),
+                (
                     "type",
                     models.CharField(
                         choices=[
@@ -37,7 +43,6 @@ class Migration(migrations.Migration):
                         max_length=20,
                     ),
                 ),
-                ("is_system", models.BooleanField(default=True)),
                 ("message", models.TextField(db_index=True)),
                 ("instance_id", models.UUIDField()),
                 ("plugin", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.plugin")),

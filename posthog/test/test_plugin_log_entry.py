@@ -20,6 +20,7 @@ def factory_test_plugin_log_entry(plugin_log_entry_factory: Callable):
                 team_id=self.team.pk,
                 plugin_id=some_plugin.pk,
                 plugin_config_id=some_plugin_config.pk,
+                source=PluginLogEntry.Source.CONSOLE,
                 type=PluginLogEntry.Type.INFO,
                 message="Something happened!",
                 instance_id=plugin_server_instance_id,
@@ -44,6 +45,7 @@ def factory_test_plugin_log_entry(plugin_log_entry_factory: Callable):
                 team_id=self.team.pk,
                 plugin_id=some_plugin.pk,
                 plugin_config_id=some_plugin_config.pk,
+                source=PluginLogEntry.Source.CONSOLE,
                 type=PluginLogEntry.Type.INFO,
                 message="Something happened!",
                 instance_id=plugin_server_instance_id,
@@ -52,6 +54,7 @@ def factory_test_plugin_log_entry(plugin_log_entry_factory: Callable):
                 team_id=self.team.pk,
                 plugin_id=some_plugin.pk,
                 plugin_config_id=some_plugin_config.pk,
+                source=PluginLogEntry.Source.CONSOLE,
                 type=PluginLogEntry.Type.ERROR,
                 message="Random error",
                 instance_id=plugin_server_instance_id,
@@ -72,6 +75,7 @@ def factory_test_plugin_log_entry(plugin_log_entry_factory: Callable):
                 team_id=self.team.pk,
                 plugin_id=some_plugin.pk,
                 plugin_config_id=some_plugin_config.pk,
+                source=PluginLogEntry.Source.CONSOLE,
                 type=PluginLogEntry.Type.INFO,
                 message="Something happened!",
                 instance_id=plugin_server_instance_id,
@@ -80,6 +84,7 @@ def factory_test_plugin_log_entry(plugin_log_entry_factory: Callable):
                 team_id=self.team.pk,
                 plugin_id=some_plugin.pk,
                 plugin_config_id=some_plugin_config.pk,
+                source=PluginLogEntry.Source.CONSOLE,
                 type=PluginLogEntry.Type.ERROR,
                 message="Random error",
                 instance_id=plugin_server_instance_id,
@@ -93,18 +98,5 @@ def factory_test_plugin_log_entry(plugin_log_entry_factory: Callable):
     return TestPluginLogEntry
 
 
-def plugin_log_factory_pg(
-    *, team_id: int, plugin_id: int, plugin_config_id: int, type: PluginLogEntry.Type, message: str, instance_id: str
-):
-    PluginLogEntry.objects.create(
-        team_id=team_id,
-        plugin_id=plugin_id,
-        plugin_config_id=plugin_config_id,
-        type=type,
-        message=message,
-        instance_id=instance_id,
-    )
-
-
-class TestEvent(factory_test_plugin_log_entry(plugin_log_factory_pg)):  # type: ignore
+class TestEvent(factory_test_plugin_log_entry(PluginLogEntry.objects.create)):  # type: ignore
     pass

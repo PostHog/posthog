@@ -93,6 +93,11 @@ class PluginLogEntry(UUIDModel):
             models.Index(fields=["plugin_config_id", "timestamp"]),
         ]
 
+    class Source(models.TextChoices):
+        SYSTEM = "SYSTEM", "system"
+        PLUGIN = "PLUGIN", "plugin"
+        CONSOLE = "CONSOLE", "console"
+
     class Type(models.TextChoices):
         DEBUG = "DEBUG", "debug"
         LOG = "LOG", "log"
@@ -104,15 +109,12 @@ class PluginLogEntry(UUIDModel):
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    source: models.CharField = models.CharField(max_length=20, choices=Source.choices)
     type: models.CharField = models.CharField(max_length=20, choices=Type.choices)
-    is_system: models.BooleanField = models.BooleanField(default=True)
     message: models.TextField = models.TextField(db_index=True)
     instance_id: models.UUIDField = models.UUIDField()
 
-    def __str__(self):
-        return f"[{self.timestamp.isoformat()}] {self.type}: {self.message}"
-
-    __repr__ = sane_repr("team_id", "plugin_id", "timestamp", "type", "message")
+    __repr__ = sane_repr("plugin_config_id", "timestamp", "source", "type", "message")
 
 
 @dataclass
@@ -122,6 +124,7 @@ class PluginLogEntryRaw:
     plugin_id: int
     plugin_config_id: int
     timestamp: datetime.datetime
+    source: PluginLogEntry.Source
     type: PluginLogEntry.Type
     message: str
     instance_id: UUID

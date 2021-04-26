@@ -12,8 +12,8 @@ def plugin_log_factory_ch(
     team_id: int,
     plugin_id: int,
     plugin_config_id: int,
+    source: PluginLogEntry.Source,
     type: PluginLogEntry.Type,
-    is_system: bool = True,
     message: str,
     instance_id: str
 ):
@@ -24,8 +24,8 @@ def plugin_log_factory_ch(
             "team_id": team_id,
             "plugin_id": plugin_id,
             "plugin_config_id": plugin_config_id,
+            "source": source,
             "type": type,
-            "is_system": int(is_system),
             "instance_id": instance_id,
             "message": message,
             "timestamp": timezone.now().strftime("%Y-%m-%dT%H:%M:%S.%f"),
