@@ -45,7 +45,7 @@ export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type) => ({ type }),
-        setDashboardModeItem: (dashboardItem: DashboardItemType) => ({ dashboardItem }),
+        setDashboardItem: (dashboardItem: DashboardItemType) => ({ dashboardItem }),
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: true,
@@ -137,7 +137,7 @@ export const insightLogic = kea<insightLogicType>({
         dashboardModeItem: [
             {} as DashboardItemType,
             {
-                setDashboardModeItem: (_, { dashboardItem }) => dashboardItem,
+                setDashboardItem: (_, { dashboardItem }) => dashboardItem,
             },
         ],
     },
@@ -205,10 +205,10 @@ export const insightLogic = kea<insightLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/insights': (_: any, searchParams: Record<string, any>) => {
+            const dashboardItem = searchParams.dashboardItem || {}
+            actions.setDashboardItem(dashboardItem)
             if (searchParams.insight && searchParams.insight !== values.activeView) {
                 actions.updateActiveView(searchParams.insight)
-                const dashboardModeItem = searchParams.fromDashboardItem || {}
-                actions.setDashboardModeItem(dashboardModeItem)
             }
         },
     }),
