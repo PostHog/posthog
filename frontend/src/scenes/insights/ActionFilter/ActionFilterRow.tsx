@@ -1,18 +1,18 @@
 import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Tooltip, Col, Row, Select } from 'antd'
-import { ActionFilter, EntityTypes, PropertyFilter } from '~/types'
+import { ActionFilter, EntityTypes, EventProperty, PropertyFilter } from '~/types'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
 import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import './ActionFilterRow.scss'
-import { EventProperty, teamLogic } from 'scenes/teamLogic'
+import { entityFilterLogic } from './entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { entityFilterLogic } from './entityFilterLogic'
+import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
@@ -59,7 +59,7 @@ export function ActionFilterRow({
         updateFilterProperty,
         setEntityFilterVisibility,
     } = useActions(logic)
-    const { eventPropertiesNumerical } = useValues(teamLogic)
+    const { numericalPropertyNames } = useValues(propertyDefinitionsLogic)
 
     const visible = entityFilterVisible[filter.order]
 
@@ -151,7 +151,7 @@ export function ActionFilterRow({
                             math={math}
                             index={index}
                             onMathSelect={onMathSelect}
-                            areEventPropertiesNumericalAvailable={eventPropertiesNumerical?.length > 0}
+                            areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
                             style={{ maxWidth: '100%', width: 'initial' }}
                         />
                     )}
@@ -178,7 +178,7 @@ export function ActionFilterRow({
                     mathProperty={mathProperty}
                     index={index}
                     onMathPropertySelect={onMathPropertySelect}
-                    properties={eventPropertiesNumerical}
+                    properties={numericalPropertyNames}
                 />
             )}
             {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) && (
@@ -199,7 +199,7 @@ export function ActionFilterRow({
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
-                        onChange={(properties: EventProperty[]) => updateFilterProperty({ properties, index })}
+                        onChange={(properties: PropertyFilter[]) => updateFilterProperty({ properties, index })}
                         style={{ marginBottom: 0 }}
                     />
                 </div>

@@ -1,6 +1,6 @@
 import './ActionFilter.scss'
 import React, { useEffect } from 'react'
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
@@ -21,8 +21,8 @@ const DragHandle = sortableHandle(() => (
 ))
 
 interface SortableActionFilterRowProps {
-    logic: BuiltLogic
-    filter: any //TODO
+    logic: typeof entityFilterLogic
+    filter: ActionFilterType
     filterIndex: number
     hideMathSelector?: boolean
     hidePropertySelector?: boolean
@@ -113,8 +113,8 @@ export function ActionFilter({
                         {localFilters.map((filter, index) => (
                             <SortableActionFilterRow
                                 key={index}
-                                logic={logic}
-                                filter={filter}
+                                logic={logic as any}
+                                filter={filter as ActionFilterType}
                                 index={index}
                                 filterIndex={index}
                                 hideMathSelector={hideMathSelector}
@@ -126,7 +126,7 @@ export function ActionFilter({
                 ) : (
                     localFilters.map((filter, index) => (
                         <ActionFilterRow
-                            logic={logic}
+                            logic={logic as any}
                             filter={filter as ActionFilterType}
                             index={index}
                             key={index}

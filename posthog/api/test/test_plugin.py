@@ -157,7 +157,7 @@ class TestPluginAPI(APIBaseTest):
                     f"/api/organizations/@current/plugins/{install_response.json()['id']}/", {"is_global": False}
                 )
                 self.assertEqual(
-                    response.status_code, 403, "Plugin was not 403 for org despite it having no plugin install acces`s"
+                    response.status_code, 403, "Plugin was not 403 for org despite it having no plugin install access"
                 )
 
         self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL

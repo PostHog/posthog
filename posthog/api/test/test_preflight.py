@@ -62,7 +62,6 @@ class TestPreflight(APIBaseTest):
                     "email_service_available": False,
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
-                    "is_async_event_action_mapping_enabled": True,
                     "licensed_users_available": None,
                 },
             )
@@ -120,7 +119,6 @@ class TestPreflight(APIBaseTest):
                     "email_service_available": False,
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
-                    "is_async_event_action_mapping_enabled": True,
                     "licensed_users_available": None,
                 },
             )
@@ -160,7 +158,6 @@ class TestPreflight(APIBaseTest):
                     "email_service_available": True,
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
-                    "is_async_event_action_mapping_enabled": True,
                     "licensed_users_available": None,
                 },
             )

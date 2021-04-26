@@ -1,6 +1,7 @@
+import json
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 import statsd
 from dateutil import parser
@@ -20,9 +21,41 @@ from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
-if settings.EE_AVAILABLE:
-    from ee.clickhouse.process_event import log_event, process_event_ee
+if settings.STATSD_HOST is not None:
+    statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
+
+if is_ee_enabled():
+    from ee.kafka_client.client import KafkaProducer
     from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL
+
+    producer = KafkaProducer()
+
+    def log_event(
+        distinct_id: str,
+        ip: Optional[str],
+        site_url: str,
+        data: dict,
+        team_id: int,
+        now: datetime,
+        sent_at: Optional[datetime],
+        event_uuid: UUIDT,
+        *,
+        topics: Sequence[str],
+    ) -> None:
+        if settings.DEBUG:
+            print(f'Logging event {data["event"]} to Kafka topics {" and ".join(topics)}')
+        data = {
+            "uuid": str(event_uuid),
+            "distinct_id": distinct_id,
+            "ip": ip,
+            "site_url": site_url,
+            "data": json.dumps(data),
+            "team_id": team_id,
+            "now": now.isoformat(),
+            "sent_at": sent_at.isoformat() if sent_at else "",
+        }
+        for topic in topics:
+            producer.produce(topic=topic, data=data)
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -210,11 +243,7 @@ def get_event(request):
         ip = None if team.anonymize_ips else get_ip_address(request)
 
         if is_ee_enabled():
-            log_topics = [KAFKA_EVENTS_WAL]
-
-            if settings.PLUGIN_SERVER_INGESTION:
-                log_topics.append(KAFKA_EVENTS_PLUGIN_INGESTION)
-                statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
+            statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
 
             log_event(
                 distinct_id=distinct_id,
@@ -225,21 +254,8 @@ def get_event(request):
                 now=now,
                 sent_at=sent_at,
                 event_uuid=event_uuid,
-                topics=log_topics,
+                topics=[KAFKA_EVENTS_WAL, KAFKA_EVENTS_PLUGIN_INGESTION],
             )
-
-            # must done after logging because process_event_ee modifies the event, e.g. by removing $elements
-            if not settings.PLUGIN_SERVER_INGESTION:
-                process_event_ee(
-                    distinct_id=distinct_id,
-                    ip=ip,
-                    site_url=request.build_absolute_uri("/")[:-1],
-                    data=event,
-                    team_id=team.id,
-                    now=now,
-                    sent_at=sent_at,
-                    event_uuid=event_uuid,
-                )
         else:
             task_name = "posthog.tasks.process_event.process_event_with_plugins"
             celery_queue = settings.PLUGINS_CELERY_QUEUE

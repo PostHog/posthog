@@ -63,10 +63,10 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     def test_no_delete_team_not_belonging_to_organization(self):
         team_1 = Organization.objects.bootstrap(None)[2]
         response = self.client.delete(f"/api/projects/{team_1.id}")
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 403)
         self.assertTrue(Team.objects.filter(id=team_1.id).exists())
         organization, _, _ = User.objects.bootstrap("X", "someone@x.com", "qwerty", "Someone")
         team_2 = Team.objects.create(organization=organization)
         response = self.client.delete(f"/api/projects/{team_2.id}")
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 403)
         self.assertEqual(Team.objects.filter(organization=organization).count(), 2)

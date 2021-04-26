@@ -247,21 +247,6 @@ urlpatterns = [
     path("accounts/", include("django.contrib.auth.urls")),
 ]
 
-
-if settings.DEBUG:
-    try:
-        import debug_toolbar
-    except ImportError:
-        pass
-    else:
-        urlpatterns.append(path("__debug__/", include(debug_toolbar.urls)))
-
-    @csrf_exempt
-    def debug(request):
-        assert False, locals()
-
-    urlpatterns.append(path("debug/", debug))
-
 if settings.TEST:
 
     @csrf_exempt

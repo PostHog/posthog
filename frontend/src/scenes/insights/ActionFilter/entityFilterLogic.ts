@@ -9,14 +9,17 @@ import {
     EntityFilter,
     Optional,
     PropertyFilter,
+    ActionType,
 } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { ActionFilterProps } from './ActionFilter'
+import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 
 export type LocalFilter = EntityFilter & { order: number; properties?: PropertyFilter[] }
 
-export function toLocalFilters(filters: FilterType): LocalFilter[] {
+type FilterWithOptionalInsight = Optional<FilterType, 'insight'>
+
+export function toLocalFilters(filters: FilterWithOptionalInsight): LocalFilter[] {
     return [
         ...(filters[EntityTypes.ACTIONS] || []),
         ...(filters[EntityTypes.EVENTS] || []),
@@ -26,7 +29,7 @@ export function toLocalFilters(filters: FilterType): LocalFilter[] {
         .map((filter, order) => ({ ...(filter as EntityFilter), order }))
 }
 
-export function toFilters(localFilters: LocalFilter[]): Optional<FilterType, 'insight'> {
+export function toFilters(localFilters: LocalFilter[]): FilterWithOptionalInsight {
     const filters = localFilters.map((filter, index) => ({
         ...filter,
         order: index,
@@ -36,7 +39,7 @@ export function toFilters(localFilters: LocalFilter[]): Optional<FilterType, 'in
         [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
         [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
         [EntityTypes.NEW_ENTITY]: filters.filter((filter) => filter.type === EntityTypes.NEW_ENTITY),
-    } as Optional<FilterType, 'insight'>
+    } as FilterWithOptionalInsight
 }
 
 // required props:
@@ -44,11 +47,21 @@ export function toFilters(localFilters: LocalFilter[]): Optional<FilterType, 'in
 // - setFilters
 // - typeKey
 export const entityFilterLogic = kea<
-    entityFilterLogicType<EntityFilter, ActionFilter, EntityType, ActionFilterProps, FilterType, LocalFilter>
+    entityFilterLogicType<
+        FilterWithOptionalInsight,
+        ActionType,
+        EntityFilter,
+        PropertyFilter,
+        ActionFilter,
+        EntityType,
+        ActionFilterProps,
+        FilterType,
+        LocalFilter
+    >
 >({
     key: (props) => props.typeKey,
     connect: {
-        values: [teamLogic, ['eventNames'], actionsModel, ['actions']],
+        values: [actionsModel, ['actions']],
     },
     actions: () => ({
         selectFilter: (filter: EntityFilter | null) => ({ filter }),
@@ -76,7 +89,7 @@ export const entityFilterLogic = kea<
             index: filter.index,
         }),
         setFilters: (filters: LocalFilter[]) => ({ filters }),
-        setLocalFilters: (filters: Optional<FilterType, 'insight'>) => ({ filters }),
+        setLocalFilters: (filters: FilterWithOptionalInsight) => ({ filters }),
         setEntityFilterVisibility: (index: number, value: boolean) => ({ index, value }),
     }),
 
@@ -106,7 +119,7 @@ export const entityFilterLogic = kea<
 
     selectors: ({ selectors }) => ({
         entities: [
-            () => [selectors.eventNames, selectors.actions],
+            () => [eventDefinitionsLogic.selectors.eventNames, selectors.actions],
             (
                 events: string[],
                 actions: ActionFilter[]

@@ -16,6 +16,9 @@ class RevenueDataGenerator(DataGenerator):
         self.add_if_not_contained(self.team.event_properties, "plan")
         self.add_if_not_contained(self.team.event_properties, "first_visit")
         self.add_if_not_contained(self.team.event_properties_numerical, "purchase_value")
+        self.add_if_not_contained(
+            self.team.event_properties, "purchase_value",
+        )  # numerical properties must also be declared here
 
     def populate_person_events(self, person: Person, distinct_id: str, index: int):
         if random.randint(0, 10) <= 4:
@@ -43,7 +46,7 @@ class RevenueDataGenerator(DataGenerator):
                     self.add_event(
                         event="purchase",
                         distinct_id=distinct_id,
-                        properties={"plan": plan, "purchase_value": value,},
+                        properties={"plan": plan, "purchase_value": value},
                         timestamp=now() - relativedelta(days=j * 29 + base_days),
                     )
 
