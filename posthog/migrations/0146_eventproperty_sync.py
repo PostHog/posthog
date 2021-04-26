@@ -10,7 +10,7 @@ def sync_team_event_names_and_properties(apps, schema_editor):
             # importing locally in case the code ever moves
             from posthog.tasks.sync_event_and_properties_definitions import sync_event_and_properties_definitions
 
-            sync_event_and_properties_definitions.delay(team.uuid)
+            sync_event_and_properties_definitions(team.uuid)
         except:
             pass
 
