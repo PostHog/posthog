@@ -83,6 +83,8 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
 
 class PluginManager(models.Manager):
     def install(self, **kwargs) -> "Plugin":
+        if "organization_id" not in kwargs and "organization" in kwargs:
+            kwargs["organization_id"] = kwargs["organization"].id
         if kwargs.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             update_validated_data_from_url(kwargs, kwargs["url"])
             raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
@@ -170,7 +172,7 @@ def preinstall_plugins_for_organization(sender, instance: Organization, created:
     if created:
         for plugin_url in settings.PLUGINS_PREINSTALLED_URLS:
             Plugin.objects.install(
-                organization=instance, type=Plugin.PluginType.REPOSITORY, url=plugin_url, preinstalled=True
+                organization=instance, plugin_type=Plugin.PluginType.REPOSITORY, url=plugin_url, preinstalled=True
             )
 
 
