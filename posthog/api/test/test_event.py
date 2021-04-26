@@ -8,6 +8,7 @@ from freezegun import freeze_time
 
 from posthog.constants import RDBMS
 from posthog.models import Action, ActionStep, Element, Event, Organization, Person, Team
+from posthog.queries.sessions.sessions_list import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.test.base import APIBaseTest
 from posthog.utils import relative_date_parse
 
@@ -326,12 +327,13 @@ def factory_test_event_api(event_factory, person_factory, _):
             response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-15",).json()
             self.assertEqual(len(response["result"]), 4)
 
-            for i in range(46):
+            # 4 sessions were already created above
+            for i in range(SESSIONS_LIST_DEFAULT_LIMIT - 4):
                 with freeze_time(relative_date_parse("2012-01-15T04:01:34.000Z") + relativedelta(hours=i)):
                     event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 3))
 
             response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17",).json()
-            self.assertEqual(len(response["result"]), 50)
+            self.assertEqual(len(response["result"]), SESSIONS_LIST_DEFAULT_LIMIT)
             self.assertIsNone(response.get("pagination"))
 
             for i in range(2):
@@ -339,7 +341,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                     event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 49))
 
             response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17",).json()
-            self.assertEqual(len(response["result"]), 50)
+            self.assertEqual(len(response["result"]), SESSIONS_LIST_DEFAULT_LIMIT)
             self.assertIsNotNone(response["pagination"])
 
         def test_event_sessions_by_id(self):

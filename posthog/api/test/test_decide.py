@@ -173,8 +173,43 @@ class TestDecide(BaseTest):
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
 
         response = self._post_decide({"distinct_id": "example_id", "api_key": key.value})
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(
-            response.json()["message"],
-            "Project API key invalid. You can find your project API key in PostHog project settings.",
+            response.json(),
+            {
+                "type": "authentication_error",
+                "code": "invalid_api_key",
+                "detail": "Project API key invalid. You can find your project API key in PostHog project settings.",
+                "attr": None,
+            },
         )
+
+    def test_invalid_payload_on_decide_endpoint(self):
+
+        invalid_payloads = [base64.b64encode("1-1".encode("utf-8")).decode("utf-8"), "1==1", "{distinct_id-1}"]
+
+        for payload in invalid_payloads:
+            response = self.client.post("/decide/", {"data": payload}, HTTP_ORIGIN="http://127.0.0.1:8000")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            response_data = response.json()
+            detail = response_data.pop("detail")
+            self.assertEqual(
+                response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None},
+            )
+            self.assertIn("Malformed request data:", detail)
+
+    def test_invalid_gzip_payload_on_decide_endpoint(self):
+
+        response = self.client.post(
+            "/decide/?compression=gzip",
+            data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03",
+            HTTP_ORIGIN="http://127.0.0.1:8000",
+            content_type="text/plain",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        detail = response_data.pop("detail")
+        self.assertEqual(
+            response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None},
+        )
+        self.assertIn("Malformed request data:", detail)

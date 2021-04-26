@@ -183,7 +183,7 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, tem
                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                             </Link>
                         </p>
-                        {preflight?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
+                        {!preflight?.ee_enabled && <AsyncActionMappingNotice />}
                         {action.post_to_slack && (
                             <>
                                 <Input

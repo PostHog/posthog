@@ -1,7 +1,13 @@
 import React from 'react'
 import { Popover } from 'antd'
+import { KeyMapping } from '~/types'
 
-export const keyMapping = {
+export interface KeyMappingInterface {
+    event: Record<string, KeyMapping>
+    element: Record<string, KeyMapping>
+}
+
+export const keyMapping: KeyMappingInterface = {
     event: {
         $timestamp: {
             label: 'Timestamp',
@@ -173,6 +179,52 @@ export const keyMapping = {
             description: 'The initial type of device that was used (first-touch).',
             examples: ['Mobile', 'Tablet', 'Desktop'],
         },
+        $pageview: {
+            label: 'Pageview',
+            description: 'When a user loads (or reloads) a page.',
+        },
+        $pageleave: {
+            label: 'Pageleave',
+            description: 'When a user leaves a page.',
+        },
+        $autocapture: {
+            label: 'Autocapture',
+            description: 'User interactions that were automatically captured.',
+            examples: ['clicked button'],
+        },
+        $feature_flag_called: {
+            label: 'Feature Flag Called',
+            description: (
+                <>
+                    The feature flag that was called.
+                    <br />
+                    <br />
+                    Warning! This only works in combination with the $feature_flag event. If you want to filter other
+                    events, try "Active Feature Flags".
+                </>
+            ),
+            examples: ['beta-feature'],
+        },
+        $capture_metrics: {
+            label: 'Capture Metrics',
+            description: 'Metrics captured with values pertaining to your systems at a specific point in time',
+        },
+        $identify: {
+            label: 'Identify',
+            description: 'Tie a user to their actions',
+        },
+        $rageclick: {
+            label: 'Rageclick',
+            description: 'When a user repeatedly clicks a targeted area or element over a short period of time',
+        },
+        $set: {
+            label: 'Set',
+            description: '',
+        },
+        $capture_failed_request: {
+            label: 'Capture Failed Request',
+            description: '',
+        },
 
         // UTM tags
         utm_source: {
@@ -311,12 +363,12 @@ export const keyMapping = {
         $geoip_latitude: {
             label: 'Latitude',
             description: `Approximated latitude matched to this event's IP address.`,
-            examples: [-33.8591, 13.1337],
+            examples: ['-33.8591', '13.1337'],
         },
         $geoip_longitude: {
             label: 'Longitude',
             description: `Approximated longitude matched to this event's IP address.`,
-            examples: [151.2, 80.8008],
+            examples: ['151.2', '80.8008'],
         },
         $geoip_time_zone: {
             label: 'Timezone',
@@ -381,16 +433,17 @@ export const keyMapping = {
     },
 }
 
-export function PropertyKeyInfo({ value, type = 'event' }) {
-    let data
-    if (type === 'cohort') {
-        return value.name
-    } else {
-        data = keyMapping[type][value]
-    }
+interface PropertyKeyInfoInterface {
+    value: string
+    type?: 'event' | 'element'
+}
 
-    if (!data) {
-        return value
+export function PropertyKeyInfo({ value, type = 'event' }: PropertyKeyInfoInterface): JSX.Element {
+    let data = null
+    if (value in keyMapping[type]) {
+        data = keyMapping[type][value]
+    } else {
+        return <>{value}</>
     }
 
     return (

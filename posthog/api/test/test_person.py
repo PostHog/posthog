@@ -4,7 +4,6 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.models import Cohort, Event, Organization, Person, Team
-from posthog.tasks.process_event import process_event
 from posthog.test.base import APIBaseTest
 
 
@@ -194,27 +193,14 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
         def test_filter_is_identified(self):
             person_anonymous = person_factory(team=self.team, distinct_ids=["xyz"])
             person_identified_already = person_factory(team=self.team, distinct_ids=["tuv"], is_identified=True)
-            person_identified_using_event = person_factory(team=self.team, distinct_ids=["klm"])
 
             # all
             response = self.client.get(
                 "/api/person",
             )  # Make sure the endpoint works with and without the trailing slash
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(len(response.json()["results"]), 3)
+            self.assertEqual(len(response.json()["results"]), 2)
 
-            # person_identified_using_event should have is_identified set to True after an $identify event
-            process_event(
-                person_identified_using_event.distinct_ids[0],
-                "",
-                "",
-                {"event": "$identify"},
-                self.team.pk,
-                timezone.now().isoformat(),
-                timezone.now().isoformat(),
-            )
-
-            self.assertTrue(get_people()[2].is_identified)
             # anonymous
             response = self.client.get("/api/person/?is_identified=false")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -225,9 +211,8 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
             # identified
             response = self.client.get("/api/person/?is_identified=true")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(len(response.json()["results"]), 2)
-            self.assertEqual(response.json()["results"][0]["id"], person_identified_using_event.id)
-            self.assertEqual(response.json()["results"][1]["id"], person_identified_already.id)
+            self.assertEqual(len(response.json()["results"]), 1)
+            self.assertEqual(response.json()["results"][0]["id"], person_identified_already.id)
             self.assertEqual(response.json()["results"][0]["is_identified"], True)
 
         def test_delete_person(self):

@@ -43,7 +43,7 @@ def demo(request: Request):
     return render_template("demo.html", request=request, context={"api_token": team.api_token})
 
 
-def create_demo_team(organization: Organization, user: User, request: Request) -> Team:
+def create_demo_team(organization: Organization, *args) -> Team:
     team = Team.objects.create_with_data(
         default_dashboards=False,
         organization=organization,

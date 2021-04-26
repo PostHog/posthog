@@ -5,14 +5,9 @@ import { TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
 import React from 'react'
-import { posthogEvents, identifierToHuman, resolveWebhookService } from 'lib/utils'
+import { identifierToHuman, resolveWebhookService } from 'lib/utils'
 
-export interface EventProperty {
-    value: string
-    label: string
-}
-
-export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
+export const teamLogic = kea<teamLogicType<TeamType>>({
     actions: {
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
@@ -97,52 +92,6 @@ export const teamLogic = kea<teamLogicType<TeamType, EventProperty>>({
             window.location.href = '/ingestion'
         },
     }),
-    selectors: {
-        eventProperties: [
-            (s) => [s.currentTeam],
-            (team): EventProperty[] =>
-                team
-                    ? team.event_properties.map(
-                          (property: string) => ({ value: property, label: property } as EventProperty)
-                      )
-                    : [],
-        ],
-        eventPropertiesNumerical: [
-            (s) => [s.currentTeam],
-            (team): EventProperty[] =>
-                team
-                    ? team.event_properties_numerical.map(
-                          (property: string) => ({ value: property, label: property } as EventProperty)
-                      )
-                    : [],
-        ],
-        eventNames: [(s) => [s.currentTeam], (team): string[] => team?.event_names ?? []],
-        customEventNames: [
-            (s) => [s.eventNames],
-            (eventNames): string[] => {
-                return eventNames.filter((event) => !event.startsWith('!'))
-            },
-        ],
-        eventNamesGrouped: [
-            (s) => [s.currentTeam],
-            (team) => {
-                const data = [
-                    { label: 'Custom events', options: [] as EventProperty[] },
-                    { label: 'PostHog events', options: [] as EventProperty[] },
-                ]
-                if (team) {
-                    team.event_names.forEach((name: string) => {
-                        const format = { label: name, value: name } as EventProperty
-                        if (posthogEvents.includes(name)) {
-                            return data[1].options.push(format)
-                        }
-                        data[0].options.push(format)
-                    })
-                }
-                return data
-            },
-        ],
-    },
     events: ({ actions }) => ({
         afterMount: [actions.loadCurrentTeam],
     }),

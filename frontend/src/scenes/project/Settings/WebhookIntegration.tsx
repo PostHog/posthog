@@ -37,7 +37,7 @@ export function WebhookIntegration(): JSX.Element {
                 <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also
                 supported.
             </p>
-            {preflight?.is_async_event_action_mapping_enabled && <AsyncActionMappingNotice />}
+            {!preflight?.ee_enabled && <AsyncActionMappingNotice />}
 
             <Input
                 value={webhook}

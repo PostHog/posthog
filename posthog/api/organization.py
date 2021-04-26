@@ -214,7 +214,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
 
     def create_team(self, organization: Organization, user: User) -> Team:
         if self.enable_new_onboarding(user):
-            return create_demo_team(user=user, organization=organization, request=self.context["request"])
+            return create_demo_team(organization=organization)
         else:
             return Team.objects.create_with_data(user=user, organization=organization)
 

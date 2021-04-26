@@ -1,5 +1,6 @@
 # This file contains a list of 'ignored' typescript errors. If any new ones are added they will cause ci breakage
-# Add lines via bin/check-typescript-strict | cut -d":" -f1
+# You can get an updated list of blacklisted errors by running bin/check-typescript-strict | cut -d":" -f1
+# You will need to manually update this file if applicable.
 Type.ts
 frontend/src/initKea.ts(2,32)
 frontend/src/initKea.ts(4,31)
@@ -60,13 +61,6 @@ frontend/src/scenes/sessions/SessionDetails.tsx(55,51)
 frontend/src/scenes/sessions/SessionsView.tsx(199,29)
 frontend/src/scenes/sessions/filters/DurationFilter.tsx(27,34)
 frontend/src/scenes/sessions/filters/EventPropertyFilter.tsx(21,41)
-frontend/src/scenes/sessions/filters/SessionsFilterBox.tsx(43,13)
-frontend/src/scenes/sessions/filters/SessionsFilterBox.tsx(44,13)
-frontend/src/scenes/sessions/filters/SessionsFilterBox.tsx(78,13)
-frontend/src/scenes/sessions/filters/SessionsFilterBox.tsx(79,13)
-frontend/src/scenes/sessions/filters/SessionsFilterBox.tsx(87,13)
-frontend/src/scenes/sessions/filters/SessionsFilterBox.tsx(116,13)
-frontend/src/scenes/sessions/filters/SessionsFilterBox.tsx(173,9)
 frontend/src/scenes/sessions/sessionsPlayLogic.ts(155,61)
 frontend/src/toolbar/ToolbarApp.tsx(35,74)
 frontend/src/toolbar/actions/SelectorCount.tsx(2,38)

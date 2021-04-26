@@ -329,7 +329,11 @@ export function LineGraph({
             options = {
                 responsive: true,
                 maintainAspectRatio: false,
-                hover: { mode: 'index' },
+                hover: {
+                    mode: 'index',
+                    onHover: options.hover.onHover,
+                },
+                onClick: options.onClick,
             }
         }
 
