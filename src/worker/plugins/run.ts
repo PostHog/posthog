@@ -7,6 +7,8 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent): Pro
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
     let returnedEvent: PluginEvent | null = event
 
+    const pluginsSucceeded = []
+    const pluginsFailed = []
     for (const pluginConfig of pluginsToRun) {
         const processEvent = await pluginConfig.vm?.getProcessEvent()
 
@@ -15,15 +17,25 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent): Pro
 
             try {
                 returnedEvent = (await processEvent(returnedEvent)) || null
+                pluginsSucceeded.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
             } catch (error) {
                 await processError(server, pluginConfig, error, returnedEvent)
                 server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.process_event.ERROR`)
+                pluginsFailed.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
             }
             server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.process_event`, timer)
 
             if (!returnedEvent) {
                 return null
             }
+        }
+    }
+
+    if (pluginsSucceeded.length > 0 || pluginsFailed.length > 0) {
+        event.properties = {
+            ...event.properties,
+            $plugins_succeeded: pluginsSucceeded,
+            $plugins_failed: pluginsFailed,
         }
     }
 
@@ -47,22 +59,35 @@ export async function runPluginsOnBatch(server: PluginsServer, batch: PluginEven
         const pluginsToRun = getPluginsForTeam(server, teamId)
 
         let returnedEvents: PluginEvent[] = teamEvents
-
+        const pluginsSucceeded = []
+        const pluginsFailed = []
         for (const pluginConfig of pluginsToRun) {
             const timer = new Date()
             const processEventBatch = await pluginConfig.vm?.getProcessEventBatch()
             if (processEventBatch && returnedEvents.length > 0) {
                 try {
                     returnedEvents = (await processEventBatch(returnedEvents)) || []
+                    pluginsSucceeded.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
                 } catch (error) {
                     await processError(server, pluginConfig, error, returnedEvents[0])
                     server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.process_event_batch.ERROR`)
+                    pluginsFailed.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
                 }
                 server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.process_event_batch`, timer)
                 server.statsd?.timing('plugin.process_event_batch', timer, 0.2, {
                     plugin: pluginConfig.plugin?.name ?? '?',
                     teamId: teamId.toString(),
                 })
+            }
+        }
+
+        for (const event of returnedEvents) {
+            if (event && (pluginsSucceeded.length > 0 || pluginsFailed.length > 0)) {
+                event.properties = {
+                    ...event.properties,
+                    $plugins_succeeded: pluginsSucceeded,
+                    $plugins_failed: pluginsFailed,
+                }
             }
         }
 
