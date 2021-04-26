@@ -12,7 +12,7 @@ import {
 } from 'react-sortable-hoc'
 import { alphabet } from 'lib/utils'
 import posthog from 'posthog-js'
-import { ActionFilter as ActionFilterType, FilterType } from '~/types'
+import { ActionFilter as ActionFilterType, FilterType, Optional } from '~/types'
 
 const DragHandle = sortableHandle(() => (
     <span className="action-filter-drag-handle">
@@ -57,7 +57,7 @@ const SortableContainer = sortableContainer(({ children }: { children: React.Rea
 })
 export interface ActionFilterProps {
     setFilters: (filters: Record<string, any>) => void
-    filters: FilterType
+    filters: Optional<FilterType, 'type'>
     typeKey: string
     hideMathSelector?: boolean
     hidePropertySelector?: boolean

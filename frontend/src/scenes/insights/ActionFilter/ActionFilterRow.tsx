@@ -8,7 +8,7 @@ import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
 import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import './ActionFilterRow.scss'
-import { entityFilterLogic } from './entityFilterLogic'
+import { BareEntity, entityFilterLogic } from './entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -105,7 +105,7 @@ export function ActionFilterRow({
         name = null
         value = null
     } else {
-        entity = entities[filter.type]?.filter((action) => action.id === filter.id)[0] || {}
+        entity = (entities[filter.type] as BareEntity[])?.filter((action) => action.id === filter.id)[0] || {}
         name = entity.name || filter.name
         value = entity.id || filter.id
     }
@@ -307,7 +307,7 @@ function MathSelector({
 }
 
 interface MathPropertySelectorProps {
-    name: string
+    name: string | null
     math?: string
     mathProperty?: string
     index: number

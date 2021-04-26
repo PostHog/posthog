@@ -492,7 +492,7 @@ export type PathType = typeof PAGEVIEW | typeof AUTOCAPTURE | typeof SCREEN | ty
 export type RetentionType = 'retention_recurring' | 'retention_first_time'
 
 export interface FilterType {
-    insight: InsightType
+    insight?: InsightType
     display?: DisplayType
     interval?: string
     date_from?: string

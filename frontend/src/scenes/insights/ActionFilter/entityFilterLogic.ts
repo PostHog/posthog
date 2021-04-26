@@ -16,6 +16,7 @@ import { ActionFilterProps } from './ActionFilter'
 import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 
 export type LocalFilter = EntityFilter & { order: number; properties?: PropertyFilter[] }
+export type BareEntity = Pick<Entity, 'id' | 'name'>
 
 type FilterWithOptionalInsight = Optional<FilterType, 'insight'>
 
@@ -54,8 +55,7 @@ export const entityFilterLogic = kea<
         PropertyFilter,
         ActionFilter,
         EntityType,
-        ActionFilterProps,
-        FilterType,
+        BareEntity,
         LocalFilter
     >
 >({
@@ -120,10 +120,7 @@ export const entityFilterLogic = kea<
     selectors: ({ selectors }) => ({
         entities: [
             () => [eventDefinitionsLogic.selectors.eventNames, selectors.actions],
-            (
-                events: string[],
-                actions: ActionFilter[]
-            ): { [x: string]: ActionFilter[] | Pick<Entity, 'id' | 'name'>[] } => ({
+            (events: string[], actions: ActionFilter[]): { [x: string]: ActionFilter[] | BareEntity[] } => ({
                 [EntityTypes.ACTIONS]: actions,
                 [EntityTypes.EVENTS]: events.map((event) => ({ id: event, name: event })),
             }),
