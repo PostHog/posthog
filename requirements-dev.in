@@ -12,7 +12,6 @@ flake8-import-order
 flake8-logging-format
 flake8-print
 pip-tools
-django-debug-toolbar
 mypy
 mypy-extensions
 djangorestframework-stubs

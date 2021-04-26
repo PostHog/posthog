@@ -552,15 +552,6 @@ if DEBUG and not TEST:
         )
     )
 
-    # Load debug_toolbar if we can
-    try:
-        import debug_toolbar  # noqa: F401
-    except ImportError:
-        pass
-    else:
-        INSTALLED_APPS.append("debug_toolbar")
-        MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
-
 if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
     print_warning(
         (
@@ -580,10 +571,6 @@ def show_toolbar(request):
         or request.path.startswith("/__debug__")
     )
 
-
-DEBUG_TOOLBAR_CONFIG = {
-    "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
-}
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
