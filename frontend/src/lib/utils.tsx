@@ -11,6 +11,7 @@ import { featureFlagLogic } from './logic/featureFlagLogic'
 import { open } from '@papercups-io/chat-widget'
 import posthog from 'posthog-js'
 import { WEBHOOK_SERVICES } from 'lib/constants'
+import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -269,7 +270,7 @@ export function isValidRegex(value: string): boolean {
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohorts: Record<string, any>[],
-    keyMapping: Record<string, Record<string, any>>
+    keyMapping: KeyMappingInterface
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
@@ -535,7 +536,7 @@ export function dateFilterToText(
     return name
 }
 
-export function humanizeNumber(number: number, digits: number = 1): string {
+export function humanizeNumber(number: number | null, digits: number = 1): string {
     if (number === null) {
         return '-'
     }

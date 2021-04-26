@@ -104,14 +104,6 @@ def system_status(request):
         }
     )
 
-    metrics.append(
-        {
-            "key": "ingestion_server",
-            "metric": "Event ingestion via",
-            "value": "Plugin Server" if settings.PLUGIN_SERVER_INGESTION else "Django",
-        }
-    )
-
     metrics.append({"key": "plugin_sever_alive", "metric": "Plugin server alive", "value": is_plugin_server_alive()})
     metrics.append(
         {
