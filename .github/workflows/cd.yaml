@@ -39,9 +39,9 @@ jobs:
             - name: Determine relevant Docker tags
               id: docker-tags
               run: |
-                  DOCKER_TAGS="posthog/plugin-server:latest,public.ecr.aws/p1o5l3m0/posthog-plugin-server:latest"
+                  DOCKER_TAGS="posthog/plugin-server:latest"
                   if [[ $IS_UNPUBLISHED_VERSION == "true" ]]; then
-                    DOCKER_TAGS="$DOCKER_TAGS,posthog/plugin-server:$REPO_VERSION,public.ecr.aws/p1o5l3m0/posthog-plugin-server:$REPO_VERSION,posthog/plugin-server:latest-release,public.ecr.aws/p1o5l3m0/posthog-plugin-server:latest-release"
+                    DOCKER_TAGS="$DOCKER_TAGS,posthog/plugin-server:$REPO_VERSION,posthog/plugin-server:latest-release"
                   fi
                   echo "::set-output name=docker-tags::$DOCKER_TAGS"
 
@@ -56,16 +56,6 @@ jobs:
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-            # Currently disabled - needs AWS credentials with more access on the repo
-            # - name: Log in to Public ECR
-            #   uses: docker/login-action@v1
-            #   with:
-            #       registry: public.ecr.aws
-            #       username: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            #       password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            #   env:
-            #       AWS_REGION: us-east-1
 
             - name: Build and push latest
               uses: docker/build-push-action@v2
