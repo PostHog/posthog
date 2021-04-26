@@ -8,6 +8,8 @@ from django.dispatch.dispatcher import receiver
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec, Version
 
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 from posthog.plugins.reload import reload_plugins_on_workers
 from posthog.plugins.utils import download_plugin_archive, get_json_from_archive, load_json_file, parse_url
 from posthog.version import VERSION
@@ -113,6 +115,8 @@ class Plugin(models.Model):
     source: models.TextField = models.TextField(blank=True, null=True)
     latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    preinstalled: models.BooleanField = models.BooleanField(default=False)
+
     # DEPRECATED: not used for anything, all install and config errors are in PluginConfig.error
     error: models.JSONField = models.JSONField(default=None, null=True)
     # DEPRECATED: these were used when syncing posthog.json with the db on app start
@@ -159,6 +163,22 @@ class PluginStorage(models.Model):
     plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
     key: models.CharField = models.CharField(max_length=200)
     value: models.TextField = models.TextField(blank=True, null=True)
+
+
+@receiver(models.signals.post_save, sender=Organization)
+def preinstall_plugins_for_organization(sender, instance: Organization, created: bool, **kwargs):
+    if created:
+        for plugin_url in settings.PLUGINS_PREINSTALLED_URLS:
+            Plugin.objects.install(
+                organization=instance, type=Plugin.PluginType.REPOSITORY, url=plugin_url, preinstalled=True
+            )
+
+
+@receiver(models.signals.post_save, sender=Team)
+def enable_preinstalled_plugins_for_team(sender, instance: Team, created: bool, **kwargs):
+    if created:
+        for order, preinstalled_plugin in enumerate(Plugin.objects.filter(preinstalled=True)):
+            PluginConfig.objects.create(team=instance, plugin=preinstalled_plugin, enabled=True, order=order)
 
 
 @receiver([post_save, post_delete], sender=Plugin)
