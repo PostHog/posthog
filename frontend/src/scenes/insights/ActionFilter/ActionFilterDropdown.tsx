@@ -33,7 +33,7 @@ export function ActionFilterDropdown({
         return null
     }
 
-    const selectedFilter = useValues(logic).selectedFilter
+    const { selectedFilter } = useValues(logic)
     const { updateFilter, setEntityFilterVisibility } = useActions(logic)
 
     const { actions } = useValues(actionsModel)

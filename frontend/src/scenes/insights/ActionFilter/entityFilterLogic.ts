@@ -117,16 +117,16 @@ export const entityFilterLogic = kea<
         ],
     }),
 
-    selectors: ({ selectors }) => ({
+    selectors: {
         entities: [
-            () => [eventDefinitionsLogic.selectors.eventNames, selectors.actions],
-            (events: string[], actions: ActionFilter[]): { [x: string]: ActionFilter[] | BareEntity[] } => ({
+            (s) => [eventDefinitionsLogic.selectors.eventNames, s.actions],
+            (events, actions): { [x: string]: ActionFilter[] | BareEntity[] } => ({
                 [EntityTypes.ACTIONS]: actions,
                 [EntityTypes.EVENTS]: events.map((event) => ({ id: event, name: event })),
             }),
         ],
-        filters: [() => [selectors.localFilters], (localFilters: LocalFilter[]) => toFilters(localFilters)],
-    }),
+        filters: [(s) => [s.localFilters], (localFilters) => toFilters(localFilters)],
+    },
 
     listeners: ({ actions, values, props }) => ({
         updateFilter: ({ type, index, name, id }) => {

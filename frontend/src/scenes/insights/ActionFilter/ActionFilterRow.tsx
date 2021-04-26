@@ -64,8 +64,7 @@ export function ActionFilterRow({
     const visible = entityFilterVisible[filter.order]
 
     let entity, name, value
-    const math = filter.math
-    const mathProperty = filter.math_property
+    const { math, math_property: mathProperty } = filter
 
     const onClose = (): void => {
         removeLocalFilter({ value: filter.id, type: filter.type, index })
@@ -90,11 +89,12 @@ export function ActionFilterRow({
         })
     }
 
-    const dropDownCondition = (): boolean =>
-        Boolean(selectedFilter && selectedFilter?.type === filter.type && selectedFilter?.index === index)
+    const dropDownCondition: boolean = Boolean(
+        selectedFilter && selectedFilter?.type === filter.type && selectedFilter?.index === index
+    )
 
     const onClick = (): void => {
-        if (dropDownCondition()) {
+        if (dropDownCondition) {
             selectFilter(null)
         } else {
             selectFilter({ ...filter, index })
@@ -139,7 +139,7 @@ export function ActionFilterRow({
                         <DownOutlined style={{ fontSize: 10 }} />
                     </Button>
                     <ActionFilterDropdown
-                        open={dropDownCondition()}
+                        open={dropDownCondition}
                         logic={logic}
                         openButtonRef={node}
                         onClose={() => selectFilter(null)}
@@ -213,7 +213,7 @@ interface MathSelectorProps {
     index: number
     onMathSelect: (index: number, value: any) => any // TODO
     areEventPropertiesNumericalAvailable?: boolean
-    style?: Partial<React.CSSProperties>
+    style?: React.CSSProperties
 }
 
 function MathSelector({
@@ -339,7 +339,7 @@ function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
         <SelectGradientOverflow
             showSearch
             style={{ width: 150 }}
-            onChange={(_property: string, payload) => {
+            onChange={(_: string, payload) => {
                 props.onMathPropertySelect(props.index, (payload as SelectOptionType)?.value)
             }}
             className="property-select"
@@ -359,7 +359,7 @@ function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
                             <>
                                 Calculate {MATHS[props.math ?? ''].name.toLowerCase()} from property{' '}
                                 <code>{label}</code>. Note that only {props.name} occurences where <code>{label}</code>{' '}
-                                is set and a number will be taken into account.
+                                is set with a numeric value will be taken into account.
                             </>
                         }
                         placement="right"
