@@ -7,7 +7,7 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FilterType } from '~/types'
+import { DashboardItemType, FilterType } from '~/types'
 
 export enum ViewType {
     TRENDS = 'TRENDS',
@@ -45,6 +45,7 @@ export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type) => ({ type }),
+        setDashboardModeItem: (dashboardItem: DashboardItemType) => ({ dashboardItem }),
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: true,
@@ -133,6 +134,12 @@ export const insightLogic = kea<insightLogicType>({
                 setNotFirstLoad: () => false,
             },
         ],
+        dashboardModeItem: [
+            {} as DashboardItemType,
+            {
+                setDashboardModeItem: (_, { dashboardItem }) => dashboardItem,
+            },
+        ],
     },
     listeners: ({ actions, values }) => ({
         setAllFilters: (filters) => {
@@ -200,6 +207,8 @@ export const insightLogic = kea<insightLogicType>({
         '/insights': (_: any, searchParams: Record<string, any>) => {
             if (searchParams.insight && searchParams.insight !== values.activeView) {
                 actions.updateActiveView(searchParams.insight)
+                const dashboardModeItem = searchParams.fromDashboardItem || {}
+                actions.setDashboardModeItem(dashboardModeItem)
             }
         },
     }),
