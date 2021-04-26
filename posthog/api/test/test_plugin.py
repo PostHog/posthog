@@ -28,7 +28,7 @@ def mocked_plugin_reload(*args, **kwargs):
     pass
 
 
-@mock.patch("posthog.api.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
+@mock.patch("posthog.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
 class TestPluginAPI(APIBaseTest):
     @classmethod

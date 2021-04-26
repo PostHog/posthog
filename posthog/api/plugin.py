@@ -1,38 +1,26 @@
 import json
-import os
 import re
 from typing import Any, Dict, Optional, Set
 
 import requests
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
-from django.db.models import Model, Q
-from django.http.response import Http404
+from django.db.models import Q
 from django.utils.timezone import now
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
-from semantic_version import SimpleSpec, Version
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.models.organization import Organization
+from posthog.models.plugin import update_validated_data_from_url
 from posthog.permissions import OrganizationMemberPermissions, ProjectMembershipNecessaryPermissions
-from posthog.plugins import (
-    can_configure_plugins,
-    can_install_plugins,
-    download_plugin_archive,
-    get_json_from_archive,
-    parse_url,
-    reload_plugins_on_workers,
-)
+from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins
-from posthog.plugins.utils import load_json_file
-from posthog.version import VERSION
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
@@ -95,27 +83,12 @@ class PluginSerializer(serializers.ModelSerializer):
     def get_organization_name(self, plugin: Plugin) -> str:
         return plugin.organization.name
 
-    def _raise_if_plugin_installed(self, url: str, organization_id: str):
-        url_without_private_key = url.split("?")[0]
-        if (
-            Plugin.objects.filter(
-                Q(url=url_without_private_key) | Q(url__startswith="{}?".format(url_without_private_key))
-            )
-            .filter(organization_id=organization_id)
-            .exists()
-        ):
-            raise ValidationError('Plugin from URL "{}" already installed!'.format(url_without_private_key))
-
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
         validated_data["url"] = self.initial_data.get("url", None)
-        if validated_data.get("is_global") and not can_globally_manage_plugins(self.context["organization_id"]):
-            raise PermissionDenied("This organization can't manage global plugins!")
-        if validated_data.get("plugin_type", None) != Plugin.PluginType.SOURCE:
-            self._update_validated_data_from_url(validated_data, validated_data["url"])
-            self._raise_if_plugin_installed(validated_data["url"], self.context["organization_id"])
         validated_data["organization_id"] = self.context["organization_id"]
-        plugin = super().create(validated_data)
-        reload_plugins_on_workers()
+        if validated_data.get("is_global") and not can_globally_manage_plugins(validated_data["organization_id"]):
+            raise PermissionDenied("This organization can't manage global plugins!")
+        plugin = Plugin.objects.install(**validated_data)
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
@@ -127,63 +100,7 @@ class PluginSerializer(serializers.ModelSerializer):
             and context_organization.plugins_access_level < Organization.PluginsAccessLevel.ROOT
         ):
             raise PermissionDenied("This organization can't manage global plugins!")
-        response = super().update(plugin, validated_data)
-        reload_plugins_on_workers()
-        return response
-
-    # If remote plugin, download the archive and get up-to-date validated_data from there.
-    @staticmethod
-    def _update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> Dict:
-        if url.startswith("file:"):
-            plugin_path = url[5:]
-            json_path = os.path.join(plugin_path, "plugin.json")
-            json = load_json_file(json_path)
-            if not json:
-                raise ValidationError("Could not load plugin.json from: {}".format(json_path))
-            validated_data["plugin_type"] = "local"
-            validated_data["url"] = url
-            validated_data["tag"] = None
-            validated_data["archive"] = None
-            validated_data["name"] = json.get("name", json_path.split("/")[-2])
-            validated_data["description"] = json.get("description", "")
-            validated_data["config_schema"] = json.get("config", [])
-            validated_data["source"] = None
-            posthog_version = json.get("posthogVersion", None)
-        else:
-            parsed_url = parse_url(url, get_latest_if_none=True)
-            if parsed_url:
-                validated_data["url"] = parsed_url["root_url"]
-                validated_data["tag"] = parsed_url.get("tag", None)
-                validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
-                plugin_json = get_json_from_archive(validated_data["archive"], "plugin.json")
-                if not plugin_json:
-                    raise ValidationError("Could not find plugin.json in the plugin")
-                validated_data["name"] = plugin_json["name"]
-                validated_data["description"] = plugin_json.get("description", "")
-                validated_data["config_schema"] = plugin_json.get("config", [])
-                validated_data["source"] = None
-                posthog_version = plugin_json.get("posthogVersion", None)
-            else:
-                raise ValidationError("Must be a GitHub/GitLab repository or a npm package URL!")
-
-            # Keep plugin type as "repository" or reset to "custom" if it was something else.
-            if (
-                validated_data.get("plugin_type", None) != Plugin.PluginType.CUSTOM
-                and validated_data.get("plugin_type", None) != Plugin.PluginType.REPOSITORY
-            ):
-                validated_data["plugin_type"] = Plugin.PluginType.CUSTOM
-
-        if posthog_version and not settings.MULTI_TENANCY:
-            try:
-                spec = SimpleSpec(posthog_version.replace(" ", ""))
-            except ValueError:
-                raise ValidationError(f'Invalid PostHog semantic version requirement "{posthog_version}"!')
-            if not (Version(VERSION) in spec):
-                raise ValidationError(
-                    f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "{posthog_version}".'
-                )
-
-        return validated_data
+        return super().update(plugin, validated_data)
 
 
 class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -243,9 +160,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         serializer = PluginSerializer(plugin, context={"organization": organization})
         validated_data = {}
         if plugin.plugin_type != Plugin.PluginType.SOURCE:
-            validated_data = PluginSerializer._update_validated_data_from_url({}, plugin.url)
-        serializer.update(plugin, validated_data)
-        reload_plugins_on_workers()
+            validated_data = update_validated_data_from_url({}, plugin.url)
+            serializer.update(plugin, validated_data)
         return Response(serializer.data)
 
     def destroy(self, request: request.Request, *args, **kwargs) -> Response:
@@ -253,7 +169,6 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if instance.is_global:
             raise ValidationError("This plugin is marked as global! Make it local before uninstallation")
         self.perform_destroy(instance)
-        reload_plugins_on_workers()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -306,7 +221,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         self._fix_formdata_config_json(validated_data)
         plugin_config = super().create(validated_data)
         self._update_plugin_attachments(plugin_config)
-        reload_plugins_on_workers()
         return plugin_config
 
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
@@ -323,7 +237,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         response = super().update(plugin_config, validated_data)
         self._update_plugin_attachments(plugin_config)
-        reload_plugins_on_workers()
         return response
 
     # sending files via a multipart form puts the config JSON in a un-serialized format
@@ -343,7 +256,8 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             if match:
                 self._update_plugin_attachment(plugin_config, match.group(1), None)
 
-    def _update_plugin_attachment(self, plugin_config: PluginConfig, key: str, file: Optional[UploadedFile]):
+    @staticmethod
+    def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optional[UploadedFile]):
         try:
             plugin_attachment = PluginAttachment.objects.get(
                 team=plugin_config.team, plugin_config=plugin_config, key=key
@@ -397,7 +311,6 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         orders = request.data.get("orders", {})
 
-        did_save = False
         plugin_configs = PluginConfig.objects.filter(team_id=self.team.pk, enabled=True)
         plugin_configs_dict = {p.plugin_id: p for p in plugin_configs}
         for plugin_id, order in orders.items():
@@ -405,10 +318,6 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             if plugin_config and plugin_config.order != order:
                 plugin_config.order = order
                 plugin_config.save()
-                did_save = True
-
-        if did_save:
-            reload_plugins_on_workers()
 
         return Response(PluginConfigSerializer(plugin_configs, many=True).data)
 
