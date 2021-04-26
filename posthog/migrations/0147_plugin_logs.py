@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0145_eventdefinition_propertydefinition"),
+        ("posthog", "0146_eventproperty_sync"),
     ]
 
     operations = [
