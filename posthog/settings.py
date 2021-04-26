@@ -578,10 +578,6 @@ def show_toolbar(request):
     )
 
 
-DEBUG_TOOLBAR_CONFIG = {
-    "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
-}
-
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403
