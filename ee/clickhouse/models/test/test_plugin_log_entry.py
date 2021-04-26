@@ -24,7 +24,7 @@ def plugin_log_factory_ch(
             "team_id": team_id,
             "plugin_id": plugin_id,
             "plugin_config_id": plugin_config_id,
-            "type": type,
+            "type": int(type),
             "is_system": is_system,
             "instance_id": instance_id,
             "message": message,
