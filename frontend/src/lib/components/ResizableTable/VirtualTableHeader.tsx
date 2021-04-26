@@ -73,7 +73,7 @@ function VirtualTableHeader<RecordType>({
     return (
         <div className="resizable-virtual-table-header">
             <div className="left-spacer" style={{ width: ANTD_EXPAND_BUTTON_WIDTH }} />
-            {columns.map(({ /*ellipsis, key,*/ title, width }, index) => (
+            {columns.map(({ title, width }, index) => (
                 <ResizableTitle
                     key={index}
                     initialWidth={width ?? minColumnWidth}
