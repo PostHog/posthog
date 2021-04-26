@@ -7,7 +7,7 @@ import { DiscoverInsightsModule } from './modules/discoverInsight'
 import { Button, Layout, Space, Tooltip } from 'antd'
 import { SlackOutlined, UserAddOutlined, RocketOutlined, GithubOutlined } from '@ant-design/icons'
 
-import './home.scss'
+import './Home.scss'
 
 const { Content, Footer } = Layout
 import { useActions, useValues } from 'kea'
@@ -48,7 +48,7 @@ function HeaderCTAs(): JSX.Element {
                             onClick={() => {
                                 setInviteMembersModalOpen(true)
                             }}
-                            data-attr="top-menu-invite-team-members"
+                            data-attr="project-home-invite-team-members"
                             style={{ width: '100%' }}
                         >
                             Invite Team Members
@@ -101,10 +101,8 @@ export function Home(): JSX.Element {
         <TiledIconModule
             tiles={communitySources}
             analyticsModuleKey="community"
-            header={'Join the PostHog Community'}
-            subHeader={
-                'Share your learnings with other PostHog users. Learn about the latest in product analytics directly from the PostHog team and members in our community.'
-            }
+            header="Join the PostHog Community"
+            subHeader="Share your learnings with other PostHog users. Learn about the latest in product analytics directly from the PostHog team and members in our community."
         />
     )
 
@@ -127,22 +125,20 @@ export function Home(): JSX.Element {
         />
     )
 
-    const insightsModule = <DiscoverInsightsModule />
-    const lessonsModule = <PostHogLessons />
     const layoutTeamHasEvents = (
-        <React.Fragment>
-            {insightsModule}
-            {lessonsModule}
+        <>
+            <DiscoverInsightsModule />
+            <PostHogLessons />
             {communityModule}
-        </React.Fragment>
+        </>
     )
 
     const layoutTeamNeedsEvents = (
-        <React.Fragment>
+        <>
             {installModule}
             {communityModule}
-            {lessonsModule}
-        </React.Fragment>
+            <PostHogLessons />
+        </>
     )
     const teamHasData = user?.team?.ingested_event
     reportProjectHomeSeen(teamHasData || false)
@@ -153,9 +149,9 @@ export function Home(): JSX.Element {
                     <PageHeader
                         title={`${currentTeam?.name ?? ''} Project Home 🚀`}
                         caption={
-                            !teamHasData ? `Welcome to PostHog! Install one of our libraries to get started.` : ` `
+                            teamHasData ? undefined : 'Welcome to PostHog! Install one of our libraries to get started.'
                         }
-                        buttons={HeaderCTAs()}
+                        buttons={<HeaderCTAs />}
                     />
                     <Content>
                         <Space direction="vertical">{teamHasData ? layoutTeamHasEvents : layoutTeamNeedsEvents}</Space>
