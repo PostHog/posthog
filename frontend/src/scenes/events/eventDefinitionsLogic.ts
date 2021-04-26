@@ -24,7 +24,7 @@ export const eventDefinitionsLogic = kea<
             {
                 loadEventDefinitions: async (initial?: boolean) => {
                     const url = initial
-                        ? 'api/projects/@current/event_definitions/?limit=500'
+                        ? 'api/projects/@current/event_definitions/?limit=5000'
                         : values.eventStorage.next
                     if (!url) {
                         throw new Error('Incorrect call to eventDefinitionsLogic.loadEventDefinitions')
