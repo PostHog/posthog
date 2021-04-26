@@ -1,7 +1,6 @@
 import { Card, Carousel, Divider, Image, Space, Tooltip, Typography } from 'antd'
 import React from 'react'
 import { ArrowLeftOutlined, ArrowRightOutlined } from '@ant-design/icons'
-import '../home.scss'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useActions } from 'kea'
@@ -30,7 +29,7 @@ const LESSONS = [
     {
         title: 'Custom Behavioral Cohorts',
         hover:
-            'A walk through on how you can analyze sets of users in groups based on behaviors or properties that you define.',
+            'A walk-through on how you can analyze sets of users in groups based on behaviors or properties that you define.',
         target: 'https://posthog.com/docs/tutorials/cohorts',
         imgSrc: 'https://posthog.imgix.net/static/cohorts-ee2b05a043bd20bbfed442b6e75cb116.png',
     },

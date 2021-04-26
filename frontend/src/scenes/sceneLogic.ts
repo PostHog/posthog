@@ -83,7 +83,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
     [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
     [Scene.Login]: () => import(/* webpackChunkName: 'login' */ './authentication/Login'),
-    [Scene.Home]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/home'),
+    [Scene.Home]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/Home'),
 }
 
 interface SceneConfig {
