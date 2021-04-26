@@ -8,6 +8,16 @@ import { getErrorForPluginConfig, resetTestDatabase } from '../helpers/sql'
 jest.mock('../../src/shared/status')
 jest.setTimeout(60000) // 60 sec timeout
 
+const defaultEvent = {
+    distinct_id: 'my_id',
+    ip: '127.0.0.1',
+    site_url: 'http://localhost',
+    team_id: 2,
+    now: new Date().toISOString(),
+    event: 'default event',
+    properties: { key: 'value' },
+}
+
 describe('teardown', () => {
     test('teardown code runs when stopping', async () => {
         await resetTestDatabase(`
@@ -40,20 +50,16 @@ describe('teardown', () => {
     })
 
     test('teardown code runs when reloading', async () => {
-        const resetDatabasePlugin = () =>
-            resetTestDatabase(`
-            async function processEvent (event) {
-                event.properties.processed = 'hell yes'
-                event.properties.upperUuid = event.properties.uuid?.toUpperCase()
+        await resetTestDatabase(`
+            async function processEvent (event, meta) {
+                event.properties.storage = await meta.storage.get('storage', 'nope')
                 return event
             }
-            async function teardownPlugin() {
-                console.log('tearing down')
-                throw new Error('This Happened In The Teardown Palace')
+            async function teardownPlugin(meta) {
+                await meta.storage.set('storage', 'tore down')
             }
         `)
-        await resetDatabasePlugin()
-        const { piscina, stop } = await startPluginsServer(
+        const { piscina, stop, server } = await startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
@@ -65,17 +71,19 @@ describe('teardown', () => {
         const error1 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error1).toBe(null)
 
-        await delay(1000)
-        await resetDatabasePlugin()
-        await delay(1000)
-        await piscina?.broadcastTask({ task: 'reloadPlugins' })
+        await delay(100)
 
-        // this teardown will happen async
+        await server.db.postgresQuery('update posthog_pluginconfig set updated_at = now() where id = $1', [
+            pluginConfig39.id,
+        ])
+        const event1 = await piscina!.runTask({ task: 'processEvent', args: { event: { ...defaultEvent } } })
+        expect(event1.properties.storage).toBe('nope')
+
+        await piscina!.broadcastTask({ task: 'reloadPlugins' })
         await delay(3000)
 
-        // verify the teardownPlugin code runs
-        const error2 = await getErrorForPluginConfig(pluginConfig39.id)
-        expect(error2.message).toBe('This Happened In The Teardown Palace')
+        const event2 = await piscina!.runTask({ task: 'processEvent', args: { event: { ...defaultEvent } } })
+        expect(event2.properties.storage).toBe('tore down')
 
         await stop()
     })
