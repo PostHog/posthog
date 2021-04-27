@@ -134,7 +134,7 @@ export const insightLogic = kea<insightLogicType>({
                 setNotFirstLoad: () => false,
             },
         ],
-        dashboardModeItem: [
+        dashboardItem: [
             {} as DashboardItemType,
             {
                 setDashboardItem: (_, { dashboardItem }) => dashboardItem,

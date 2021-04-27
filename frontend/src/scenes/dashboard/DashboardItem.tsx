@@ -44,6 +44,7 @@ dayjs.extend(relativeTime)
 interface Props {
     item: DashboardItemType
     dashboardId?: number
+    dashboardName?: string
     updateItemColor?: (id: number, itemClassName: string) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
@@ -67,7 +68,7 @@ interface DisplayProps {
     element: (props: any) => JSX.Element | null
     icon: (props: any) => JSX.Element | null
     viewText: string
-    link: (item: DashboardItemType) => string
+    link: (item: DashboardItemType, dashboardName: string | undefined) => string
 }
 
 export const displayMap: Record<DisplayedType, DisplayProps> = {
@@ -76,11 +77,11 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: ActionsLineGraph,
         icon: LineChartOutlined,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
+        link: ({ id, dashboard, name, filters }: DashboardItemType, dashboardName: string | undefined): string => {
             return combineUrl(
                 `/insights`,
                 {
-                    dashboardItem: { id: id, name: name, dashboard: dashboard },
+                    dashboardItem: { id: id, name: name, dashboard: dashboard, dashboardName: dashboardName },
                     ...filters,
                 },
                 {}
@@ -223,6 +224,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
 export function DashboardItem({
     item,
     dashboardId,
+    dashboardName,
     updateItemColor,
     loadDashboardItems,
     isDraggingRef,
@@ -254,7 +256,7 @@ export function DashboardItem({
     const Element = displayMap[_type].element
     const Icon = displayMap[_type].icon
     const viewText = displayMap[_type].viewText
-    const link = displayMap[_type].link(item)
+    const link = displayMap[_type].link(item, dashboardName)
     const color = item.color || 'white'
     const { dashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)

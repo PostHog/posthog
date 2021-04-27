@@ -397,6 +397,7 @@ export interface DashboardItemType {
     created_by: UserBasicType | null
     is_sample: boolean
     dashboard: number
+    dashboardName?: string
     result: any | null
 }
 

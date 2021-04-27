@@ -49,7 +49,6 @@ import { TZIndicator } from 'lib/components/TimezoneAware'
 import { DisplayType, FilterType, HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -123,7 +122,7 @@ export function Insights(): JSX.Element {
         isLoading,
         activeView,
         allFilters,
-        dashboardModeItem,
+        dashboardItem,
         showTimeoutMessage,
         showErrorMessage,
     } = useValues(insightLogic)
@@ -166,11 +165,11 @@ export function Insights(): JSX.Element {
               }
             : {}
     )
-    console.log('dashboard mode items', dashboardModeItem)
+
     return (
         <div className="insights-page">
-            <PageTitle />
-            {Object.keys(dashboardModeItem).length === 0 && (
+            <PageTitle dashboardItem={dashboardItem} />
+            {Object.keys(dashboardItem).length === 0 && (
                 <Row justify="space-between" align="middle" className="top-bar">
                     <Tabs
                         size="large"
@@ -484,15 +483,15 @@ function FunnelPeople(): JSX.Element {
     return <></>
 }
 
-function PageTitle(): JSX.Element {
-    const { dashboardModeItem } = useValues(insightLogic)
-    const { dashboard } = useValues(dashboardLogic({ id: dashboardModeItem.dashboard || 5 }))
-    console.log('DASHBOARD', dashboard)
-    if (Object.keys(dashboardModeItem).length > 1) {
+interface Props {
+    dashboardItem: any
+}
+function PageTitle({ dashboardItem }: Props): JSX.Element {
+    if (Object.keys(dashboardItem).length > 1) {
         return (
             <div>
-                <PageHeader title={dashboardModeItem.name} />
-                <div>On dashboard</div>
+                <PageHeader title={dashboardItem.name} />
+                <div>On dashboard {dashboardItem.dashboardName}</div>
             </div>
         )
     }

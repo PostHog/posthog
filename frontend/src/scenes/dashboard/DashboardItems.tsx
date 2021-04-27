@@ -88,6 +88,7 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
                     <DashboardItem
                         key={item.id}
                         dashboardId={dashboard.id}
+                        dashboardName={dashboard.name}
                         item={item}
                         layout={
                             resizingItem?.i?.toString() === item.id.toString() ? resizingItem : layoutForItem[item.id]
