@@ -11,7 +11,7 @@ import {
     SlidersOutlined,
     TableOutlined,
 } from '@ant-design/icons'
-import React, { ReactNode, useEffect } from 'react'
+import React, { useEffect } from 'react'
 import { DashboardItemType } from '~/types'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
@@ -82,16 +82,6 @@ const ANALYTICS_MODULE_KEY = 'insights'
 function CreateAnalysisSection(): JSX.Element {
     const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
 
-    const questionsToTooltipTitle = (questions: string[]): ReactNode => {
-        const contents = questions.map((question, idx) => (
-            <Paragraph className={'insight-tooltip'} key={idx}>
-                {`•` + question}
-            </Paragraph>
-        ))
-
-        return <React.Fragment>{contents}</React.Fragment>
-    }
-
     return (
         <React.Fragment>
             <h3>Start an analysis</h3>
@@ -111,7 +101,14 @@ function CreateAnalysisSection(): JSX.Element {
                             reportProjectHomeItemClicked(ANALYTICS_MODULE_KEY, insight.name.toLowerCase())
                         }}
                     >
-                        <Tooltip color={'#2d2d2d'} title={questionsToTooltipTitle(insight.questions)}>
+                        <Tooltip
+                            color="var(--bg-charcoal)"
+                            title={insight.questions.map((question, idx) => (
+                                <Paragraph className={'insight-tooltip'} key={idx}>
+                                    {`•` + question}
+                                </Paragraph>
+                            ))}
+                        >
                             <List.Item className="insight-container" key={insight.name}>
                                 <div>
                                     <Avatar
