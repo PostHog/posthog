@@ -119,10 +119,8 @@
     <!-- <listen_host>0.0.0.0</listen_host> -->
 
     <!-- Default values - try listen localhost on ipv4 and ipv6: -->
-    <!--
-    <listen_host>::1</listen_host>
-    <listen_host>127.0.0.1</listen_host>
-    -->
+    <!-- <listen_host>::1</listen_host> -->
+    <!-- <listen_host>127.0.0.1</listen_host> -->
     <!-- Don't exit if ipv6 or ipv4 unavailable, but listen_host with this protocol specified -->
     <!-- <listen_try>0</listen_try> -->
 

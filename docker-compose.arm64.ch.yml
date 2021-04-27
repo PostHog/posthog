@@ -1,7 +1,69 @@
 version: '3'
 
+# Profiles by name:
+#   - all (webpack, python, worker, redis, postgres)
+#   - ee_all (webpack, python, worker, plugins, redis, postgres, clickhouse, kafka, zookeeper)
+#   - or, list profiles desired:
+#            docker compose -f docker-compose.arm64.ch.yml \
+#                --profile python \
+#                --profile redis \
+#                --profile postgres \
+#                up
+
 services:
+    postgres:
+        profiles:
+            - postgres
+            - all
+            - ee_all
+        image: postgres:12-alpine
+        container_name: posthog_db
+        environment:
+            POSTGRES_USER: posthog
+            POSTGRES_DB: posthog
+            POSTGRES_PASSWORD: posthog
+        ports:
+            - '5432:5432'
+    redis:
+        profiles:
+            - redis
+            - all
+            - ee_all
+        image: 'redis:5-alpine'
+        container_name: posthog_redis
+        ports:
+            - '6379:6379'
+    python:
+        profiles:
+            - python
+            - all
+            - ee_all
+        build:
+            context: .
+            dockerfile: dev.Dockerfile
+        command: ./bin/docker-backend
+        volumes:
+            - .:/code
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@postgres:5432/posthog'
+            REDIS_URL: 'redis://redis:6379/'
+            SECRET_KEY: '<randomly generated secret key>'
+            DEBUG: 'true'
+            PGHOST: postgres
+            PGUSER: posthog
+            PGPASSWORD: posthog
+        depends_on:
+            - postgres
+            - redis
+        links:
+            - postgres:postgres
+            - redis:redis
+        ports:
+            - '8000:8000'
     clickhouse:
+        profiles:
+            - clickhouse
+            - ee_all
         build:
             context: .
             dockerfile: clickhouse.arm64.Dockerfile
@@ -11,11 +73,18 @@ services:
             - '9000:9000'
             - '9440:9440'
             - '9009:9009'
+            - '8000:8000'
         depends_on:
             - kafka
     zookeeper:
+        profiles:
+            - zookeeper
+            - ee_all
         image: wurstmeister/zookeeper
     kafka:
+        profiles:
+            - kafka
+            - ee_all
         image: wurstmeister/kafka
         depends_on:
             - zookeeper
@@ -24,59 +93,67 @@ services:
         environment:
             KAFKA_ADVERTISED_HOST_NAME: kafka
             KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-#    worker: &worker
-#        build:
-#            context: ../
-#            dockerfile: dev.Dockerfile
-#        command: ./bin/docker-worker-celery --with-scheduler
-#        volumes:
-#            - ..:/code
-#        environment:
-#            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-#            CLICKHOUSE_HOST: 'clickhouse'
-#            CLICKHOUSE_DATABASE: 'posthog'
-#            CLICKHOUSE_SECURE: 'false'
-#            CLICKHOUSE_VERIFY: 'false'
-#            KAFKA_URL: 'kafka://kafka'
-#            REDIS_URL: 'redis://redis:6379/'
-#            SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
-#            DEBUG: 'true'
-#            PRIMARY_DB: 'clickhouse'
-#            PGHOST: db
-#            PGUSER: posthog
-#            PGPASSWORD: posthog
-#        depends_on:
-#            - db
-#            - redis
-#            - clickhouse
-#            - kafka
-#        links:
-#            - db:db
-#            - redis:redis
-#            - clickhouse:clickhouse
-#            - kafka:kafka
-#    web:
-#        <<: *worker
-#        command: ./ee/bin/docker-ch-dev-web
-#        ports:
-#            - '8000:8000'
-#            - '8234:8234'
-#    plugins:
-#        image: posthog/plugin-server:0.15.4
-#        restart: on-failure
-#        environment:
-#            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-#            KAFKA_ENABLED: 'true'
-#            KAFKA_HOSTS: 'kafka:9092'
-#            REDIS_URL: 'redis://redis:6379/'
-#            CLICKHOUSE_HOST: 'clickhouse'
-#        depends_on:
-#            - db
-#            - redis
-#            - clickhouse
-#            - kafka
-#        links:
-#            - db:db
-#            - redis:redis
-#            - clickhouse:clickhouse
-#            - kafka:kafka
+    worker: &worker
+        profiles:
+            - worker
+            - all
+            - ee_all
+        build:
+            context: .
+            dockerfile: dev.Dockerfile
+        command: ./bin/docker-worker-celery --with-scheduler
+        volumes:
+            - .:/code
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@postgres:5432/posthog'
+            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_DATABASE: 'posthog'
+            CLICKHOUSE_SECURE: 'false'
+            CLICKHOUSE_VERIFY: 'false'
+            KAFKA_URL: 'kafka://kafka'
+            REDIS_URL: 'redis://redis:6379/'
+            SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
+            DEBUG: 'true'
+            PRIMARY_DB: 'clickhouse'
+            PGHOST: postgres
+            PGUSER: posthog
+            PGPASSWORD: posthog
+        depends_on:
+            - postgres
+            - redis
+        links:
+            - postgres:postgres
+            - redis:redis
+            - clickhouse:clickhouse
+            - kafka:kafka
+    webpack:
+        <<: *worker
+        profiles:
+            - webpack
+            - all
+            - ee_all
+        command: ./bin/start-frontend
+        ports:
+            - '8234:8234'
+    plugins:
+        profiles:
+            - plugins
+            - ee_all
+        image: posthog/plugin-server:0.15.4
+        restart: on-failure
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@postgres:5432/posthog'
+            KAFKA_ENABLED: 'true'
+            KAFKA_HOSTS: 'kafka:9092'
+            REDIS_URL: 'redis://redis:6379/'
+            CLICKHOUSE_HOST: 'clickhouse'
+        depends_on:
+            - postgres
+            - redis
+            - clickhouse
+            - kafka
+        links:
+            - postgres:postgres
+            - redis:redis
+            - clickhouse:clickhouse
+            - kafka:kafka
