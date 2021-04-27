@@ -25,53 +25,53 @@ function HeaderCTAs(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const [showToolTip, setShowToolTip] = useState(false)
 
-    const inviteModal = (
-        <div>
-            <Tooltip
-                placement="bottom"
-                visible={showToolTip && !inviteMembersModalOpen}
-                title={"Because insights are better when they're shared with friends."}
-            >
-                <div>
-                    {preflight?.email_service_available ? (
-                        <Button
-                            onMouseLeave={() => {
-                                setShowToolTip(false)
-                            }}
-                            onMouseEnter={() => {
-                                {
-                                    setShowToolTip(true)
-                                }
-                            }}
-                            type="primary"
-                            icon={<UserAddOutlined />}
-                            onClick={() => {
-                                setInviteMembersModalOpen(true)
-                            }}
-                            data-attr="project-home-invite-team-members"
-                            style={{ width: '100%' }}
-                        >
-                            Invite Team Members
-                        </Button>
-                    ) : (
-                        <CreateInviteModalWithButton
-                            onMouseLeave={() => {
-                                setShowToolTip(false)
-                            }}
-                            onMouseEnter={() => {
-                                {
-                                    setShowToolTip(true)
-                                }
-                            }}
-                            block
-                        />
-                    )}
-                </div>
-            </Tooltip>
-        </div>
+    return (
+        <Space direction={'vertical'}>
+            <div>
+                <Tooltip
+                    placement="bottom"
+                    visible={showToolTip && !inviteMembersModalOpen}
+                    title={"Because insights are better when they're shared with friends."}
+                >
+                    <div>
+                        {preflight?.email_service_available ? (
+                            <Button
+                                onMouseLeave={() => {
+                                    setShowToolTip(false)
+                                }}
+                                onMouseEnter={() => {
+                                    {
+                                        setShowToolTip(true)
+                                    }
+                                }}
+                                type="primary"
+                                icon={<UserAddOutlined />}
+                                onClick={() => {
+                                    setInviteMembersModalOpen(true)
+                                }}
+                                data-attr="project-home-invite-team-members"
+                                style={{ width: '100%' }}
+                            >
+                                Invite Team Members
+                            </Button>
+                        ) : (
+                            <CreateInviteModalWithButton
+                                onMouseLeave={() => {
+                                    setShowToolTip(false)
+                                }}
+                                onMouseEnter={() => {
+                                    {
+                                        setShowToolTip(true)
+                                    }
+                                }}
+                                block
+                            />
+                        )}
+                    </div>
+                </Tooltip>
+            </div>
+        </Space>
     )
-
-    return <Space direction={'vertical'}>{inviteModal}</Space>
 }
 
 export function Home(): JSX.Element {
