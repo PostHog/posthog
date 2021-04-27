@@ -83,7 +83,7 @@ export function Home(): JSX.Element {
         {
             icon: <SlackOutlined />,
             title: 'Hang out in Slack',
-            targetPath: 'https://posthog.com/slack?s=app',
+            targetPath: 'https://posthog.com/slack?s=app&utm_content=project-home',
             openInNewTab: true,
             hoverText:
                 'Talk with other PostHog users, get support on issues, and exclusive access to features in beta development.',
