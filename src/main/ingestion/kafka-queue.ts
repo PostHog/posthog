@@ -214,7 +214,6 @@ export class KafkaQueue implements Queue {
             rebalanceTimeout: 120000, // default: 60000
             sessionTimeout: 60000, // default: 30000
             readUncommitted: false,
-            retry: { retries: 20 },
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
         consumer.on(GROUP_JOIN, ({ payload: { groupId } }) => {
