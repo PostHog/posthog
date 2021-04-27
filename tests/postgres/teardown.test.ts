@@ -73,9 +73,11 @@ describe('teardown', () => {
 
         await delay(100)
 
-        await server.db.postgresQuery('update posthog_pluginconfig set updated_at = now() where id = $1', [
-            pluginConfig39.id,
-        ])
+        await server.db.postgresQuery(
+            'update posthog_pluginconfig set updated_at = now() where id = $1',
+            [pluginConfig39.id],
+            'testTag'
+        )
         const event1 = await piscina!.runTask({ task: 'processEvent', args: { event: { ...defaultEvent } } })
         expect(event1.properties.storage).toBe('nope')
 

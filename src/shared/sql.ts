@@ -23,7 +23,9 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
 export async function getPluginRows(server: PluginsServer): Promise<Plugin[]> {
     const { rows: pluginRows }: { rows: Plugin[] } = await server.db.postgresQuery(
         `SELECT posthog_plugin.* FROM posthog_plugin
-            WHERE id IN (${pluginConfigsInForceQuery('plugin_id')} GROUP BY posthog_pluginconfig.plugin_id)`
+            WHERE id IN (${pluginConfigsInForceQuery('plugin_id')} GROUP BY posthog_pluginconfig.plugin_id)`,
+        undefined,
+        'getPluginRows'
     )
     return pluginRows
 }
@@ -31,13 +33,19 @@ export async function getPluginRows(server: PluginsServer): Promise<Plugin[]> {
 export async function getPluginAttachmentRows(server: PluginsServer): Promise<PluginAttachmentDB[]> {
     const { rows }: { rows: PluginAttachmentDB[] } = await server.db.postgresQuery(
         `SELECT posthog_pluginattachment.* FROM posthog_pluginattachment
-            WHERE plugin_config_id IN (${pluginConfigsInForceQuery('id')})`
+            WHERE plugin_config_id IN (${pluginConfigsInForceQuery('id')})`,
+        undefined,
+        'getPluginAttachmentRows'
     )
     return rows
 }
 
 export async function getPluginConfigRows(server: PluginsServer): Promise<PluginConfig[]> {
-    const { rows }: { rows: PluginConfig[] } = await server.db.postgresQuery(pluginConfigsInForceQuery())
+    const { rows }: { rows: PluginConfig[] } = await server.db.postgresQuery(
+        pluginConfigsInForceQuery(),
+        undefined,
+        'getPluginConfigRows'
+    )
     return rows
 }
 
@@ -49,7 +57,7 @@ export async function setError(
     await server.db.postgresQuery(
         'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
         [pluginError, typeof pluginConfig === 'object' ? pluginConfig?.id : pluginConfig],
-        'update_pc_error'
+        'updatePluginConfigError'
     )
     if (pluginError && server.ENABLE_PERSISTENT_CONSOLE) {
         await server.db.createPluginLogEntry(

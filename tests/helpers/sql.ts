@@ -142,7 +142,7 @@ export async function createUserTeamAndOrganization(
 }
 
 export async function getTeams(server: PluginsServer): Promise<Team[]> {
-    return (await server.db.postgresQuery('SELECT * FROM posthog_team ORDER BY id')).rows
+    return (await server.db.postgresQuery('SELECT * FROM posthog_team ORDER BY id', undefined, 'fetchAllTeams')).rows
 }
 
 export async function getFirstTeam(server: PluginsServer): Promise<Team> {
