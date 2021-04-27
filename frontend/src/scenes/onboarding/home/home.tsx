@@ -1,7 +1,7 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import React, { useEffect, useState } from 'react'
 import { PostHogLessons } from './modules/posthogLessons'
-import { TiledIconModule, TileParams } from './modules/tiledIconModule'
+import { TiledIconModule } from './modules/tiledIconModule'
 
 import { DiscoverInsightsModule } from './modules/discoverInsight'
 import { Button, Layout, Space, Tooltip } from 'antd'
@@ -18,6 +18,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { TileParams } from '~/types'
 
 function HeaderCTAs(): JSX.Element {
     const { setInviteMembersModalOpen } = useActions(navigationLogic)

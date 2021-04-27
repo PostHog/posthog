@@ -7,62 +7,72 @@ import { useActions } from 'kea'
 
 const { Paragraph } = Typography
 
+import eventTrackingOverview from './static/event-tracking-overview.png'
+import rollOutFeatures from './static/roll-out-features.png'
+import analyzeConversions from './static/analyze-conversions.png'
+import analyzeBehavior from './static/analyzing-behavior.png'
+import measureRetention from './static/measure-retention.png'
+import trackingSpas from './static/tracking-spas.png'
+import salesRevenueTracking from './static/sales-revenue-tracking.png'
+import trackingB2b from './static/tracking-b2b.png'
+import trackingTeams from './static/tracking-teams.png'
+
 const LESSONS = [
     {
         title: 'Event Tracking Overview',
         hover: 'A complete guide to getting started with event tracking.',
-        target: 'https://posthog.com/docs/tutorials/actions',
-        imgSrc: 'https://posthog.imgix.net/static/actions-087ad7af3bdb1b4ff329fe7360a952cb.png',
+        target: 'https://posthog.com/docs/tutorials/actions?utm_content=project-home',
+        imgSrc: eventTrackingOverview,
     },
     {
         title: 'Safely Roll Out New Features',
         hover: "A walk-through on how you can roll-out and learn from features using PostHog's feature flags.",
-        target: 'https://posthog.com/docs/tutorials/feature-flags',
-        imgSrc: 'https://posthog.imgix.net/static/feature-flags-1e8c20eefc3f0f8e8e72c0ce8101afcf.png',
+        target: 'https://posthog.com/docs/tutorials/feature-flag?utm_content=project-homes',
+        imgSrc: rollOutFeatures,
     },
     {
         title: 'Funnels - Analyzing Conversions',
         hover: 'A walk-through on funnel analysis – a core component to learning about your product.',
-        target: 'https://posthog.com/docs/tutorials/funnels',
-        imgSrc: 'https://posthog.imgix.net/static/funnels-e83cb9084e9ad9d2347b6d09fba07605.png',
+        target: 'https://posthog.com/docs/tutorials/funnels?utm_content=project-home',
+        imgSrc: analyzeConversions,
     },
     {
         title: 'Custom Behavioral Cohorts',
         hover:
             'A walk-through on how you can analyze sets of users in groups based on behaviors or properties that you define.',
-        target: 'https://posthog.com/docs/tutorials/cohorts',
-        imgSrc: 'https://posthog.imgix.net/static/cohorts-ee2b05a043bd20bbfed442b6e75cb116.png',
+        target: 'https://posthog.com/docs/tutorials/cohorts?utm_content=project-home',
+        imgSrc: analyzeBehavior,
     },
     {
         title: 'Measuring Retention',
         hover: 'A walk-through on answering a question every company must ask itself: Are users coming back?',
-        target: 'https://posthog.com/docs/tutorials/retention',
-        imgSrc: 'https://posthog.imgix.net/static/retention-2953b09ec29117beca1980e131abb1c1.png',
+        target: 'https://posthog.com/docs/tutorials/retention?utm_content=project-home',
+        imgSrc: measureRetention,
     },
     {
         title: 'Tracking Single Page Applications',
         hover: 'Implement PostHog into single page applications such as AngularJS.',
-        target: 'https://posthog.com/docs/tutorials/spa',
-        imgSrc: 'https://posthog.imgix.net/static/spa-4247169cea97603aa7f1d01afcbbed6e.png',
+        target: 'https://posthog.com/docs/tutorials/spa?utm_content=project-home',
+        imgSrc: trackingSpas,
     },
     {
         title: 'Revenue Tracking',
         hover: 'A guide on how you can use PostHog to track subscribers and revenue over time.',
-        target: 'https://posthog.com/docs/tutorials/revenue',
-        imgSrc: 'https://posthog.imgix.net/static/revenue-6f73a5bb58cd615990431d854194bd80.png',
+        target: 'https://posthog.com/docs/tutorials/revenue?utm_content=project-home',
+        imgSrc: salesRevenueTracking,
     },
 
     {
         title: 'Tracking Key B2B Product Metrics',
         hover: 'A guide on how B2B companies can implement successful analytics strategies.',
-        target: 'https://posthog.com/docs/tutorials/b2b',
-        imgSrc: 'https://posthog.imgix.net/static/b2b-028c24071e6d8bd3cedfcac068a4e02f.png',
+        target: 'https://posthog.com/docs/tutorials/b2b?utm_content=project-home',
+        imgSrc: trackingB2b,
     },
     {
         title: 'Tracking Team Usage',
         hover: 'Track how organizations use your product.',
-        target: 'https://posthog.com/docs/tutorials/tracking-teams',
-        imgSrc: 'https://posthog.imgix.net/static/user-model-bc991a8cc7e060a6e9495289082cdb98.png?w=1400',
+        target: 'https://posthog.com/docs/tutorials/tracking-teams?utm_content=project-home',
+        imgSrc: trackingTeams,
     },
 ]
 
@@ -115,14 +125,21 @@ function Tutorials(): JSX.Element {
             key={lesson.target}
             href={lesson.target}
             target="_blank"
+            rel="noopener"
             onClick={() => {
-                reportProjectHomeItemClicked('tutorials', lesson.title)
+                reportProjectHomeItemClicked('tutorials', lesson.title, { lesson_url: lesson.target })
                 return true
             }}
         >
             <Tooltip title={lesson.hover ?? ''} placement={'bottom'}>
                 <Card className={'lesson-card'} bordered={false}>
-                    <Image src={lesson.imgSrc} className="lesson-image" width={225} preview={false} />
+                    <Image
+                        src={lesson.imgSrc}
+                        placeholder={true}
+                        className="lesson-image"
+                        width={225}
+                        preview={false}
+                    />
                     <h4 className={'lesson-title'}>{lesson.title}</h4>
                 </Card>
             </Tooltip>
