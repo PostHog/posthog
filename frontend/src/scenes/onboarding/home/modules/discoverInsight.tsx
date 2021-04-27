@@ -203,7 +203,8 @@ function InsightPane(): JSX.Element {
                                                 onClick={() => {
                                                     reportProjectHomeItemClicked(
                                                         ANALYTICS_MODULE_KEY,
-                                                        'recent analysis'
+                                                        'recent analysis',
+                                                        { insight_type: insight.filters.insight }
                                                     )
                                                     const _type: DisplayedType =
                                                         insight.filters.insight === ViewType.RETENTION
