@@ -104,8 +104,8 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["count"], 2)
-        # We test ordering too (best matches go first, regardless of other attributes); this has similarity 0.4
-        self.assertEqual(response_data["results"][0]["name"], "rated_app")
+        # We test ordering too (best matches go first, regardless of other attributes)
+        self.assertEqual(response_data["results"][0]["name"], "rated_app")  # this has similarity 0.4
         self.assertEqual(response_data["results"][1]["name"], "installed_app")  # this has similarity 0.29
 
         # Fuzzy search 1
