@@ -101,7 +101,7 @@ function CreateAnalysisSection(): JSX.Element {
                         }}
                     >
                         <Tooltip
-                            color="var(--bg-charcoal)"
+                            color="var(--primary-alt)"
                             title={insight.questions.map((question, idx) => (
                                 <Paragraph className={'insight-tooltip'} key={idx}>
                                     {`•` + question}
@@ -132,7 +132,7 @@ function CreateAnalysisSection(): JSX.Element {
 function InsightPane(): JSX.Element {
     const { loadTeamInsights, loadSavedInsights, loadInsights } = useActions(insightHistoryLogic)
     const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
-    const { insights, insightsLoading, savedInsights, teamInsights } = useValues(insightHistoryLogic)
+    const { insights, insightsLoading } = useValues(insightHistoryLogic)
     useEffect(() => {
         loadInsights()
         loadSavedInsights()
@@ -182,7 +182,7 @@ function InsightPane(): JSX.Element {
             },
         ],
     }
-    const data = [...insights, ...savedInsights, ...savedInsights, ...teamInsights]
+    const data = [...insights]
 
     return (
         <React.Fragment>

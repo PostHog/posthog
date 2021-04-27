@@ -3,24 +3,9 @@ import { Avatar, Card, Divider, List, Tooltip, Typography, Space } from 'antd'
 import React from 'react'
 import { useActions } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { TiledIconModuleProps } from '~/types'
 
 const { Paragraph } = Typography
-
-export interface TileParams {
-    title: string
-    targetPath: string
-    openInNewTab?: boolean
-    hoverText?: string
-    icon: JSX.Element
-    class?: string
-}
-
-export interface TiledIconModuleProps {
-    tiles: TileParams[]
-    header?: string
-    subHeader?: string
-    analyticsModuleKey?: string
-}
 
 export function TiledIconModule({ tiles, header, subHeader, analyticsModuleKey }: TiledIconModuleProps): JSX.Element {
     const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
