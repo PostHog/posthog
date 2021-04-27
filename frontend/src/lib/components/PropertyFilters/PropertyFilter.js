@@ -48,57 +48,54 @@ function PropertyPaneContents({
     }
 
     return (
-        <>
-            <Row gutter={8} className="full-width" wrap={false}>
-                <Col flex={1} style={{ minWidth: '11rem' }}>
-                    <PropertySelect
-                        value={
-                            type === 'cohort'
-                                ? null
-                                : {
-                                      value: propkey,
-                                      label:
-                                          keyMapping[type === 'element' ? 'element' : 'event'][propkey]?.label ||
-                                          propkey,
-                                  }
-                        }
-                        onChange={(newType, newValue) =>
-                            setThisFilter(
-                                newValue,
-                                undefined,
-                                newValue === '$active_feature_flags' ? 'icontains' : operator,
-                                newType
-                            )
-                        }
-                        optionGroups={optionGroups}
-                        autoOpenIfEmpty
-                        delayBeforeAutoOpen={delayBeforeAutoOpen}
-                        placeholder="Property key"
-                    />
-                </Col>
+        <Row gutter={8} className="full-width" wrap={false}>
+            <Col flex={1} style={{ minWidth: '11rem' }}>
+                <PropertySelect
+                    value={
+                        type === 'cohort'
+                            ? null
+                            : {
+                                  value: propkey,
+                                  label:
+                                      keyMapping[type === 'element' ? 'element' : 'event'][propkey]?.label || propkey,
+                              }
+                    }
+                    onChange={(newType, newValue) =>
+                        setThisFilter(
+                            newValue,
+                            undefined,
+                            newValue === '$active_feature_flags' ? 'icontains' : operator,
+                            newType
+                        )
+                    }
+                    optionGroups={optionGroups}
+                    autoOpenIfEmpty
+                    delayBeforeAutoOpen={delayBeforeAutoOpen}
+                    placeholder="Property key"
+                />
+            </Col>
 
-                {displayOperatorAndValue && (
-                    <OperatorValueSelect
-                        type={type}
-                        propkey={propkey}
-                        operator={operator}
-                        value={value}
-                        onChange={(newOperator, newValue) => {
-                            setThisFilter(propkey, newValue, newOperator, type)
-                            if (newOperator && newValue && !isOperatorMulti(newOperator)) {
-                                onComplete()
-                            }
-                        }}
-                        columnOptions={{
-                            flex: 1,
-                            style: {
-                                maxWidth: '50vw',
-                            },
-                        }}
-                    />
-                )}
-            </Row>
-        </>
+            {displayOperatorAndValue && (
+                <OperatorValueSelect
+                    type={type}
+                    propkey={propkey}
+                    operator={operator}
+                    value={value}
+                    onChange={(newOperator, newValue) => {
+                        setThisFilter(propkey, newValue, newOperator, type)
+                        if (newOperator && newValue && !isOperatorMulti(newOperator)) {
+                            onComplete()
+                        }
+                    }}
+                    columnOptions={{
+                        flex: 1,
+                        style: {
+                            maxWidth: '50vw',
+                        },
+                    }}
+                />
+            )}
+        </Row>
     )
 }
 
