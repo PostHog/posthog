@@ -7,7 +7,6 @@ import {
     EntityType,
     ActionFilter,
     EntityFilter,
-    Optional,
     PropertyFilter,
     ActionType,
 } from '~/types'
@@ -18,9 +17,7 @@ import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 export type LocalFilter = EntityFilter & { order: number; properties?: PropertyFilter[] }
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
-type FilterWithOptionalInsight = Optional<FilterType, 'insight'>
-
-export function toLocalFilters(filters: FilterWithOptionalInsight): LocalFilter[] {
+export function toLocalFilters(filters: FilterType): LocalFilter[] {
     return [
         ...(filters[EntityTypes.ACTIONS] || []),
         ...(filters[EntityTypes.EVENTS] || []),
@@ -30,7 +27,7 @@ export function toLocalFilters(filters: FilterWithOptionalInsight): LocalFilter[
         .map((filter, order) => ({ ...(filter as EntityFilter), order }))
 }
 
-export function toFilters(localFilters: LocalFilter[]): FilterWithOptionalInsight {
+export function toFilters(localFilters: LocalFilter[]): FilterType {
     const filters = localFilters.map((filter, index) => ({
         ...filter,
         order: index,
@@ -40,7 +37,7 @@ export function toFilters(localFilters: LocalFilter[]): FilterWithOptionalInsigh
         [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
         [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
         [EntityTypes.NEW_ENTITY]: filters.filter((filter) => filter.type === EntityTypes.NEW_ENTITY),
-    } as FilterWithOptionalInsight
+    } as FilterType
 }
 
 // required props:
@@ -49,7 +46,7 @@ export function toFilters(localFilters: LocalFilter[]): FilterWithOptionalInsigh
 // - typeKey
 export const entityFilterLogic = kea<
     entityFilterLogicType<
-        FilterWithOptionalInsight,
+        FilterType,
         ActionType,
         EntityFilter,
         PropertyFilter,
@@ -64,10 +61,9 @@ export const entityFilterLogic = kea<
         values: [actionsModel, ['actions']],
     },
     actions: () => ({
-        selectFilter: (filter: EntityFilter | null) => ({ filter }),
-        updateFilterMath: (filter: Partial<ActionFilter> & { index: number; value: string | number | null }) => ({
+        selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
+        updateFilterMath: (filter: Partial<ActionFilter> & { index: number }) => ({
             type: filter.type,
-            value: filter.value,
             math: filter.math,
             math_property: filter.math_property,
             index: filter.index,
@@ -78,8 +74,7 @@ export const entityFilterLogic = kea<
             id: filter.id,
             name: filter.name,
         }),
-        removeLocalFilter: (filter: Partial<EntityFilter> & { index: number; value: string | number | null }) => ({
-            value: filter.value,
+        removeLocalFilter: (filter: Partial<EntityFilter> & { index: number }) => ({
             type: filter.type,
             index: filter.index,
         }),
@@ -89,13 +84,13 @@ export const entityFilterLogic = kea<
             index: filter.index,
         }),
         setFilters: (filters: LocalFilter[]) => ({ filters }),
-        setLocalFilters: (filters: FilterWithOptionalInsight) => ({ filters }),
+        setLocalFilters: (filters: FilterType) => ({ filters }),
         setEntityFilterVisibility: (index: number, value: boolean) => ({ index, value }),
     }),
 
     reducers: ({ props }) => ({
         selectedFilter: [
-            null as EntityFilter | null,
+            null as EntityFilter | ActionFilter | null,
             {
                 selectFilter: (_state, { filter }) => filter,
             },
@@ -125,7 +120,7 @@ export const entityFilterLogic = kea<
                 [EntityTypes.EVENTS]: events.map((event) => ({ id: event, name: event })),
             }),
         ],
-        filters: [(s) => [s.localFilters], (localFilters) => toFilters(localFilters)],
+        filters: [(s) => [s.localFilters], (localFilters): FilterType => toFilters(localFilters)],
     },
 
     listeners: ({ actions, values, props }) => ({

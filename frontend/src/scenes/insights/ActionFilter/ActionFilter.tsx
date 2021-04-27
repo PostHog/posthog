@@ -56,7 +56,7 @@ const SortableContainer = sortableContainer(({ children }: { children: React.Rea
     return <div>{children}</div>
 })
 export interface ActionFilterProps {
-    setFilters: (filters: Record<string, any>) => void
+    setFilters: (filters: FilterType) => void
     filters: Optional<FilterType, 'type'>
     typeKey: string
     hideMathSelector?: boolean

@@ -1,6 +1,6 @@
 import React, { RefObject } from 'react'
 import { useActions, useValues } from 'kea'
-import { ActionType, EntityTypes, EventDefinition } from '~/types'
+import { ActionFilter, ActionType, EntityTypes, EventDefinition } from '~/types'
 import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
@@ -47,17 +47,19 @@ export function ActionFilterDropdown({
     }
 
     const callUpdateFilter = (type: 'actions' | 'events', id: string | number, name: string): void => {
-        updateFilter({ type, id, name, index: selectedFilter?.index })
-        if (selectedFilter?.properties?.length) {
-            // UX: Open the filter details if this series already has filters to avoid filters being missed
-            setEntityFilterVisibility(selectedFilter.index, true)
+        if (selectedFilter && typeof selectedFilter.index === 'number') {
+            updateFilter({ type, id, name, index: selectedFilter.index })
+            if ((selectedFilter as ActionFilter).properties?.length) {
+                // UX: Open the filter details if this series already has filters to avoid filters being missed
+                setEntityFilterVisibility(selectedFilter.index, true)
+            }
         }
     }
     const suggestions = getSuggestions(eventDefinitions || [])
 
     return (
         <SelectBox
-            selectedItemKey={selectedFilter?.filter?.type + selectedFilter?.filter?.id || undefined}
+            selectedItemKey={`${selectedFilter?.type || ''}${selectedFilter?.id || ''}`}
             onDismiss={handleDismiss}
             onSelect={callUpdateFilter}
             items={[

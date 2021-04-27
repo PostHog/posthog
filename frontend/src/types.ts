@@ -194,11 +194,6 @@ interface BasePropertyFilter {
     label?: string
 }
 
-export interface EventProperty {
-    value: string
-    label: string
-}
-
 export type PropertyOperator =
     | 'exact'
     | 'is_not'
@@ -274,7 +269,9 @@ export type EntityFilter = {
     type?: EntityType
     id: Entity['id'] | null
     name: string | null
-} & Record<string, any>
+    index?: number
+    order?: number
+}
 
 export interface EntityWithProperties extends Entity {
     properties: Record<string, any>

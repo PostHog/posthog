@@ -1,7 +1,7 @@
 import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Tooltip, Col, Row, Select } from 'antd'
-import { ActionFilter, EntityTypes, EventProperty, PropertyFilter } from '~/types'
+import { ActionFilter, EntityTypes, PropertyFilter, SelectOption } from '~/types'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
@@ -61,30 +61,26 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsLogic)
 
-    const visible = entityFilterVisible[filter.order]
+    const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
     let entity, name, value
     const { math, math_property: mathProperty } = filter
 
     const onClose = (): void => {
-        removeLocalFilter({ value: filter.id, type: filter.type, index })
+        removeLocalFilter({ ...filter, index })
     }
     const onMathSelect = (_: unknown, selectedMath: string): void => {
         updateFilterMath({
             math: selectedMath,
             math_property: MATHS[selectedMath]?.onProperty ? mathProperty : undefined,
-            onProperty: MATHS[selectedMath]?.onProperty,
-            value: filter.id,
             type: filter.type,
             index,
         })
     }
     const onMathPropertySelect = (_: unknown, property: string): void => {
         updateFilterMath({
-            math: filter.math,
+            ...filter,
             math_property: property,
-            value: filter.id,
-            type: filter.type,
             index,
         })
     }
@@ -186,7 +182,11 @@ export function ActionFilterRow({
                     <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
                     <Button
                         className="ant-btn-md"
-                        onClick={() => setEntityFilterVisibility(filter.order, !visible)}
+                        onClick={() =>
+                            typeof filter.order === 'number'
+                                ? setEntityFilterVisibility(filter.order, !visible)
+                                : undefined
+                        }
                         data-attr={'show-prop-filter-' + index}
                     >
                         {determineFilterLabel(visible, filter)}
@@ -312,7 +312,7 @@ interface MathPropertySelectorProps {
     mathProperty?: string
     index: number
     onMathPropertySelect: (index: number, value: string) => any
-    properties: EventProperty[]
+    properties: SelectOption[]
 }
 
 interface SelectOptionType {
