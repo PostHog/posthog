@@ -12,7 +12,6 @@ import {
     TableOutlined,
 } from '@ant-design/icons'
 import React, { useEffect } from 'react'
-import { DashboardItemType } from '~/types'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -130,19 +129,10 @@ function CreateAnalysisSection(): JSX.Element {
     )
 }
 
-function InsightPane({
-    data,
-    loading,
-    footer,
-}: {
-    data: DashboardItemType[]
-    loading: boolean
-    loadMore?: () => void
-    loadingMore: boolean
-    footer: (item: DashboardItemType) => JSX.Element
-}): JSX.Element {
+function InsightPane(): JSX.Element {
     const { loadTeamInsights, loadSavedInsights, loadInsights } = useActions(insightHistoryLogic)
     const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
+    const { insights, insightsLoading, savedInsights, teamInsights } = useValues(insightHistoryLogic)
     useEffect(() => {
         loadInsights()
         loadSavedInsights()
@@ -192,7 +182,7 @@ function InsightPane({
             },
         ],
     }
-
+    const data = [...insights, ...savedInsights, ...savedInsights, ...teamInsights]
     const thumbs = data.map((insight, idx) => (
         <Card key={idx} bordered={false} className={'insight-chart-tile'}>
             <DashboardItem
@@ -205,7 +195,9 @@ function InsightPane({
                     router.actions.push(displayMap[_type].link(insight))
                 }}
                 preventLoading={false}
-                footer={<div className="dashboard-item-footer">{footer(insight)}</div>}
+                footer={
+                    <div className="dashboard-item-footer">{<>Ran query {dayjs(insight.created_at).fromNow()}</>}</div>
+                }
                 index={idx}
                 isOnEditMode={false}
             />
@@ -217,8 +209,8 @@ function InsightPane({
             <h3>Recent analyses across your team</h3>
             <Paragraph>Not sure where to start? Jump back into a recent analysis.</Paragraph>
 
-            <Spin spinning={loading}>
-                <Skeleton loading={loading}>
+            <Spin spinning={insightsLoading}>
+                <Skeleton loading={insightsLoading}>
                     {data.length > 0 && (
                         <React.Fragment>
                             <div className="home-module-carousel-container">
@@ -241,17 +233,6 @@ function InsightPane({
 }
 
 export function DiscoverInsightsModule(): JSX.Element {
-    const { insights, insightsLoading, loadingMoreInsights, savedInsights, teamInsights } = useValues(
-        insightHistoryLogic
-    )
-
-    const orgInsights = [
-        ...insights,
-        ...savedInsights,
-        // hack to filter out PostHog created insights – they introduce confusion since they aren't based on
-        // project data.
-        ...teamInsights.filter((insight) => insight.id > 7),
-    ]
     return (
         <Card className="home-module-card">
             <h2 id="name" className="subtitle">
@@ -260,15 +241,7 @@ export function DiscoverInsightsModule(): JSX.Element {
             <Divider />
             <Space direction={'vertical'}>
                 <CreateAnalysisSection />
-                <InsightPane
-                    data={orgInsights.map((insight) => ({ ...insight }))}
-                    loadingMore={loadingMoreInsights}
-                    footer={(item) => <>Ran query {dayjs(item.created_at).fromNow()}</>}
-                    // We only show module level spinners if insights are loading, team + saved insights take longer to compute
-                    // and if any insights exist they should come back in the insights query.
-                    // Each individual tile has it's own spinner if it isn't loaded yet.
-                    loading={insightsLoading}
-                />
+                <InsightPane />
             </Space>
         </Card>
     )
