@@ -26,7 +26,7 @@ if settings.STATSD_HOST is not None:
 
 if is_ee_enabled():
     from ee.kafka_client.client import KafkaProducer
-    from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL
+    from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 
     producer = KafkaProducer()
 
@@ -254,7 +254,7 @@ def get_event(request):
                 now=now,
                 sent_at=sent_at,
                 event_uuid=event_uuid,
-                topics=[KAFKA_EVENTS_WAL, KAFKA_EVENTS_PLUGIN_INGESTION],
+                topics=[KAFKA_EVENTS_PLUGIN_INGESTION],
             )
         else:
             task_name = "posthog.tasks.process_event.process_event_with_plugins"
