@@ -37,7 +37,7 @@ interface ActionFilterRowProps {
     hidePropertySelector?: boolean
     singleFilter?: boolean
     showOr?: boolean
-    letter?: string | false
+    letter?: string | null
 }
 
 export function ActionFilterRow({
@@ -315,13 +315,6 @@ interface MathPropertySelectorProps {
     properties: SelectOption[]
 }
 
-interface SelectOptionType {
-    children: React.ReactChildren
-    ['data-attr']: string
-    key: string
-    value: string
-}
-
 function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
     function isPropertyApplicable(value: PropertyFilter['value']): boolean {
         const includedProperties = ['$time']
@@ -340,7 +333,7 @@ function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
             showSearch
             style={{ width: 150 }}
             onChange={(_: string, payload) => {
-                props.onMathPropertySelect(props.index, (payload as SelectOptionType)?.value)
+                props.onMathPropertySelect(props.index, (payload as SelectOption)?.value)
             }}
             className="property-select"
             value={props.mathProperty}

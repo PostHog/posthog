@@ -130,7 +130,7 @@ export function ActionFilter({
                             filter={filter as ActionFilterType}
                             index={index}
                             key={index}
-                            letter={showLetters && (alphabet[index] || '-')}
+                            letter={(showLetters && (alphabet[index] || '-')) || null}
                             hideMathSelector={hideMathSelector}
                             hidePropertySelector={hidePropertySelector}
                             singleFilter={singleFilter}

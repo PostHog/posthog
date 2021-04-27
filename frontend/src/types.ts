@@ -259,10 +259,10 @@ export interface Entity {
     type: EntityType
 }
 
-export const EntityTypes: Record<string, EntityType> = {
-    ACTIONS: 'actions',
-    EVENTS: 'events',
-    NEW_ENTITY: 'new_entity',
+export enum EntityTypes {
+    ACTIONS = 'actions',
+    EVENTS = 'events',
+    NEW_ENTITY = 'new_entity',
 }
 
 export type EntityFilter = {
@@ -701,7 +701,13 @@ export interface PropertyDefinition {
 
 export interface SelectOption {
     value: string
-    label: string
+    label?: string
+}
+
+export interface SelectOptionWithChildren extends SelectOption {
+    children: React.ReactChildren
+    ['data-attr']: string
+    key: string
 }
 
 export interface KeyMapping {
