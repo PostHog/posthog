@@ -512,7 +512,14 @@ export const trendsLogic = kea<
             actions.setBreakdownValuesLoading(false)
         },
         [eventDefinitionsLogic.actionTypes.loadEventDefinitionsSuccess]: async () => {
-            actions.setFilters(getDefaultFilters(values.filters, eventDefinitionsLogic.values.eventNames), true)
+            const newFilter = getDefaultFilters(values.filters, eventDefinitionsLogic.values.eventNames)
+            const mergedFilter: Partial<FilterType> = {
+                ...values.filters,
+                ...newFilter,
+            }
+            if (!objectsEqual(values.filters, mergedFilter)) {
+                actions.setFilters(mergedFilter, true)
+            }
         },
     }),
 
