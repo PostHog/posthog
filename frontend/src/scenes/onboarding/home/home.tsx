@@ -1,5 +1,5 @@
 import { PageHeader } from 'lib/components/PageHeader'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { PostHogLessons } from './modules/posthogLessons'
 import { TiledIconModule, TileParams } from './modules/tiledIconModule'
 
@@ -141,7 +141,11 @@ export function Home(): JSX.Element {
         </>
     )
     const teamHasData = user?.team?.ingested_event
-    reportProjectHomeSeen(teamHasData || false)
+
+    useEffect(() => {
+        reportProjectHomeSeen(teamHasData || false)
+    }, [])
+
     return (
         <Layout>
             <div style={{ marginBottom: 128 }} className={'home-container'}>
