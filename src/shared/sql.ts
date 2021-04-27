@@ -46,10 +46,11 @@ export async function setError(
     pluginError: PluginError | null,
     pluginConfig: PluginConfig
 ): Promise<void> {
-    await server.db.postgresQuery('UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2', [
-        pluginError,
-        typeof pluginConfig === 'object' ? pluginConfig?.id : pluginConfig,
-    ])
+    await server.db.postgresQuery(
+        'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
+        [pluginError, typeof pluginConfig === 'object' ? pluginConfig?.id : pluginConfig],
+        'update_pc_error'
+    )
     if (pluginError && server.ENABLE_PERSISTENT_CONSOLE) {
         await server.db.createPluginLogEntry(
             pluginConfig,
