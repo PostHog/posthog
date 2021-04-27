@@ -466,11 +466,9 @@ export const trendsLogic = kea<
                 )
             }
         },
-        setFilters: async ({ filters }) => {
+        setFilters: async () => {
             insightLogic.actions.setAllFilters(values.filters)
-            if (!objectsEqual(filters, values.filters)) {
-                actions.loadResults()
-            }
+            actions.loadResults()
         },
         loadResultsSuccess: () => {
             if (!props.dashboardItemId) {
@@ -514,8 +512,13 @@ export const trendsLogic = kea<
             actions.setBreakdownValuesLoading(false)
         },
         [eventDefinitionsLogic.actionTypes.loadEventDefinitionsSuccess]: async () => {
-            if (!values.filters?.events?.length && !values.filters?.actions?.length) {
-                actions.setFilters(getDefaultFilters(values.filters, eventDefinitionsLogic.values.eventNames), true)
+            const newFilter = getDefaultFilters(values.filters, eventDefinitionsLogic.values.eventNames)
+            const mergedFilter: Partial<FilterType> = {
+                ...values.filters,
+                ...newFilter,
+            }
+            if (!objectsEqual(values.filters, mergedFilter)) {
+                actions.setFilters(mergedFilter, true)
             }
         },
     }),
