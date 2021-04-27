@@ -35,7 +35,7 @@ export class LazyPluginVM {
                         )
                     }
                     status.info('🔌', `Loaded ${logInfo}`)
-                    void clearError(server, pluginConfig)
+                    await clearError(server, pluginConfig)
                     resolve(vm)
                 } catch (error) {
                     if (server.ENABLE_PERSISTENT_CONSOLE) {
@@ -48,7 +48,7 @@ export class LazyPluginVM {
                         )
                     }
                     status.warn('⚠️', `Failed to load ${logInfo}`)
-                    void processError(server, pluginConfig, error)
+                    await processError(server, pluginConfig, error)
                     resolve(null)
                 }
             }
