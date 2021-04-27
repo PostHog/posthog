@@ -4,9 +4,10 @@ import { IconPerson } from 'lib/components/icons'
 import './PersonHeader.scss'
 
 export function PersonHeader({ person }: { person?: Partial<PersonType> | null }): JSX.Element {
-    const customIdentifier = person?.properties
+    const propertiesIdentifier = person?.properties
         ? person.properties.email || person.properties.name || person.properties.username
         : null
+    const customIdentifier = propertiesIdentifier ? JSON.stringify(propertiesIdentifier) : null
 
     const displayId = useMemo(() => {
         if (!person?.distinct_ids?.length) {
