@@ -204,8 +204,10 @@ export class KafkaQueue implements Queue {
     private static buildConsumer(kafka: Kafka): Consumer {
         const consumer = kafka.consumer({
             groupId: 'clickhouse-ingestion',
-            sessionTimeout: 60000,
+            rebalanceTimeout: 120000, // default: 60000
+            sessionTimeout: 60000, // default: 30000
             readUncommitted: false,
+            retry: { retries: 20 },
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
         consumer.on(GROUP_JOIN, ({ payload: { groupId } }) => {

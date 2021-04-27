@@ -76,67 +76,76 @@ export class EventsProcessor {
             event: JSON.stringify(data),
         })
 
-        // sanitize values, even though `sanitizeEvent` should have gotten to them
-        distinctId = distinctId?.toString()
+        try {
+            // sanitize values, even though `sanitizeEvent` should have gotten to them
+            distinctId = distinctId?.toString()
 
-        const properties: Properties = data.properties ?? {}
-        if (data['$set']) {
-            properties['$set'] = data['$set']
-        }
-        if (data['$set_once']) {
-            properties['$set_once'] = data['$set_once']
-        }
+            const properties: Properties = data.properties ?? {}
+            if (data['$set']) {
+                properties['$set'] = data['$set']
+            }
+            if (data['$set_once']) {
+                properties['$set_once'] = data['$set_once']
+            }
 
-        const personUuid = new UUIDT().toString()
+            const personUuid = new UUIDT().toString()
 
-        const ts = this.handleTimestamp(data, now, sentAt)
-        const timeout1 = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!', {
-            eventUuid,
-        })
-        await this.handleIdentifyOrAlias(data['event'], properties, distinctId, teamId)
-        clearTimeout(timeout1)
-
-        let result: IEvent | SessionRecordingEvent
-
-        if (data['event'] === '$snapshot') {
-            const timeout2 = timeoutGuard(
-                'Still running "createSessionRecordingEvent". Timeout warning after 30 sec!',
-                { eventUuid }
-            )
-            result = await this.createSessionRecordingEvent(
+            const ts = this.handleTimestamp(data, now, sentAt)
+            const timeout1 = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!', {
                 eventUuid,
-                teamId,
-                distinctId,
-                properties['$session_id'],
-                ts,
-                properties['$snapshot_data']
-            )
-            this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
-                team_id: teamId.toString(),
             })
-            clearTimeout(timeout2)
-        } else {
-            const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
-            result = await this.capture(
-                eventUuid,
-                personUuid,
-                ip,
-                siteUrl,
-                teamId,
-                data['event'],
-                distinctId,
-                properties,
-                ts,
-                sentAt
-            )
-            this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
-                team_id: teamId.toString(),
-            })
-            clearTimeout(timeout3)
-        }
-        clearTimeout(timeout)
+            await this.handleIdentifyOrAlias(data['event'], properties, distinctId, teamId)
+            clearTimeout(timeout1)
 
-        return result
+            let result: IEvent | SessionRecordingEvent
+
+            if (data['event'] === '$snapshot') {
+                const timeout2 = timeoutGuard(
+                    'Still running "createSessionRecordingEvent". Timeout warning after 30 sec!',
+                    { eventUuid }
+                )
+                try {
+                    result = await this.createSessionRecordingEvent(
+                        eventUuid,
+                        teamId,
+                        distinctId,
+                        properties['$session_id'],
+                        ts,
+                        properties['$snapshot_data']
+                    )
+                    this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
+                        team_id: teamId.toString(),
+                    })
+                } finally {
+                    clearTimeout(timeout2)
+                }
+            } else {
+                const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
+                try {
+                    result = await this.capture(
+                        eventUuid,
+                        personUuid,
+                        ip,
+                        siteUrl,
+                        teamId,
+                        data['event'],
+                        distinctId,
+                        properties,
+                        ts,
+                        sentAt
+                    )
+                    this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
+                        team_id: teamId.toString(),
+                    })
+                } finally {
+                    clearTimeout(timeout3)
+                }
+            }
+
+            return result
+        } finally {
+            clearTimeout(timeout)
+        }
     }
 
     private handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null): DateTime {

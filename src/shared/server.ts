@@ -104,7 +104,7 @@ export async function createServer(
             logLevel: logLevel.WARN,
             ssl: kafkaSsl,
         })
-        const producer = kafka.producer()
+        const producer = kafka.producer({ retry: { initialRetryTime: 1000, maxRetryTime: 60000, retries: 20 } })
         await producer?.connect()
 
         kafkaProducer = new KafkaProducerWrapper(producer, statsd, serverConfig)
