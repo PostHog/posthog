@@ -88,10 +88,34 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
 
-    def test_query_event_definitions(self):
+    def test_search_event_definitions(self):
+
+        # Regular search
         response = self.client.get("/api/projects/@current/event_definitions/?search=app")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(response.json()["count"], 2)
+
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["installed_app", "rated_app"])
+
+        # Fuzzy search 1
+        response = self.client.get("/api/projects/@current/event_definitions/?search=free trl")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["entered_free_trial"])
+
+        # Handles URL encoding properly
+        response = self.client.get("/api/projects/@current/event_definitions/?search=free%20trl%20")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["entered_free_trial"])
+
+        # Fuzzy search 2
+        response = self.client.get("/api/projects/@current/event_definitions/?search=ed mov")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["watched_movie"])

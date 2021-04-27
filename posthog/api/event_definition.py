@@ -1,6 +1,7 @@
 from rest_framework import filters, mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.filters import FuzzySearchFilterBackend
 from posthog.models import EventDefinition
 from posthog.permissions import OrganizationMemberPermissions
 
@@ -23,8 +24,9 @@ class EventDefinitionViewSet(
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
     ordering = "name"
-    filter_backends = [filters.SearchFilter]
-    search_fields = ["name"]
+    filter_backends = [FuzzySearchFilterBackend]
+    search_field = "name"
+    search_threshold = 0.15
 
     def get_queryset(self):
-        return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)
+        return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all())
