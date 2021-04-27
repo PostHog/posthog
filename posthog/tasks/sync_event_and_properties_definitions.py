@@ -20,6 +20,10 @@ def sync_event_and_properties_definitions(team_uuid: str) -> None:
 
     team: Team = Team.objects.only("uuid", *DEFERRED_FIELDS).get(uuid=team_uuid)
 
+    # The team may have gotten deleted before the task could run
+    if not team:
+        return
+
     # Transform data for quick usability
     transformed_event_usage = {
         event_usage_record["event"]: event_usage_record for event_usage_record in team.event_names_with_usage
