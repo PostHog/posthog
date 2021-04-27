@@ -45,7 +45,7 @@ export function WebhookIntegration(): JSX.Element {
                 onChange={(e) => setWebhook(e.target.value)}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
                 type="url"
-                placeholder={'integration disabled – type a URL to enable'}
+                placeholder={currentTeam?.slack_incoming_webhook ? '' : 'Integration disabled – type a URL to enable'}
                 disabled={loading}
                 onPressEnter={() => testWebhook(webhook)}
             />
