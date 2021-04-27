@@ -88,7 +88,7 @@ export const eventUsageLogic = kea<
         ) => ({ component, project_timezone, device_timezone }),
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
         reportProjectHomeItemClicked: (module: string, item: string) => ({ module, item }),
-        reportProjectHomeSeen: (hasData: boolean) => ({ hasData }),
+        reportProjectHomeSeen: (teamHasData: boolean) => ({ teamHasData }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -337,8 +337,8 @@ export const eventUsageLogic = kea<
         reportProjectHomeItemClicked: async ({ module, item }) => {
             posthog.capture('project home item clicked', { module: module, item: item })
         },
-        reportProjectHomeSeen: async ({ hasData }) => {
-            posthog.capture('project home landing', { team_has_data: hasData })
+        reportProjectHomeSeen: async ({ teamHasData }) => {
+            posthog.capture('project home seen', { team_has_data: teamHasData })
         },
     },
 })
