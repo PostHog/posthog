@@ -51,6 +51,10 @@
                 {
                     "name": "NODE_OPTIONS",
                     "value": "--max-old-space-size=4096"
+                },
+                {
+                    "name": "STALENESS_RESTART_SECONDS",
+                    "value": "300"
                 }
             ],
             "secrets": [
