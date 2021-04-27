@@ -9,7 +9,7 @@ import { SlackOutlined, UserAddOutlined, RocketOutlined, GithubOutlined } from '
 
 import './Home.scss'
 
-const { Content, Footer } = Layout
+const { Content } = Layout
 import { useActions, useValues } from 'kea'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -151,7 +151,7 @@ export function Home(): JSX.Element {
             <div style={{ marginBottom: 128 }} className={'home-container'}>
                 <Space direction="vertical">
                     <PageHeader
-                        title={`${currentTeam?.name ?? ''} Project Home 🚀`}
+                        title={`${currentTeam?.name ?? ''} Home`}
                         caption={
                             teamHasData ? undefined : 'Welcome to PostHog! Install one of our libraries to get started.'
                         }
@@ -162,13 +162,6 @@ export function Home(): JSX.Element {
                     </Content>
                 </Space>
             </div>
-            <Footer>
-                <div>
-                    <h5>
-                        {`🦔 ❤ `} {currentTeam?.name ?? 'Your team'}
-                    </h5>
-                </div>
-            </Footer>
         </Layout>
     )
 }
