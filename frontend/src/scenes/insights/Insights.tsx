@@ -49,6 +49,7 @@ import { TZIndicator } from 'lib/components/TimezoneAware'
 import { DisplayType, FilterType, HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Link } from 'lib/components/Link'
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -491,7 +492,9 @@ function PageTitle({ dashboardItem }: Props): JSX.Element {
         return (
             <div>
                 <PageHeader title={dashboardItem.name} />
-                <div>On dashboard {dashboardItem.dashboardName}</div>
+                <div className="text-default" style={{ paddingBottom: 8 }}>
+                    On dashboard <Link to={`/dashboard/${dashboardItem.dashboard}`}>{dashboardItem.dashboardName}</Link>
+                </div>
             </div>
         )
     }
