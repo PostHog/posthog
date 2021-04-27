@@ -265,13 +265,13 @@ export function DashboardItem({
                                 title={item.name}
                                 preventClick
                                 onClick={
-                                    !onClick
-                                        ? () => {
+                                    onClick
+                                        ? onClick
+                                        : () => {
                                               if (!isDraggingRef?.current) {
                                                   router.actions.push(link)
                                               }
                                           }
-                                        : onClick
                                 }
                                 style={{ fontSize: 16, fontWeight: 500 }}
                             >
