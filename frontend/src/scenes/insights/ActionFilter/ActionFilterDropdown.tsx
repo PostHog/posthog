@@ -1,7 +1,6 @@
 import React, { RefObject } from 'react'
-import { BuiltLogic, useActions, useValues } from 'kea'
-import { ActionType, EventDefinition } from '~/types'
-import { EntityTypes } from '../../trends/trendsLogic'
+import { useActions, useValues } from 'kea'
+import { ActionFilter, ActionType, EntityTypes, EventDefinition } from '~/types'
 import { actionsModel } from '~/models/actionsModel'
 import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
@@ -9,21 +8,8 @@ import { ActionSelectInfo } from '../ActionSelectInfo'
 import { SelectBox, SelectedItem } from '../../../lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { entityFilterLogic } from './entityFilterLogic'
 import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
-
-interface FilterType {
-    filter: {
-        id: string
-        type: 'actions' | 'events'
-        name: string
-        order: number
-        math?: string
-        math_property?: string
-        properties?: Array<Record<string, any>>
-    }
-    type: 'actions' | 'events'
-    index: number
-}
 
 const getSuggestions = (events: EventDefinition[]): EventDefinition[] => {
     return events
@@ -39,7 +25,7 @@ export function ActionFilterDropdown({
     onClose,
 }: {
     open: boolean
-    logic: BuiltLogic
+    logic: typeof entityFilterLogic
     openButtonRef?: RefObject<HTMLElement>
     onClose: () => void
 }): JSX.Element | null {
@@ -47,7 +33,7 @@ export function ActionFilterDropdown({
         return null
     }
 
-    const selectedFilter: FilterType = useValues(logic).selectedFilter
+    const { selectedFilter } = useValues(logic)
     const { updateFilter, setEntityFilterVisibility } = useActions(logic)
 
     const { actions } = useValues(actionsModel)
@@ -61,17 +47,19 @@ export function ActionFilterDropdown({
     }
 
     const callUpdateFilter = (type: 'actions' | 'events', id: string | number, name: string): void => {
-        updateFilter({ type, id, name, index: selectedFilter.index })
-        if (selectedFilter.filter.properties?.length) {
-            // UX: Open the filter details if this series already has filters to avoid filters being missed
-            setEntityFilterVisibility(selectedFilter.index, true)
+        if (selectedFilter && typeof selectedFilter.index === 'number') {
+            updateFilter({ type, id, name, index: selectedFilter.index })
+            if ((selectedFilter as ActionFilter).properties?.length) {
+                // UX: Open the filter details if this series already has filters to avoid filters being missed
+                setEntityFilterVisibility(selectedFilter.index, true)
+            }
         }
     }
     const suggestions = getSuggestions(eventDefinitions || [])
 
     return (
         <SelectBox
-            selectedItemKey={selectedFilter ? selectedFilter.filter.type + selectedFilter.filter.id : undefined}
+            selectedItemKey={`${selectedFilter?.type || ''}${selectedFilter?.id || ''}`}
             onDismiss={handleDismiss}
             onSelect={callUpdateFilter}
             items={[

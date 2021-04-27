@@ -90,12 +90,13 @@ export function PropertyFilters({
     pageKey,
     showConditionBadge = false,
     popoverPlacement = null,
+    style = {},
 }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
 
     return (
-        <div className="mb">
+        <div className="mb" style={style}>
             {filters?.length &&
                 filters.map((item, index) => {
                     return (

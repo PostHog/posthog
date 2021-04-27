@@ -31,7 +31,7 @@ export function EventName({ value, onChange, isActionStep = false }: EventNameIn
                             <Select.OptGroup key={typeGroup.label} label={typeGroup.label}>
                                 {typeGroup.options.map((item, index) => (
                                     <Select.Option key={item.value} value={item.value} data-attr={'prop-val-' + index}>
-                                        <PropertyKeyInfo value={item.label} />
+                                        <PropertyKeyInfo value={item.label ?? item.value} />
                                     </Select.Option>
                                 ))}
                             </Select.OptGroup>

@@ -17,7 +17,7 @@ import {
 import { ViewType, insightLogic, defaultFilterTestAccounts } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
-import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
+import { ActionFilter, ActionType, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -27,16 +27,6 @@ import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic
 interface TrendResponse {
     result: TrendResult[]
     next?: string
-}
-
-export interface ActionFilter {
-    id: number | string
-    math?: string
-    math_property?: string
-    name: string
-    order: number
-    properties: PropertyFilter[]
-    type: EntityType
 }
 
 export interface IndexedTrendResult extends TrendResult {
@@ -62,12 +52,6 @@ interface PeopleParamType {
     breakdown_value?: string
     target_date?: number
     lifecycle_type?: string
-}
-
-export const EntityTypes: Record<string, string> = {
-    ACTIONS: 'actions',
-    EVENTS: 'events',
-    NEW_ENTITY: 'new_entity',
 }
 
 function cleanFilters(filters: Partial<FilterType>): Record<string, any> {

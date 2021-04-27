@@ -14,6 +14,8 @@ import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { Dayjs } from 'dayjs'
 
+export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
+
 export type AvailableFeatures =
     | 'zapier'
     | 'organizations_projects'
@@ -249,13 +251,26 @@ export type SessionsPropertyFilter =
     | ActionTypePropertyFilter
     | EventTypePropertyFilter
 
-export type EntityType = 'actions' | 'events'
-
+export type EntityType = 'actions' | 'events' | 'new_entity'
 export interface Entity {
     id: string | number
     name: string
     order: number
     type: EntityType
+}
+
+export enum EntityTypes {
+    ACTIONS = 'actions',
+    EVENTS = 'events',
+    NEW_ENTITY = 'new_entity',
+}
+
+export type EntityFilter = {
+    type?: EntityType
+    id: Entity['id'] | null
+    name: string | null
+    index?: number
+    order?: number
 }
 
 export interface EntityWithProperties extends Entity {
@@ -474,7 +489,7 @@ export type PathType = typeof PAGEVIEW | typeof AUTOCAPTURE | typeof SCREEN | ty
 export type RetentionType = 'retention_recurring' | 'retention_first_time'
 
 export interface FilterType {
-    insight: InsightType
+    insight?: InsightType
     display?: DisplayType
     interval?: string
     date_from?: string
@@ -489,6 +504,7 @@ export interface FilterType {
     session?: string
     period?: string
     retentionType?: RetentionType
+    new_entity?: Record<string, any>[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
     path_type?: PathType
@@ -534,12 +550,9 @@ interface DisabledSetupState {
 
 export type SetupState = EnabledSetupState | DisabledSetupState
 
-export interface ActionFilter {
-    id: number | string
+export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
-    name: string
-    order: number
     properties: PropertyFilter[]
     type: EntityType
 }
@@ -688,7 +701,13 @@ export interface PropertyDefinition {
 
 export interface SelectOption {
     value: string
-    label: string
+    label?: string
+}
+
+export interface SelectOptionWithChildren extends SelectOption {
+    children: React.ReactChildren
+    ['data-attr']: string
+    key: string
 }
 
 export interface KeyMapping {
