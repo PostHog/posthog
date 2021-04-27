@@ -115,7 +115,9 @@ export function LineGraph({
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
-        const borderColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index]
+        const borderColor = dataset?.status
+            ? getBarColorFromStatus(dataset.status)
+            : colorList[index % colorList.length]
 
         return {
             borderColor,
