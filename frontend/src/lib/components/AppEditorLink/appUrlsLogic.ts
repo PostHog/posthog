@@ -85,8 +85,8 @@ export const appUrlsLogic = kea<appUrlsLogicType<TrendResult>>({
             // TODO: Need to refactor this to use `teamLogic.actions.updateCurrentTeam`
             const app_urls = [...values.appUrls, value]
             await api.update('api/projects/@current', { app_urls })
-            if (typeof props.actionId === 'number') {
-                window.location.href = appEditorUrl(props.actionId, value)
+            if (typeof props.actionId === 'number' || props.isToolbarModal) {
+                window.location.href = appEditorUrl(typeof props.actionId === 'number' ? props.actionId : 0, value)
             }
         },
         removeUrl: sharedListeners.saveAppUrls,

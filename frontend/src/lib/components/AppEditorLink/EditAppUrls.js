@@ -6,9 +6,17 @@ import { appUrlsLogic } from './appUrlsLogic'
 import { UrlRow } from './UrlRow'
 
 export function EditAppUrls({ actionId = null, allowNavigation = false }) {
-    const { appUrls, suggestions, suggestionsLoading } = useValues(appUrlsLogic({ actionId }))
-    const { addUrl, addUrlAndGo, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId }))
+    const { appUrls, suggestions, suggestionsLoading } = useValues(appUrlsLogic({ actionId, isToolbarModal: true }))
+    const { addUrl, addUrlAndGo, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId, isToolbarModal: true }))
     const [loadMore, setLoadMore] = useState()
+
+    const handleUrlClick = (url) => {
+        if (allowNavigation) {
+            addUrlAndGo(url)
+            return
+        }
+        addUrl(url)
+    }
 
     return (
         <div>
@@ -34,7 +42,7 @@ export function EditAppUrls({ actionId = null, allowNavigation = false }) {
                     suggestions.slice(0, loadMore ? suggestions.length : 5).map((url) => (
                         <List.Item
                             key={url}
-                            onClick={() => (allowNavigation ? addUrlAndGo(url) : addUrl(url))}
+                            onClick={() => handleUrlClick(url)}
                             style={{ cursor: 'pointer', justifyContent: 'space-between' }}
                         >
                             <a href={url} onClick={(e) => e.preventDefault()} data-attr="app-url-suggestion">
