@@ -241,7 +241,7 @@ export const sceneLogic = kea<sceneLogicType>({
         ],
     },
     urlToAction: ({ actions }) => {
-        const unmountFeatFlagLogic = featureFlagLogic.mount()
+        featureFlagLogic.mount()
         const featFlags = featureFlagLogic.values.featureFlags
 
         const mapping: Record<string, (params: Params) => any> = {}
@@ -271,7 +271,7 @@ export const sceneLogic = kea<sceneLogicType>({
                 mapping[path] = (params) => actions.loadScene(scene, params)
             }
         }
-        unmountFeatFlagLogic()
+
         mapping['/*'] = () => actions.loadScene('404', {})
 
         return mapping
