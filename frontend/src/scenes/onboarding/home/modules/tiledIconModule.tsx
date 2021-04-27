@@ -25,6 +25,7 @@ export function TiledIconModule({ tiles, header, subHeader, analyticsModuleKey }
                         <a
                             href={tile.targetPath}
                             target={tile.openInNewTab ? '_blank' : '_self'}
+                            rel={tile.openInNewTab ? 'noopener' : ''}
                             onClick={() => {
                                 reportProjectHomeItemClicked(analyticsModuleKey ?? '', tile.title)
                             }}
