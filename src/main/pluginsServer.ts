@@ -49,6 +49,7 @@ export async function startPluginsServer(
     let closeServer: () => Promise<void> | undefined
     let scheduleControl: ScheduleControl | undefined
     let mmdbServer: net.Server | undefined
+    let lastActivityCheck: NodeJS.Timeout | undefined
 
     let shutdownStatus = 0
 
@@ -67,6 +68,7 @@ export async function startPluginsServer(
         if (fastifyInstance && !serverConfig?.DISABLE_WEB) {
             await stopFastifyInstance(fastifyInstance!)
         }
+        lastActivityCheck && clearInterval(lastActivityCheck)
         await queue?.stop()
         await pubSub?.quit()
         pingJob && schedule.cancelJob(pingJob)
@@ -160,11 +162,43 @@ export async function startPluginsServer(
             }
         })
 
+        if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
+            // check every 10 sec how long it has been since the last activity
+            let lastFoundActivity: number
+            lastActivityCheck = setInterval(() => {
+                if (
+                    server?.lastActivity &&
+                    new Date().valueOf() - server?.lastActivity > serverConfig.STALENESS_RESTART_SECONDS * 1000 &&
+                    lastFoundActivity !== server?.lastActivity
+                ) {
+                    lastFoundActivity = server?.lastActivity
+                    const extra = {
+                        instanceId: server.instanceId.toString(),
+                        lastActivity: server.lastActivity ? new Date(server.lastActivity).toISOString() : null,
+                        lastActivityType: server.lastActivityType,
+                    }
+                    Sentry.captureMessage(
+                        `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds!`,
+                        {
+                            extra,
+                        }
+                    )
+                    console.log(
+                        `Plugin Server has not ingested events for over ${serverConfig.STALENESS_RESTART_SECONDS} seconds!`,
+                        extra
+                    )
+                }
+            }, Math.min(serverConfig.STALENESS_RESTART_SECONDS, 10000))
+        }
+
         serverInstance.piscina = piscina
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
         status.info('🚀', 'All systems go')
+
+        server.lastActivity = new Date().valueOf()
+        server.lastActivityType = 'serverStart'
 
         return serverInstance as ServerInstance
     } catch (error) {
