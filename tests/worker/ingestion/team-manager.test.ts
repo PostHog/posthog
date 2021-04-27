@@ -29,7 +29,7 @@ describe('TeamManager()', () => {
             expect(team!.__fetch_event_uuid).toEqual('uuid1')
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:25').getTime())
-            await server.db.postgresQuery("UPDATE posthog_team SET name = 'Updated Name!'")
+            await server.db.postgresQuery("UPDATE posthog_team SET name = 'Updated Name!'", undefined, 'testTag')
 
             mocked(server.db.postgresQuery).mockClear()
 
@@ -62,9 +62,11 @@ describe('TeamManager()', () => {
         })
 
         it('returns true if hooks are set up', async () => {
-            await server.db.postgresQuery('UPDATE posthog_team SET slack_incoming_webhook = true')
+            await server.db.postgresQuery('UPDATE posthog_team SET slack_incoming_webhook = true', undefined, 'testTag')
             await server.db.postgresQuery(
-                "INSERT INTO ee_hook (id, team_id, user_id, event, target, created, updated) VALUES('test_hook', 2, 1001, 'action_performed', 'http://example.com', now(), now())"
+                "INSERT INTO ee_hook (id, team_id, user_id, event, target, created, updated) VALUES('test_hook', 2, 1001, 'action_performed', 'http://example.com', now(), now())",
+                undefined,
+                'testTag'
             )
 
             expect(await teamManager.shouldSendWebhooks(2)).toEqual(true)
@@ -76,7 +78,11 @@ describe('TeamManager()', () => {
 
             expect(await teamManager.shouldSendWebhooks(2)).toEqual(false)
 
-            await server.db.postgresQuery("UPDATE posthog_team SET slack_incoming_webhook = 'https://x.com/'")
+            await server.db.postgresQuery(
+                "UPDATE posthog_team SET slack_incoming_webhook = 'https://x.com/'",
+                undefined,
+                'testTag'
+            )
             mocked(server.db.postgresQuery).mockClear()
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:10').getTime())
@@ -95,7 +101,9 @@ describe('TeamManager()', () => {
             expect(await teamManager.shouldSendWebhooks(2)).toEqual(false)
 
             await server.db.postgresQuery(
-                "INSERT INTO ee_hook (id, team_id, user_id, event, target, created, updated) VALUES('test_hook', 2, 1001, 'action_performed', 'http://example.com', now(), now())"
+                "INSERT INTO ee_hook (id, team_id, user_id, event, target, created, updated) VALUES('test_hook', 2, 1001, 'action_performed', 'http://example.com', now(), now())",
+                undefined,
+                'testTag'
             )
             mocked(server.db.postgresQuery).mockClear()
 
@@ -133,7 +141,8 @@ describe('TeamManager()', () => {
                         { key: 'numeric_prop', usage_count: null, volume: null },
                     ]),
                     JSON.stringify(['numeric_prop']),
-                ]
+                ],
+                'testTag'
             )
         })
 
@@ -186,9 +195,11 @@ describe('TeamManager()', () => {
 
         it('handles cache invalidation properly', async () => {
             await teamManager.fetchTeam(2, 'uuid1')
-            await server.db.postgresQuery('UPDATE posthog_team SET event_names = $1', [
-                JSON.stringify(['$pageview', '$foobar']),
-            ])
+            await server.db.postgresQuery(
+                'UPDATE posthog_team SET event_names = $1',
+                [JSON.stringify(['$pageview', '$foobar'])],
+                'testTag'
+            )
 
             jest.spyOn(teamManager, 'fetchTeam')
             jest.spyOn(server.db, 'postgresQuery')
@@ -209,7 +220,7 @@ describe('TeamManager()', () => {
 
         describe('first event has not yet been ingested', () => {
             beforeEach(async () => {
-                await server.db.postgresQuery('UPDATE posthog_team SET ingested_event = false')
+                await server.db.postgresQuery('UPDATE posthog_team SET ingested_event = false', undefined, 'testTag')
             })
 
             it('calls posthog.identify and posthog.capture', async () => {

@@ -75,8 +75,8 @@ export class DB {
 
     public postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
         queryTextOrConfig: string | QueryConfig<I>,
-        values?: I,
-        tag?: string
+        values: I | undefined,
+        tag: string
     ): Promise<QueryResult<R>> {
         return instrumentQuery(this.statsd, 'query.postgres', tag, async () => {
             const timeout = timeoutGuard('Postgres slow query warning after 30 sec', { queryTextOrConfig, values })
@@ -244,7 +244,7 @@ export class DB {
     public async fetchPersons(database: Database = Database.Postgres): Promise<Person[] | ClickHousePerson[]> {
         if (database === Database.ClickHouse) {
             const query = `
-                SELECT * FROM person JOIN (
+                SELECT * FROM person FINAL JOIN (
                     SELECT id, max(_timestamp) as _timestamp FROM person GROUP BY team_id, id
                 ) as person_max ON person.id = person_max.id AND person._timestamp = person_max._timestamp
             `
@@ -463,10 +463,11 @@ export class DB {
         personDistinctId: PersonDistinctId,
         moveToPerson: Person
     ): Promise<void> {
-        await this.postgresQuery(`UPDATE posthog_persondistinctid SET person_id = $1 WHERE id = $2`, [
-            moveToPerson.id,
-            personDistinctId.id,
-        ])
+        await this.postgresQuery(
+            `UPDATE posthog_persondistinctid SET person_id = $1 WHERE id = $2`,
+            [moveToPerson.id, personDistinctId.id],
+            'updateDistinctIdPerson'
+        )
         if (this.kafkaProducer) {
             const clickhouseModel: ClickHousePersonDistinctId = { ...personDistinctId, person_id: moveToPerson.uuid }
             await this.kafkaProducer.queueMessage({
@@ -506,7 +507,7 @@ export class DB {
                 ) || []
             )
         } else {
-            const result = await this.postgresQuery('SELECT * FROM posthog_event')
+            const result = await this.postgresQuery('SELECT * FROM posthog_event', undefined, 'fetchAllEvents')
             return result.rows as Event[]
         }
     }
@@ -524,7 +525,11 @@ export class DB {
             })
             return events
         } else {
-            const result = await this.postgresQuery('SELECT * FROM posthog_sessionrecordingevent')
+            const result = await this.postgresQuery(
+                'SELECT * FROM posthog_sessionrecordingevent',
+                undefined,
+                'fetchAllSessionRecordingEvents'
+            )
             return result.rows as PostgresSessionRecordingEvent[]
         }
     }
@@ -541,7 +546,7 @@ export class DB {
             const chain = events?.[0]?.elements_chain
             return chainToElements(chain)
         } else {
-            return (await this.postgresQuery('SELECT * FROM posthog_element')).rows
+            return (await this.postgresQuery('SELECT * FROM posthog_element', undefined, 'fetchAllElements')).rows
         }
     }
 
@@ -592,7 +597,8 @@ export class DB {
         if (this.kafkaProducer) {
             return (await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)).data as PluginLogEntry[]
         } else {
-            return (await this.postgresQuery('SELECT * FROM posthog_pluginlogentry')).rows as PluginLogEntry[]
+            return (await this.postgresQuery('SELECT * FROM posthog_pluginlogentry', undefined, 'fetchAllPluginLogs'))
+                .rows as PluginLogEntry[]
         }
     }
 

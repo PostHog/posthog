@@ -6,7 +6,8 @@ export function createStorage(server: PluginsServer, pluginConfig: PluginConfig)
     const get = async function (key: string, defaultValue: unknown): Promise<unknown> {
         const result = await server.db.postgresQuery(
             'SELECT * FROM posthog_pluginstorage WHERE "plugin_config_id"=$1 AND "key"=$2 LIMIT 1',
-            [pluginConfig.id, key]
+            [pluginConfig.id, key],
+            'storageGet'
         )
         return result?.rows.length === 1 ? JSON.parse(result.rows[0].value) : defaultValue
     }
@@ -14,7 +15,8 @@ export function createStorage(server: PluginsServer, pluginConfig: PluginConfig)
         if (typeof value === 'undefined') {
             await server.db.postgresQuery(
                 'DELETE FROM posthog_pluginstorage WHERE "plugin_config_id"=$1 AND "key"=$2',
-                [pluginConfig.id, key]
+                [pluginConfig.id, key],
+                'storageDelete'
             )
         } else {
             await server.db.postgresQuery(
@@ -24,7 +26,8 @@ export function createStorage(server: PluginsServer, pluginConfig: PluginConfig)
                     ON CONFLICT ("plugin_config_id", "key")
                     DO UPDATE SET value = $3
                 `,
-                [pluginConfig.id, key, JSON.stringify(value)]
+                [pluginConfig.id, key, JSON.stringify(value)],
+                'storageSet'
             )
         }
     }

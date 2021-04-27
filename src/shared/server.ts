@@ -103,6 +103,9 @@ export async function createServer(
             brokers: serverConfig.KAFKA_HOSTS.split(','),
             logLevel: logLevel.WARN,
             ssl: kafkaSsl,
+            connectionTimeout: 3000, // default: 1000
+            authenticationTimeout: 3000, // default: 1000
+            retry: { initialRetryTime: 1000, maxRetryTime: 60000, retries: 20 },
         })
         const producer = kafka.producer({ retry: { initialRetryTime: 1000, maxRetryTime: 60000, retries: 20 } })
         await producer?.connect()

@@ -1,3 +1,4 @@
+import { setupPiscina } from '../../benchmarks/postgres/helpers/piscina'
 import { startQueue } from '../../src/main/queue'
 import Client from '../../src/shared/celery/client'
 import { createServer } from '../../src/shared/server'
@@ -59,8 +60,8 @@ test('pause and resume queue', async () => {
 
     // There'll be a "tick lag" with the events moving from one queue to the next. :this_is_fine:
     expect(await redis.llen(server.PLUGINS_CELERY_QUEUE)).toBe(6)
-
-    const queue = await startQueue(server, undefined, {
+    const piscina = setupPiscina(2, 2)
+    const queue = await startQueue(server, piscina, {
         processEvent: (event) => runPlugins(server, event),
         processEventBatch: (events) => Promise.all(events.map((event) => runPlugins(server, event))),
         ingestEvent: () => Promise.resolve({ success: true }),
@@ -92,4 +93,5 @@ test('pause and resume queue', async () => {
     await queue.stop()
     await server.redisPool.release(redis)
     await stopServer()
+    await piscina.destroy()
 })

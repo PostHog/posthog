@@ -9,7 +9,7 @@ import * as schedule from 'node-schedule'
 import { defaultConfig } from '../shared/config'
 import { createServer } from '../shared/server'
 import { status } from '../shared/status'
-import { createRedis, delay } from '../shared/utils'
+import { createRedis, delay, getPiscinaStats } from '../shared/utils'
 import { PluginsServer, PluginsServerConfig, Queue, ScheduleControl } from '../types'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './mmdb'
 import { startQueue } from './queue'
@@ -154,29 +154,9 @@ export async function startPluginsServer(
         // every 10 seconds sends stuff to StatsD
         statsJob = schedule.scheduleJob('*/10 * * * * *', () => {
             if (piscina) {
-                server!.statsd?.gauge(`piscina.utilization`, (piscina?.utilization || 0) * 100)
-                server!.statsd?.gauge(`piscina.threads`, piscina?.threads.length)
-                server!.statsd?.gauge(`piscina.queue_size`, piscina?.queueSize)
-                server!.statsd?.gauge(`piscina.waitTime.average`, piscina?.waitTime.average)
-                server!.statsd?.gauge(`piscina.waitTime.mean`, piscina?.waitTime.mean)
-                server!.statsd?.gauge(`piscina.waitTime.stddev`, piscina?.waitTime.stddev)
-                server!.statsd?.gauge(`piscina.waitTime.min`, piscina?.waitTime.min)
-                server!.statsd?.gauge(`piscina.waitTime.p99_99`, piscina?.waitTime.p99_99)
-                server!.statsd?.gauge(`piscina.waitTime.p99`, piscina?.waitTime.p99)
-                server!.statsd?.gauge(`piscina.waitTime.p95`, piscina?.waitTime.p95)
-                server!.statsd?.gauge(`piscina.waitTime.p90`, piscina?.waitTime.p90)
-                server!.statsd?.gauge(`piscina.waitTime.p75`, piscina?.waitTime.p75)
-                server!.statsd?.gauge(`piscina.waitTime.p50`, piscina?.waitTime.p50)
-                server!.statsd?.gauge(`piscina.runTime.average`, piscina?.runTime.average)
-                server!.statsd?.gauge(`piscina.runTime.mean`, piscina?.runTime.mean)
-                server!.statsd?.gauge(`piscina.runTime.stddev`, piscina?.runTime.stddev)
-                server!.statsd?.gauge(`piscina.runTime.min`, piscina?.runTime.min)
-                server!.statsd?.gauge(`piscina.runTime.p99_99`, piscina?.runTime.p99_99)
-                server!.statsd?.gauge(`piscina.runTime.p99`, piscina?.runTime.p99)
-                server!.statsd?.gauge(`piscina.runTime.p95`, piscina?.runTime.p95)
-                server!.statsd?.gauge(`piscina.runTime.p90`, piscina?.runTime.p90)
-                server!.statsd?.gauge(`piscina.runTime.p75`, piscina?.runTime.p75)
-                server!.statsd?.gauge(`piscina.runTime.p50`, piscina?.runTime.p50)
+                for (const [key, value] of Object.entries(getPiscinaStats(piscina))) {
+                    server!.statsd?.gauge(`piscina.${key}`, value)
+                }
             }
         })
 

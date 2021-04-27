@@ -75,14 +75,16 @@ async function fetchAndInsertFreshMmdb(server: PluginsServer): Promise<ReaderMod
             key, content_type, file_name, file_size, contents, plugin_config_id, team_id
         ) VALUES ($1, $2, $3, $4, $5, NULL, NULL) RETURNING *
     `,
-        [MMDB_ATTACHMENT_KEY, contentType, filename + '.br', brotliContents.byteLength, brotliContents]
+        [MMDB_ATTACHMENT_KEY, contentType, filename + '.br', brotliContents.byteLength, brotliContents],
+        'insertGeoIpAttachment'
     )
     // Ensure that there's no old attachments lingering
     await db.postgresQuery(
         `
         DELETE FROM posthog_pluginattachment WHERE key = $1 AND id != $2
     `,
-        [MMDB_ATTACHMENT_KEY, newAttachmentResults.rows[0].id]
+        [MMDB_ATTACHMENT_KEY, newAttachmentResults.rows[0].id],
+        'deleteGeoIpAttachment'
     )
     status.info('💾', `Saved ${filename} into the database`)
 
@@ -153,7 +155,8 @@ export async function prepareMmdb(
         WHERE key = $1 AND plugin_config_id IS NULL AND team_id IS NULL
         ORDER BY file_name ASC
     `,
-        [MMDB_ATTACHMENT_KEY]
+        [MMDB_ATTACHMENT_KEY],
+        'fetchGeoIpAttachment'
     )
     if (!readResults.rowCount) {
         status.info('⬇️', `Fetching ${MMDB_ATTACHMENT_KEY} for the first time`)
