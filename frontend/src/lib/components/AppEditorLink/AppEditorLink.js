@@ -33,7 +33,7 @@ export function AppEditorLink({ actionId, style, children }) {
                 footer={<Button onClick={() => setModalOpen(false)}>Close</Button>}
                 onCancel={() => setModalOpen(false)}
             >
-                <EditAppUrls actionId={actionId} allowNavigation={true} dismissModal={() => setModalOpen(false)} />
+                <EditAppUrls actionId={actionId} allowNavigation dismissModal={() => setModalOpen(false)} />
             </Modal>
         </>
     )

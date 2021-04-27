@@ -26,7 +26,7 @@ export function ToolbarModal(): JSX.Element {
                         <br />
                         Clicking URL launches it with the Toolbar.
                     </p>
-                    <EditAppUrls allowNavigation={true} />
+                    <EditAppUrls allowNavigation />
                     <a
                         className="toolbar-help"
                         href="https://github.com/PostHog/posthog/issues/1129"
