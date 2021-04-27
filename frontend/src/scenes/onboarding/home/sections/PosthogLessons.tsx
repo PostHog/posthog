@@ -149,7 +149,7 @@ function Tutorials(): JSX.Element {
     return <Carousel {...settings}>{thumbs}</Carousel>
 }
 
-export function PostHogLessons(): JSX.Element {
+export function PosthogLessons(): JSX.Element {
     return (
         <Card className="home-module-card">
             <h2 id="name" className="subtitle">

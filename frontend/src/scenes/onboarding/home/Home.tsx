@@ -1,9 +1,9 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import React, { useEffect, useState } from 'react'
-import { PostHogLessons } from './modules/posthogLessons'
-import { TiledIconModule } from './modules/tiledIconModule'
+import { PosthogLessons } from './sections/PosthogLessons'
+import { TiledIconModule } from './sections/TiledIconModule'
 
-import { DiscoverInsightsModule } from './modules/discoverInsight'
+import { DiscoverInsightsModule } from './sections/DiscoverInsight'
 import { Button, Layout, Space, Tooltip } from 'antd'
 import { SlackOutlined, UserAddOutlined, RocketOutlined, GithubOutlined } from '@ant-design/icons'
 
@@ -129,7 +129,7 @@ export function Home(): JSX.Element {
     const layoutTeamHasEvents = (
         <>
             <DiscoverInsightsModule />
-            <PostHogLessons />
+            <PosthogLessons />
             {communityModule}
         </>
     )
@@ -138,7 +138,7 @@ export function Home(): JSX.Element {
         <>
             {installModule}
             {communityModule}
-            <PostHogLessons />
+            <PosthogLessons />
         </>
     )
     const teamHasData = user?.team?.ingested_event
