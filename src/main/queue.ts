@@ -27,12 +27,18 @@ export async function startQueue(
 ): Promise<Queue> {
     const mergedWorkerMethods = {
         processEvent: (event: PluginEvent) => {
+            server.lastActivity = new Date().valueOf()
+            server.lastActivityType = 'processEvent'
             return piscina.runTask({ task: 'processEvent', args: { event } })
         },
         processEventBatch: (batch: PluginEvent[]) => {
+            server.lastActivity = new Date().valueOf()
+            server.lastActivityType = 'processEventBatch'
             return piscina.runTask({ task: 'processEventBatch', args: { batch } })
         },
         ingestEvent: (event: PluginEvent) => {
+            server.lastActivity = new Date().valueOf()
+            server.lastActivityType = 'ingestEvent'
             return piscina.runTask({ task: 'ingestEvent', args: { event } })
         },
         ...workerMethods,

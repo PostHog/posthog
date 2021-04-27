@@ -60,6 +60,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         INTERNAL_MMDB_SERVER_PORT: 0,
         PLUGIN_SERVER_IDLE: false,
         ENABLE_PERSISTENT_CONSOLE: false, // TODO: remove when persistent console ships in main repo
+        STALENESS_RESTART_SECONDS: 0,
     }
 }
 
@@ -101,6 +102,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         DISTINCT_ID_LRU_SIZE: 'size of persons distinct ID LRU cache',
         INTERNAL_MMDB_SERVER_PORT: 'port of the internal server used for IP location (0 means random)',
         PLUGIN_SERVER_IDLE: 'whether to disengage the plugin server, e.g. for development',
+        STALENESS_RESTART_SECONDS: 'trigger a restart if no event ingested for this duration',
     }
 }
 
