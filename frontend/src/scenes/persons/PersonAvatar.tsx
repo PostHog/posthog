@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { IconPerson } from 'lib/components/icons'
+import { PersonType } from '~/types'
 import './PersonAvatar.scss'
 
 export function PersonAvatar({ person }: { person?: Partial<PersonType> | null }): JSX.Element {
