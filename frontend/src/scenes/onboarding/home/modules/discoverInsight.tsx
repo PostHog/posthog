@@ -183,26 +183,6 @@ function InsightPane(): JSX.Element {
         ],
     }
     const data = [...insights, ...savedInsights, ...savedInsights, ...teamInsights]
-    const thumbs = data.map((insight, idx) => (
-        <Card key={idx} bordered={false} className={'insight-chart-tile'}>
-            <DashboardItem
-                item={{ ...insight, color: null }}
-                key={idx}
-                onClick={() => {
-                    reportProjectHomeItemClicked(ANALYTICS_MODULE_KEY, 'recent analysis')
-                    const _type: DisplayedType =
-                        insight.filters.insight === ViewType.RETENTION ? 'RetentionContainer' : insight.filters.display
-                    router.actions.push(displayMap[_type].link(insight))
-                }}
-                preventLoading={false}
-                footer={
-                    <div className="dashboard-item-footer">{<>Ran query {dayjs(insight.created_at).fromNow()}</>}</div>
-                }
-                index={idx}
-                isOnEditMode={false}
-            />
-        </Card>
-    ))
 
     return (
         <React.Fragment>
@@ -214,7 +194,35 @@ function InsightPane(): JSX.Element {
                     {data.length > 0 && (
                         <React.Fragment>
                             <div className="home-module-carousel-container">
-                                <Carousel {...settings}>{thumbs}</Carousel>
+                                <Carousel {...settings}>
+                                    {data.map((insight, idx) => (
+                                        <Card key={idx} bordered={false} className={'insight-chart-tile'}>
+                                            <DashboardItem
+                                                item={{ ...insight, color: null }}
+                                                key={idx}
+                                                onClick={() => {
+                                                    reportProjectHomeItemClicked(
+                                                        ANALYTICS_MODULE_KEY,
+                                                        'recent analysis'
+                                                    )
+                                                    const _type: DisplayedType =
+                                                        insight.filters.insight === ViewType.RETENTION
+                                                            ? 'RetentionContainer'
+                                                            : insight.filters.display
+                                                    router.actions.push(displayMap[_type].link(insight))
+                                                }}
+                                                preventLoading={false}
+                                                footer={
+                                                    <div className="dashboard-item-footer">
+                                                        {<>Ran query {dayjs(insight.created_at).fromNow()}</>}
+                                                    </div>
+                                                }
+                                                index={idx}
+                                                isOnEditMode={false}
+                                            />
+                                        </Card>
+                                    ))}
+                                </Carousel>
                             </div>
                         </React.Fragment>
                     )}
