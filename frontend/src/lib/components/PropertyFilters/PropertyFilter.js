@@ -103,39 +103,43 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
     const { cohorts } = useValues(cohortsModel)
 
     return (
-        <SelectGradientOverflow
-            style={{ width: '100%' }}
-            showSearch
-            optionFilterProp="children"
-            labelInValue
-            placeholder="Cohort name"
-            value={
-                displayOperatorAndValue
-                    ? { value: '' }
-                    : {
-                          value: value,
-                          label: cohorts?.find((cohort) => cohort.id === value)?.name || value,
-                      }
-            }
-            onChange={(_, newFilter) => {
-                onComplete()
-                setThisFilter('id', newFilter.value, undefined, newFilter.type)
-            }}
-            data-attr="cohort-filter-select"
-            selectProps={selectProps}
-        >
-            {cohorts.map((item, index) => (
-                <Select.Option
-                    className="ph-no-capture"
-                    key={'cohort-filter-' + index}
-                    value={item.id}
-                    type="cohort"
-                    data-attr={'cohort-filter-' + index}
+        <Row gutter={8} className="full-width" wrap={false}>
+            <Col flex={1} style={{ minWidth: '11rem' }}>
+                <SelectGradientOverflow
+                    style={{ width: '100%' }}
+                    showSearch
+                    optionFilterProp="children"
+                    labelInValue
+                    placeholder="Cohort name"
+                    value={
+                        displayOperatorAndValue
+                            ? { value: '' }
+                            : {
+                                  value: value,
+                                  label: cohorts?.find((cohort) => cohort.id === value)?.name || value,
+                              }
+                    }
+                    onChange={(_, newFilter) => {
+                        onComplete()
+                        setThisFilter('id', newFilter.value, undefined, newFilter.type)
+                    }}
+                    data-attr="cohort-filter-select"
+                    selectProps={selectProps}
                 >
-                    {item.name}
-                </Select.Option>
-            ))}
-        </SelectGradientOverflow>
+                    {cohorts.map((item, index) => (
+                        <Select.Option
+                            className="ph-no-capture"
+                            key={'cohort-filter-' + index}
+                            value={item.id}
+                            type="cohort"
+                            data-attr={'cohort-filter-' + index}
+                        >
+                            {item.name}
+                        </Select.Option>
+                    ))}
+                </SelectGradientOverflow>
+            </Col>
+        </Row>
     )
 }
 
