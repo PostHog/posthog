@@ -25,7 +25,7 @@ class EventDefinitionViewSet(
     lookup_field = "id"
     ordering = "name"
     filter_backends = [FuzzySearchFilterBackend]
-    search_field = "name"
+    search_fields = ["name"]
     search_threshold = 0.15
 
     def get_queryset(self):

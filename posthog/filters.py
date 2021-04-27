@@ -17,11 +17,11 @@ class FuzzySearchFilterBackend(filters.BaseFilterBackend):
     # The URL query parameter used for the search.
     search_param = settings.api_settings.SEARCH_PARAM
 
-    def get_search_field(self, view: APIView) -> Optional[List[str]]:
+    def get_search_fields(self, view: APIView) -> Optional[List[str]]:
         """
         Search fields are obtained from the view.
         """
-        return getattr(view, "search_field", None)
+        return getattr(view, "search_fields", None)
 
     def get_fuzzy_search_threshold(self, view: APIView) -> float:
         """
@@ -41,15 +41,18 @@ class FuzzySearchFilterBackend(filters.BaseFilterBackend):
         self, request: Request, queryset: QuerySet[models.Model], view: APIView,
     ) -> QuerySet[models.Model]:
 
-        search_field = self.get_search_field(view)
+        search_fields = self.get_search_fields(view)
         search_terms = self.get_search_terms(request)
         search_threshold = self.get_fuzzy_search_threshold(view)
 
-        if not search_field or not search_terms:
+        if not search_fields or not search_terms:
             return queryset
 
-        return (
-            queryset.annotate(similarity=TrigramSimilarity(search_field, search_terms))
-            .filter(similarity__gte=search_threshold)
-            .order_by("-similarity")
-        )
+        for idx, search_field in enumerate(search_fields):
+            queryset = (
+                queryset.annotate(**{f"similarity_{idx}": TrigramSimilarity(search_field, search_terms)})
+                .filter(**{f"similarity_{idx}__gte": search_threshold})
+                .order_by(f"-similarity_{idx}")
+            )
+
+        return queryset
