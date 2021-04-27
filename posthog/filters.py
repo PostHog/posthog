@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, TypeVar
 
 from django.contrib.postgres.search import TrigramSimilarity
 from django.db import models
@@ -6,6 +6,8 @@ from django.db.models.query import QuerySet
 from rest_framework import filters, settings
 from rest_framework.request import Request
 from rest_framework.views import APIView
+
+_MT = TypeVar("_MT", bound=models.Model)
 
 
 class FuzzySearchFilterBackend(filters.BaseFilterBackend):
@@ -37,9 +39,7 @@ class FuzzySearchFilterBackend(filters.BaseFilterBackend):
         params = params.replace("\x00", "")  # strip null characters
         return params
 
-    def filter_queryset(
-        self, request: Request, queryset: QuerySet[models.Model], view: APIView,
-    ) -> QuerySet[models.Model]:
+    def filter_queryset(self, request: Request, queryset: QuerySet[_MT], view: APIView,) -> QuerySet[_MT]:
 
         search_fields = self.get_search_fields(view)
         search_terms = self.get_search_terms(request)

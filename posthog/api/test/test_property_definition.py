@@ -132,3 +132,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 2)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["purchase", "purchase_value"])
+
+    def test_filter_numerical_property_definitions(self):
+
+        response = self.client.get("/api/projects/@current/property_definitions/?is_numerical=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 3)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["purchase", "purchase_value", "app_rating"])
+
+        response = self.client.get("/api/projects/@current/property_definitions/?is_numerical=0")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 4)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["$current_url", "is_first_movie", "plan", "first_visit"])
