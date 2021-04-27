@@ -125,15 +125,17 @@ test('setError', async () => {
     server.db.postgresQuery = jest.fn() as any
 
     await setError(server, null, pluginConfig39)
-    expect(server.db.postgresQuery).toHaveBeenCalledWith('UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2', [
-        null,
-        pluginConfig39.id,
-    ])
+    expect(server.db.postgresQuery).toHaveBeenCalledWith(
+        'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
+        [null, pluginConfig39.id],
+        'update_pc_error'
+    )
 
     const pluginError: PluginError = { message: 'error happened', time: 'now' }
     await setError(server, pluginError, pluginConfig39)
-    expect(server.db.postgresQuery).toHaveBeenCalledWith('UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2', [
-        pluginError,
-        pluginConfig39.id,
-    ])
+    expect(server.db.postgresQuery).toHaveBeenCalledWith(
+        'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
+        [pluginError, pluginConfig39.id],
+        'update_pc_error'
+    )
 })
