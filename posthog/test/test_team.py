@@ -1,8 +1,9 @@
 import random
 
+from django.conf import settings
+
 from posthog.demo import create_demo_team
-from posthog.models import EventDefinition, Organization, Team, User
-from posthog.models.property_definition import PropertyDefinition
+from posthog.models import EventDefinition, Organization, PluginConfig, PropertyDefinition, Team, User
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
 from .base import BaseTest
@@ -157,3 +158,11 @@ class TestTeam(BaseTest):
             self.assertEqual(instance.volume_30_day, item["volume_30_day"])
             self.assertEqual(instance.query_usage_30_day, item["query_usage_30_day"])
             self.assertEqual(instance.is_numerical, item["is_numerical"])
+
+    def test_preinstalled_are_autoenabled(self):
+        with self.settings(TEST=False):
+            _, _, new_team = Organization.objects.bootstrap(self.user)
+
+        self.assertEqual(
+            PluginConfig.objects.filter(team=new_team, enabled=True).count(), len(settings.PLUGINS_PREINSTALLED_URLS)
+        )

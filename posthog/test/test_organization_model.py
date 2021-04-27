@@ -2,13 +2,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.models import OrganizationInvite
-from posthog.models.organization import OrganizationInvite
-from posthog.models.user import User
+from posthog.models import Organization, OrganizationInvite, Plugin
 from posthog.test.base import BaseTest
 
 
@@ -27,6 +26,15 @@ class TestOrganization(BaseTest):
         )
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
+
+    def test_plugins_are_preinstalled(self):
+        with self.settings(TEST=False):
+            new_org, _, _ = Organization.objects.bootstrap(self.user)
+
+        self.assertEqual(
+            Plugin.objects.filter(organization=new_org, preinstalled=True).count(),
+            len(settings.PLUGINS_PREINSTALLED_URLS),
+        )
 
     @pytest.mark.ee
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})

@@ -168,8 +168,8 @@ class PluginStorage(models.Model):
 
 
 @receiver(models.signals.post_save, sender=Organization)
-def preinstall_plugins_for_organization(sender, instance: Organization, created: bool, **kwargs):
-    if created:
+def preinstall_plugins_for_new_organization(sender, instance: Organization, created: bool, **kwargs):
+    if created and not settings.TEST:  # Disable in tests to avoid hitting GitHub API limits
         for plugin_url in settings.PLUGINS_PREINSTALLED_URLS:
             Plugin.objects.install(
                 organization=instance, plugin_type=Plugin.PluginType.REPOSITORY, url=plugin_url, preinstalled=True
@@ -177,7 +177,7 @@ def preinstall_plugins_for_organization(sender, instance: Organization, created:
 
 
 @receiver(models.signals.post_save, sender=Team)
-def enable_preinstalled_plugins_for_team(sender, instance: Team, created: bool, **kwargs):
+def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bool, **kwargs):
     if created:
         for order, preinstalled_plugin in enumerate(Plugin.objects.filter(preinstalled=True)):
             PluginConfig.objects.create(team=instance, plugin=preinstalled_plugin, enabled=True, order=order)
