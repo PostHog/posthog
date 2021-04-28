@@ -7,15 +7,15 @@ import { useActions } from 'kea'
 
 const { Paragraph } = Typography
 
-import eventTrackingOverview from 'public/app/scenes/onboarding/event-tracking-overview.png'
-import rollOutFeatures from 'public/app/scenes/onboarding/roll-out-features.png'
-import analyzeConversions from 'public/app/scenes/onboarding/analyze-conversions.png'
-import analyzeBehavior from 'public/app/scenes/onboarding/analyzing-behavior.png'
-import measureRetention from 'public/app/scenes/onboarding/measure-retention.png'
-import trackingSpas from 'public/app/scenes/onboarding/tracking-spas.png'
-import salesRevenueTracking from 'public/app/scenes/onboarding/sales-revenue-tracking.png'
-import trackingB2b from 'public/app/scenes/onboarding/tracking-b2b.png'
-import trackingTeams from 'public/app/scenes/onboarding/tracking-teams.png'
+import eventTrackingOverview from 'public/event-tracking-overview.png'
+import rollOutFeatures from 'public/roll-out-features.png'
+import analyzeConversions from 'public/analyze-conversions.png'
+import analyzeBehavior from 'public/analyzing-behavior.png'
+import measureRetention from 'public/measure-retention.png'
+import trackingSpas from 'public/tracking-spas.png'
+import salesRevenueTracking from 'public/sales-revenue-tracking.png'
+import trackingB2b from 'public/tracking-b2b.png'
+import trackingTeams from 'public/tracking-teams.png'
 
 const UTM_TAGS = '?utm_medium=in-product&utm_campaign=project-home'
 
