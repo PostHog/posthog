@@ -45,7 +45,7 @@ export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type) => ({ type }),
-        setDashboardItem: (dashboardItem: DashboardItemType) => ({ dashboardItem }),
+        setDashboardItem: (dashboardItem: DashboardItemType) => ({ dashboardItem }), // Used for identifying when an insight is a dashboard item (and add relevant UI indicators)
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: true,

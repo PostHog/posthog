@@ -397,7 +397,7 @@ export interface DashboardItemType {
     created_by: UserBasicType | null
     is_sample: boolean
     dashboard: number
-    dashboardName?: string
+    dashboardName?: string // Not part of the API response; but used internally for UX in navigation
     result: any | null
 }
 
