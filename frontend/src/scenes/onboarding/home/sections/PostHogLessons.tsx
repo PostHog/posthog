@@ -96,6 +96,14 @@ function Tutorials(): JSX.Element {
                 settings: {
                     vertical: false,
                     centerMode: true,
+                    slidesToShow: 3,
+                },
+            },
+            {
+                breakpoint: 1000,
+                settings: {
+                    vertical: false,
+                    centerMode: true,
                     slidesToShow: 2,
                 },
             },
