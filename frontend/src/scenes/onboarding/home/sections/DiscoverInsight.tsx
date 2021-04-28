@@ -103,7 +103,10 @@ function CreateAnalysisSection(): JSX.Element {
                         <Tooltip
                             color="var(--bg-charcoal)"
                             title={insight.questions.map((question, idx) => (
-                                <Paragraph style={{ color: 'var(--text-light', padding: '3px' }} key={idx}>
+                                <Paragraph
+                                    style={{ color: 'var(--text-light', padding: '3px' }}
+                                    key={`${insight.name}_${idx}`}
+                                >
                                     {`•` + question}
                                 </Paragraph>
                             ))}
@@ -189,10 +192,10 @@ function InsightPane(): JSX.Element {
                             <div className="carousel-container">
                                 <Carousel {...settings}>
                                     {data.map((insight, idx) => (
-                                        <Card key={idx} bordered={false} className={'insight-chart-tile'}>
+                                        <Card key={insight.id} bordered={false} className={'insight-chart-tile'}>
                                             <DashboardItem
                                                 item={{ ...insight, color: null }}
-                                                key={idx}
+                                                key={insight.id}
                                                 onClick={() => {
                                                     reportProjectHomeItemClicked(
                                                         ANALYTICS_MODULE_KEY,
