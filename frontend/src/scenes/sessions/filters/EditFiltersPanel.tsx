@@ -1,7 +1,7 @@
 import React from 'react'
 import { Button, Card, Divider, Space } from 'antd'
 import { useActions, useValues } from 'kea'
-import { DownOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons'
+import { SaveOutlined, SearchOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
 import { Entity, EventTypePropertyFilter, PersonPropertyFilter, PropertyFilter, RecordingPropertyFilter } from '~/types'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
@@ -12,9 +12,11 @@ import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { AddFilterButton } from 'scenes/sessions/filters/AddFilterButton'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { LinkButton } from 'lib/components/LinkButton'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ACTION_TYPE, EVENT_TYPE } from 'lib/constants'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { toParams } from 'lib/utils'
+import { SelectDownIcon } from 'lib/components/SelectDownIcon'
 
 interface Props {
     onSubmit: () => void
@@ -173,8 +175,8 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                                         }}
                                         data-attr="edit-session-filter"
                                     >
-                                        <strong>{item.label}</strong>
-                                        <DownOutlined style={{ fontSize: 12, color: 'rgba(0,0,0,0.5)' }} />
+                                        <PropertyKeyInfo value={item.label ?? ''} />
+                                        <SelectDownIcon className="text-muted" />
                                     </Button>
                                     <SessionsFilterBox selector={selector} />
                                 </div>
