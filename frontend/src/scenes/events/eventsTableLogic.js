@@ -162,7 +162,6 @@ export const eventsTableLogic = kea({
             (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
         ],
         columnConfig: [() => [userLogic.selectors.user], (user) => user.events_column_config.active],
-        eventProperties: [() => [userLogic.selectors.eventProperties], (eventProperties) => eventProperties],
     }),
 
     events: ({ values }) => ({
@@ -199,7 +198,7 @@ export const eventsTableLogic = kea({
 
     listeners: ({ actions, values, props }) => ({
         setColumnConfig: ({ columnConfig }) =>
-            userLogic.actions.userUpdateRequest({ user: { events_column_config: { active: columnConfig } } }),
+            userLogic.actions.updateUser({ user: { events_column_config: { active: columnConfig } } }),
         setProperties: () => actions.fetchEvents(),
         flipSort: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),

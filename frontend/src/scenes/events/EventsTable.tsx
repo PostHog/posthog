@@ -16,7 +16,7 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { ItemsSelectorModal } from 'lib/components/ItemsSelectorModal'
+import { PropertyColumnSelector } from 'lib/components/PropertyColumnSelector'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
@@ -26,19 +26,6 @@ import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
-
-const tableColumnToCheckboxOption = (e: any): Record<string, string> => ({
-    label: e.title,
-    value: e.key,
-})
-const eventPropertyToCheckboxOption = (e: any): Record<string, string> => {
-    const eventInfo = keyMapping['event'][e.value]
-    const label = eventInfo ? eventInfo.label : e.value
-    return {
-        label,
-        value: e.value,
-    }
-}
 
 interface FixedFilters {
     person_id?: string | number
@@ -62,7 +49,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         isLoadingNext,
         newEvents,
         eventFilter,
-        eventProperties,
         columnConfig,
     } = useValues(logic)
     const { fetchNextEvents, prependNewEvents, setEventFilter, setColumnConfig } = useActions(logic)
@@ -238,16 +224,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             },
         },
     ]
-    const otherEventProperties = eventProperties.filter(
-        (e) => defaultColumns.find((d) => d.eventProperties && d.eventProperties.includes(e.value)) === undefined
-    )
-    const availableConfigsOptions = [
-        ...defaultColumns.map(tableColumnToCheckboxOption),
-        ...otherEventProperties.map(eventPropertyToCheckboxOption),
-    ]
     const selectedConfigOptions = columnConfig === 'DEFAULT' ? defaultColumns.map((e) => e.key) : columnConfig
 
-    const columnsToRenderFromConfig =
+    const columns =
         columnConfig === 'DEFAULT'
             ? defaultColumns
             : columnConfig.map(
@@ -274,34 +253,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                           ellipsis: true,
                       }
               )
-    const columns = [
-        {
-            title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
-            key: 'event',
-            rowKey: 'id',
-            ellipsis: true,
-            render: function renderEvent(item) {
-                if (!item.event) {
-                    return {
-                        children: item.date_break
-                            ? item.date_break
-                            : newEvents.length === 1
-                            ? `There is 1 new event. Click here to load it.`
-                            : `There are ${newEvents.length} new events. Click here to load them.`,
-                        props: {
-                            colSpan: columnsToRenderFromConfig.length + 1,
-                            style: {
-                                cursor: 'pointer',
-                            },
-                        },
-                    }
-                }
-                const { event } = item
-                return eventToName(event)
-            },
-        },
-        ...columnsToRenderFromConfig,
-    ]
 
     return (
         <div className="events" data-attr="events-table">
@@ -334,14 +285,15 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                             Export
                         </Button>
                     </Tooltip>
-                    <ItemsSelectorModal
-                        options={availableConfigsOptions}
-                        selectedItems={selectedConfigOptions}
-                        title={'Choose Columns to display'}
-                        visible={choosingColumns}
-                        onCancel={closeColumnChooser}
-                        onConfirm={onColumnChooserConfirm}
-                    />
+                    {choosingColumns && (
+                        <PropertyColumnSelector
+                            selectedItems={selectedConfigOptions}
+                            title={'Choose Columns to display'}
+                            visible={true}
+                            onCancel={closeColumnChooser}
+                            onConfirm={onColumnChooserConfirm}
+                        />
+                    )}
                 </Col>
             </Row>
             <div>
