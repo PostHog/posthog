@@ -1,6 +1,6 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
-import { Button, Col, Collapse, Progress, Row, Switch } from 'antd'
+import { Button, Col, Collapse, Progress, Row, Space, Switch } from 'antd'
 import {
     ProjectOutlined,
     CodeOutlined,
@@ -203,87 +203,89 @@ export function OnboardingSetup(): JSX.Element {
                             key="2"
                             collapsible={currentSection < 2 ? 'disabled' : undefined}
                         >
-                            <div className="step-list">
-                                <OnboardingStep
-                                    title="Enable session recording"
-                                    icon={<PlaySquareOutlined />}
-                                    identifier="session-recording"
-                                    handleClick={() =>
-                                        updateCurrentTeam({
-                                            session_recording_opt_in: !currentTeam?.session_recording_opt_in,
-                                        })
-                                    }
-                                    caption={
-                                        <>
-                                            Play user interactions as if you were right there with them.{' '}
-                                            <Link
-                                                to={`https://posthog.com/docs/features/session-recording?${UTM_TAGS}`}
-                                                rel="noopener"
-                                                target="_blank"
-                                            >
-                                                Learn more
-                                            </Link>
-                                            .
-                                        </>
-                                    }
-                                    customActionElement={
-                                        <div style={{ fontWeight: 'bold' }}>
-                                            {currentTeam?.session_recording_opt_in ? (
-                                                <span style={{ color: 'var(--success)' }}>Enabled</span>
-                                            ) : (
-                                                <span style={{ color: 'var(--danger)' }}>Disabled</span>
-                                            )}
-                                            <Switch
-                                                checked={currentTeam?.session_recording_opt_in}
-                                                loading={currentTeamLoading}
-                                                style={{ marginLeft: 6 }}
-                                            />
-                                        </div>
-                                    }
-                                    analyticsExtraArgs={{
-                                        new_session_recording_enabled: !currentTeam?.session_recording_opt_in,
-                                    }}
-                                />
-                                <OnboardingStep
-                                    title="Join us on Slack"
-                                    icon={<SlackOutlined />}
-                                    identifier="slack"
-                                    handleClick={() => {
-                                        callSlack()
-                                        window.open(`https://posthog.com/slack?s=app&${UTM_TAGS}`, '_blank')
-                                    }}
-                                    caption="Fastest way to reach the PostHog team and the community."
-                                    customActionElement={
-                                        <Button type={slackCalled ? 'default' : 'primary'} icon={<SlackOutlined />}>
-                                            Join us
-                                        </Button>
-                                    }
-                                />
-                                {teamInviteAvailable && (
+                            <Space direction="vertical" align="center" className="steps-space">
+                                <Row>
                                     <OnboardingStep
-                                        title="Invite your team members"
-                                        icon={<UsergroupAddOutlined />}
-                                        identifier="invite-team"
-                                        handleClick={() => setInviteTeamModalShown(true)}
-                                        caption="Spread the knowledge, share insights with everyone in your team."
+                                        title="Enable session recording"
+                                        icon={<PlaySquareOutlined />}
+                                        identifier="session-recording"
+                                        handleClick={() =>
+                                            updateCurrentTeam({
+                                                session_recording_opt_in: !currentTeam?.session_recording_opt_in,
+                                            })
+                                        }
+                                        caption={
+                                            <>
+                                                Play user interactions as if you were right there with them.{' '}
+                                                <Link
+                                                    to={`https://posthog.com/docs/features/session-recording?${UTM_TAGS}`}
+                                                    rel="noopener"
+                                                    target="_blank"
+                                                >
+                                                    Learn more
+                                                </Link>
+                                                .
+                                            </>
+                                        }
                                         customActionElement={
-                                            <Button type="primary" icon={<PlusOutlined />}>
-                                                Invite my team
+                                            <div style={{ fontWeight: 'bold' }}>
+                                                {currentTeam?.session_recording_opt_in ? (
+                                                    <span style={{ color: 'var(--success)' }}>Enabled</span>
+                                                ) : (
+                                                    <span style={{ color: 'var(--danger)' }}>Disabled</span>
+                                                )}
+                                                <Switch
+                                                    checked={currentTeam?.session_recording_opt_in}
+                                                    loading={currentTeamLoading}
+                                                    style={{ marginLeft: 6 }}
+                                                />
+                                            </div>
+                                        }
+                                        analyticsExtraArgs={{
+                                            new_session_recording_enabled: !currentTeam?.session_recording_opt_in,
+                                        }}
+                                    />
+                                    <OnboardingStep
+                                        title="Join us on Slack"
+                                        icon={<SlackOutlined />}
+                                        identifier="slack"
+                                        handleClick={() => {
+                                            callSlack()
+                                            window.open(`https://posthog.com/slack?s=app&${UTM_TAGS}`, '_blank')
+                                        }}
+                                        caption="Fastest way to reach the PostHog team and the community."
+                                        customActionElement={
+                                            <Button type={slackCalled ? 'default' : 'primary'} icon={<SlackOutlined />}>
+                                                Join us
                                             </Button>
                                         }
                                     />
-                                )}
-                            </div>
-                            <div className="text-center" style={{ marginTop: 32 }}>
-                                <Button
-                                    type="default"
-                                    onClick={completeOnboarding}
-                                    loading={currentOrganizationLoading}
-                                    data-attr="onboarding-setup-complete"
-                                >
-                                    Finish setup
-                                </Button>
-                            </div>
+                                    {teamInviteAvailable && (
+                                        <OnboardingStep
+                                            title="Invite your team members"
+                                            icon={<UsergroupAddOutlined />}
+                                            identifier="invite-team"
+                                            handleClick={() => setInviteTeamModalShown(true)}
+                                            caption="Spread the knowledge, share insights with everyone in your team."
+                                            customActionElement={
+                                                <Button type="primary" icon={<PlusOutlined />}>
+                                                    Invite my team
+                                                </Button>
+                                            }
+                                        />
+                                    )}
+                                </Row>
+                                <Row align="middle">
+                                    <Button
+                                        type="default"
+                                        onClick={completeOnboarding}
+                                        loading={currentOrganizationLoading}
+                                        data-attr="onboarding-setup-complete"
+                                    >
+                                        Finish setup
+                                    </Button>
+                                </Row>
+                            </Space>
                         </Panel>
                     </Collapse>
                     <CreateProjectModal
