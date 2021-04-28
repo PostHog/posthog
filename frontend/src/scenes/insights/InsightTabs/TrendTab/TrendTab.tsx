@@ -72,6 +72,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                     <div>
                                         <Switch
                                             size="small"
+                                            className={lifecycle.name}
                                             defaultChecked
                                             onChange={() => toggleLifecycle(lifecycle.name)}
                                         />
