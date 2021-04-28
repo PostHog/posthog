@@ -103,7 +103,7 @@ async function startQueueKafka(server: PluginsServer, piscina: Piscina, workerMe
     const kafkaQueue: Queue = new KafkaQueue(
         server,
         piscina,
-        (batch: PluginEvent[]) => workerMethods.processEventBatch(batch),
+        (event: PluginEvent) => workerMethods.processEvent(event),
         async (event) => void (await workerMethods.ingestEvent(event))
     )
     await kafkaQueue.start()

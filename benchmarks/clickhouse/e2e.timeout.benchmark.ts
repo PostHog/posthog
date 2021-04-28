@@ -57,7 +57,7 @@ describe('e2e kafka processing timeout benchmark', () => {
     test('measure performance', async () => {
         console.debug = () => null
 
-        const count = 3000
+        const count = 500
 
         // fill in the queue
         function createEvent() {
