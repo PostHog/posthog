@@ -175,7 +175,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                                         }}
                                         data-attr="edit-session-filter"
                                     >
-                                        <PropertyKeyInfo value={item.label || 'Property'} />
+                                        <PropertyKeyInfo value={item.label ?? ''} />
                                         <SelectDownIcon className="text-muted" />
                                     </Button>
                                     <SessionsFilterBox selector={selector} />
