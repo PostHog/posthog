@@ -5,10 +5,24 @@ import { PlusOutlined } from '@ant-design/icons'
 import { appUrlsLogic } from './appUrlsLogic'
 import { UrlRow } from './UrlRow'
 
-export function EditAppUrls({ actionId = null, allowNavigation = false }) {
-    const { appUrls, suggestions, suggestionsLoading } = useValues(appUrlsLogic({ actionId }))
-    const { addUrl, addUrlAndGo, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId }))
-    const [loadMore, setLoadMore] = useState()
+export function EditAppUrls({
+    actionId,
+    allowNavigation = false,
+}: {
+    actionId?: number
+    allowNavigation?: boolean
+}): JSX.Element {
+    const { appUrls, suggestions, suggestionsLoading } = useValues(appUrlsLogic({ actionId, isToolbarModal: true }))
+    const { addUrl, addUrlAndGo, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId, isToolbarModal: true }))
+    const [loadMore, setLoadMore] = useState(false)
+
+    const handleUrlClick = (url: string): void => {
+        if (allowNavigation) {
+            addUrlAndGo(url)
+            return
+        }
+        addUrl(url)
+    }
 
     return (
         <div>
@@ -34,7 +48,7 @@ export function EditAppUrls({ actionId = null, allowNavigation = false }) {
                     suggestions.slice(0, loadMore ? suggestions.length : 5).map((url) => (
                         <List.Item
                             key={url}
-                            onClick={() => (allowNavigation ? addUrlAndGo(url) : addUrl(url))}
+                            onClick={() => handleUrlClick(url)}
                             style={{ cursor: 'pointer', justifyContent: 'space-between' }}
                         >
                             <a href={url} onClick={(e) => e.preventDefault()} data-attr="app-url-suggestion">
@@ -58,7 +72,7 @@ export function EditAppUrls({ actionId = null, allowNavigation = false }) {
             </List>
             <Button
                 type="link"
-                onClick={() => addUrl()}
+                onClick={() => addUrl('')}
                 style={{ padding: '5px 0', margin: '5px 0', textDecoration: 'none' }}
             >
                 + Add URL

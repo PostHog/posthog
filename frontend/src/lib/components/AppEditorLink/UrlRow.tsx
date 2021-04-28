@@ -4,7 +4,15 @@ import { appEditorUrl, defaultUrl } from './utils'
 import { Input, Button, List } from 'antd'
 import { DeleteOutlined, EditOutlined } from '@ant-design/icons'
 
-export function UrlRow({ actionId, url, saveUrl, deleteUrl, allowNavigation }) {
+interface UrlRowInterface {
+    actionId?: number
+    url: string
+    saveUrl: (url: string) => void
+    deleteUrl: () => void
+    allowNavigation?: boolean
+}
+
+export function UrlRow({ actionId, url, saveUrl, deleteUrl, allowNavigation }: UrlRowInterface): JSX.Element {
     const [isEditing, setIsEditing] = useState(url === defaultUrl)
     const [savedValue, setSavedValue] = useState(url || defaultUrl)
     const [editedValue, setEditedValue] = useState(url || defaultUrl)
@@ -39,7 +47,6 @@ export function UrlRow({ actionId, url, saveUrl, deleteUrl, allowNavigation }) {
                         Save
                     </Button>
                     <Button
-                        type="secondary"
                         htmlType="button"
                         style={{ marginLeft: 5 }}
                         onClick={() => {
@@ -70,7 +77,7 @@ export function UrlRow({ actionId, url, saveUrl, deleteUrl, allowNavigation }) {
                 <div key="list" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                     <a
                         data-attr="app-url-item"
-                        href={appEditorUrl(actionId, editedValue)}
+                        href={appEditorUrl(editedValue, actionId)}
                         target="_blank"
                         rel="noopener"
                         onClick={(e) => !allowNavigation && e.preventDefault()}

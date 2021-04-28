@@ -178,8 +178,8 @@ export function ProjectSettings(): JSX.Element {
                     Permitted Domains/URLs
                 </h2>
                 <p>
-                    These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's
-                    also where you'll be able to create Actions and record sessions.
+                    These are the domains and URLs where the <b>Toolbar will automatically launch</b> (if you're logged
+                    in) and where we'll <a href="#session-recording">record sessions</a> (if enabled).
                 </p>
                 <EditAppUrls />
                 <Divider />
