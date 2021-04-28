@@ -1,17 +1,17 @@
 import React, { useState } from 'react'
 import { Tooltip, Select, Tabs, Popover, Button } from 'antd'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { cohortsModel } from '../../models/cohortsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { ShownAsValue } from 'lib/constants'
+import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 
 const { TabPane } = Tabs
 
 function PropertyFilter({ breakdown, onChange }) {
-    const { eventProperties } = useValues(userLogic)
+    const { transformedPropertyDefinitions } = useValues(propertyDefinitionsLogic)
     const { personProperties } = useValues(propertyFilterLogic({ pageKey: 'breakdown' }))
     return (
         <SelectGradientOverflow
@@ -24,9 +24,9 @@ function PropertyFilter({ breakdown, onChange }) {
             filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
             data-attr="prop-breakdown-select"
         >
-            {eventProperties.length > 0 && (
+            {transformedPropertyDefinitions.length > 0 && (
                 <Select.OptGroup key="Event properties" label="Event properties">
-                    {Object.entries(eventProperties).map(([key, item], index) => (
+                    {Object.entries(transformedPropertyDefinitions).map(([key, item], index) => (
                         <Select.Option
                             key={'event_' + key}
                             value={'event_' + item.value}
@@ -45,7 +45,7 @@ function PropertyFilter({ breakdown, onChange }) {
                             key={'person_' + key}
                             value={'person_' + item.value}
                             type="person"
-                            data-attr={'prop-filter-person-' + (eventProperties.length + index)}
+                            data-attr={'prop-filter-person-' + (transformedPropertyDefinitions.length + index)}
                         >
                             <PropertyKeyInfo value={item.value} />
                         </Select.Option>
@@ -108,6 +108,10 @@ function Content({ breakdown, breakdown_type, onChange }) {
                     breakdown={(!breakdown_type || breakdown_type == 'property') && breakdown}
                     onChange={onChange}
                 />
+                <span className="text-muted">
+                    Note: If there are more than 20 properties, <b>only the top 20</b> with the highest volume{' '}
+                    <b>will be shown</b>.
+                </span>
             </TabPane>
             <TabPane tab="Cohort" key="cohort">
                 <CohortFilter breakdown={breakdown_type == 'cohort' && breakdown} onChange={onChange} />
@@ -159,7 +163,7 @@ export function BreakdownFilter({ filters, onChange }) {
                     disabled={shown_as === ShownAsValue.STICKINESS || shown_as === ShownAsValue.LIFECYCLE}
                     data-attr="add-breakdown-button"
                 >
-                    {label || 'Add breakdown'}
+                    <PropertyKeyInfo value={label || 'Add breakdown'} />
                 </Button>
             </Tooltip>
         </Popover>

@@ -7,12 +7,12 @@ import { CustomPlugin } from 'scenes/plugins/tabs/advanced/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/tabs/advanced/LocalPlugin'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { DangerZone } from 'scenes/plugins/tabs/advanced/DangerZone'
-import { userLogic } from 'scenes/userLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export function AdvancedTab(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
     const { setPluginTab } = useActions(pluginsLogic)
+
     return (
         <>
             <Alert
@@ -39,8 +39,7 @@ export function AdvancedTab(): JSX.Element {
             <Subtitle subtitle="Advanced Options" />
             <SourcePlugin />
             <CustomPlugin />
-            {user && !user.is_multi_tenancy && <LocalPlugin />}
-            {user?.team?.plugins_opt_in && <DangerZone />}
+            {preflight && !preflight.cloud && <LocalPlugin />}
         </>
     )
 }

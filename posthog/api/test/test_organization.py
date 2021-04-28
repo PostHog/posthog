@@ -22,6 +22,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response_data["id"], str(self.organization.id))
         # By default, setup state is marked as completed
         self.assertEqual(response_data["setup"], {"is_active": False, "current_section": None})
+        self.assertEqual(response_data["available_features"], [])
 
     def test_current_organization_on_setup_mode(self):
 
@@ -56,7 +57,7 @@ class TestOrganizationAPI(APIBaseTest):
             response = self.client.post("/api/organizations/", {"name": "Test"})
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(
-                response.data,
+                response.json(),
                 {
                     "attr": None,
                     "code": "permission_denied",
@@ -70,17 +71,19 @@ class TestOrganizationAPI(APIBaseTest):
 
     # Updating organizations
 
-    def test_rename_organization_without_license_if_admin(self):
+    def test_rename_organization_if_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
         self.assertEqual(response.status_code, 200)
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
 
-        # Member (non-admin, non-owner) cannot update organization's name
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
+    def test_cannot_rename_organization_if_not_owner_or_admin(self):
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
         self.assertEqual(response.status_code, 403)
+        self.organization.refresh_from_db()
+        self.assertNotEqual(self.organization.name, "ASDFG")
 
     @patch("posthoganalytics.capture")
     def test_member_can_complete_onboarding_setup(self, mock_capture):
@@ -145,7 +148,7 @@ class TestOrganizationAPI(APIBaseTest):
 
 
 class TestSignup(APIBaseTest):
-    CONFIG_USER_EMAIL = None
+    CONFIG_EMAIL = None
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
@@ -168,9 +171,10 @@ class TestSignup(APIBaseTest):
         organization = cast(Organization, user.organization)
 
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "id": user.pk,
+                "uuid": str(user.uuid),
                 "distinct_id": user.distinct_id,
                 "first_name": "John",
                 "email": "hedgehog@posthog.com",
@@ -222,7 +226,7 @@ class TestSignup(APIBaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(
-                response.data,
+                response.json(),
                 {
                     "attr": None,
                     "code": "permission_denied",
@@ -243,9 +247,10 @@ class TestSignup(APIBaseTest):
         user = cast(User, User.objects.order_by("-pk").get())
         organization = cast(Organization, user.organization)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "id": user.pk,
+                "uuid": str(user.uuid),
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog2@posthog.com",
@@ -304,7 +309,7 @@ class TestSignup(APIBaseTest):
             response = self.client.post("/api/signup", body)
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(
-                response.data,
+                response.json(),
                 {
                     "type": "validation_error",
                     "code": "required",
@@ -326,7 +331,7 @@ class TestSignup(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "type": "validation_error",
                 "code": "password_too_short",
@@ -361,9 +366,10 @@ class TestSignup(APIBaseTest):
         mock_feature_enabled.assert_any_call("new-onboarding-2822", user.distinct_id)
 
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "id": user.pk,
+                "uuid": str(user.uuid),
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
@@ -388,7 +394,7 @@ class TestInviteSignup(APIBaseTest):
     Tests the sign up process for users with an invite (i.e. existing organization).
     """
 
-    CONFIG_USER_EMAIL = None
+    CONFIG_EMAIL = None
 
     # Invite pre-validation
 
@@ -400,7 +406,7 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "id": str(invite.id),
                 "target_email": "t*****9@posthog.com",
@@ -417,7 +423,7 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "id": str(invite.id),
                 "target_email": "t*****8@posthog.com",
@@ -437,7 +443,7 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "id": str(invite.id),
                 "target_email": "t*****9@posthog.com",
@@ -452,7 +458,7 @@ class TestInviteSignup(APIBaseTest):
             response = self.client.get(f"/api/signup/{invalid_invite}/")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(
-                response.data,
+                response.json(),
                 {
                     "type": "validation_error",
                     "code": "invalid_input",
@@ -471,7 +477,7 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "type": "validation_error",
                 "code": "invalid_recipient",
@@ -491,7 +497,7 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "type": "validation_error",
                 "code": "expired",
@@ -516,8 +522,14 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
         self.assertEqual(
-            response.data,
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "Alice", "email": "test+99@posthog.com"},
+            response.json(),
+            {
+                "id": user.pk,
+                "uuid": str(user.uuid),
+                "distinct_id": user.distinct_id,
+                "first_name": "Alice",
+                "email": "test+99@posthog.com",
+            },
         )
 
         # User is now a member of the organization
@@ -573,8 +585,14 @@ class TestInviteSignup(APIBaseTest):
             response = self.client.post(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
-            response.data,
-            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "", "email": "test+159@posthog.com"},
+            response.json(),
+            {
+                "id": user.pk,
+                "uuid": str(user.uuid),
+                "distinct_id": user.distinct_id,
+                "first_name": "",
+                "email": "test+159@posthog.com",
+            },
         )
 
         # No new user is created
@@ -632,9 +650,10 @@ class TestInviteSignup(APIBaseTest):
         response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Bob", "password": "new_password"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
-            response.data,
+            response.json(),
             {
                 "id": user.pk,
+                "uuid": str(user.uuid),
                 "distinct_id": user.distinct_id,
                 "first_name": "",
                 "email": "test+189@posthog.com",
@@ -686,7 +705,7 @@ class TestInviteSignup(APIBaseTest):
             response = self.client.post(f"/api/signup/{invite.id}/", body)
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(
-                response.data,
+                response.json(),
                 {
                     "type": "validation_error",
                     "code": "required",

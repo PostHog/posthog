@@ -1,11 +1,28 @@
 from rest_framework import status
 
+from posthog.models.organization import Organization
 from posthog.models.team import Team
-
-from .base import APIBaseTest
+from posthog.test.base import APIBaseTest
 
 
 class TestTeamAPI(APIBaseTest):
+    def test_list_projects(self):
+
+        response = self.client.get("/api/projects/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Listing endpoint always uses the simplified serializer
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["name"], self.team.name)
+        self.assertNotIn("test_account_filters", response_data["results"][0])
+        self.assertNotIn("data_attributes", response_data["results"][0])
+
+        # TODO: #4070 These assertions will no longer make sense when we fully remove these attributes from the model
+        self.assertNotIn("event_names", response_data["results"][0])
+        self.assertNotIn("event_properties", response_data["results"][0])
+        self.assertNotIn("event_properties_numerical", response_data["results"][0])
+
     def test_retrieve_project(self):
 
         response = self.client.get("/api/projects/@current/")
@@ -14,8 +31,25 @@ class TestTeamAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["name"], self.team.name)
         self.assertEqual(response_data["timezone"], "UTC")
+        self.assertEqual(response_data["is_demo"], False)
+        self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
+        # The properties below are no longer included as part of the request
+        # TODO: #4070 These assertions will no longer make sense when we fully remove these attributes from the model
+        self.assertNotIn("event_names", response_data)
+        self.assertNotIn("event_properties", response_data)
+        self.assertNotIn("event_properties_numerical", response_data)
+        self.assertNotIn("event_names_with_usage", response_data)
+        self.assertNotIn("event_properties_with_usage", response_data)
 
-    def test_no_create_team_without_license_selfhosted(self):
+    def test_cant_retrieve_project_from_another_org(self):
+        org = Organization.objects.create(name="New Org")
+        team = Team.objects.create(organization=org, name="Default Project")
+
+        response = self.client.get(f"/api/projects/{team.pk}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), self.not_found_response())
+
+    def test_cant_create_team_without_license_on_selfhosted(self):
         with self.settings(MULTI_TENANCY=False):
             response = self.client.post("/api/projects/", {"name": "Test"})
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -50,3 +84,26 @@ class TestTeamAPI(APIBaseTest):
 
         self.team.refresh_from_db()
         self.assertNotEqual(self.team.timezone, "America/I_Dont_Exist")
+
+    def test_cant_update_project_from_another_org(self):
+        org = Organization.objects.create(name="New Org")
+        team = Team.objects.create(organization=org, name="Default Project")
+
+        response = self.client.patch(f"/api/projects/{team.pk}/", {"timezone": "Africa/Accra"})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json(), self.not_found_response())
+
+        team.refresh_from_db()
+        self.assertEqual(team.timezone, "UTC")
+
+    def test_filter_permission(self):
+
+        response = self.client.patch(
+            "/api/projects/%s/" % (self.user.team.pk if self.user.team else 0),
+            {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["name"], self.team.name)
+        self.assertEqual(response_data["test_account_filters"], [{"key": "$current_url", "value": "test"}])

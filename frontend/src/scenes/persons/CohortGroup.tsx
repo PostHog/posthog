@@ -86,6 +86,7 @@ export function CohortGroup({
                             }}
                             propertyFilters={group.properties || {}}
                             style={{ margin: '1rem 0 0' }}
+                            popoverPlacement="bottomRight"
                         />
                     )}
                     {selected == 'action' && (

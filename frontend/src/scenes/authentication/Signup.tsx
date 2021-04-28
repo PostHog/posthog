@@ -13,6 +13,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { signupLogic } from './signupLogic'
 import { Rule } from 'rc-field-form/lib/interface'
 import { ArrowLeftOutlined } from '@ant-design/icons'
+import { userLogic } from '../userLogic'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
@@ -54,6 +55,7 @@ function FormStepOne(): JSX.Element {
                 showStrengthIndicator
                 validateStatus={signupResponse?.errorAttribute === 'password' ? 'error' : undefined}
                 help={signupResponse?.errorAttribute === 'password' ? signupResponse.errorDetail : undefined}
+                validateMinLength
             />
             <Form.Item>
                 <Button className="rocket-button" htmlType="submit" data-attr="signup-continue" block>
@@ -159,10 +161,11 @@ function FormStepTwo(): JSX.Element {
     )
 }
 
-export function Signup(): JSX.Element {
+export function Signup(): JSX.Element | false {
     const [form] = Form.useForm()
     const { useBreakpoint } = Grid
     const { preflight } = useValues(preflightLogic)
+    const { user } = useValues(userLogic)
     const { formStep, signupResponse, signupResponseLoading } = useValues(signupLogic)
     const { setFormStep, signup } = useActions(signupLogic)
     const screens = useBreakpoint()
@@ -177,65 +180,70 @@ export function Signup(): JSX.Element {
     }
 
     return (
-        <div className="signup">
-            <Row>
-                <Col span={24} lg={14} className="image-showcase-container" order={isSmallScreen ? 2 : undefined}>
-                    <div className="image-showcase ant-col-24 ant-col-lg-14">
-                        <div className="planet" />
-                    </div>
+        !user && (
+            <div className="signup">
+                <Row>
+                    <Col span={24} lg={14} className="image-showcase-container" order={isSmallScreen ? 2 : undefined}>
+                        <div className="image-showcase ant-col-24 ant-col-lg-14">
+                            <div className="planet" />
+                        </div>
 
-                    <div className="showcase-content">
-                        <div className="main-logo">
+                        <div className="showcase-content">
+                            <div className="main-logo">
+                                <a href={`https://posthog.com?${UTM_TAGS}`}>
+                                    <img src={logo} alt="" />
+                                </a>
+                            </div>
+                            <div className="inner">
+                                {preflight?.cloud ? (
+                                    <SignupSideContentCloud utm_tags={UTM_TAGS} />
+                                ) : (
+                                    <SignupSideContentHosted utm_tags={UTM_TAGS} />
+                                )}
+                            </div>
+                        </div>
+                    </Col>
+                    <Col span={24} lg={10} className="auth-main-content" order={isSmallScreen ? 1 : undefined}>
+                        <div className="main-logo mobile-logo">
                             <a href={`https://posthog.com?${UTM_TAGS}`}>
                                 <img src={logo} alt="" />
                             </a>
                         </div>
                         <div className="inner">
-                            {preflight?.cloud ? (
-                                <SignupSideContentCloud utm_tags={UTM_TAGS} />
-                            ) : (
-                                <SignupSideContentHosted utm_tags={UTM_TAGS} />
+                            <h2 className="subtitle" style={{ justifyContent: 'center' }}>
+                                Get started
+                            </h2>
+                            {(preflight?.cloud || preflight?.initiated) && ( // For now, if you're not on cloud, you wouldn't see
+                                // this page, but future-proofing this (with `preflight.initiated`) in case this changes.
+                                <div className="text-center" style={{ marginBottom: 32 }}>
+                                    Already have an account?{' '}
+                                    <Link to="/login" data-attr="signup-login-link">
+                                        Sign in
+                                    </Link>
+                                </div>
                             )}
+                            {!signupResponseLoading &&
+                                signupResponse?.errorCode &&
+                                !['email', 'password'].includes(signupResponse?.errorAttribute || '') && (
+                                    <Alert
+                                        message="Could not complete your signup. Please try again."
+                                        description={signupResponse?.errorDetail}
+                                        type="error"
+                                        showIcon
+                                        style={{ marginBottom: 16 }}
+                                    />
+                                )}
+                            <Form layout="vertical" form={form} onFinish={handleFormSubmit} requiredMark={false}>
+                                <FormStepOne />
+                                <FormStepTwo />
+                            </Form>
+                            <div style={{ marginTop: 48 }}>
+                                <SocialLoginButtons displayStyle="link" caption="Or sign up with:" />
+                            </div>
                         </div>
-                    </div>
-                </Col>
-                <Col span={24} lg={10} className="auth-main-content" order={isSmallScreen ? 1 : undefined}>
-                    <div className="main-logo mobile-logo">
-                        <a href={`https://posthog.com?${UTM_TAGS}`}>
-                            <img src={logo} alt="" />
-                        </a>
-                    </div>
-                    <div className="inner">
-                        <h2 className="subtitle" style={{ justifyContent: 'center' }}>
-                            Get started
-                        </h2>
-                        <div className="text-center" style={{ marginBottom: 32 }}>
-                            Already have an account?{' '}
-                            <Link to="/login" data-attr="signup-login-link">
-                                Sign in
-                            </Link>
-                        </div>
-                        {!signupResponseLoading &&
-                            signupResponse?.errorCode &&
-                            !['email', 'password'].includes(signupResponse?.errorAttribute || '') && (
-                                <Alert
-                                    message="Could not complete your signup. Please try again."
-                                    description={signupResponse?.errorDetail}
-                                    type="error"
-                                    showIcon
-                                    style={{ marginBottom: 16 }}
-                                />
-                            )}
-                        <Form layout="vertical" form={form} onFinish={handleFormSubmit} requiredMark={false}>
-                            <FormStepOne />
-                            <FormStepTwo />
-                        </Form>
-                        <div style={{ marginTop: 48 }}>
-                            <SocialLoginButtons displayStyle="link" caption="Or sign up with:" />
-                        </div>
-                    </div>
-                </Col>
-            </Row>
-        </div>
+                    </Col>
+                </Row>
+            </div>
+        )
     )
 }

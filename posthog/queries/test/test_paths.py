@@ -3,17 +3,14 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS
-from posthog.models import Element, Event, Filter, Person
+from posthog.models import Element, Event, Person
 from posthog.models.filters.path_filter import PathFilter
 from posthog.queries.paths import Paths
-from posthog.test.base import BaseTest
-from posthog.utils import request_to_date_query
+from posthog.test.base import APIBaseTest
 
 
 def paths_test_factory(paths, event_factory, person_factory):
-    class TestPaths(BaseTest):
-        TESTS_API = True
-
+    class TestPaths(APIBaseTest):
         def test_current_url_paths_and_logic(self):
 
             with freeze_time("2012-01-01T03:21:34.000Z"):

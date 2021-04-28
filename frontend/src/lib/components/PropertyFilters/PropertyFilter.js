@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useState } from 'react'
 import { Col, Row, Select, Tabs } from 'antd'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '../../../models/cohortsModel'
@@ -21,6 +21,7 @@ function PropertyPaneContents({
     operator,
     type,
     displayOperatorAndValue,
+    selectProps: { delayBeforeAutoOpen = 0 },
 }) {
     const optionGroups = [
         {
@@ -39,111 +40,119 @@ function PropertyPaneContents({
         optionGroups.push({
             type: 'element',
             label: 'Elements',
-            options: ['tag_name', 'text', 'href', 'selector'].map((value) => ({ value, label: value })),
+            options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
+                value: option,
+                label: option,
+            })),
         })
     }
 
     return (
-        <>
-            <Row gutter={8} className="full-width" wrap={false}>
-                <Col flex={'1'}>
-                    <PropertySelect
-                        value={
-                            type === 'cohort'
-                                ? null
-                                : {
-                                      value: propkey,
-                                      label:
-                                          keyMapping[type === 'element' ? 'element' : 'event'][propkey]?.label ||
-                                          propkey,
-                                  }
-                        }
-                        onChange={(type, value) =>
-                            setThisFilter(
-                                value,
-                                undefined,
-                                value === '$active_feature_flags' ? 'icontains' : operator,
-                                type
-                            )
-                        }
-                        optionGroups={optionGroups}
-                        autoOpenIfEmpty
-                        placeholder="Property key"
-                    />
-                </Col>
+        <Row gutter={8} className="full-width" wrap={false}>
+            <Col flex={1} style={{ minWidth: '11rem' }}>
+                <PropertySelect
+                    value={
+                        type === 'cohort'
+                            ? null
+                            : {
+                                  value: propkey,
+                                  label:
+                                      keyMapping[type === 'element' ? 'element' : 'event'][propkey]?.label || propkey,
+                              }
+                    }
+                    onChange={(newType, newValue) =>
+                        setThisFilter(
+                            newValue,
+                            undefined,
+                            newValue === '$active_feature_flags' ? 'icontains' : operator,
+                            newType
+                        )
+                    }
+                    optionGroups={optionGroups}
+                    autoOpenIfEmpty
+                    delayBeforeAutoOpen={delayBeforeAutoOpen}
+                    placeholder="Property key"
+                />
+            </Col>
 
-                {displayOperatorAndValue && (
-                    <OperatorValueSelect
-                        type={type}
-                        propkey={propkey}
-                        operator={operator}
-                        value={value}
-                        onChange={(newOperator, newValue) => {
-                            setThisFilter(propkey, newValue, newOperator, type)
-                            if (newOperator && newValue && !isOperatorMulti(newOperator)) {
-                                onComplete()
-                            }
-                        }}
-                        columnOptions={{ flex: '1' }}
-                    />
-                )}
-            </Row>
-        </>
+            {displayOperatorAndValue && (
+                <OperatorValueSelect
+                    type={type}
+                    propkey={propkey}
+                    operator={operator}
+                    value={value}
+                    onChange={(newOperator, newValue) => {
+                        setThisFilter(propkey, newValue, newOperator, type)
+                        if (newOperator && newValue && !isOperatorMulti(newOperator)) {
+                            onComplete()
+                        }
+                    }}
+                    columnOptions={{
+                        flex: 1,
+                        style: {
+                            maxWidth: '50vw',
+                        },
+                    }}
+                />
+            )}
+        </Row>
     )
 }
 
-function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorAndValue }) {
+function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorAndValue, selectProps }) {
     const { cohorts } = useValues(cohortsModel)
 
     return (
-        <>
-            <SelectGradientOverflow
-                style={{ width: '100%' }}
-                showSearch
-                optionFilterProp="children"
-                labelInValue
-                placeholder="Cohort name"
-                value={
-                    displayOperatorAndValue
-                        ? { value: '' }
-                        : {
-                              value: value,
-                              label: cohorts?.find((cohort) => cohort.id === value)?.name || value,
-                          }
-                }
-                onChange={(_, newFilter) => {
-                    onComplete()
-                    setThisFilter('id', newFilter.value, undefined, newFilter.type)
-                }}
-                data-attr="cohort-filter-select"
-            >
-                {cohorts.map((item, index) => (
-                    <Select.Option
-                        className="ph-no-capture"
-                        key={'cohort-filter-' + index}
-                        value={item.id}
-                        type="cohort"
-                        data-attr={'cohort-filter-' + index}
-                    >
-                        {item.name}
-                    </Select.Option>
-                ))}
-            </SelectGradientOverflow>
-        </>
+        <Row gutter={8} className="full-width" wrap={false}>
+            <Col flex={1} style={{ minWidth: '11rem' }}>
+                <SelectGradientOverflow
+                    style={{ width: '100%' }}
+                    showSearch
+                    optionFilterProp="children"
+                    labelInValue
+                    placeholder="Cohort name"
+                    value={
+                        displayOperatorAndValue
+                            ? { value: '' }
+                            : {
+                                  value: value,
+                                  label: cohorts?.find((cohort) => cohort.id === value)?.name || value,
+                              }
+                    }
+                    onChange={(_, newFilter) => {
+                        onComplete()
+                        setThisFilter('id', newFilter.value, undefined, newFilter.type)
+                    }}
+                    data-attr="cohort-filter-select"
+                    selectProps={selectProps}
+                >
+                    {cohorts.map((item, index) => (
+                        <Select.Option
+                            className="ph-no-capture"
+                            key={'cohort-filter-' + index}
+                            value={item.id}
+                            type="cohort"
+                            data-attr={'cohort-filter-' + index}
+                        >
+                            {item.name}
+                        </Select.Option>
+                    ))}
+                </SelectGradientOverflow>
+            </Col>
+        </Row>
     )
 }
 
-export function PropertyFilter({ index, onComplete, logic }) {
+export function PropertyFilter({ index, onComplete, logic, selectProps }) {
     const { eventProperties, personProperties, filters } = useValues(logic)
     const { setFilter } = useActions(logic)
     let { key, value, operator, type } = filters[index]
     const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
 
-    const setThisFilter = useCallback((key, value, operator, type) => setFilter(index, key, value, operator, type), [
-        index,
-    ])
-
     const displayOperatorAndValue = key && type !== 'cohort'
+
+    const setThisFilter = (newKey, newValue, newOperator, newType) =>
+        setFilter(index, newKey, newValue, newOperator, newType)
 
     return (
         <Tabs
@@ -168,6 +177,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     operator={operator}
                     type={type}
                     displayOperatorAndValue={displayOperatorAndValue}
+                    selectProps={selectProps}
                 />
             </TabPane>
             <TabPane tab="Cohort" key="cohort" style={{ display: 'flex' }}>
@@ -176,6 +186,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     setThisFilter={setThisFilter}
                     value={value}
                     displayOperatorAndValue={displayOperatorAndValue}
+                    selectProps={selectProps}
                 />
                 {type === 'cohort' && value ? (
                     <Link to={`/cohorts/${value}`} target="_blank">

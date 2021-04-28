@@ -1,4 +1,3 @@
-from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.utils import timezone
 
@@ -18,7 +17,7 @@ class SessionRecordingEvent(models.Model):
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     distinct_id: models.CharField = models.CharField(max_length=200)
     session_id: models.CharField = models.CharField(max_length=200)
-    snapshot_data: JSONField = JSONField(default=dict)
+    snapshot_data: models.JSONField = models.JSONField(default=dict)
 
 
 class SessionRecordingViewed(models.Model):

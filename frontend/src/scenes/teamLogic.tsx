@@ -5,6 +5,7 @@ import { TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
 import React from 'react'
+import { identifierToHuman, resolveWebhookService } from 'lib/utils'
 
 export const teamLogic = kea<teamLogicType<TeamType>>({
     actions: {
@@ -33,12 +34,40 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
                         return null
                     }
                 },
-                patchCurrentTeam: async (patch: Partial<TeamType>) => {
+                updateCurrentTeam: async (payload: Partial<TeamType>) => {
                     if (!values.currentTeam) {
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
-                    const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, patch)) as TeamType
+                    const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, payload)) as TeamType
                     userLogic.actions.loadUser()
+
+                    /* Notify user the update was successful  */
+                    const updatedAttribute = Object.keys(payload).length === 1 ? Object.keys(payload)[0] : null
+
+                    let description = "Your project's settings have been successfully updated. Click here to dismiss."
+
+                    if (updatedAttribute === 'slack_incoming_webhook') {
+                        description = payload.slack_incoming_webhook
+                            ? `Webhook integration enabled. You should see a message on ${resolveWebhookService(
+                                  payload.slack_incoming_webhook
+                              )}.`
+                            : 'Webhook integration disabled.'
+                    }
+
+                    toast.dismiss('updateCurrentTeam')
+                    toast.success(
+                        <div>
+                            <h1>
+                                {updatedAttribute ? identifierToHuman(updatedAttribute) : 'Project'} updated
+                                successfully!
+                            </h1>
+                            <p>{description}</p>
+                        </div>,
+                        {
+                            toastId: 'updateCurrentTeam',
+                        }
+                    )
+
                     return patchedTeam
                 },
                 createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
@@ -61,14 +90,6 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
         },
         createTeamSuccess: () => {
             window.location.href = '/ingestion'
-        },
-        patchCurrentTeamSuccess: () => {
-            toast.success(
-                <div>
-                    <h1>Project updated successfully!</h1>
-                    <p>Click here to dismiss.</p>
-                </div>
-            )
         },
     }),
     events: ({ actions }) => ({

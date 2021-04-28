@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Button, Spin, Space, Tooltip } from 'antd'
+import { Button, Spin, Space, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -16,11 +16,8 @@ import {
     PlaySquareOutlined,
 } from '@ant-design/icons'
 import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
-import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { SessionsPlay } from './SessionsPlay'
-import { userLogic } from 'scenes/userLogic'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
@@ -29,6 +26,9 @@ import { Drawer } from 'lib/components/Drawer'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
+import { ResizableTable, ResizableColumnType } from 'lib/components/ResizableTable'
+import { teamLogic } from 'scenes/teamLogic'
+
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 interface SessionsTableProps {
@@ -63,9 +63,8 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         firstRecordingId,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters, applyFilters } = useActions(logic)
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const enableSessionRecordingCTA = (
         <>
@@ -76,12 +75,12 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
 
     const playAllCTA =
         firstRecordingId === null
-            ? user?.team?.session_recording_opt_in
+            ? currentTeam?.session_recording_opt_in
                 ? 'No recordings found for this date'
                 : enableSessionRecordingCTA
             : undefined
 
-    const columns = [
+    const columns: ResizableColumnType<SessionType>[] = [
         {
             title: 'Person',
             key: 'person',
@@ -93,30 +92,35 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 )
             },
             ellipsis: true,
+            span: 3,
         },
         {
             title: 'Event Count',
             render: function RenderDuration(session: SessionType) {
                 return <span>{session.event_count}</span>
             },
+            span: 2,
         },
         {
             title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
                 return <span>{humanFriendlyDuration(session.length)}</span>
             },
+            span: 2,
         },
         {
             title: 'Start Time',
             render: function RenderStartTime(session: SessionType) {
                 return <span>{humanFriendlyDetailedTime(session.start_time)}</span>
             },
+            span: 3,
         },
         {
             title: 'End Time',
             render: function RenderEndTime(session: SessionType) {
                 return <span>{humanFriendlyDetailedTime(session.end_time)}</span>
             },
+            span: 3,
         },
         {
             title: 'Start Point',
@@ -125,6 +129,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
+            span: 4,
         },
         {
             title: 'End Point',
@@ -135,11 +140,12 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
+            span: 4,
         },
         {
             title: (
                 <span>
-                    {user?.team?.session_recording_opt_in ? (
+                    {currentTeam?.session_recording_opt_in ? (
                         <Tooltip
                             title={
                                 <>
@@ -167,6 +173,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <SessionsPlayerButton session={session} />
             },
             ellipsis: true,
+            span: 2.5,
         },
     ]
 
@@ -183,18 +190,10 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} data-attr="sessions-next-date" />
             </Space>
 
-            {featureFlags['filter_by_session_props'] && (
-                <>
-                    <SearchAllBox />
-                    <SessionsFilterBox selector="new" />
-                </>
-            )}
+            <SearchAllBox />
+            <SessionsFilterBox selector="new" />
 
-            {featureFlags['filter_by_session_props'] ? (
-                <EditFiltersPanel onSubmit={applyFilters} />
-            ) : (
-                <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
-            )}
+            <EditFiltersPanel onSubmit={applyFilters} />
 
             <div className="text-right mb mt">
                 <Tooltip title={playAllCTA}>
@@ -211,7 +210,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 </Tooltip>
             </div>
 
-            <Table
+            <ResizableTable
                 locale={{ emptyText: 'No Sessions on ' + dayjs(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
                 size="small"

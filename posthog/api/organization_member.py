@@ -1,16 +1,16 @@
 from typing import cast
 
-from django.db import transaction
-from django.db.models import Model, QuerySet, query
+from django.db.models import Model
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, mixins, response, serializers, status, viewsets
+from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.serializers import raise_errors_on_nested_writes
-from rest_framework_extensions.mixins import NestedViewSetMixin
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
+from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
 
 
@@ -24,7 +24,7 @@ class OrganizationMemberObjectPermissions(BasePermission):
             return True
         organization = extract_organization(membership)
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
-            user_id=request.user.id, organization=organization
+            user_id=cast(User, request.user).id, organization=organization
         )
         try:
             requesting_membership.validate_update(membership)
@@ -37,10 +37,21 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     user_first_name = serializers.CharField(source="user.first_name", read_only=True)
     user_email = serializers.CharField(source="user.email", read_only=True)
     membership_id = serializers.CharField(source="id", read_only=True)
+    user = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = OrganizationMembership
-        fields = ["membership_id", "user_id", "user_first_name", "user_email", "level", "joined_at", "updated_at"]
+        fields = [
+            "id",
+            "user",
+            "membership_id",  # TODO: DEPRECATED in favor of `id` (for consistency)
+            "user_id",  # TODO: DEPRECATED in favor of `user`
+            "user_first_name",  # TODO: DEPRECATED in favor of `user`
+            "user_email",  # TODO: DEPRECATED in favor of `user`
+            "level",
+            "joined_at",
+            "updated_at",
+        ]
         read_only_fields = ["user_id", "joined_at", "updated_at"]
 
     def update(self, updated_membership, validated_data, **kwargs):

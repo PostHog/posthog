@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
 import dayjs from 'dayjs'
-import { DeleteWithUndo } from 'lib/utils'
+import { DeleteWithUndo, toParams } from 'lib/utils'
 import { Tooltip, Table, Spin, Button, Input } from 'antd'
-import { ExportOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { ExportOutlined, DeleteOutlined, InfoCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -16,6 +16,7 @@ import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
+import { Link } from 'lib/components/Link'
 
 dayjs.extend(relativeTime)
 
@@ -102,6 +103,18 @@ export function Cohorts(): JSX.Element {
         {
             title: 'Actions',
             render: function RenderActions(cohort: CohortType) {
+                const filters = {
+                    filters: [
+                        {
+                            key: 'id',
+                            label: cohort.name,
+                            type: 'cohort',
+                            value: cohort.id,
+                        },
+                    ],
+                }
+
+                const sessionsLink = '/sessions?' + toParams(filters)
                 return (
                     <span>
                         <a href={'/api/person.csv?cohort=' + cohort.id}>
@@ -114,12 +127,21 @@ export function Cohorts(): JSX.Element {
                                 endpoint="cohort"
                                 object={{ name: cohort.name, id: cohort.id }}
                                 className="text-danger"
-                                style={{ marginLeft: 8 }}
+                                style={{ marginLeft: 8, marginRight: 8 }}
                                 callback={loadCohorts}
                             >
                                 <DeleteOutlined />
                             </DeleteWithUndo>
                         )}
+                        <Link
+                            onClick={(e) => {
+                                e.stopPropagation()
+                            }}
+                            to={`${sessionsLink}#backTo=cohorts&backToURL=${window.location.pathname}`}
+                            data-attr="cohorts-table-sessions"
+                        >
+                            Sessions <ClockCircleOutlined />
+                        </Link>
                     </span>
                 )
             },

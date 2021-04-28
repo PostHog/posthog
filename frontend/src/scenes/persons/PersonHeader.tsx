@@ -1,13 +1,22 @@
 import { PersonType } from '~/types'
-import React from 'react'
+import React, { useMemo } from 'react'
 import { IconPerson } from 'lib/components/icons'
 import './PersonHeader.scss'
 
-export function PersonHeader({ person }: { person: Partial<PersonType> }): JSX.Element {
-    const customIdentifier = person?.properties
+export function PersonHeader({ person }: { person?: Partial<PersonType> | null }): JSX.Element {
+    const propertiesIdentifier = person?.properties
         ? person.properties.email || person.properties.name || person.properties.username
         : null
-    const distinctId = person?.distinct_ids ? person.distinct_ids[0] : null
+    const customIdentifier = propertiesIdentifier ? JSON.stringify(propertiesIdentifier) : null
+
+    const displayId = useMemo(() => {
+        if (!person?.distinct_ids?.length) {
+            return null
+        }
+        const baseId = person.distinct_ids[0].replace(/\W/g, '')
+        return baseId.substr(baseId.length - 5).toUpperCase()
+    }, [person])
+
     return (
         <>
             {person?.is_identified ? (
@@ -23,7 +32,7 @@ export function PersonHeader({ person }: { person: Partial<PersonType> }): JSX.E
                 </div>
             ) : (
                 <div className="person-header anonymous">
-                    <IconPerson /> Anonymous user {distinctId && distinctId.substr(distinctId.length - 5)}
+                    <IconPerson /> Unidentified {customIdentifier || <>user {displayId}</>}
                 </div>
             )}
         </>

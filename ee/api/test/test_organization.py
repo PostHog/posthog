@@ -1,12 +1,8 @@
-from typing import cast
-
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from posthog.models import organization
+from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.team import Team
-from posthog.models.user import User
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):
@@ -35,6 +31,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         org_id = self.organization.id
         self.assertTrue(Organization.objects.filter(id=org_id).exists())
 
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
         response = self.client.delete(f"/api/organizations/{org_id}")
 
         self.assertEqual(response.status_code, 204, "Did not successfully delete last organization on the instance")
@@ -52,7 +51,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             response = self.client.delete(f"/api/organizations/{self.organization.id}")
             potential_err_message = f"Somehow managed to delete the org as a level {level} (which is not owner)"
             self.assertEqual(
-                response.data,
+                response.json(),
                 {
                     "attr": None,
                     "detail": "Your organization access level is insufficient.",
@@ -87,7 +86,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             response = self.client.delete(f"/api/organizations/{organization.id}")
             potential_err_message = f"Somehow managed to delete someone else's org as a level {level} in own org"
             self.assertEqual(
-                response.data,
+                response.json(),
                 {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"},
                 potential_err_message,
             )
@@ -103,7 +102,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             if level < OrganizationMembership.Level.ADMIN:
                 potential_err_message = f"Somehow managed to rename the org as a level {level} (which is below admin)"
                 self.assertEqual(
-                    response.data,
+                    response.json(),
                     {
                         "attr": None,
                         "detail": "Your organization access level is insufficient.",
@@ -127,7 +126,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             response = self.client.patch(f"/api/organizations/{organization.id}", {"name": "Mooooooooo"})
             potential_err_message = f"Somehow managed to rename someone else's org as a level {level} in own org"
             self.assertEqual(
-                response.data,
+                response.json(),
                 {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"},
                 potential_err_message,
             )

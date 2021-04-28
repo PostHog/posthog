@@ -269,15 +269,15 @@ export const elementsLogic = kea<
         ],
 
         selectedElementMeta: [
-            (s) => [s.selectedElement, s.elementMap, s.actionsForElementMap],
-            (selectedElement, elementMap, actionsForElementMap) => {
+            (s) => [s.selectedElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (selectedElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (selectedElement) {
                     const meta = elementMap.get(selectedElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(selectedElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }
@@ -287,15 +287,15 @@ export const elementsLogic = kea<
         ],
 
         hoverElementMeta: [
-            (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap],
-            (hoverElement, elementMap, actionsForElementMap) => {
+            (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (hoverElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (hoverElement) {
                     const meta = elementMap.get(hoverElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(hoverElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }
@@ -305,15 +305,15 @@ export const elementsLogic = kea<
         ],
 
         highlightElementMeta: [
-            (s) => [s.highlightElement, s.elementMap, s.actionsForElementMap],
-            (highlightElement, elementMap, actionsForElementMap) => {
+            (s) => [s.highlightElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (highlightElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (highlightElement) {
                     const meta = elementMap.get(highlightElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(highlightElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }

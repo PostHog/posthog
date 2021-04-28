@@ -1,7 +1,6 @@
 from typing import Any, List
 
 from django.apps import apps
-from django.contrib.postgres.fields import JSONField
 from django.db import models, transaction
 
 from posthog.models.utils import UUIDT
@@ -72,7 +71,7 @@ class Person(models.Model):
     objects = PersonManager()
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    properties: JSONField = JSONField(default=dict)
+    properties: models.JSONField = models.JSONField(default=dict)
     is_user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
     is_identified: models.BooleanField = models.BooleanField(default=False)
     uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)

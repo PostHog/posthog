@@ -21,8 +21,8 @@ export const intervalFilterLogic = kea({
             },
         ],
     }),
-    listeners: ({ actions, values }) => ({
-        [actions.setIntervalFilter]: () => {
+    listeners: ({ values }) => ({
+        setIntervalFilter: () => {
             const { interval, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
 
@@ -32,7 +32,7 @@ export const intervalFilterLogic = kea({
                 router.actions.push(pathname, searchParams)
             }
         },
-        [actions.setDateFrom]: () => {
+        setDateFrom: () => {
             const { date_from, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
 

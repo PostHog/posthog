@@ -16,6 +16,7 @@ const FilterRow = React.memo(function FilterRow({
     pageKey,
     showConditionBadge,
     totalCount,
+    popoverPlacement,
 }) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
@@ -29,14 +30,32 @@ const FilterRow = React.memo(function FilterRow({
     }
 
     return (
-        <Row align="middle" className="mt-05 mb-05" data-attr={'property-filter-' + index}>
+        <Row
+            align="middle"
+            className="mt-05 mb-05"
+            data-attr={'property-filter-' + index}
+            style={{
+                maxWidth: '90vw',
+            }}
+        >
             <Popover
                 trigger="click"
                 onVisibleChange={handleVisibleChange}
+                destroyTooltipOnHide={true}
                 defaultVisible={false}
                 visible={open}
-                placement="bottomLeft"
-                content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
+                placement={popoverPlacement || 'bottomLeft'}
+                content={
+                    <PropertyFilter
+                        key={index}
+                        index={index}
+                        onComplete={() => setOpen(false)}
+                        logic={logic}
+                        selectProps={{
+                            delayBeforeAutoOpen: 150,
+                        }}
+                    />
+                }
             >
                 {key ? (
                     <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
@@ -70,13 +89,15 @@ export function PropertyFilters({
     onChange = null,
     pageKey,
     showConditionBadge = false,
+    popoverPlacement = null,
+    style = {},
 }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
 
     return (
-        <div className="mb">
-            {filters &&
+        <div className="mb" style={style}>
+            {filters?.length &&
                 filters.map((item, index) => {
                     return (
                         <FilterRow
@@ -88,6 +109,7 @@ export function PropertyFilters({
                             filters={filters}
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadge}
+                            popoverPlacement={popoverPlacement}
                         />
                     )
                 })}

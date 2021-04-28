@@ -115,7 +115,9 @@ export function LineGraph({
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
-        const borderColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index]
+        const borderColor = dataset?.status
+            ? getBarColorFromStatus(dataset.status)
+            : colorList[index % colorList.length]
 
         return {
             borderColor,
@@ -291,8 +293,6 @@ export function LineGraph({
                         gridLines: { color: axisLineColor, zeroLineColor: axisColor },
                         ticks: percentage
                             ? {
-                                  min: 0,
-                                  max: 100, // Your absolute max value
                                   callback: function (value) {
                                       return value.toFixed(0) + '%' // convert it to percentage
                                   },
@@ -331,7 +331,11 @@ export function LineGraph({
             options = {
                 responsive: true,
                 maintainAspectRatio: false,
-                hover: { mode: 'index' },
+                hover: {
+                    mode: 'index',
+                    onHover: options.hover.onHover,
+                },
+                onClick: options.onClick,
             }
         }
 

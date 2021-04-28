@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional, Tuple
 
+from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
@@ -15,6 +16,7 @@ def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple
     date_to = None
     params = {}
     if filter.date_from:
+
         date_from = "and {table}timestamp >= '{}'".format(format_ch_timestamp(filter.date_from, filter), table=table,)
         params.update({"date_from": format_ch_timestamp(filter.date_from, filter)})
     else:
@@ -59,10 +61,18 @@ def get_time_diff(
     _start_time = start_time or get_earliest_timestamp(team_id)
     _end_time = end_time or timezone.now()
 
-    diff = _end_time - _start_time
-    round_interval = diff.total_seconds() >= TIME_IN_SECONDS[interval] * 2
+    if interval == "month":
+        rel_delta = relativedelta(_end_time.replace(day=1), _start_time.replace(day=1))
+        return (rel_delta.years * 12) + rel_delta.months + 1, TIME_IN_SECONDS["month"], True
 
-    return int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + 1, TIME_IN_SECONDS[interval], round_interval
+    diff = _end_time - _start_time
+    if interval == "week":
+        round_interval = True
+    else:
+        round_interval = diff.total_seconds() >= TIME_IN_SECONDS[interval] * 2
+
+    addition = 2 if interval == "week" else 1
+    return int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + addition, TIME_IN_SECONDS[interval], round_interval
 
 
 PERIOD_TRUNC_MINUTE = "toStartOfMinute"

@@ -3,6 +3,7 @@ from uuid import uuid4
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
@@ -36,32 +37,6 @@ def _create_event(**kwargs):
 
 # override tests from test facotry if intervals are different
 class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTrends, _create_event, Person.objects.create, _create_action, _create_cohort)):  # type: ignore
-    def test_interval_rounding(self):
-        self._test_events_with_dates(
-            dates=["2020-11-01", "2020-11-10", "2020-11-11", "2020-11-18"],
-            interval="week",
-            date_from="2020-11-04",
-            date_to="2020-11-24",
-            result=[
-                {
-                    "action": {
-                        "id": "event_name",
-                        "type": "events",
-                        "order": None,
-                        "name": "event_name",
-                        "math": None,
-                        "math_property": None,
-                        "properties": [],
-                    },
-                    "label": "event_name",
-                    "count": 4.0,
-                    "data": [1.0, 2.0, 1.0, 0.0],
-                    "labels": ["Sun. 1 November", "Sun. 8 November", "Sun. 15 November", "Sun. 22 November"],
-                    "days": ["2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22"],
-                }
-            ],
-        )
-
     def test_breakdown_by_person_property(self):
         person1, person2, person3, person4 = self._create_multiple_people()
         action = _create_action(name="watched movie", team=self.team)
@@ -303,3 +278,159 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             self.team,
         )
         self.assertEqual(action_response[0]["count"], 0)
+
+    def test_breakdown_user_props_with_filter(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
+        person = Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["person3"], properties={"email": "test@gmail.com"}
+        )
+        create_person_distinct_id(person.id, self.team.pk, "person1", str(person.uuid))
+
+        _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
+        _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
+        response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "-14d",
+                    "breakdown": "email",
+                    "breakdown_type": "person",
+                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                    "properties": [
+                        {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                        {"key": "key", "value": "val"},
+                    ],
+                }
+            ),
+            self.team,
+        )
+        self.assertEqual(len(response), 1)
+        self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
+
+    def _create_active_user_events(self):
+        p0 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p0",
+            timestamp="2020-01-03T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-10T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+    def test_active_user_math(self):
+        self._create_active_user_events()
+
+        data = {
+            "date_from": "2020-01-09T00:00:00Z",
+            "date_to": "2020-01-16T00:00:00Z",
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+        }
+
+        filter = Filter(data=data)
+        result = ClickhouseTrends().run(filter, self.team,)
+        self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+    def test_active_user_math_action(self):
+        action = _create_action(name="$pageview", team=self.team)
+        self._create_active_user_events()
+
+        data = {
+            "date_from": "2020-01-09T00:00:00Z",
+            "date_to": "2020-01-16T00:00:00Z",
+            "actions": [{"id": action.id, "type": "actions", "order": 0, "math": "weekly_active"}],
+        }
+
+        filter = Filter(data=data)
+        result = ClickhouseTrends().run(filter, self.team,)
+        self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+    def test_breakdown_active_user_math(self):
+
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-10T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        data = {
+            "date_from": "2020-01-01T00:00:00Z",
+            "date_to": "2020-01-12T00:00:00Z",
+            "breakdown": "key",
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+        }
+
+        filter = Filter(data=data)
+        result = ClickhouseTrends().run(filter, self.team,)
+        self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])

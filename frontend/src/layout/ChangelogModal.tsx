@@ -1,14 +1,14 @@
 import React from 'react'
 import { Button, Modal } from 'antd'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from './navigation/navigationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export function ChangelogModal({ onDismiss }: { onDismiss: () => void }): JSX.Element | null {
-    const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
     const { latestVersion } = useValues(navigationLogic)
 
-    if (user?.is_multi_tenancy) {
+    if (preflight?.cloud) {
         // The changelog is not available on cloud
         return null
     }
@@ -22,9 +22,9 @@ export function ChangelogModal({ onDismiss }: { onDismiss: () => void }): JSX.El
             style={{ top: 20, minWidth: '70%', fontSize: 16 }}
         >
             <span>
-                You're on version <b>{user?.posthog_version}</b> of PostHog.{' '}
+                You're on version <b>{preflight?.posthog_version}</b> of PostHog.{' '}
                 {latestVersion &&
-                    (latestVersion === user?.posthog_version ? (
+                    (latestVersion === preflight?.posthog_version ? (
                         'This is the newest version.'
                     ) : (
                         <span className="text-warning">

@@ -6,23 +6,26 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.trends.util import parse_response, process_math
+from ee.clickhouse.queries.trends.util import get_active_user_params, parse_response, process_math
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL, NULL_BREAKDOWN_SQL, NULL_SQL
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL, GET_LATEST_PERSON_SQL
 from ee.clickhouse.sql.trends.breakdown import (
+    BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
+    BREAKDOWN_ACTIVE_USER_INNER_SQL,
     BREAKDOWN_AGGREGATE_DEFAULT_SQL,
     BREAKDOWN_AGGREGATE_QUERY_SQL,
     BREAKDOWN_COHORT_JOIN_SQL,
     BREAKDOWN_CONDITIONS_SQL,
     BREAKDOWN_DEFAULT_SQL,
+    BREAKDOWN_INNER_SQL,
     BREAKDOWN_PERSON_PROP_JOIN_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
 )
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from ee.clickhouse.sql.trends.top_person_props import TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE
+from posthog.constants import MONTHLY_ACTIVE, TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
@@ -123,14 +126,34 @@ class ClickhouseTrendsBreakdown:
                 date_to=(filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
             )
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
-            breakdown_query = breakdown_query.format(
-                null_sql=null_sql,
-                breakdown_filter=breakdown_filter,
-                event_join=join_condition,
-                aggregate_operation=aggregate_operation,
-                interval_annotation=interval_annotation,
-                breakdown_value=breakdown_value,
-            )
+
+            if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                active_user_params = get_active_user_params(filter, entity, team_id)
+                conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
+                    **breakdown_filter_params, **active_user_params
+                )
+                inner_sql = BREAKDOWN_ACTIVE_USER_INNER_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    event_join=join_condition,
+                    aggregate_operation=aggregate_operation,
+                    interval_annotation=interval_annotation,
+                    breakdown_value=breakdown_value,
+                    conditions=conditions,
+                    **active_user_params,
+                    **breakdown_filter_params
+                )
+            else:
+                conditions = BREAKDOWN_CONDITIONS_SQL.format(**breakdown_filter_params)
+                inner_sql = BREAKDOWN_INNER_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    event_join=join_condition,
+                    aggregate_operation=aggregate_operation,
+                    interval_annotation=interval_annotation,
+                    breakdown_value=breakdown_value,
+                    conditions=conditions,
+                )
+
+            breakdown_query = breakdown_query.format(null_sql=null_sql, inner_sql=inner_sql)
 
             return breakdown_query, params, self._parse_trend_result(filter, entity)
 
@@ -153,15 +176,26 @@ class ClickhouseTrendsBreakdown:
         prop_filters, prop_filter_params = parse_prop_clauses(
             filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts
         )
+        person_prop_filters, person_prop_params = parse_prop_clauses(
+            [prop for prop in filter.properties if prop.type == "person"],
+            team_id,
+            table_name="e",
+            filter_test_accounts=filter.filter_test_accounts,
+            is_person_query=True,
+        )
 
         elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
             prop_filters=prop_filters,
+            person_prop_filters=person_prop_filters,
             aggregate_operation=aggregate_operation,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         )
-        top_elements_array = self._get_top_elements(elements_query, filter, team_id, params=prop_filter_params)
+        top_elements_array = self._get_top_elements(
+            elements_query, filter, team_id, params={**prop_filter_params, **person_prop_params}
+        )
         params = {
             "values": top_elements_array,
         }
@@ -249,7 +283,8 @@ class ClickhouseTrendsBreakdown:
             return str(value) or ""
 
     def _get_top_elements(self, query: str, filter: Filter, team_id: int, params: Dict = {}) -> List:
-        element_params = {"key": filter.breakdown, "limit": 20, "team_id": team_id, **params}
+        # use limit of 25 to determine if there are more than 20
+        element_params = {"key": filter.breakdown, "limit": 25, "team_id": team_id, "offset": filter.offset, **params}
 
         try:
             top_elements_array_result = sync_execute(query, element_params)

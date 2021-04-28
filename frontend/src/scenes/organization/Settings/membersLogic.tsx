@@ -7,6 +7,7 @@ import { membersLogicType } from './membersLogicType'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
 import { OrganizationMemberType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export const membersLogic = kea<membersLogicType>({
     actions: {
@@ -14,8 +15,9 @@ export const membersLogic = kea<membersLogicType>({
             member,
             level,
         }),
+        postRemoveMember: (memberUuid: string) => ({ memberUuid }),
     },
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         members: {
             __default: [],
             loadMembers: async () => {
@@ -30,6 +32,7 @@ export const membersLogic = kea<membersLogicType>({
                         </h1>
                     </div>
                 )
+                actions.postRemoveMember(member.user.uuid)
                 return values.members.filter((thisMember) => thisMember.user_id !== member.user_id)
             },
         },
@@ -42,11 +45,11 @@ export const membersLogic = kea<membersLogicType>({
             member: OrganizationMemberType
             level: OrganizationMembershipLevel
         }) => {
-            await api.update(`api/organizations/@current/members/${member.user_id}/`, { level })
+            await api.update(`api/organizations/@current/members/${member.user.uuid}/`, { level })
             toast(
                 <div>
                     <h1 className="text-success">
-                        <CheckCircleOutlined /> Made <b>{member.user_first_name}</b> organization{' '}
+                        <CheckCircleOutlined /> Made <b>{member.user.first_name}</b> organization{' '}
                         {organizationMembershipLevelToName.get(level)}.
                     </h1>
                 </div>
@@ -56,6 +59,11 @@ export const membersLogic = kea<membersLogicType>({
                 organizationLogic.actions.loadCurrentOrganization()
             }
             actions.loadMembers()
+        },
+        postRemoveMember: async ({ memberUuid }) => {
+            if (memberUuid === userLogic.values.user?.uuid) {
+                location.reload()
+            }
         },
     }),
     events: ({ actions }) => ({

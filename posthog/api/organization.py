@@ -12,7 +12,7 @@ from rest_framework import exceptions, generics, permissions, response, serializ
 from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.shared import TeamBasicSerializer, UserBasicSerializer
 from posthog.demo import create_demo_team
 from posthog.event_usage import report_onboarding_completed, report_user_joined_organization, report_user_signed_up
 from posthog.mixins import AnalyticsDestroyModelMixin
@@ -35,15 +35,13 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
     message = "You must upgrade your PostHog plan to be able to create and manage multiple organizations."
 
     def has_permission(self, request: Request, view) -> bool:
+        user = cast(User, request.user)
         if (
             # make multiple orgs only premium on self-hosted, since enforcement of this is not possible on Cloud
             not getattr(settings, "MULTI_TENANCY", False)
             and request.method in CREATE_METHODS
-            and (
-                request.user.organization is None
-                or not request.user.organization.is_feature_available("organizations_projects")
-            )
-            and request.user.organizations.count() >= 1
+            and (user.organization is None or not user.organization.is_feature_available("organizations_projects"))
+            and user.organizations.count() >= 1
         ):
             return False
         return True
@@ -58,7 +56,10 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         min_level = (
             OrganizationMembership.Level.OWNER if request.method == "DELETE" else OrganizationMembership.Level.ADMIN
         )
-        return OrganizationMembership.objects.get(user=request.user, organization=organization).level >= min_level
+        return (
+            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
+            >= min_level
+        )
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -66,6 +67,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
     setup = (
         serializers.SerializerMethodField()
     )  # Information related to the current state of the onboarding/setup process
+    teams = TeamBasicSerializer(many=True, read_only=True)
 
     class Meta:
         model = Organization
@@ -79,6 +81,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "setup",
             "setup_section_2_completed",
             "plugins_access_level",
+            "teams",
+            "available_features",
         ]
         read_only_fields = [
             "id",
@@ -137,7 +141,7 @@ class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     lookup_field = "id"
     ordering = "-created_by"
 
-    def get_permissions(self) -> List[permissions.BasePermission]:
+    def get_permissions(self):
         if self.request.method == "POST":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
             # because they require an existing org, unneded anyways because permissions are organization-based
@@ -145,13 +149,13 @@ class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         return super().get_permissions()
 
     def get_queryset(self) -> QuerySet:
-        return self.request.user.organizations.all()
+        return cast(User, self.request.user).organizations.all()
 
     def get_object(self):
         queryset = self.filter_queryset(self.get_queryset())
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
-            organization = self.request.user.organization
+            organization = cast(User, self.request.user).organization
             if organization is None:
                 raise exceptions.NotFound("Current organization not found.")
             return organization
@@ -210,12 +214,12 @@ class OrganizationSignupSerializer(serializers.Serializer):
 
     def create_team(self, organization: Organization, user: User) -> Team:
         if self.enable_new_onboarding(user):
-            return create_demo_team(user=user, organization=organization, request=self.context["request"])
+            return create_demo_team(organization=organization)
         else:
             return Team.objects.create_with_data(user=user, organization=organization)
 
     def to_representation(self, instance) -> Dict:
-        data = UserSerializer(instance=instance).data
+        data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = "/personalization" if self.enable_new_onboarding() else "/ingestion"
         return data
 
@@ -272,7 +276,7 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
         return value
 
     def to_representation(self, instance):
-        serializer = UserSerializer(instance=instance)
+        serializer = UserBasicSerializer(instance=instance)
         return serializer.data
 
     def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:

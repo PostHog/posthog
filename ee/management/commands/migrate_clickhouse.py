@@ -8,14 +8,11 @@ class Command(BaseCommand):
     help = "Migrate clickhouse"
 
     def handle(self, *args, **options):
-        try:
-            Database(
-                CLICKHOUSE_DATABASE,
-                db_url=CLICKHOUSE_HTTP_URL,
-                username=CLICKHOUSE_USER,
-                password=CLICKHOUSE_PASSWORD,
-                verify_ssl_cert=False,
-            ).migrate("ee.clickhouse.migrations")
-            print("migration successful")
-        except Exception as e:
-            print(e)
+        Database(
+            CLICKHOUSE_DATABASE,
+            db_url=CLICKHOUSE_HTTP_URL,
+            username=CLICKHOUSE_USER,
+            password=CLICKHOUSE_PASSWORD,
+            verify_ssl_cert=False,
+        ).migrate("ee.clickhouse.migrations")
+        print("migration successful")

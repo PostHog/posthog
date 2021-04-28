@@ -3,7 +3,6 @@ from datetime import datetime
 
 import pytz
 
-from posthog.api.test.base import APIBaseTest
 from posthog.constants import (
     FILTER_TEST_ACCOUNTS,
     RETENTION_FIRST_TIME,
@@ -12,19 +11,19 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_LINEAR,
 )
-from posthog.models import Action, ActionStep, Event, Filter, Person
+from posthog.models import Action, ActionStep, Event, Person
 from posthog.models.filters import RetentionFilter
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.queries.retention import Retention
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest
 
 
 # parameterize tests to reuse in EE
 def retention_test_factory(retention, event_factory, person_factory, action_factory):
     class TestRetention(AbstractIntervalTest, APIBaseTest):
         def test_retention_default(self):
-            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
-            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            person_factory(team_id=self.team.pk, distinct_ids=["person2"])
 
             self._create_events(
                 [

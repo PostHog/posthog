@@ -1,8 +1,8 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { userLogic } from 'scenes/userLogic'
 import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'
+import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 
 export function parseProperties(input) {
     if (Array.isArray(input) || !input) {
@@ -24,7 +24,6 @@ export const propertyFilterLogic = kea({
     key: (props) => props.pageKey,
 
     actions: () => ({
-        loadEventProperties: true,
         setProperties: (properties) => ({ properties }),
         update: (filters) => ({ filters }),
         setFilter: (index, key, value, operator, type) => ({ index, key, value, operator, type }),
@@ -104,6 +103,13 @@ export const propertyFilterLogic = kea({
                 }
             }
         },
+        [propertyDefinitionsLogic.actionTypes.loadPropertyDefinitionsSuccess]: async () => {
+            /* Set the event properties in case the `loadPropertyDefinitions` request came later, or the event
+            properties were updated. */
+            if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
+                actions.setProperties(propertyDefinitionsLogic.values.transformedPropertyDefinitions)
+            }
+        },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
@@ -129,13 +135,17 @@ export const propertyFilterLogic = kea({
         },
     }),
 
+    selectors: {
+        filtersLoading: [() => [propertyDefinitionsLogic.selectors.loaded], (loaded) => !loaded],
+    },
+
     events: ({ actions, props }) => ({
         afterMount: () => {
             actions.newFilter()
             actions.loadPersonProperties()
-            // TODO: Supporting event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
+            // TODO: Event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
             if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
-                actions.setProperties(userLogic.values.eventProperties)
+                actions.setProperties(propertyDefinitionsLogic.values.transformedPropertyDefinitions)
             }
         },
     }),

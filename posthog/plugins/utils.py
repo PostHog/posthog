@@ -5,7 +5,7 @@ import re
 import tarfile
 from typing import Dict, Optional, Tuple
 from urllib.parse import parse_qs, quote
-from zipfile import BadZipFile, ZipFile
+from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 import requests
 from django.conf import settings
@@ -246,3 +246,20 @@ def get_json_from_archive(archive: bytes, filename: str):
         return get_json_from_zip_archive(archive, filename)
     except BadZipFile:
         return get_json_from_tgz_archive(archive, filename)
+
+
+def put_json_into_zip_archive(archive: bytes, json_data: dict, filename: str):
+    input_zip = ZipFile(io.BytesIO(archive), "r")
+    root_folder = input_zip.namelist()[0]
+    file_path = os.path.join(root_folder, filename)
+
+    zip_buffer = io.BytesIO()
+    with ZipFile(zip_buffer, "a", ZIP_DEFLATED, False) as zip_file:
+        for file in input_zip.filelist:
+            if file.filename != file_path:
+                zip_file.writestr(file, input_zip.read(file.filename))
+        zip_file.writestr(file_path, json.dumps(json_data))
+        for zfile in zip_file.filelist:
+            zfile.create_system = 0
+
+    return zip_buffer.getvalue()

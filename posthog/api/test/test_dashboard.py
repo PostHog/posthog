@@ -11,6 +11,8 @@ from posthog.utils import generate_cache_key
 
 
 class TestDashboard(APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def test_retrieve_dashboard(self):
         dashboard = Dashboard.objects.create(
             team=self.team, name="private dashboard", created_by=self.user, tags=["deprecated"]
@@ -151,7 +153,7 @@ class TestDashboard(APIBaseTest):
 
         with freeze_time("2020-01-04T13:00:01Z"):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
-            item = DashboardItem.objects.create(
+            DashboardItem.objects.create(
                 dashboard=dashboard, filters=Filter(data=filter_dict).to_dict(), team=self.team, last_refresh=now()
             )
 

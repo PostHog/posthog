@@ -13,7 +13,7 @@ from posthog.utils import get_instance_realm
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey
 from .team import Team
-from .utils import generate_random_token, sane_repr
+from .utils import UUIDClassicModel, generate_random_token, sane_repr
 
 
 class UserManager(BaseUserManager):
@@ -90,7 +90,7 @@ def events_column_config_default() -> Dict[str, Any]:
     return {"active": "DEFAULT"}
 
 
-class User(AbstractUser):
+class User(AbstractUser, UUIDClassicModel):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []
 
@@ -101,7 +101,6 @@ class User(AbstractUser):
         (TOOLBAR, TOOLBAR),
     ]
 
-    username = None  # type: ignore
     current_organization = models.ForeignKey(
         "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+",
     )
@@ -114,8 +113,10 @@ class User(AbstractUser):
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
-
     events_column_config: JSONField = JSONField(default=events_column_config_default)
+    # Remove unused attributes from `AbstractUser`
+    username = None  # type: ignore
+
     objects: UserManager = UserManager()  # type: ignore
 
     @property

@@ -14,7 +14,7 @@ export function VerificationPanel(): JSX.Element {
 
     useInterval(() => {
         !user?.team?.ingested_event && loadUser()
-    }, 3000)
+    }, 1500)
 
     return (
         <CardContainer index={index} totalSteps={totalSteps} onBack={() => setVerify(false)}>

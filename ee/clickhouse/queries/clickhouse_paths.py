@@ -7,6 +7,7 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import EXTRACT_TAG_REGEX, EXTRACT_TEXT_REGEX
 from ee.clickhouse.sql.paths.path import PATHS_QUERY_FINAL
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
 from posthog.models.filters import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -73,6 +74,7 @@ class ClickhousePaths(Paths):
             excess_row_filter=excess_row_filter,
             select_elements_chain=", events.elements_chain as elements_chain" if event == AUTOCAPTURE_EVENT else "",
             group_by_elements_chain=", events.elements_chain" if event == AUTOCAPTURE_EVENT else "",
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         )
 
         params: Dict = {

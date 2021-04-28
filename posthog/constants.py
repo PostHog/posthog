@@ -84,6 +84,7 @@ STICKINESS_DAYS = "stickiness_days"
 FORMULA = "formula"
 ENTITY_ID = "entity_id"
 ENTITY_TYPE = "entity_type"
+ENTITY_MATH = "entity_math"
 
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"
@@ -94,3 +95,7 @@ DISTINCT_ID_FILTER = "distinct_id"
 class RDBMS(str, Enum):
     POSTGRES = "postgres"
     CLICKHOUSE = "clickhouse"
+
+
+WEEKLY_ACTIVE = "weekly_active"
+MONTHLY_ACTIVE = "monthly_active"

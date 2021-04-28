@@ -67,7 +67,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
                             to="#"
                             onClick={async () => {
                                 toast.dismiss(toastId)
-                                const [restoredItem, deletedItem] = await Promise.all([
+                                const [restoredItem, removedItem] = await Promise.all([
                                     api.update(`api/insight/${item.id}`, { deleted: false }),
                                     api.update(`api/insight/${addedItem.id}`, {
                                         deleted: true,
@@ -75,7 +75,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
                                 ])
                                 toast(<div>Panel move reverted!</div>)
                                 dashboardsModel.actions.updateDashboardItem(restoredItem)
-                                dashboardsModel.actions.updateDashboardItem(deletedItem)
+                                dashboardsModel.actions.updateDashboardItem(removedItem)
                             }}
                         >
                             Undo

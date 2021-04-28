@@ -1,33 +1,22 @@
 from unittest.mock import patch
 
 import pytest
-from django.test import tag
-from freezegun import freeze_time
 
-from posthog.models import (
-    Action,
-    ActionStep,
-    Cohort,
-    Element,
-    Event,
-    Person,
-    Team,
-    organization,
-)
+from posthog.models import Action, ActionStep, Cohort, Event, Person, Team
 from posthog.test.base import BaseTest
 
 
 class TestCohort(BaseTest):
     def test_postgres_get_distinct_ids_from_cohort(self):
         person1 = Person.objects.create(distinct_ids=["person_1"], team=self.team)
-        event1 = Event.objects.create(event="user signed up", team=self.team, distinct_id="person_1")
+        Event.objects.create(event="user signed up", team=self.team, distinct_id="person_1")
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action, event="user signed up")
         action.calculate_events()
 
         person2 = Person.objects.create(distinct_ids=["person_2"], team=self.team, properties={"$os": "Chrome"})
-        person3 = Person.objects.create(distinct_ids=["person_3"], team=self.team)
-        person4 = Person.objects.create(distinct_ids=["person_4"], team=self.team)
+        Person.objects.create(distinct_ids=["person_3"], team=self.team)
+        Person.objects.create(distinct_ids=["person_4"], team=self.team)
 
         cohort = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": "7"}])
         cohort.calculate_people(use_clickhouse=False)

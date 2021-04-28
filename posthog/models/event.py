@@ -2,12 +2,11 @@ import copy
 import datetime
 import re
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import celery
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
-from django.contrib.postgres.fields import JSONField
 from django.db import connection, models, transaction
 from django.db.models import Exists, F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.forms.models import model_to_dict
@@ -259,27 +258,7 @@ class EventManager(models.QuerySet):
                     kwargs["elements_hash"] = ElementGroup.objects.create(
                         team_id=kwargs["team_id"], elements=kwargs.pop("elements")
                     ).hash
-            event = super().create(*args, **kwargs)
-
-            # DEPRECATED: ASYNC_EVENT_ACTION_MAPPING is the main approach now, as it works with the plugin server
-            if not settings.ASYNC_EVENT_ACTION_MAPPING:
-                should_post_webhook = False
-                relations = []
-                for action in event.actions:
-                    relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
-                    if is_ee_enabled():
-                        continue  # avoiding duplication here - in EE hooks are handled by webhooks_ee.py
-                    action.on_perform(event)
-                    if action.post_to_slack:
-                        should_post_webhook = True
-                Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-                team = kwargs.get("team", event.team)
-                if (
-                    should_post_webhook and team and team.slack_incoming_webhook and not is_ee_enabled()
-                ):  # ee will handle separately
-                    celery.current_app.send_task("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, site_url))
-
-            return event
+            return super().create(*args, **kwargs)
 
 
 class Event(models.Model):
@@ -287,6 +266,7 @@ class Event(models.Model):
         indexes = [
             models.Index(fields=["elements_hash"]),
             models.Index(fields=["timestamp", "team_id", "event"]),
+            models.Index(fields=["created_at"]),
         ]
 
     def _can_use_cached_query(self, last_updated_action_ts):
@@ -385,10 +365,10 @@ class Event(models.Model):
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200)
-    properties: JSONField = JSONField(default=dict)
+    properties: models.JSONField = models.JSONField(default=dict)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
     elements_hash: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     site_url: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     # DEPRECATED: elements are stored against element groups now
-    elements: JSONField = JSONField(default=list, null=True, blank=True)
+    elements: models.JSONField = models.JSONField(default=list, null=True, blank=True)

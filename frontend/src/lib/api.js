@@ -55,11 +55,11 @@ class Api {
             body: isFormData ? data : JSON.stringify(data),
         })
         if (!response.ok) {
-            const data = await getJSONOrThrow(response)
-            if (Array.isArray(data)) {
-                throw data
+            const jsonData = await getJSONOrThrow(response)
+            if (Array.isArray(jsonData)) {
+                throw jsonData
             }
-            throw { status: response.status, ...data }
+            throw { status: response.status, ...jsonData }
         }
         return await getJSONOrThrow(response)
     }
@@ -77,11 +77,11 @@ class Api {
             body: isFormData ? data : JSON.stringify(data),
         })
         if (!response.ok) {
-            const data = await getJSONOrThrow(response)
-            if (Array.isArray(data)) {
-                throw data
+            const jsonData = await getJSONOrThrow(response)
+            if (Array.isArray(jsonData)) {
+                throw jsonData
             }
-            throw { status: response.status, ...data }
+            throw { status: response.status, ...jsonData }
         }
         return await getJSONOrThrow(response)
     }

@@ -1,7 +1,6 @@
 import hashlib
 from typing import Any, Dict, List
 
-from django.contrib.postgres.fields import JSONField
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
@@ -28,7 +27,7 @@ class FeatureFlag(models.Model):
         blank=True,
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
 
-    filters: JSONField = JSONField(default=dict)
+    filters: models.JSONField = models.JSONField(default=dict)
     rollout_percentage: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -84,11 +83,10 @@ class FeatureFlagMatcher:
             elif not rollout_percentage:
                 return True
 
-        if rollout_percentage is not None:
-            if self._hash <= (rollout_percentage / 100):
-                return True
+        if rollout_percentage is not None and self._hash > (rollout_percentage / 100):
+            return False
 
-        return False
+        return True
 
     def _match_distinct_id(self, group_index: int) -> bool:
         return len(self.query_groups) > 0 and self.query_groups[0][group_index]
@@ -131,7 +129,7 @@ class FeatureFlagMatcher:
 def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
     flags_enabled = []
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
-        "id", "team_id", "filters", "key", "rollout_percentage"
+        "id", "team_id", "filters", "key", "rollout_percentage",
     )
     for feature_flag in feature_flags:
         try:

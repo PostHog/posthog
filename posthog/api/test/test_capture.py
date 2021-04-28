@@ -2,24 +2,34 @@ import base64
 import gzip
 import json
 from datetime import timedelta
-from typing import Any
+from typing import Any, Dict, List, Union
 from unittest.mock import patch
 from urllib.parse import quote
 
 import lzstring
+from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
+from rest_framework import status
 
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
-
-from .base import BaseTest
+from posthog.test.base import BaseTest
 
 
 class TestCapture(BaseTest):
-    TESTS_API = True
+    """
+    Tests all data capture endpoints (e.g. `/capture` `/track`).
+    We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
+    """
 
-    def _dict_to_json(self, data: dict) -> str:
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+
+    def _to_json(self, data: Union[Dict, List]) -> str:
         return json.dumps(data)
 
     def _dict_to_b64(self, data: dict) -> str:
@@ -59,11 +69,7 @@ class TestCapture(BaseTest):
         now = timezone.now()
         with freeze_time(now):
             with self.assertNumQueries(2):
-                response = self.client.get(
-                    "/e/?data=%s" % quote(self._dict_to_json(data)),
-                    content_type="application/json",
-                    HTTP_ORIGIN="https://localhost",
-                )
+                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
@@ -99,11 +105,7 @@ class TestCapture(BaseTest):
         now = timezone.now()
         with freeze_time(now):
             with self.assertNumQueries(5):
-                response = self.client.get(
-                    "/e/?data=%s" % quote(self._dict_to_json(data)),
-                    content_type="application/json",
-                    HTTP_ORIGIN="https://localhost",
-                )
+                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
@@ -116,6 +118,56 @@ class TestCapture(BaseTest):
                 "site_url": "http://testserver",
                 "data": data,
                 "team_id": self.team.pk,
+            },
+        )
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_personal_api_key_from_batch_request(self, patch_process_event_with_plugins):
+        # Originally issue POSTHOG-2P8
+        key = PersonalAPIKey(label="X", user=self.user)
+        key.save()
+        data = [
+            {
+                "event": "$pageleave",
+                "api_key": key.value,
+                "project_id": self.team.id,
+                "properties": {
+                    "$os": "Linux",
+                    "$browser": "Chrome",
+                    "$device_type": "Desktop",
+                    "distinct_id": "94b03e599131fd5026b",
+                    "token": "fake token",  # as this is invalid, will do API key authentication
+                },
+                "timestamp": "2021-04-20T19:11:33.841Z",
+            }
+        ]
+        response = self.client.get("/e/?data=%s" % quote(self._to_json(data)))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments.pop("now")  # can't compare fakedate
+        arguments.pop("sent_at")  # can't compare fakedate
+        self.assertDictEqual(
+            arguments,
+            {
+                "distinct_id": "94b03e599131fd5026b",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "data": {
+                    "event": "$pageleave",
+                    "api_key": key.value,
+                    "project_id": self.team.id,
+                    "properties": {
+                        "$os": "Linux",
+                        "$browser": "Chrome",
+                        "$device_type": "Desktop",
+                        "distinct_id": "94b03e599131fd5026b",
+                        "token": "fake token",
+                    },
+                    "timestamp": "2021-04-20T19:11:33.841Z",
+                },
+                "team_id": self.team.id,
             },
         )
 
@@ -192,6 +244,43 @@ class TestCapture(BaseTest):
         self.assertEqual(
             patch_process_event_with_plugins.call_args[1]["args"][3]["properties"]["prop"], "💻 Writing code",
         )
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_invalid_gzip(self, patch_process_event_with_plugins):
+        self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
+        self.team.save()
+
+        response = self.client.post(
+            "/track?compression=gzip", data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03", content_type="text/plain",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Malformed request data: Failed to decompress data. Compressed file ended before the end-of-stream marker was reached",
+                code="invalid_payload",
+            ),
+        )
+        self.assertEqual(patch_process_event_with_plugins.call_count, 0)
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_invalid_lz64(self, patch_process_event_with_plugins):
+        self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
+        self.team.save()
+
+        response = self.client.post("/track?compression=lz64", data="foo", content_type="text/plain",)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Malformed request data: Failed to decompress data.", code="invalid_payload",
+            ),
+        )
+        self.assertEqual(patch_process_event_with_plugins.call_count, 0)
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
@@ -355,10 +444,13 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(
-            response.json()["message"],
-            "Project API key invalid. You can find your project API key in PostHog project settings.",
+            response.json(),
+            self.unauthenticated_response(
+                "Project API key invalid. You can find your project API key in PostHog project settings.",
+                code="invalid_api_key",
+            ),
         )
 
     def test_batch_token_not_set(self):
@@ -368,10 +460,13 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(
-            response.json()["message"],
-            "API key not provided. You can find your project API key in PostHog project settings.",
+            response.json(),
+            self.unauthenticated_response(
+                "API key not provided. You can find your project API key in PostHog project settings.",
+                code="missing_api_key",
+            ),
         )
 
     def test_batch_distinct_id_not_set(self):
@@ -381,8 +476,13 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["message"], "You need to set user distinct ID field `distinct_id`.")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "You need to set user distinct ID field `distinct_id`.", code="required", attr="distinct_id"
+            ),
+        )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
@@ -390,7 +490,7 @@ class TestCapture(BaseTest):
         response = self.client.get(
             "/engage/?data=%s"
             % quote(
-                self._dict_to_json(
+                self._to_json(
                     {
                         "$set": {"$os": "Mac OS X",},
                         "$token": "token123",
@@ -466,7 +566,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._dict_to_json(data))),
+            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
@@ -496,7 +596,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._dict_to_json(data))),
+            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
@@ -533,7 +633,14 @@ class TestCapture(BaseTest):
         response = self.client.post(
             "/capture/", '{"event": "incorrect json with trailing comma",}', content_type="application/json"
         )
-        self.assertEqual(response.json()["code"], "validation")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Malformed request data: Invalid JSON: Expecting property name enclosed in double quotes: line 1 column 48 (char 47)",
+                code="invalid_payload",
+            ),
+        )
 
     @patch("posthog.api.capture.celery_app.send_task")
     def test_nan(self, patch_process_event_with_plugins):
@@ -567,8 +674,12 @@ class TestCapture(BaseTest):
             data={"distinct_id": "abc", "properties": {"cost": 2}, "api_key": self.team.api_token},
             content_type="application/json",
         )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.json(), {"code": "validation", "message": 'All events must have the event name field "event"!'}
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: All events must have the event name field "event"!', code="invalid_payload",
+            ),
         )
 
     def test_handle_invalid_snapshot(self):
@@ -577,7 +688,35 @@ class TestCapture(BaseTest):
             data={"event": "$snapshot", "distinct_id": "abc", "api_key": self.team.api_token},
             content_type="application/json",
         )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"code": "validation", "message": '$snapshot events must contain property "$snapshot_data"!'},
+            self.validation_error_response(
+                'Invalid payload: $snapshot events must contain property "$snapshot_data"!', code="invalid_payload",
+            ),
+        )
+
+    def test_batch_request_with_invalid_auth(self):
+        data = [
+            {
+                "event": "$pageleave",
+                "project_id": self.team.id,
+                "properties": {
+                    "$os": "Linux",
+                    "$browser": "Chrome",
+                    "token": "fake token",  # as this is invalid, will do API key authentication
+                },
+                "timestamp": "2021-04-20T19:11:33.841Z",
+            }
+        ]
+        response = self.client.get("/e/?data=%s" % quote(self._to_json(data)))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "authentication_error",
+                "code": "invalid_personal_api_key",
+                "detail": "Invalid Personal API key.",
+                "attr": None,
+            },
         )
