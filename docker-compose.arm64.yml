@@ -5,17 +5,13 @@ version: '3'
 #   - ee_all (webpack, python, worker, plugins, redis, postgres, clickhouse, kafka, zookeeper)
 #   - or, list profiles desired:
 #            docker compose -f docker-compose.arm64.ch.yml \
-#                --profile python \
-#                --profile redis \
-#                --profile postgres \
 #                up
+#                python \
+#                redis \
+#                postgres
 
 services:
     postgres:
-        profiles:
-            - postgres
-            - all
-            - ee_all
         image: postgres:12-alpine
         container_name: posthog_db
         environment:
@@ -25,19 +21,11 @@ services:
         ports:
             - '5432:5432'
     redis:
-        profiles:
-            - redis
-            - all
-            - ee_all
         image: 'redis:5-alpine'
         container_name: posthog_redis
         ports:
             - '6379:6379'
     python:
-        profiles:
-            - python
-            - all
-            - ee_all
         build:
             context: .
             dockerfile: dev.Dockerfile
@@ -61,9 +49,6 @@ services:
         ports:
             - '8000:8000'
     clickhouse:
-        profiles:
-            - clickhouse
-            - ee_all
         build:
             context: .
             dockerfile: clickhouse.arm64.Dockerfile
@@ -79,27 +64,17 @@ services:
         depends_on:
             - kafka
     zookeeper:
-        profiles:
-            - zookeeper
-            - ee_all
         image: wurstmeister/zookeeper
     kafka:
-        profiles:
-            - kafka
-            - ee_all
         image: wurstmeister/kafka
         depends_on:
             - zookeeper
         ports:
             - '9092:9092'
         environment:
-            KAFKA_ADVERTISED_HOST_NAME: kafka
+            KAFKA_ADVERTISED_HOST_NAME: localhost
             KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
     worker: &worker
-        profiles:
-            - worker
-            - all
-            - ee_all
         build:
             context: .
             dockerfile: dev.Dockerfile
@@ -130,17 +105,10 @@ services:
             - kafka:kafka
     webpack:
         <<: *worker
-        profiles:
-            - webpack
-            - all
-            - ee_all
         command: ./bin/start-frontend
         ports:
             - '8234:8234'
     plugins:
-        profiles:
-            - plugins
-            - ee_all
         image: posthog/plugin-server:0.15.4
         restart: on-failure
         environment:

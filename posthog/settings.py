@@ -167,6 +167,14 @@ KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=strtobool)
 
+print("KAFKA_URL: " + KAFKA_URL)
+print("KAFKA_URL: " + KAFKA_URL)
+print("KAFKA_URL: " + KAFKA_URL)
+print("KAFKA_URL: " + KAFKA_URL)
+print("KAFKA_URL: " + KAFKA_URL)
+print("KAFKA_URL: " + KAFKA_URL)
+print("KAFKA_URL: " + KAFKA_URL)
+
 _primary_db = os.getenv("PRIMARY_DB", "postgres")
 try:
     PRIMARY_DB = RDBMS(_primary_db)
