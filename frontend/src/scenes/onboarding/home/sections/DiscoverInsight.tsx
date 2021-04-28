@@ -82,7 +82,7 @@ function CreateAnalysisSection(): JSX.Element {
     const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
 
     return (
-        <React.Fragment>
+        <div className={'home-page'}>
             <h3>Start an analysis</h3>
             <Paragraph>
                 Each chart type is built to answer specific types of questions. Hover over each to learn more about the
@@ -101,9 +101,9 @@ function CreateAnalysisSection(): JSX.Element {
                         }}
                     >
                         <Tooltip
-                            color="var(--primary-alt)"
+                            color="var(--bg-charcoal)"
                             title={insight.questions.map((question, idx) => (
-                                <Paragraph className={'insight-tooltip'} key={idx}>
+                                <Paragraph style={{ color: 'var(--text-light', padding: '3px' }} key={idx}>
                                     {`•` + question}
                                 </Paragraph>
                             ))}
@@ -125,7 +125,7 @@ function CreateAnalysisSection(): JSX.Element {
                     </a>
                 )}
             />
-        </React.Fragment>
+        </div>
     )
 }
 
@@ -193,7 +193,7 @@ function InsightPane(): JSX.Element {
                 <Skeleton loading={insightsLoading}>
                     {data.length > 0 && (
                         <React.Fragment>
-                            <div className="home-module-carousel-container">
+                            <div className="carousel-container">
                                 <Carousel {...settings}>
                                     {data.map((insight, idx) => (
                                         <Card key={idx} bordered={false} className={'insight-chart-tile'}>
@@ -243,12 +243,12 @@ function InsightPane(): JSX.Element {
 
 export function DiscoverInsightsModule(): JSX.Element {
     return (
-        <Card className="home-module-card">
+        <Card className="home-page section-card">
             <h2 id="name" className="subtitle">
                 Discover Insights
             </h2>
             <Divider />
-            <Space direction={'vertical'}>
+            <Space direction={'vertical'} className={'home-page'}>
                 <CreateAnalysisSection />
                 <InsightPane />
             </Space>

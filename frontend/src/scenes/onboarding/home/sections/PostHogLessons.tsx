@@ -1,5 +1,5 @@
-import { Card, Carousel, Divider, Image, Space, Tooltip, Typography } from 'antd'
-import React from 'react'
+import { Card, Carousel, Divider, Image, Space, Spin, Tooltip, Typography } from 'antd'
+import React, { useState } from 'react'
 import { ArrowLeftOutlined, ArrowRightOutlined } from '@ant-design/icons'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -120,38 +120,46 @@ function Tutorials(): JSX.Element {
             },
         ],
     }
-    const thumbs = LESSONS.map((lesson) => (
-        <a
-            key={lesson.target}
-            href={lesson.target}
-            target="_blank"
-            rel="noopener"
-            onClick={() => {
-                reportProjectHomeItemClicked('tutorials', lesson.title, { lesson_url: lesson.target })
-                return true
-            }}
-        >
-            <Tooltip title={lesson.hover ?? ''} placement={'bottom'}>
-                <Card className={'lesson-card'} bordered={false}>
-                    <Image
-                        src={lesson.imgSrc}
-                        placeholder={true}
-                        className="lesson-image"
-                        width={225}
-                        preview={false}
-                    />
-                    <h4 className={'lesson-title'}>{lesson.title}</h4>
-                </Card>
-            </Tooltip>
-        </a>
-    ))
+
+    const thumbs = LESSONS.map((lesson) => {
+        const [isImageLoaded, setIsImageLoaded] = useState(false)
+        return (
+            <a
+                key={lesson.target}
+                href={lesson.target}
+                target="_blank"
+                rel="noopener"
+                onClick={() => {
+                    reportProjectHomeItemClicked('tutorials', lesson.title, { lesson_url: lesson.target })
+                    return true
+                }}
+            >
+                <Tooltip title={lesson.hover ?? ''} placement={'bottom'}>
+                    <Card className={'home-page lesson-card'} bordered={false}>
+                        <Spin spinning={!isImageLoaded}>
+                            <Image
+                                src={lesson.imgSrc}
+                                onLoad={() => {
+                                    setIsImageLoaded(true)
+                                }}
+                                className="lesson-image"
+                                width={225}
+                                preview={false}
+                            />
+                        </Spin>
+                        <h4 className={'lesson-title'}>{lesson.title}</h4>
+                    </Card>
+                </Tooltip>
+            </a>
+        )
+    })
 
     return <Carousel {...settings}>{thumbs}</Carousel>
 }
 
-export function PosthogLessons(): JSX.Element {
+export function PostHogLessons(): JSX.Element {
     return (
-        <Card className="home-module-card">
+        <Card className="home-page section-card">
             <h2 id="name" className="subtitle">
                 Build Better Products
             </h2>
@@ -160,7 +168,7 @@ export function PosthogLessons(): JSX.Element {
             </Paragraph>
             <Divider />
             <Space direction={'vertical'}>
-                <div className="home-module-carousel-container">
+                <div className="carousel-container">
                     <Tutorials />
                 </div>
             </Space>

@@ -10,7 +10,7 @@ const { Paragraph } = Typography
 export function TiledIconModule({ tiles, header, subHeader, analyticsModuleKey }: TiledIconModuleProps): JSX.Element {
     const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
     return (
-        <Card className="home-module-card">
+        <Card className="home-page section-card">
             <h2 id="name" className="subtitle">
                 {header}
             </h2>
