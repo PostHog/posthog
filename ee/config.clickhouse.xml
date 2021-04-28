@@ -116,7 +116,7 @@
     <!-- Listen specified host. use :: (wildcard IPv6 address), if you want to accept connections both with IPv4 and IPv6 from everywhere. -->
     <!-- <listen_host>::</listen_host> -->
     <!-- Same for hosts with disabled ipv6: -->
-    <!-- <listen_host>0.0.0.0</listen_host> -->
+    <listen_host>0.0.0.0</listen_host>
 
     <!-- Default values - try listen localhost on ipv4 and ipv6: -->
     <!-- <listen_host>::1</listen_host> -->
@@ -125,7 +125,7 @@
     <!-- <listen_try>0</listen_try> -->
 
     <!-- Allow listen on same address:port -->
-    <!-- <listen_reuse_port>0</listen_reuse_port> -->
+    <listen_reuse_port>1</listen_reuse_port>
 
     <!-- <listen_backlog>64</listen_backlog> -->
 
