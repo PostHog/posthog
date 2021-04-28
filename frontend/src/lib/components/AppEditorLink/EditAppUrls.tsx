@@ -5,12 +5,18 @@ import { PlusOutlined } from '@ant-design/icons'
 import { appUrlsLogic } from './appUrlsLogic'
 import { UrlRow } from './UrlRow'
 
-export function EditAppUrls({ actionId = null, allowNavigation = false }) {
+export function EditAppUrls({
+    actionId,
+    allowNavigation = false,
+}: {
+    actionId?: number
+    allowNavigation?: boolean
+}): JSX.Element {
     const { appUrls, suggestions, suggestionsLoading } = useValues(appUrlsLogic({ actionId, isToolbarModal: true }))
     const { addUrl, addUrlAndGo, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId, isToolbarModal: true }))
-    const [loadMore, setLoadMore] = useState()
+    const [loadMore, setLoadMore] = useState(false)
 
-    const handleUrlClick = (url) => {
+    const handleUrlClick = (url: string): void => {
         if (allowNavigation) {
             addUrlAndGo(url)
             return
@@ -66,7 +72,7 @@ export function EditAppUrls({ actionId = null, allowNavigation = false }) {
             </List>
             <Button
                 type="link"
-                onClick={() => addUrl()}
+                onClick={() => addUrl('')}
                 style={{ padding: '5px 0', margin: '5px 0', textDecoration: 'none' }}
             >
                 + Add URL
