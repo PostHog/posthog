@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+docker compose -f docker-compose.arm64.yml \
+    --profile clickhouse \
+    --profile kafka \
+    --profile zookeeper \
+    --profile postgres \
+    --profile redis \
+    --profile plugins
+    down
