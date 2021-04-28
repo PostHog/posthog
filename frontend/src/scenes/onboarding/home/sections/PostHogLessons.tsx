@@ -92,15 +92,7 @@ function Tutorials(): JSX.Element {
         centerPadding: '10px',
         responsive: [
             {
-                breakpoint: 1400,
-                settings: {
-                    vertical: false,
-                    centerMode: true,
-                    slidesToShow: 3,
-                },
-            },
-            {
-                breakpoint: 1000,
+                breakpoint: 1200,
                 settings: {
                     vertical: false,
                     centerMode: true,
