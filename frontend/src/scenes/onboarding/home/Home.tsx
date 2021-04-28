@@ -1,6 +1,6 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import React, { useEffect, useState } from 'react'
-import { PosthogLessons } from './sections/PosthogLessons'
+import { PostHogLessons } from './sections/PostHogLessons'
 import { TiledIconModule } from './sections/TiledIconModule'
 
 import { DiscoverInsightsModule } from './sections/DiscoverInsight'
@@ -129,7 +129,7 @@ export function Home(): JSX.Element {
     const layoutTeamHasEvents = (
         <>
             <DiscoverInsightsModule />
-            <PosthogLessons />
+            <PostHogLessons />
             {communityModule}
         </>
     )
@@ -138,7 +138,7 @@ export function Home(): JSX.Element {
         <>
             {installModule}
             {communityModule}
-            <PosthogLessons />
+            <PostHogLessons />
         </>
     )
     const teamHasData = user?.team?.ingested_event
@@ -148,8 +148,8 @@ export function Home(): JSX.Element {
     }, [])
 
     return (
-        <Layout>
-            <div style={{ marginBottom: 128 }} className={'home-container'}>
+        <Layout className={'home-page'}>
+            <div style={{ marginBottom: 128 }}>
                 <Space direction="vertical">
                     <PageHeader
                         title={`${currentTeam?.name ?? ''} Home`}
