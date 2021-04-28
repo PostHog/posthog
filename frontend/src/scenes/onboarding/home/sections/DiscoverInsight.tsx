@@ -140,7 +140,7 @@ function InsightPane(): JSX.Element {
     }, [])
     const settings: CarouselProps = {
         dots: true,
-        slidesToShow: 5,
+        slidesToShow: 4,
         slidesToScroll: 3,
         arrows: true,
         nextArrow: <ArrowRightOutlined />,
@@ -150,17 +150,11 @@ function InsightPane(): JSX.Element {
         centerPadding: '10px',
         responsive: [
             {
-                breakpoint: 2000,
-                settings: {
-                    vertical: false,
-                    slidesToShow: 4,
-                },
-            },
-            {
-                breakpoint: 1400,
+                breakpoint: 1200,
                 settings: {
                     vertical: false,
                     slidesToShow: 3,
+                    centerPadding: '5px',
                 },
             },
             {
@@ -171,7 +165,6 @@ function InsightPane(): JSX.Element {
                     slidesToScroll: 2,
                 },
             },
-
             {
                 breakpoint: 700,
                 settings: {

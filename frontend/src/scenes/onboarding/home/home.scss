@@ -3,19 +3,17 @@
 .home-page {
     .carousel-container {
         width: 1200px;
-        @media only screen and (max-width: $lg) {
+        @media only screen and (max-width: $xl) {
             width: 850px;
         }
-        @media only screen and (max-width: $md) {
+        @media only screen and (max-width: $lg) {
             width: 600px;
         }
-
+        @media only screen and (max-width: $md) {
+            width: 450px;
+        }
         @media only screen and (max-width: $sm) {
             max-width: 315px;
-        }
-
-        @media only screen and (min-width: 2000px) {
-            width: 1600px;
         }
     }
 
