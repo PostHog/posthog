@@ -64,9 +64,9 @@ services:
         depends_on:
             - kafka
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: arm64v8/zookeeper
     kafka:
-        image: wurstmeister/kafka
+        image: fuziontech/kafka-m1:latest
         depends_on:
             - zookeeper
         ports:
