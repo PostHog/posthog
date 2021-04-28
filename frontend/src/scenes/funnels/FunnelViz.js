@@ -8,7 +8,7 @@ import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
 import { router } from 'kea-router'
 import { IllustrationDanger } from 'lib/components/icons'
-
+//test
 export function FunnelViz({
     steps: stepsParam,
     filters: defaultFilters = undefined,
