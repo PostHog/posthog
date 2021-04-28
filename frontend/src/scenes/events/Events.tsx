@@ -42,7 +42,7 @@ export function ManageEvents(): JSX.Element {
             <PageHeader title="Events" />
             <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={setTab}>
                 <Tabs.TabPane tab="Events" key="live">
-                    See all events that are being sent to this project in real time.
+                    See events being sent to this project in near real time.
                     <EventsTable />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions">
