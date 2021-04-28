@@ -133,14 +133,14 @@ function CreateAnalysisSection(): JSX.Element {
 }
 
 function InsightPane(): JSX.Element {
-    const { loadTeamInsights, loadSavedInsights, loadInsights } = useActions(insightHistoryLogic)
+    const { loadInsights } = useActions(insightHistoryLogic)
     const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
     const { insights, insightsLoading } = useValues(insightHistoryLogic)
+
     useEffect(() => {
         loadInsights()
-        loadSavedInsights()
-        loadTeamInsights()
     }, [])
+
     const settings: CarouselProps = {
         dots: true,
         slidesToShow: 4,
@@ -178,7 +178,6 @@ function InsightPane(): JSX.Element {
             },
         ],
     }
-    const data = [...insights]
 
     return (
         <React.Fragment>
@@ -187,11 +186,11 @@ function InsightPane(): JSX.Element {
 
             <Spin spinning={insightsLoading}>
                 <Skeleton loading={insightsLoading}>
-                    {data.length > 0 && (
+                    {insights.length > 0 && (
                         <React.Fragment>
                             <div className="carousel-container">
                                 <Carousel {...settings}>
-                                    {data.map((insight, idx) => (
+                                    {insights.map((insight, idx) => (
                                         <Card key={insight.id} bordered={false} className={'insight-chart-tile'}>
                                             <DashboardItem
                                                 item={{ ...insight, color: null }}
@@ -224,7 +223,7 @@ function InsightPane(): JSX.Element {
                         </React.Fragment>
                     )}
 
-                    {data.length <= 0 && (
+                    {!insightsLoading && insights.length === 0 && (
                         <Space direction={'vertical'}>
                             <Paragraph style={{ marginTop: 5 }}>
                                 There are no recent analyses. Time to get to work!
