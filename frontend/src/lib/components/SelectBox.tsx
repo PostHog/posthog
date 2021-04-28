@@ -1,25 +1,23 @@
-import React, { useRef, useEffect, useState, Fragment } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { Col, Row, Input, Divider } from 'antd'
+import { Col, Row, Input } from 'antd'
 import { List } from 'antd'
 import { DownOutlined, RightOutlined } from '@ant-design/icons'
 import { ActionType, CohortType } from '~/types'
-import { searchItems, selectBoxLogic } from 'lib/logic/selectBoxLogic'
+import { selectBoxLogic } from 'lib/logic/selectBoxLogic'
 import './SelectBox.scss'
 import { selectBoxLogicType } from 'lib/logic/selectBoxLogicType'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
-import WindowScroller from 'react-virtualized/dist/commonjs/WindowScroller';
-import AutoSizer from 'react-virtualized/dist/commonjs/AutoSizer';
-import VList, { RenderedRows } from 'react-virtualized/dist/commonjs/List';
-import InfiniteLoader from 'react-virtualized/dist/commonjs/InfiniteLoader';
-import ScrollSync from 'react-virtualized/dist/commonjs/ScrollSync'
-import { IndexRange, InfiniteLoaderProps, ListRowProps, ListRowRenderer, OnScrollParams, ScrollParams } from 'react-virtualized'
+import AutoSizer from 'react-virtualized/dist/commonjs/AutoSizer'
+import VirtualizedList from 'react-virtualized/dist/commonjs/List'
+import { ListRowProps, ListRowRenderer } from 'react-virtualized'
 
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
     renderInfo({ item }: { item: SelectedItem }): JSX.Element
-    name: JSX.Element | string
+    name: string
+    header: (label: string) => JSX.Element
     type: string
     getValue: (item: SelectedItem) => string | number
     getLabel: (item: SelectedItem) => string
@@ -29,6 +27,7 @@ export interface SelectedItem {
     id?: number | string // Populated for actions (string is used for UUIDs)
     name: string
     key: string
+    groupName?: string
     value?: string
     action?: ActionType
     volume_30_day?: number | null // Only for properties or events
@@ -89,12 +88,14 @@ export function SelectBox({
                         onChange={(e) => {
                             setSearch(e.target.value)
                         }}
-                        style={{ width: '100%', borderRadius: 0 }}
+                        style={{ width: '100%', borderRadius: 0, height: '10%' }}
                     />
-                    <div style={{width: '100%', height: '100%'}}>
-                        <SelectUnit items={items} dropdownLogic={dropdownLogic} />
+                    <div style={{ width: '100%', height: '90%' }}>
+                        <SelectUnit
+                            items={Object.assign({}, ...items.map((item) => ({ [item.name]: item })))}
+                            dropdownLogic={dropdownLogic}
+                        />
                     </div>
-
                 </Col>
                 <Col sm={10} className="info-box">
                     {selectedGroup && selectedItem ? selectedGroup.renderInfo({ item: selectedItem }) : null}
@@ -106,89 +107,102 @@ export function SelectBox({
 
 export function SelectUnit({
     dropdownLogic,
-    items
+    items,
 }: {
     dropdownLogic: selectBoxLogicType<SelectedItem, SelectBoxItem> & BuiltLogic
-    items: SelectBoxItem[]
+    items: Record<string, SelectBoxItem>
 }): JSX.Element {
-    const [isCollapsed, setIsCollapsed] = useState(false)
     const { setSelectedItem, clickSelectedItem } = useActions(dropdownLogic)
     const { selectedItem, search, blockMouseOver } = useValues(dropdownLogic)
-    const [hiddenData, setHiddenData] = useState<Record<string, { key: string; name: string; }[]>>({})
-    const [data, setData] = useState<Record<string, { key: string; name: string; }[]>>({})
-    const [flattenedData, setFlattenedData] = useState<{ key: string; name: string; }[]>([])
+    const [hiddenData, setHiddenData] = useState<Record<string, SelectedItem[]>>({})
+    const [data, setData] = useState<Record<string, SelectedItem[]>>({})
+    const [flattenedData, setFlattenedData] = useState<SelectedItem[]>([])
     const [groupTypes, setGroupTypes] = useState<string[]>([])
     useEffect(() => {
-        let formattedData: Record<string, SelectedItem[]> = {}
-        const groupTypes: string[] = []
-        items.forEach(group => {
-            formattedData[group.type] = group.dataSource
-            groupTypes.push(group.type)
+        const formattedData: Record<string, SelectedItem[]> = {}
+        const _groupTypes: string[] = []
+        Object.keys(items).forEach((groupName) => {
+            formattedData[groupName] = items[groupName].dataSource
+            _groupTypes.push(groupName)
         })
-        setGroupTypes(groupTypes)
+        setGroupTypes(_groupTypes)
         setData(formattedData)
     }, [])
-    console.log(items)
+
     useEffect(() => {
-        const flattenedData: { key: string; name: string; }[] = []
-        Object.keys(data).forEach(key => {
-            flattenedData.push({
+        const _flattenedData: SelectedItem[] = []
+        Object.keys(data).forEach((key) => {
+            _flattenedData.push({
                 key: key,
-                name: key
+                name: key,
+                groupName: key,
             })
-            flattenedData.push(...data[key])
+            _flattenedData.push(...data[key].map((selectItem) => ({ ...selectItem, groupName: key })))
         })
-        setFlattenedData(flattenedData)
+        setFlattenedData(_flattenedData)
     }, [data])
 
-    const hideKey = (key: string) => {
-        const { [`${key}`]: hideItem, ...restOfData} = data
+    const hideKey = (key: string): void => {
+        const { [`${key}`]: hideItem } = data
         const copy = {
-            ...data
+            ...data,
         }
         copy[key] = []
         setData(copy)
         setHiddenData({
             ...hiddenData,
-            [`${key}`]: hideItem
+            [`${key}`]: hideItem,
         })
     }
 
-    const showKey = (key: string) => {
-        const { [`${key}`]: showItem, ...restOfData} = hiddenData
+    const showKey = (key: string): void => {
+        const { [`${key}`]: showItem, ...restOfData } = hiddenData
         setHiddenData(restOfData)
         const copy = {
-            ...data
+            ...data,
         }
         copy[key] = showItem
         setData(copy)
     }
 
-    const renderItem: ListRowRenderer = ({index, style}: ListRowProps) => {
+    const renderItem: ListRowRenderer = ({ index, style }: ListRowProps) => {
         const item = flattenedData[index]
-        if(groupTypes.includes(item.key)) {
-             return <div style={style}>
-                 <span onClick={() => hiddenData?.[item.key] ? showKey(item.key) : hideKey(item.key)} key={item.key}>
-                <h4 style={{ cursor: 'pointer', userSelect: 'none', padding: '4px 12px', marginBottom: 0 }}>
-                    {hiddenData?.[item.key] ? <RightOutlined /> : <DownOutlined />} {item.key}
-                    <span
-                        style={{ float: 'right', fontWeight: search && flattenedData.length > 0 ? 700 : 'normal' }}
-                        className="text-small"
-                    >
-                        {data.length} {flattenedData.length === 1 ? 'entry' : 'entries'}
+
+        if (!item.groupName) {
+            return null
+        }
+
+        const group = items[item.groupName]
+        if (groupTypes.includes(item.key)) {
+            return (
+                <div style={style} key={item.key}>
+                    <span onClick={() => (hiddenData?.[item.key] ? showKey(item.key) : hideKey(item.key))}>
+                        <h4 style={{ cursor: 'pointer', userSelect: 'none', padding: '4px 12px', marginBottom: 0 }}>
+                            {hiddenData?.[item.key] || !data[item.key].length ? <RightOutlined /> : <DownOutlined />}{' '}
+                            {group.header(item.key)}
+                            <span
+                                style={{
+                                    float: 'right',
+                                    fontWeight: search && flattenedData.length > 0 ? 700 : 'normal',
+                                }}
+                                className="text-small"
+                            >
+                                {data?.[item.key]?.length || hiddenData?.[item.key]?.length || '0'}{' '}
+                                {flattenedData.length === 1 ? 'entry' : 'entries'}
+                            </span>
+                        </h4>
                     </span>
-                </h4>
-            </span>
-             </div>
+                </div>
+            )
         } else {
             return (
                 <List.Item
                     className={selectedItem?.key === item.key ? 'selected' : undefined}
                     key={item.key}
-                    // onClick={() => clickSelectedItem(item, group)}
+                    onClick={() => clickSelectedItem(item, group)}
                     style={style}
-                    onMouseOver={() => {}
-                        // !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
+                    onMouseOver={() =>
+                        !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
                     }
                 >
                     <PropertyKeyInfo value={item.name} />
@@ -197,35 +211,23 @@ export function SelectUnit({
         }
     }
 
-    const vlist = ({ 
-        height, 
-        width
-    }: {
-        height: number, 
-        width: number,
-    }) => (
-        <VList
-          height={height}
-          overscanRowCount={0}
-          rowCount={flattenedData.length}
-          rowHeight={35}
-          rowRenderer={renderItem}
-          width={width}
-        />
-    );
-
-
     return (
         <>
-            {!isCollapsed && flattenedData.length > 0 && (
-                <div style={{height: '100%'}}>
+            {flattenedData.length > 0 && (
+                <div style={{ height: '100%' }}>
                     {
                         <AutoSizer>
-                            {({ height,width }: {height: number, width: number}) => {
-                                return vlist({
-                                    height: height - 62,
-                                    width,
-                                })
+                            {({ height, width }: { height: number; width: number }) => {
+                                return (
+                                    <VirtualizedList
+                                        height={height}
+                                        overscanRowCount={0}
+                                        rowCount={flattenedData.length}
+                                        rowHeight={35}
+                                        rowRenderer={renderItem}
+                                        width={width}
+                                    />
+                                )
                             }}
                         </AutoSizer>
                     }
