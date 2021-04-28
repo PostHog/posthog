@@ -9,6 +9,13 @@ import './SelectBox.scss'
 import { selectBoxLogicType } from 'lib/logic/selectBoxLogicType'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
+import WindowScroller from 'react-virtualized/dist/commonjs/WindowScroller';
+import AutoSizer from 'react-virtualized/dist/commonjs/AutoSizer';
+import VList, { RenderedRows } from 'react-virtualized/dist/commonjs/List';
+import InfiniteLoader from 'react-virtualized/dist/commonjs/InfiniteLoader';
+import ScrollSync from 'react-virtualized/dist/commonjs/ScrollSync'
+import { IndexRange, InfiniteLoaderProps, ListRowProps, ListRowRenderer, OnScrollParams, ScrollParams } from 'react-virtualized'
+
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
     renderInfo({ item }: { item: SelectedItem }): JSX.Element
@@ -84,14 +91,10 @@ export function SelectBox({
                         }}
                         style={{ width: '100%', borderRadius: 0 }}
                     />
-                    <div className="search-list">
-                        {items.map((group, index) => (
-                            <Fragment key={index}>
-                                <SelectUnit group={group} dropdownLogic={dropdownLogic} dataSource={group.dataSource} />
-                                <Divider />
-                            </Fragment>
-                        ))}
+                    <div style={{width: '100%', height: '100%'}}>
+                        <SelectUnit items={items} dropdownLogic={dropdownLogic} />
                     </div>
+
                 </Col>
                 <Col sm={10} className="info-box">
                     {selectedGroup && selectedItem ? selectedGroup.renderInfo({ item: selectedItem }) : null}
@@ -102,49 +105,131 @@ export function SelectBox({
 }
 
 export function SelectUnit({
-    group,
-    dataSource,
     dropdownLogic,
+    items
 }: {
-    group: SelectBoxItem
-    dataSource: SelectedItem[]
     dropdownLogic: selectBoxLogicType<SelectedItem, SelectBoxItem> & BuiltLogic
+    items: SelectBoxItem[]
 }): JSX.Element {
     const [isCollapsed, setIsCollapsed] = useState(false)
     const { setSelectedItem, clickSelectedItem } = useActions(dropdownLogic)
     const { selectedItem, search, blockMouseOver } = useValues(dropdownLogic)
-    const data = !search ? dataSource : searchItems(dataSource, search)
-    return (
-        <>
-            <span onClick={() => setIsCollapsed(!isCollapsed)}>
+    const [hiddenData, setHiddenData] = useState<Record<string, { key: string; name: string; }[]>>({})
+    const [data, setData] = useState<Record<string, { key: string; name: string; }[]>>({})
+    const [flattenedData, setFlattenedData] = useState<{ key: string; name: string; }[]>([])
+    const [groupTypes, setGroupTypes] = useState<string[]>([])
+    useEffect(() => {
+        let formattedData: Record<string, SelectedItem[]> = {}
+        const groupTypes: string[] = []
+        items.forEach(group => {
+            formattedData[group.type] = group.dataSource
+            groupTypes.push(group.type)
+        })
+        setGroupTypes(groupTypes)
+        setData(formattedData)
+    }, [])
+    console.log(items)
+    useEffect(() => {
+        const flattenedData: { key: string; name: string; }[] = []
+        Object.keys(data).forEach(key => {
+            flattenedData.push({
+                key: key,
+                name: key
+            })
+            flattenedData.push(...data[key])
+        })
+        setFlattenedData(flattenedData)
+    }, [data])
+
+    const hideKey = (key: string) => {
+        const { [`${key}`]: hideItem, ...restOfData} = data
+        const copy = {
+            ...data
+        }
+        copy[key] = []
+        setData(copy)
+        setHiddenData({
+            ...hiddenData,
+            [`${key}`]: hideItem
+        })
+    }
+
+    const showKey = (key: string) => {
+        const { [`${key}`]: showItem, ...restOfData} = hiddenData
+        setHiddenData(restOfData)
+        const copy = {
+            ...data
+        }
+        copy[key] = showItem
+        setData(copy)
+    }
+
+    const renderItem: ListRowRenderer = ({index, style}: ListRowProps) => {
+        const item = flattenedData[index]
+        if(groupTypes.includes(item.key)) {
+             return <div style={style}>
+                 <span onClick={() => hiddenData?.[item.key] ? showKey(item.key) : hideKey(item.key)} key={item.key}>
                 <h4 style={{ cursor: 'pointer', userSelect: 'none', padding: '4px 12px', marginBottom: 0 }}>
-                    {isCollapsed || data.length === 0 ? <RightOutlined /> : <DownOutlined />} {group.name}
+                    {hiddenData?.[item.key] ? <RightOutlined /> : <DownOutlined />} {item.key}
                     <span
-                        style={{ float: 'right', fontWeight: search && data.length > 0 ? 700 : 'normal' }}
+                        style={{ float: 'right', fontWeight: search && flattenedData.length > 0 ? 700 : 'normal' }}
                         className="text-small"
                     >
-                        {data.length} {data.length === 1 ? 'entry' : 'entries'}
+                        {data.length} {flattenedData.length === 1 ? 'entry' : 'entries'}
                     </span>
                 </h4>
             </span>
-            {!isCollapsed && data.length > 0 && (
-                <List
-                    size="small"
-                    bordered={false}
-                    dataSource={data || []}
-                    renderItem={(item: SelectedItem) => (
-                        <List.Item
-                            className={selectedItem?.key === item.key ? 'selected' : undefined}
-                            key={item.key}
-                            onClick={() => clickSelectedItem(item, group)}
-                            onMouseOver={() =>
-                                !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
-                            }
-                        >
-                            <PropertyKeyInfo value={item.name} />
-                        </List.Item>
-                    )}
-                />
+             </div>
+        } else {
+            return (
+                <List.Item
+                    className={selectedItem?.key === item.key ? 'selected' : undefined}
+                    key={item.key}
+                    // onClick={() => clickSelectedItem(item, group)}
+                    style={style}
+                    onMouseOver={() => {}
+                        // !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
+                    }
+                >
+                    <PropertyKeyInfo value={item.name} />
+                </List.Item>
+            )
+        }
+    }
+
+    const vlist = ({ 
+        height, 
+        width
+    }: {
+        height: number, 
+        width: number,
+    }) => (
+        <VList
+          height={height}
+          overscanRowCount={0}
+          rowCount={flattenedData.length}
+          rowHeight={35}
+          rowRenderer={renderItem}
+          width={width}
+        />
+    );
+
+
+    return (
+        <>
+            {!isCollapsed && flattenedData.length > 0 && (
+                <div style={{height: '100%'}}>
+                    {
+                        <AutoSizer>
+                            {({ height,width }: {height: number, width: number}) => {
+                                return vlist({
+                                    height: height - 62,
+                                    width,
+                                })
+                            }}
+                        </AutoSizer>
+                    }
+                </div>
             )}
         </>
     )
