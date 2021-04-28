@@ -492,7 +492,7 @@ function PageTitle({ dashboardItem }: Props): JSX.Element {
         return (
             <div>
                 <PageHeader title={dashboardItem.name} />
-                <div className="text-default" style={{ paddingBottom: 8 }}>
+                <div className="dashboard-item-link">
                     On dashboard <Link to={`/dashboard/${dashboardItem.dashboard}`}>{dashboardItem.dashboardName}</Link>
                 </div>
             </div>
