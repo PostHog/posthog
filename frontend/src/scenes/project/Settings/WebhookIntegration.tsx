@@ -45,7 +45,9 @@ export function WebhookIntegration(): JSX.Element {
                 onChange={(e) => setWebhook(e.target.value)}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
                 type="url"
-                placeholder={currentTeam?.slack_incoming_webhook ? '' : 'Integration disabled – type a URL to enable'}
+                placeholder={
+                    currentTeam?.slack_incoming_webhook ? '' : 'integration disabled – enter URL, then Test & Save'
+                }
                 disabled={loading}
                 onPressEnter={() => testWebhook(webhook)}
             />
@@ -60,7 +62,7 @@ export function WebhookIntegration(): JSX.Element {
                         }}
                         loading={loading}
                     >
-                        {webhook ? 'Test & Save' : 'Save'}
+                        Test & Save
                     </Button>
                 </Col>
                 <Col style={{ marginLeft: 10 }}>
@@ -74,7 +76,7 @@ export function WebhookIntegration(): JSX.Element {
                         }}
                         disabled={!currentTeam?.slack_incoming_webhook}
                     >
-                        Remove Webhook
+                        Clear & Disable
                     </Button>
                 </Col>
             </Row>
