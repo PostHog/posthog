@@ -1,5 +1,5 @@
 import React from 'react'
-import { SearchOutlined } from '@ant-design/icons'
+import { DownOutlined } from '@ant-design/icons'
 import { Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
@@ -11,13 +11,20 @@ export function SearchAllBox(): JSX.Element {
     return (
         <div className="mb-05 full-width">
             <Button
-                className="full-width"
                 style={{ textAlign: 'left' }}
                 data-attr="sessions-filter-open"
                 onClick={() => (openFilter ? closeFilterSelect() : openFilterSelect('new'))}
             >
-                <SearchOutlined />
-                <span className="text-muted">Filter sessions by users, actions, events, ...</span>
+                <span className="text-muted">
+                    Filter by user, action, or event properties
+                    <DownOutlined
+                        style={{
+                            paddingLeft: '0.6em',
+                            fontSize: '90%',
+                            opacity: 0.5,
+                        }}
+                    />
+                </span>
             </Button>
         </div>
     )
