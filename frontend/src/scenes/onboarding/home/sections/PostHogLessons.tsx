@@ -17,61 +17,63 @@ import salesRevenueTracking from './static/sales-revenue-tracking.png'
 import trackingB2b from './static/tracking-b2b.png'
 import trackingTeams from './static/tracking-teams.png'
 
+const UTM_TAGS = '?utm_medium=in-product&utm_campaign=project-home'
+
 const LESSONS = [
     {
         title: 'Event Tracking Overview',
         hover: 'A complete guide to getting started with event tracking.',
-        target: 'https://posthog.com/docs/tutorials/actions?utm_content=project-home',
+        target: `https://posthog.com/docs/tutorials/actions${UTM_TAGS}`,
         imgSrc: eventTrackingOverview,
     },
     {
         title: 'Safely Roll Out New Features',
         hover: "A walk-through on how you can roll-out and learn from features using PostHog's feature flags.",
-        target: 'https://posthog.com/docs/tutorials/feature-flag?utm_content=project-homes',
+        target: `https://posthog.com/docs/tutorials/feature-flag?utm_content=project-homes${UTM_TAGS}`,
         imgSrc: rollOutFeatures,
     },
     {
         title: 'Funnels - Analyzing Conversions',
         hover: 'A walk-through on funnel analysis – a core component to learning about your product.',
-        target: 'https://posthog.com/docs/tutorials/funnels?utm_content=project-home',
+        target: `https://posthog.com/docs/tutorials/funnels?utm_content=project-home${UTM_TAGS}`,
         imgSrc: analyzeConversions,
     },
     {
         title: 'Custom Behavioral Cohorts',
         hover:
             'A walk-through on how you can analyze sets of users in groups based on behaviors or properties that you define.',
-        target: 'https://posthog.com/docs/tutorials/cohorts?utm_content=project-home',
+        target: `https://posthog.com/docs/tutorials/cohorts?utm_content=project-home${UTM_TAGS}`,
         imgSrc: analyzeBehavior,
     },
     {
         title: 'Measuring Retention',
         hover: 'A walk-through on answering a question every company must ask itself: Are users coming back?',
-        target: 'https://posthog.com/docs/tutorials/retention?utm_content=project-home',
+        target: `https://posthog.com/docs/tutorials/retention?utm_content=project-home${UTM_TAGS}`,
         imgSrc: measureRetention,
     },
     {
         title: 'Tracking Single Page Applications',
         hover: 'Implement PostHog into single page applications such as AngularJS.',
-        target: 'https://posthog.com/docs/tutorials/spa?utm_content=project-home',
+        target: `https://posthog.com/docs/tutorials/spa${UTM_TAGS}`,
         imgSrc: trackingSpas,
     },
     {
         title: 'Revenue Tracking',
         hover: 'A guide on how you can use PostHog to track subscribers and revenue over time.',
-        target: 'https://posthog.com/docs/tutorials/revenue?utm_content=project-home',
+        target: `https://posthog.com/docs/tutorials/revenue${UTM_TAGS}`,
         imgSrc: salesRevenueTracking,
     },
 
     {
         title: 'Tracking Key B2B Product Metrics',
         hover: 'A guide on how B2B companies can implement successful analytics strategies.',
-        target: 'https://posthog.com/docs/tutorials/b2b?utm_content=project-home',
+        target: `https://posthog.com/docs/tutorials/b2b${UTM_TAGS}`,
         imgSrc: trackingB2b,
     },
     {
         title: 'Tracking Team Usage',
         hover: 'Track how organizations use your product.',
-        target: 'https://posthog.com/docs/tutorials/tracking-teams?utm_content=project-home',
+        target: `https://posthog.com/docs/tutorials/tracking-teams${UTM_TAGS}`,
         imgSrc: trackingTeams,
     },
 ]

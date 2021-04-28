@@ -9,16 +9,16 @@ import { SlackOutlined, UserAddOutlined, RocketOutlined, GithubOutlined } from '
 
 import './Home.scss'
 
-const { Content } = Layout
 import { useActions, useValues } from 'kea'
 
-import { teamLogic } from 'scenes/teamLogic'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TileParams } from '~/types'
+
+const { Content } = Layout
 
 function HeaderCTAs(): JSX.Element {
     const { setInviteMembersModalOpen } = useActions(navigationLogic)
@@ -76,7 +76,6 @@ function HeaderCTAs(): JSX.Element {
 }
 
 export function Home(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const { reportProjectHomeSeen } = useActions(eventUsageLogic)
 
@@ -84,7 +83,7 @@ export function Home(): JSX.Element {
         {
             icon: <SlackOutlined />,
             title: 'Hang out in Slack',
-            targetPath: 'https://posthog.com/slack?s=app&utm_content=project-home',
+            targetPath: 'https://posthog.com/slack?s=app&utm_medium=in-product&utm_campaign=project-home',
             openInNewTab: true,
             hoverText:
                 'Talk with other PostHog users, get support on issues, and exclusive access to features in beta development.',
@@ -152,7 +151,7 @@ export function Home(): JSX.Element {
             <div style={{ marginBottom: 128 }}>
                 <Space direction="vertical">
                     <PageHeader
-                        title={`${currentTeam?.name ?? ''} Home`}
+                        title="Home"
                         caption={
                             teamHasData ? undefined : 'Welcome to PostHog! Install one of our libraries to get started.'
                         }
