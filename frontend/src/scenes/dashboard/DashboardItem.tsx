@@ -44,7 +44,7 @@ dayjs.extend(relativeTime)
 interface Props {
     item: DashboardItemType
     dashboardId?: number
-    dashboardName?: string | ''
+    dashboardName?: string
     updateItemColor?: (id: number, itemClassName: string) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
@@ -256,7 +256,7 @@ export function DashboardItem({
     const Element = displayMap[_type].element
     const Icon = displayMap[_type].icon
     const viewText = displayMap[_type].viewText
-    const link = displayMap[_type].link(item, dashboardName)
+    const link = displayMap[_type].link(item, dashboardName || '')
     const color = item.color || 'white'
     const { dashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)

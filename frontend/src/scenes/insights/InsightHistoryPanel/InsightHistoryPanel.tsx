@@ -67,7 +67,7 @@ function InsightPane({
                                     insight.filters.insight === ViewType.RETENTION
                                         ? 'RetentionContainer'
                                         : insight.filters.display
-                                router.actions.push(displayMap[_type].link(insight))
+                                router.actions.push(displayMap[_type].link(insight, insight.name))
                             }}
                             moveDashboardItem={
                                 insight.saved
