@@ -339,7 +339,7 @@ export const eventUsageLogic = kea<
             posthog.capture('ingestion landing seen', { grid_view: isGridView })
         },
         reportProjectHomeItemClicked: async ({ module, item, extraProps }) => {
-            const defaultProps = { module: module, item: item }
+            const defaultProps = { module, item }
             const eventProps = extraProps ? { ...defaultProps, ...extraProps } : defaultProps
             posthog.capture('project home item clicked', eventProps)
         },

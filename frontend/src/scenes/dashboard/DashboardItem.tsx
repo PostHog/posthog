@@ -39,6 +39,7 @@ import { DashboardItemType, DashboardType, DisplayType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
+
 dayjs.extend(relativeTime)
 
 interface Props {
@@ -264,15 +265,11 @@ export function DashboardItem({
                                 to={link}
                                 title={item.name}
                                 preventClick
-                                onClick={
-                                    onClick
-                                        ? onClick
-                                        : () => {
-                                              if (!isDraggingRef?.current) {
-                                                  router.actions.push(link)
-                                              }
-                                          }
-                                }
+                                onClick={() => {
+                                    if (!isDraggingRef?.current) {
+                                        onClick ? onClick() : router.actions.push(link)
+                                    }
+                                }}
                                 style={{ fontSize: 16, fontWeight: 500 }}
                             >
                                 {item.name || `Untitled ${insightTypeDisplayName} Query`}

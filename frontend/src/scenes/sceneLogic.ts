@@ -241,29 +241,17 @@ export const sceneLogic = kea<sceneLogicType>({
         ],
     },
     urlToAction: ({ actions }) => {
-        featureFlagLogic.mount()
-        const featFlags = featureFlagLogic.values.featureFlags
+        featureFlagLogic.mount() // Otherwise logic is not loaded before this
+        if (featureFlagLogic && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
+            redirects['/'] = '/home'
+        }
 
         const mapping: Record<string, (params: Params) => any> = {}
 
-        let experimentRedirect: string | undefined = undefined
-
         for (const [paths, redirect] of Object.entries(redirects)) {
             for (const path of paths.split('|')) {
-                if (path === '/' && redirect) {
-                    if (featFlags[FEATURE_FLAGS.PROJECT_HOME]) {
-                        experimentRedirect = '/home'
-                    }
-                }
-
                 mapping[path] = (params) =>
-                    router.actions.replace(
-                        typeof redirect === 'function'
-                            ? redirect(params)
-                            : experimentRedirect
-                            ? experimentRedirect
-                            : redirect
-                    )
+                    router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
         for (const [paths, scene] of Object.entries(routes)) {
