@@ -49,7 +49,7 @@ import { TZIndicator } from 'lib/components/TimezoneAware'
 import { DisplayType, FilterType, HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Link } from 'lib/components/Link'
+import { DashboardItemHeader } from 'scenes/dashboard/DashboardItemHeader'
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -169,7 +169,7 @@ export function Insights(): JSX.Element {
 
     return (
         <div className="insights-page">
-            <PageTitle dashboardItem={dashboardItem} />
+            <Header dashboardItem={dashboardItem} />
             {Object.keys(dashboardItem).length === 0 && (
                 <Row justify="space-between" align="middle" className="top-bar">
                     <Tabs
@@ -487,16 +487,9 @@ function FunnelPeople(): JSX.Element {
 interface Props {
     dashboardItem: any
 }
-function PageTitle({ dashboardItem }: Props): JSX.Element {
+function Header({ dashboardItem }: Props): JSX.Element {
     if (Object.keys(dashboardItem).length > 1) {
-        return (
-            <div>
-                <PageHeader title={dashboardItem.name} />
-                <div className="dashboard-item-link">
-                    On dashboard <Link to={`/dashboard/${dashboardItem.dashboard}`}>{dashboardItem.dashboardName}</Link>
-                </div>
-            </div>
-        )
+        return <DashboardItemHeader />
     }
     return <PageHeader title="Insights" />
 }

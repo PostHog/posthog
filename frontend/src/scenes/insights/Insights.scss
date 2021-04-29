@@ -31,12 +31,6 @@
             background-color: rgba($primary, 0.2) !important;
         }
     }
-
-    .dashboard-item-link {
-        padding-bottom: $default_spacing;
-        font-size: 20px;
-        color: lighten($text_default, 15%);
-    }
 }
 
 .insight-empty-state {
