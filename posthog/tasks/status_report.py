@@ -80,10 +80,12 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
 def capture_event(name: str, report: Dict[str, Any], dry_run: bool) -> None:
     if not dry_run:
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
-        disabled = posthoganalytics.disabled
-        posthoganalytics.disabled = False
-        posthoganalytics.capture(get_machine_id(), "instance status report", report)
-        posthoganalytics.disabled = disabled
+        posthoganalytics.capture(get_machine_id(), name, {**report, "scope": "machine"})
+
+        for user in User.objects.all():
+            posthoganalytics.capture(user.distinct_id, name, {**report, "scope": "user"})
+    else:
+        print(name, json.dumps(report))  # noqa: T001
 
 
 def fetch_persons_count_active_in_period(params: Tuple[Any, ...]) -> int:
@@ -134,5 +136,5 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
 def get_helm_info_env() -> dict:
     try:
         return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
-    except:
+    except Exception:
         return {}
