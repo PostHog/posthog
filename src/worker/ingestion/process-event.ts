@@ -94,8 +94,11 @@ export class EventsProcessor {
             const timeout1 = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!', {
                 eventUuid,
             })
-            await this.handleIdentifyOrAlias(data['event'], properties, distinctId, teamId)
-            clearTimeout(timeout1)
+            try {
+                await this.handleIdentifyOrAlias(data['event'], properties, distinctId, teamId)
+            } finally {
+                clearTimeout(timeout1)
+            }
 
             let result: IEvent | SessionRecordingEvent
 
