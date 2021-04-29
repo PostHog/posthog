@@ -87,6 +87,10 @@
             margin-right: 10px !important;
         }
     }
+    .slick-prev::before,
+    .slick-next::before {
+        display: none;
+    }
 
     .ant-carousel .slick-prev:hover,
     .ant-carousel .slick-next:hover,

@@ -18,6 +18,7 @@ import { ViewType } from 'scenes/insights/insightLogic'
 import { router } from 'kea-router'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ContainedCarouselArrow } from 'scenes/onboarding/home/utils'
 
 const { Paragraph } = Typography
 
@@ -146,8 +147,16 @@ function InsightPane(): JSX.Element {
         slidesToShow: 4,
         slidesToScroll: 3,
         arrows: true,
-        nextArrow: <ArrowRightOutlined />,
-        prevArrow: <ArrowLeftOutlined />,
+        nextArrow: (
+            <ContainedCarouselArrow>
+                <ArrowRightOutlined />
+            </ContainedCarouselArrow>
+        ),
+        prevArrow: (
+            <ContainedCarouselArrow>
+                <ArrowLeftOutlined />
+            </ContainedCarouselArrow>
+        ),
         vertical: false,
         centerMode: false,
         centerPadding: '10px',

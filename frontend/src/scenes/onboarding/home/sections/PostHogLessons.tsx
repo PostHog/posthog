@@ -16,6 +16,7 @@ import trackingSpas from 'public/tracking-spas.png'
 import salesRevenueTracking from 'public/sales-revenue-tracking.png'
 import trackingB2b from 'public/tracking-b2b.png'
 import trackingTeams from 'public/tracking-teams.png'
+import { ContainedCarouselArrow } from 'scenes/onboarding/home/utils'
 
 const UTM_TAGS = '?utm_medium=in-product&utm_campaign=project-home'
 
@@ -80,13 +81,22 @@ const LESSONS = [
 
 function Tutorials(): JSX.Element {
     const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
+
     const settings = {
         dots: true,
         slidesToShow: 4,
         slidesToScroll: 2,
         arrows: true,
-        nextArrow: <ArrowRightOutlined />,
-        prevArrow: <ArrowLeftOutlined />,
+        nextArrow: (
+            <ContainedCarouselArrow>
+                <ArrowRightOutlined />
+            </ContainedCarouselArrow>
+        ),
+        prevArrow: (
+            <ContainedCarouselArrow>
+                <ArrowLeftOutlined />
+            </ContainedCarouselArrow>
+        ),
         autoplay: true,
         vertical: false,
         autoplaySpeed: 7500,
