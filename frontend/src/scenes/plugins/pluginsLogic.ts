@@ -407,6 +407,11 @@ export const pluginsLogic = kea<
                     .sort((p1, p2) => p1.name.toUpperCase().localeCompare(p2.name.toUpperCase()))
             },
         ],
+        preinstalledPlugins: [
+            (s) => [s.installedPlugins],
+            (installedPlugins): PluginTypeWithConfig[] =>
+                installedPlugins.filter((plugin: PluginTypeWithConfig) => plugin.preinstalled),
+        ],
         enabledPlugins: [
             (s) => [s.installedPlugins, s.movedPlugins, s.temporaryOrder],
             (installedPlugins, movedPlugins, temporaryOrder) =>

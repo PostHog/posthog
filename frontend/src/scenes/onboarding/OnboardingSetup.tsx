@@ -215,7 +215,7 @@ export function OnboardingSetup(): JSX.Element {
         callSlack,
     } = useActions(onboardingSetupLogic)
 
-    const { installedPlugins, pluginsLoading, pluginConfigsLoading } = useValues(pluginsLogic)
+    const { preinstalledPlugins, pluginsLoading, pluginConfigsLoading } = useValues(pluginsLogic)
     const { toggleEnabled } = useActions(pluginsLogic)
 
     const { preflight } = useValues(preflightLogic)
@@ -371,7 +371,7 @@ export function OnboardingSetup(): JSX.Element {
                                 <Row>
                                     <OnboardingStepGroup
                                         title="Configure plugins"
-                                        entries={installedPlugins
+                                        entries={preinstalledPlugins
                                             .map(({ name, description, url, plugin_type, pluginConfig }) => ({
                                                 identifier: `plugins-${name}`,
                                                 icon: <PluginImage size="small" pluginType={plugin_type} url={url} />,
