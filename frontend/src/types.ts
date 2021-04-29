@@ -716,3 +716,19 @@ export interface KeyMapping {
     examples?: string[]
     hide?: boolean
 }
+
+export interface TileParams {
+    title: string
+    targetPath: string
+    openInNewTab?: boolean
+    hoverText?: string
+    icon: JSX.Element
+    class?: string
+}
+
+export interface TiledIconModuleProps {
+    tiles: TileParams[]
+    header?: string
+    subHeader?: string
+    analyticsModuleKey?: string
+}
