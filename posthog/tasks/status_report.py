@@ -9,6 +9,8 @@ from django.db import connection
 from psycopg2 import sql
 
 from posthog.models import Event, Person, Team, User
+from posthog.models.dashboard import Dashboard
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
 from posthog.utils import get_machine_id, get_previous_week
@@ -68,6 +70,18 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             team_report["persons_count_active_in_period"] = fetch_persons_count_active_in_period(params)
             team_report["events_count_by_lib"] = fetch_event_counts_by_lib(params)
             team_report["events_count_by_name"] = fetch_events_count_by_name(params)
+
+            # Dashboards
+            team_dashboards = Dashboard.objects.filter(team=team).exclude(deleted=True)
+            team_report["dashboards_count"] = team_dashboards.count()
+            team_report["dashboards_template_count"] = team_dashboards.filter(creation_mode="template").count()
+            team_report["dashboards_shared_count"] = team_dashboards.filter(is_shared=True).count()
+            team_report["dashboards_tagged_count"] = team_dashboards.exclude(tags=[]).count()
+
+            # Feature Flags
+            feature_flags = FeatureFlag.objects.filter(team=team).exclude(deleted=True)
+            team_report["ff_count"] = feature_flags.count()
+            team_report["ff_active_count"] = feature_flags.filter(active=True).count()
 
             report["teams"][team.id] = team_report
         except Exception as err:
