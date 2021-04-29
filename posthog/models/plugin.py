@@ -107,6 +107,7 @@ class Plugin(models.Model):
         max_length=200, null=True, blank=True, choices=PluginType.choices, default=None
     )
     is_global: models.BooleanField = models.BooleanField(default=False)  # Whether plugin is installed for all orgs
+    is_preinstalled: models.BooleanField = models.BooleanField(default=False)
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
     url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
@@ -118,7 +119,6 @@ class Plugin(models.Model):
     source: models.TextField = models.TextField(blank=True, null=True)
     latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-    preinstalled: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED: not used for anything, all install and config errors are in PluginConfig.error
     error: models.JSONField = models.JSONField(default=None, null=True)
@@ -174,14 +174,14 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
         # This in disabled in tests to avoid hitting GitHub API limits
         for plugin_url in settings.PLUGINS_PREINSTALLED_URLS:
             Plugin.objects.install(
-                organization=instance, plugin_type=Plugin.PluginType.REPOSITORY, url=plugin_url, preinstalled=True
+                organization=instance, plugin_type=Plugin.PluginType.REPOSITORY, url=plugin_url, is_preinstalled=True
             )
 
 
 @receiver(models.signals.post_save, sender=Team)
 def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bool, **kwargs):
     if created and can_configure_plugins(instance.organization):
-        for order, preinstalled_plugin in enumerate(Plugin.objects.filter(preinstalled=True)):
+        for order, preinstalled_plugin in enumerate(Plugin.objects.filter(is_preinstalled=True)):
             PluginConfig.objects.create(team=instance, plugin=preinstalled_plugin, enabled=True, order=order)
 
 
