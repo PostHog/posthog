@@ -31,7 +31,7 @@ from posthog.utils import convert_property_value, flatten
 
 class ClickhouseEventsViewSet(EventViewSet):
 
-    serializer_class = ClickhouseEventSerializer
+    serializer_class = ClickhouseEventSerializer  # type: ignore
 
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event[5] for event in query_result]
