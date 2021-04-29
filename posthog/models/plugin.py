@@ -169,7 +169,8 @@ class PluginStorage(models.Model):
 
 @receiver(models.signals.post_save, sender=Organization)
 def preinstall_plugins_for_new_organization(sender, instance: Organization, created: bool, **kwargs):
-    if created and not settings.TEST:  # Disable in tests to avoid hitting GitHub API limits
+    if created and not settings.MULTI_TENANCY and not settings.TEST:
+        # Disable this in tests to avoid hitting GitHub API limits
         for plugin_url in settings.PLUGINS_PREINSTALLED_URLS:
             Plugin.objects.install(
                 organization=instance, plugin_type=Plugin.PluginType.REPOSITORY, url=plugin_url, preinstalled=True
