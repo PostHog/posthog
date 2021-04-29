@@ -32,7 +32,7 @@ class TestOrganization(BaseTest):
             new_org, _, _ = Organization.objects.bootstrap(self.user)
 
         self.assertEqual(
-            Plugin.objects.filter(organization=new_org, preinstalled=True).count(),
+            Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(),
             len(settings.PLUGINS_PREINSTALLED_URLS),
         )
 
