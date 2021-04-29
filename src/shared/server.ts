@@ -106,7 +106,7 @@ export async function createServer(
             connectionTimeout: 3000, // default: 1000
             authenticationTimeout: 3000, // default: 1000
         })
-        const producer = kafka.producer()
+        const producer = kafka.producer({ retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 } })
         await producer?.connect()
 
         kafkaProducer = new KafkaProducerWrapper(producer, statsd, serverConfig)
