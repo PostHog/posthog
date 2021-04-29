@@ -106,13 +106,13 @@ export function getChartColors(backgroundColor: string): string[] {
 export function getBarColorFromStatus(status: string): string {
     switch (status) {
         case 'new':
-            return cssHSL(161, 43, 58)
+            return '#66c2a5'
         case 'returning':
-            return cssHSL(195, 58, 79)
+            return '#4575B4'
         case 'resurrecting':
-            return cssHSL(222, 37, 67)
+            return '#8da0cb'
         case 'dormant':
-            return cssHSL(17, 96, 69)
+            return '#fdae61'
         default:
             return 'black'
     }
