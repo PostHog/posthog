@@ -4,7 +4,7 @@ import { Col, Row, Input } from 'antd'
 import { List } from 'antd'
 import { DownOutlined, RightOutlined } from '@ant-design/icons'
 import { ActionType, CohortType } from '~/types'
-import { selectBoxLogic } from 'lib/logic/selectBoxLogic'
+import { selectBoxLogic, searchItems } from 'lib/logic/selectBoxLogic'
 import './SelectBox.scss'
 import { selectBoxLogicType } from 'lib/logic/selectBoxLogicType'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -37,6 +37,17 @@ export interface SelectedItem {
     cohort?: CohortType
 }
 
+const searchGroupItems = (items: SelectBoxItem[], search: string): SelectBoxItem[] => {
+    const newItems: SelectBoxItem[] = []
+    for (const item of items) {
+        newItems.push({
+            ...item,
+            dataSource: searchItems(item.dataSource, search),
+        })
+    }
+    return newItems
+}
+
 export function SelectBox({
     items,
     selectedItemKey,
@@ -50,7 +61,7 @@ export function SelectBox({
 }): JSX.Element {
     const dropdownRef = useRef<HTMLDivElement>(null)
     const dropdownLogic = selectBoxLogic({ updateFilter: onSelect, items })
-    const { selectedItem, selectedGroup } = useValues(dropdownLogic)
+    const { selectedItem, selectedGroup, search } = useValues(dropdownLogic)
     const { setSearch, setSelectedItem, onKeyDown } = useActions(dropdownLogic)
 
     const deselect = (e: MouseEvent): void => {
@@ -60,9 +71,11 @@ export function SelectBox({
         onDismiss && onDismiss(e)
     }
 
+    const data = !search ? items : searchGroupItems(items, search)
+
     useEffect(() => {
         if (selectedItemKey) {
-            const allSources = items.map((item) => item.dataSource).flat()
+            const allSources = data.map((item) => item.dataSource).flat()
             setSelectedItem(allSources.filter((item) => item.key === selectedItemKey)[0] || null)
             const offset = document.querySelector<HTMLElement>('.search-list [datakey="' + selectedItemKey + '"]')
                 ?.offsetTop
@@ -92,7 +105,7 @@ export function SelectBox({
                     />
                     <div style={{ width: '100%', height: '90%' }}>
                         <SelectUnit
-                            items={Object.assign({}, ...items.map((item) => ({ [item.name]: item })))}
+                            items={Object.assign({}, ...data.map((item) => ({ [item.name]: item })))}
                             dropdownLogic={dropdownLogic}
                         />
                     </div>
@@ -118,6 +131,7 @@ export function SelectUnit({
     const [data, setData] = useState<Record<string, SelectedItem[]>>({})
     const [flattenedData, setFlattenedData] = useState<SelectedItem[]>([])
     const [groupTypes, setGroupTypes] = useState<string[]>([])
+
     useEffect(() => {
         const formattedData: Record<string, SelectedItem[]> = {}
         const _groupTypes: string[] = []
@@ -127,7 +141,8 @@ export function SelectUnit({
         })
         setGroupTypes(_groupTypes)
         setData(formattedData)
-    }, [])
+        setHiddenData({})
+    }, [items])
 
     useEffect(() => {
         const _flattenedData: SelectedItem[] = []
