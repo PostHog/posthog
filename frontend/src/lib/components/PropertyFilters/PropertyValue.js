@@ -7,14 +7,14 @@ import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 export function PropertyValue({
     propertyKey,
     type,
-    endpoint,
-    placeholder,
-    style,
+    endpoint = undefined,
+    placeholder = undefined,
+    style = {},
     bordered = true,
     onSet,
     value,
     operator,
-    outerOptions,
+    outerOptions = undefined,
 }) {
     const [input, setInput] = useState('')
     const [optionsCache, setOptionsCache] = useState({})
