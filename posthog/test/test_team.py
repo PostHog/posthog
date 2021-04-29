@@ -160,7 +160,7 @@ class TestTeam(BaseTest):
             self.assertEqual(instance.is_numerical, item["is_numerical"])
 
     def test_preinstalled_are_autoenabled(self):
-        with self.settings(TEST=False):
+        with self.settings(TEST=False, MULTI_TENANCY=True):
             _, _, new_team = Organization.objects.bootstrap(self.user)
 
         self.assertEqual(

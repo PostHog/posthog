@@ -27,13 +27,21 @@ class TestOrganization(BaseTest):
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
 
-    def test_plugins_are_preinstalled(self):
-        with self.settings(TEST=False):
+    def test_plugins_are_preinstalled_on_self_hosted(self):
+        with self.settings(TEST=False, MULTI_TENANCY=False):
             new_org, _, _ = Organization.objects.bootstrap(self.user)
 
         self.assertEqual(
             Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(),
             len(settings.PLUGINS_PREINSTALLED_URLS),
+        )
+
+    def test_plugins_are_not_preinstalled_on_cloud(self):
+        with self.settings(TEST=False, MULTI_TENANCY=True):
+            new_org, _, _ = Organization.objects.bootstrap(self.user)
+
+        self.assertEqual(
+            Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 0,
         )
 
     @pytest.mark.ee
