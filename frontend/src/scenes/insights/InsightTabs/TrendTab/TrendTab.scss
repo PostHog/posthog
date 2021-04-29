@@ -9,18 +9,18 @@
     }
 
     .new {
-        background-color: #66c2a5;
+        background-color: var(--lifecycle-new);
     }
 
     .returning {
-        background-color: #4575b4;
+        background-color: var(--lifecycle-returning);
     }
 
     .resurrecting {
-        background-color: #8da0cb;
+        background-color: var(--lifecycle-resurrecting);
     }
 
     .dormant {
-        background-color: #fdae61;
+        background-color: var(--lifecycle-dormant);
     }
 }

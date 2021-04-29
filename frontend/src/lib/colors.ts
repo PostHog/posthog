@@ -106,13 +106,10 @@ export function getChartColors(backgroundColor: string): string[] {
 export function getBarColorFromStatus(status: string): string {
     switch (status) {
         case 'new':
-            return '#66c2a5'
         case 'returning':
-            return '#4575B4'
         case 'resurrecting':
-            return '#8da0cb'
         case 'dormant':
-            return '#fdae61'
+            return getColorVar(`lifecycle-${status}`)
         default:
             return 'black'
     }

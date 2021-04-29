@@ -39,6 +39,11 @@ style files without adding already imported styles. */
     --lime: #bfef45;
     --apricot: #ffd8b1;
     --brown: #9a6324;
+    // Lifecycle series (color-blind accessible)
+    --lifecycle-new: #66c2a5;
+    --lifecycle-returning: #4575b4;
+    --lifecycle-resurrecting: #8da0cb;
+    --lifecycle-dormant: #fdae61;
 }
 
 // Text styles
