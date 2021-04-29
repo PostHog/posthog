@@ -127,6 +127,7 @@ class TestUserAPI(APIBaseTest):
                 "email": "updated@posthog.com",
                 "anonymize_data": True,
                 "email_opt_in": False,
+                "events_column_config": {"active": ["column_1", "column_2"]},
                 "uuid": 1,  # should be ignored
                 "id": 1,  # should be ignored
                 "is_staff": True,  # should be ignored
@@ -143,6 +144,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["email"], "updated@posthog.com")
         self.assertEqual(response_data["anonymize_data"], True)
         self.assertEqual(response_data["email_opt_in"], False)
+        self.assertEqual(response_data["events_column_config"], {"active": ["column_1", "column_2"]})
         self.assertEqual(response_data["is_staff"], False)
         self.assertEqual(response_data["organization"]["id"], str(self.organization.id))
         self.assertEqual(response_data["team"]["id"], self.team.id)
@@ -157,7 +159,9 @@ class TestUserAPI(APIBaseTest):
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "user updated",
-            properties={"updated_attrs": ["anonymize_data", "email", "email_opt_in", "first_name",]},
+            properties={
+                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name",]
+            },
         )
 
     @patch("posthoganalytics.capture")
@@ -498,39 +502,6 @@ class TestUserAPILegacy(APIBaseTest):
                 {"key": "another prop", "volume": 1, "usage_count": 1},
             ],
         )
-
-    def test_user_events_column_config_change_to_default(self):
-        user = User.objects.get(id=self.user.id)
-        user.events_column_config = {"active": ["column_1", "column_2"]}
-        user.save()
-        self.assertDictEqual(user.events_column_config, {"active": ["column_1", "column_2"]})
-
-        response = self.client.patch(
-            "/api/user/",
-            data={"user": {"events_column_config": {"active": "DEFAULT"}}},
-            content_type="application/json",
-        ).json()
-        self.assertDictEqual(response["events_column_config"], {"active": "DEFAULT"})
-
-        user = User.objects.get(id=self.user.id)
-        self.assertDictEqual(user.events_column_config, {"active": "DEFAULT"})
-
-    def test_user_events_column_config_patch(self):
-        user = User.objects.get(id=self.user.id)
-        user.events_column_config = {"active": "DEFAULT"}
-        user.save()
-        self.assertDictEqual(user.events_column_config, {"active": "DEFAULT"})
-
-        response = self.client.patch(
-            "/api/user/",
-            data={"user": {"events_column_config": {"active": ["column_1", "column_2"]}}},
-            content_type="application/json",
-        ).json()
-
-        self.assertDictEqual(response["events_column_config"], {"active": ["column_1", "column_2"]})
-
-        user = User.objects.get(id=self.user.id)
-        self.assertDictEqual(user.events_column_config, {"active": ["column_1", "column_2"]})
 
     def test_redirect_to_site(self):
         self.team.app_urls = ["http://somewebsite.com"]
