@@ -111,7 +111,7 @@ export function getBarColorFromStatus(status: string): string {
         return cssHSL(195, 58, 79)
     }
     if (status === 'resurrecting') {
-        return cssHSL(214, 45, 49)
+        return cssHSL(222, 37, 67)
     }
     if (status === 'dormant') {
         return cssHSL(17, 96, 69)
