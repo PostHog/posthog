@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
+from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -29,10 +30,12 @@ from posthog.utils import convert_property_value, flatten
 
 
 class ClickhouseEventsViewSet(EventViewSet):
+
+    serializer_class = ClickhouseEventSerializer
+
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event[5] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-
         distinct_to_person: Dict[str, Person] = {}
         for person in persons:
             for distinct_id in person.distinct_ids:
@@ -109,10 +112,17 @@ class ClickhouseEventsViewSet(EventViewSet):
         return Response({"next": next_url, "results": result})
 
     def retrieve(self, request: Request, pk: Optional[int] = None, *args: Any, **kwargs: Any) -> Response:
-        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk},)
-        result = ClickhouseEventSerializer(query_result[0], many=False).data
-
-        return Response(result)
+        try:
+            query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk},)
+            result = ClickhouseEventSerializer(query_result[0], many=False).data
+            return Response(result)
+        except Exception as e:
+            error = f"Invalid event UUID: {pk}"
+            if isinstance(e, ServerException):
+                error = f"Event ID {pk} is not a UUID"
+            elif isinstance(e, IndexError):
+                error = f"No event exists for event UUID {pk}"
+            return Response({"detail": error, "code": "invalid", "type": "validation_error",}, status=400)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request, **kwargs) -> Response:
