@@ -132,17 +132,29 @@ export function SelectUnit({
     const [flattenedData, setFlattenedData] = useState<SelectedItem[]>([])
     const [groupTypes, setGroupTypes] = useState<string[]>([])
 
+    let lenghtOfData = 0
+    Object.values(items).forEach((entry) => {
+        lenghtOfData += entry.dataSource.length
+    })
+
     useEffect(() => {
         const formattedData: Record<string, SelectedItem[]> = {}
+        const _hiddenData: Record<string, SelectedItem[]> = {}
         const _groupTypes: string[] = []
+        const currHidden = Object.keys(hiddenData)
         Object.keys(items).forEach((groupName) => {
-            formattedData[groupName] = items[groupName].dataSource
+            if (!currHidden.includes(groupName)) {
+                formattedData[groupName] = items[groupName].dataSource
+            } else {
+                formattedData[groupName] = []
+                _hiddenData[groupName] = items[groupName].dataSource
+            }
             _groupTypes.push(groupName)
         })
         setGroupTypes(_groupTypes)
         setData(formattedData)
-        setHiddenData({})
-    }, [items])
+        setHiddenData(_hiddenData)
+    }, [lenghtOfData])
 
     useEffect(() => {
         const _flattenedData: SelectedItem[] = []
