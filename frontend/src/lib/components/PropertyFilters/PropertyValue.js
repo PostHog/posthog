@@ -62,32 +62,36 @@ export function PropertyValue({
 
     const validationError = getValidationError(operator, value)
 
+    const commonInputProps = {
+        autoFocus: !value && !isMobile(),
+        style: { width: '100%', ...style },
+        value: value || placeholder,
+        loading: optionsCache[input] === 'loading',
+        onSearch: (newInput) => {
+            setInput(newInput)
+            if (!optionsCache[newInput] && !isOperatorFlag(operator)) {
+                loadPropertyValues(newInput)
+            }
+        },
+        ['data-attr']: 'prop-val',
+        dropdownMatchSelectWidth: 350,
+        bordered,
+        placeholder,
+        allowClear: value,
+        onKeyDown: (e) => {
+            if (e.key === 'Escape') {
+                e.target.blur()
+            }
+        },
+    }
+
     return (
         <>
             {isOperatorRegex(operator) ? (
                 <AutoComplete
-                    autoFocus={!value && !isMobile()}
-                    style={{ width: '100%', ...style }}
+                    {...commonInputProps}
                     onChange={(val) => {
                         setValue(val ?? null)
-                    }}
-                    value={value || placeholder}
-                    loading={optionsCache[input] === 'loading'}
-                    onSearch={(newInput) => {
-                        setInput(newInput)
-                        if (!optionsCache[newInput]) {
-                            loadPropertyValues(newInput)
-                        }
-                    }}
-                    data-attr="prop-val"
-                    dropdownMatchSelectWidth={350}
-                    bordered={bordered}
-                    placeholder={placeholder}
-                    allowClear={value}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Escape') {
-                            e.target.blur()
-                        }
                     }}
                 >
                     {input && (
@@ -111,33 +115,14 @@ export function PropertyValue({
                 </AutoComplete>
             ) : (
                 <SelectGradientOverflow
+                    {...commonInputProps}
                     mode={isOperatorMulti(operator) ? 'multiple' : undefined}
                     showSearch
-                    autoFocus={!value && !isMobile()}
-                    style={{ width: '100%', ...style }}
                     onChange={(val, payload) => {
                         if (isOperatorMulti(operator) && payload.length > 0) {
                             setValue(val)
                         } else {
                             setValue(payload?.value ?? null)
-                        }
-                    }}
-                    value={value || placeholder}
-                    loading={optionsCache[input] === 'loading'}
-                    onSearch={(newInput) => {
-                        setInput(newInput)
-                        if (!optionsCache[newInput] && !isOperatorFlag(operator)) {
-                            loadPropertyValues(newInput)
-                        }
-                    }}
-                    data-attr="prop-val"
-                    dropdownMatchSelectWidth={350}
-                    bordered={bordered}
-                    placeholder={placeholder}
-                    allowClear={value}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Escape') {
-                            e.target.blur()
                         }
                     }}
                 >
