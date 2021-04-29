@@ -65,7 +65,7 @@ export function NewActionButton() {
                         </Col>
                     </Row>
                 )}
-                {appUrlsVisible && <EditAppUrls allowNavigation={true} />}
+                {appUrlsVisible && <EditAppUrls allowNavigation />}
             </Modal>
         </>
     )
