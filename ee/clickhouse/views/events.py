@@ -21,7 +21,6 @@ from ee.clickhouse.sql.events import (
     SELECT_ONE_EVENT_SQL,
 )
 from posthog.api.event import EventViewSet
-from posthog.exceptions import generate_exception_response
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
 from posthog.models.filters.sessions_filter import SessionsFilter
@@ -150,8 +149,13 @@ class ClickhouseEventsViewSet(EventViewSet):
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not request.GET.get("session_recording_id"):
-            return generate_exception_response(
-                "The query parameter session_recording_id is required for this endpoint."
+            return Response(
+                {
+                    "detail": "The query parameter session_recording_id is required for this endpoint.",
+                    "type": "validation_error",
+                    "code": "invalid",
+                },
+                status=400,
             )
 
         session_recording = SessionRecording().run(
