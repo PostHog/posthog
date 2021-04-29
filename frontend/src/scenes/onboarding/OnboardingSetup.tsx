@@ -11,6 +11,7 @@ import {
     UsergroupAddOutlined,
     PlusOutlined,
     ArrowRightOutlined,
+    ApiOutlined,
 } from '@ant-design/icons'
 import './OnboardingSetup.scss'
 import { useActions, useValues } from 'kea'
@@ -23,6 +24,10 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { pluginsLogic } from '../plugins/pluginsLogic'
+import { PluginImage } from '../plugins/plugin/PluginImage'
+import { endWithPunctation } from '../../lib/utils'
+import { preflightLogic } from '../PreflightCheck/logic'
 
 const { Panel } = Collapse
 
@@ -46,38 +51,29 @@ function PanelHeader({
     )
 }
 
-function OnboardingStep({
-    label,
-    title,
-    icon,
-    identifier,
-    disabled,
-    completed,
-    handleClick,
-    caption,
-    customActionElement,
-    analyticsExtraArgs = {},
-}: {
+interface OnboardingStepContentsProps {
     label?: string
-    title?: string
     icon: React.ReactNode
-    identifier: string
-    disabled?: boolean
     completed?: boolean
-    handleClick?: () => void
+    disabled?: boolean
     caption?: JSX.Element | string
-    customActionElement?: JSX.Element
+    actionElement?: JSX.Element
+    identifier: string
+    handleClick?: () => void
     analyticsExtraArgs?: Record<string, string | number | boolean>
-}): JSX.Element {
-    const actionElement = (
-        <>
-            {customActionElement || (
-                <Button type="primary" disabled={disabled}>
-                    {label}
-                </Button>
-            )}
-        </>
-    )
+}
+
+function OnboardingStepContents({
+    icon,
+    label,
+    completed,
+    caption,
+    disabled,
+    actionElement,
+    identifier,
+    handleClick,
+    analyticsExtraArgs = {},
+}: OnboardingStepContentsProps): JSX.Element {
     const { reportOnboardingStepTriggered } = useActions(eventUsageLogic)
 
     const onClick = (): void => {
@@ -88,14 +84,17 @@ function OnboardingStep({
         handleClick()
     }
 
+    actionElement = (
+        <>
+            {actionElement || (
+                <Button type="primary" disabled={disabled}>
+                    {label}
+                </Button>
+            )}
+        </>
+    )
     return (
-        <div
-            className={`onboarding-step${disabled ? ' disabled' : ''}${completed ? ' completed' : ''}`}
-            onClick={onClick}
-            data-attr="onboarding-setup-step"
-            data-step={identifier}
-        >
-            {title && <div className="title">{title}</div>}
+        <div className="onboarding-step-contents" onClick={onClick} data-step={identifier}>
             <div className="icon-container">{icon}</div>
             {caption && <div className="caption">{caption}</div>}
             {completed ? (
@@ -106,6 +105,92 @@ function OnboardingStep({
             ) : (
                 actionElement
             )}
+        </div>
+    )
+}
+
+interface OnboardingStepProps {
+    title?: string
+    completed?: boolean
+    disabled?: boolean
+}
+
+function OnboardingStep({
+    label,
+    title,
+    icon,
+    identifier,
+    disabled,
+    completed,
+    handleClick,
+    caption,
+    actionElement,
+    analyticsExtraArgs = {},
+}: OnboardingStepProps & OnboardingStepContentsProps): JSX.Element {
+    return (
+        <div
+            className={`onboarding-step${disabled ? ' disabled' : ''}${completed ? ' completed' : ''}`}
+            data-attr="onboarding-setup-step"
+        >
+            {title && <div className="title">{title}</div>}
+            <OnboardingStepContents
+                label={label}
+                icon={icon}
+                completed={completed}
+                caption={caption}
+                disabled={disabled}
+                actionElement={actionElement}
+                handleClick={handleClick}
+                analyticsExtraArgs={analyticsExtraArgs}
+                identifier={identifier}
+            />
+        </div>
+    )
+}
+
+function OnboardingStepGroup({
+    title,
+    disabled,
+    completed,
+    entries,
+}: OnboardingStepProps & { entries: OnboardingStepContentsProps[] }): JSX.Element {
+    return (
+        <div
+            className={`onboarding-step${disabled ? ' disabled' : ''}${completed ? ' completed' : ''}`}
+            data-attr="onboarding-setup-step"
+        >
+            {title && <div className="title">{title}</div>}
+            <Row>
+                {entries.map(
+                    (
+                        {
+                            label,
+                            icon,
+                            completed,
+                            disabled,
+                            caption,
+                            actionElement,
+                            handleClick,
+                            identifier,
+                            analyticsExtraArgs,
+                        },
+                        index
+                    ) => (
+                        <OnboardingStepContents
+                            key={`identifier-${index}`}
+                            label={label}
+                            icon={icon}
+                            completed={completed}
+                            caption={caption}
+                            disabled={disabled}
+                            actionElement={actionElement}
+                            handleClick={handleClick}
+                            identifier={identifier}
+                            analyticsExtraArgs={analyticsExtraArgs}
+                        />
+                    )
+                )}
+            </Row>
         </div>
     )
 }
@@ -130,6 +215,10 @@ export function OnboardingSetup(): JSX.Element {
         callSlack,
     } = useActions(onboardingSetupLogic)
 
+    const { installedPlugins, pluginsLoading, pluginConfigsLoading } = useValues(pluginsLogic)
+    const { toggleEnabled } = useActions(pluginsLogic)
+
+    const { preflight } = useValues(preflightLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentOrganizationLoading } = useValues(organizationLogic)
@@ -227,7 +316,7 @@ export function OnboardingSetup(): JSX.Element {
                                                 .
                                             </>
                                         }
-                                        customActionElement={
+                                        actionElement={
                                             <div style={{ fontWeight: 'bold' }}>
                                                 {currentTeam?.session_recording_opt_in ? (
                                                     <span style={{ color: 'var(--success)' }}>Enabled</span>
@@ -254,7 +343,7 @@ export function OnboardingSetup(): JSX.Element {
                                             window.open(`https://posthog.com/slack?s=app&${UTM_TAGS}`, '_blank')
                                         }}
                                         caption="Fastest way to reach the PostHog team and the community."
-                                        customActionElement={
+                                        actionElement={
                                             <Button type={slackCalled ? 'default' : 'primary'} icon={<SlackOutlined />}>
                                                 Join us
                                             </Button>
@@ -267,7 +356,7 @@ export function OnboardingSetup(): JSX.Element {
                                             identifier="invite-team"
                                             handleClick={() => setInviteTeamModalShown(true)}
                                             caption="Spread the knowledge, share insights with everyone in your team."
-                                            customActionElement={
+                                            actionElement={
                                                 <Button type="primary" icon={<PlusOutlined />}>
                                                     Invite my team
                                                 </Button>
@@ -275,12 +364,70 @@ export function OnboardingSetup(): JSX.Element {
                                         />
                                     )}
                                 </Row>
-                                <Row align="middle">
+                                <Row>
+                                    <OnboardingStepGroup
+                                        title="Configure plugins"
+                                        entries={installedPlugins
+                                            .map(({ name, description, url, plugin_type, pluginConfig }) => ({
+                                                identifier: `plugins-${name}`,
+                                                icon: <PluginImage size="small" pluginType={plugin_type} url={url} />,
+                                                caption: (
+                                                    <>
+                                                        <b>{name}</b>
+                                                        <br />
+                                                        {endWithPunctation(description)}
+                                                    </>
+                                                ),
+                                                actionElement: (
+                                                    <div style={{ fontWeight: 'bold' }}>
+                                                        {pluginConfig.enabled ? (
+                                                            <span style={{ color: 'var(--success)' }}>Enabled</span>
+                                                        ) : (
+                                                            <span style={{ color: 'var(--danger)' }}>Disabled</span>
+                                                        )}
+                                                        <Switch
+                                                            checked={pluginConfig.enabled}
+                                                            loading={pluginsLoading || pluginConfigsLoading}
+                                                            style={{ marginLeft: 6 }}
+                                                        />
+                                                    </div>
+                                                ),
+                                                handleClick: () =>
+                                                    toggleEnabled({
+                                                        id: pluginConfig.id,
+                                                        enabled: !pluginConfig.enabled,
+                                                    }),
+                                            }))
+                                            .concat([
+                                                {
+                                                    identifier: 'plugins-more',
+                                                    icon: <ApiOutlined />,
+                                                    caption: (
+                                                        <>
+                                                            <b>More…</b>
+                                                            <br />
+                                                            {preflight?.cloud
+                                                                ? 'See other verified plugins.'
+                                                                : 'Install other verified or external plugins. Or even write your own.'}
+                                                        </>
+                                                    ),
+                                                    actionElement: (
+                                                        <Button type="primary" icon={<ApiOutlined />}>
+                                                            Open Plugins page
+                                                        </Button>
+                                                    ),
+                                                    handleClick: () => window.open(`/project/plugins`, '_blank'),
+                                                },
+                                            ])}
+                                    />
+                                </Row>
+                                <Row align="middle" style={{ margin: '1rem 0' }}>
                                     <Button
                                         type="default"
                                         onClick={completeOnboarding}
                                         loading={currentOrganizationLoading}
                                         data-attr="onboarding-setup-complete"
+                                        icon={<CheckOutlined />}
                                     >
                                         Finish setup
                                     </Button>

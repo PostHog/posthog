@@ -11,10 +11,22 @@ export function PluginImage({
 }: {
     url?: string
     pluginType?: PluginInstallationType
-    size?: 'medium' | 'large'
+    size?: 'small' | 'medium' | 'large'
 }): JSX.Element {
     const [state, setState] = useState({ image: imgPluginDefault })
-    const pixelSize = size === 'large' ? 100 : 60
+    let pixelSize: number
+    switch (size) {
+        case 'large':
+            pixelSize = 100
+            break
+        case 'small':
+            pixelSize = 40
+            break
+        case 'medium':
+        default:
+            pixelSize = 60
+            break
+    }
 
     useEffect(() => {
         if (url?.includes('github.com')) {

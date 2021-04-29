@@ -56,7 +56,13 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        cursor: pointer;
+
+        .onboarding-step-contents {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+        }
 
         .title {
             text-align: center;
