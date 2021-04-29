@@ -103,7 +103,7 @@ function CreateAnalysisSection(): JSX.Element {
                             color="var(--bg-charcoal)"
                             title={insight.questions.map((question, idx) => (
                                 <Paragraph
-                                    style={{ color: 'var(--text-light', padding: '3px' }}
+                                    style={{ color: 'var(--text-light)', padding: '3px' }}
                                     key={`${insight.name}_${idx}`}
                                 >
                                     {`•` + question}
