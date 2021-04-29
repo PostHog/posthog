@@ -64,9 +64,9 @@ class PluginSerializer(serializers.ModelSerializer):
             "is_global",
             "organization_id",
             "organization_name",
-            "preinstalled",
+            "is_preinstalled",
         ]
-        read_only_fields = ["id", "latest_tag", "preinstalled"]
+        read_only_fields = ["id", "latest_tag", "is_preinstalled"]
 
     def get_url(self, plugin: Plugin) -> Optional[str]:
         # remove ?private_token=... from url

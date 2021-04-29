@@ -410,7 +410,7 @@ export const pluginsLogic = kea<
         preinstalledPlugins: [
             (s) => [s.installedPlugins],
             (installedPlugins): PluginTypeWithConfig[] =>
-                installedPlugins.filter((plugin: PluginTypeWithConfig) => plugin.preinstalled),
+                installedPlugins.filter((plugin: PluginTypeWithConfig) => plugin.is_preinstalled),
         ],
         enabledPlugins: [
             (s) => [s.installedPlugins, s.movedPlugins, s.temporaryOrder],
