@@ -64,14 +64,14 @@ const insights = [
     },
     {
         name: 'Stickiness',
-        questions: ['How many times do users typically perform an action within a select time period?'],
+        questions: ['How many times do users typically perform an action within a selected time period?'],
         target: '/insights?insight=STICKINESS',
         icon: <FallOutlined />,
     },
     {
         name: 'Lifecycle',
         target: '/insights?insight=LIFECYCLE',
-        questions: ['How many users are we gaining, activating, and losing within a select time period?'],
+        questions: ['How many users are we gaining, activating, and losing within a selected time period?'],
         icon: <SlidersOutlined />,
     },
 ]
