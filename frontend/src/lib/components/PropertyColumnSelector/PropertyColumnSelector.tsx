@@ -5,6 +5,7 @@ import './PropertyColumnSelector.scss'
 import { useValues } from 'kea'
 import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 import { PropertySelect } from '../PropertyFilters/PropertySelect'
+import { SelectOption } from '~/types'
 
 type onConfirmCallback = (options: CheckboxValueType[]) => any
 type onCancelCallback = (options: CheckboxValueType[]) => any
@@ -14,12 +15,11 @@ interface PropertyColumnSelectorProps {
     onCancel?: onCancelCallback
     title: string
     visible: boolean
-    loading: boolean
     selectedItems: CheckboxValueType[]
 }
 
 export function PropertyColumnSelector(props: PropertyColumnSelectorProps): ReactElement | null {
-    const { title, onConfirm, onCancel, selectedItems = [''], visible = false, loading = false } = props
+    const { title, onConfirm, onCancel, selectedItems = [''], visible = false } = props
     const [checkedValues, setCheckedValues] = useState(selectedItems)
     const _onConfirm = (): void => {
         if (onConfirm) {
@@ -64,7 +64,8 @@ export function PropertyColumnSelector(props: PropertyColumnSelectorProps): Reac
                                 options: propertyDefinitions.map((d) => ({ value: d.name })),
                             },
                         ]}
-                        value={value !== '' ? { value, label: value } : null}
+                        placeholder="Select property"
+                        value={value !== '' ? ({ value, label: value } as SelectOption) : null}
                         onChange={(_, value) => {
                             const arr = [...checkedValues]
                             arr[index] = value

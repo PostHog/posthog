@@ -15,6 +15,7 @@ export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> 
     render: (record: RecordType, ...rest: any) => JSX.Element | RenderedCell<RecordType>
     ellipsis?: boolean
     span: number
+    eventProperties?: string[]
 }
 
 export interface InternalColumnType<RecordType> extends ResizableColumnType<RecordType> {

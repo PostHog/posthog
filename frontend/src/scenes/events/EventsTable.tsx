@@ -116,13 +116,12 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 const param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
                 if (filtersEnabled) {
                     return (
-                        <span className="ph-no-capture">
-                            <FilterPropertyLink
-                                property={param}
-                                value={event.properties[param]}
-                                filters={{ properties }}
-                            />
-                        </span>
+                        <FilterPropertyLink
+                            className="ph-no-capture"
+                            property={param}
+                            value={event.properties[param]}
+                            filters={{ properties }}
+                        />
                     )
                 }
                 return <Property value={event.properties[param]} />
@@ -230,7 +229,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         columnConfig === 'DEFAULT'
             ? defaultColumns
             : columnConfig.map(
-                  (e) =>
+                  (e: string) =>
                       defaultColumns.find((d) => d.key === e) || {
                           title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
                           key: e,
@@ -267,7 +266,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     />
                 </Col>
                 <Col span={pageKey === 'events' ? 2 : 4} className="text-right">
-                    <Button data-attr="events-table-column-selector" onClick={openColumnChooser} type="secondary">
+                    <Button data-attr="events-table-column-selector" onClick={openColumnChooser} type="default">
                         Change columns
                     </Button>
                     <Tooltip title="Up to 100,000 latest events.">
