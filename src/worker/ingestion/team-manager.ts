@@ -3,25 +3,27 @@ import { nodePostHog } from 'posthog-js-lite/dist/src/targets/node'
 
 import { DB } from '../../shared/db'
 import { timeoutGuard } from '../../shared/ingestion/utils'
+import { UUIDT } from '../../shared/utils'
 import { Team, TeamId } from '../../types'
 
-interface TeamWithEventUuid extends Team {
-    __fetch_event_uuid?: string
-}
 type TeamCache<T> = Map<TeamId, [T, number]>
 
 export class TeamManager {
     db: DB
-    teamCache: TeamCache<TeamWithEventUuid | null>
+    teamCache: TeamCache<Team | null>
+    eventNamesCache: Map<TeamId, Set<string>>
+    eventPropertiesCache: Map<TeamId, Set<string>>
     shouldSendWebhooksCache: TeamCache<boolean>
 
     constructor(db: DB) {
         this.db = db
         this.teamCache = new Map()
+        this.eventNamesCache = new Map()
+        this.eventPropertiesCache = new Map()
         this.shouldSendWebhooksCache = new Map()
     }
 
-    public async fetchTeam(teamId: number, eventUuid?: string): Promise<TeamWithEventUuid | null> {
+    public async fetchTeam(teamId: number): Promise<Team | null> {
         const cachedTeam = this.getByAge(this.teamCache, teamId)
         if (cachedTeam) {
             return cachedTeam
@@ -34,10 +36,7 @@ export class TeamManager {
                 [teamId],
                 'selectTeam'
             )
-            const team: TeamWithEventUuid | null = teamQueryResult.rows[0] || null
-            if (team) {
-                team.__fetch_event_uuid = eventUuid
-            }
+            const team: Team | null = teamQueryResult.rows[0] || null
 
             this.teamCache.set(teamId, [team, Date.now()])
             return team
@@ -87,11 +86,10 @@ export class TeamManager {
     public async updateEventNamesAndProperties(
         teamId: number,
         event: string,
-        eventUuid: string,
         properties: Properties,
         posthog: ReturnType<typeof nodePostHog>
     ): Promise<void> {
-        let team: TeamWithEventUuid | null = await this.fetchTeam(teamId)
+        const team: Team | null = await this.fetchTeam(teamId)
 
         if (!team) {
             return
@@ -101,42 +99,36 @@ export class TeamManager {
             event: event,
             ingested: team.ingested_event,
         })
-        let shouldUpdate = this.calculateUpdates(team, event, properties)
-        if (shouldUpdate && team.__fetch_event_uuid !== eventUuid) {
-            // :TRICKY: Double-check if we're updating based on cached data, if so, re-validate.
-            // :TODO: Switch all of this to a sane schema that can be updated without races.
-            this.teamCache.delete(teamId)
-            team = await this.fetchTeam(teamId, eventUuid)
-            shouldUpdate = this.calculateUpdates(team, event, properties)
-        }
-        if (team && shouldUpdate) {
-            const timeout2 = timeoutGuard(
-                'Still running "updateEventNamesAndProperties" save. Timeout warning after 30 sec!',
-                { event }
-            )
+
+        await this.cacheEventNamesAndProperties(team.id)
+
+        if (!this.eventNamesCache.get(team.id)?.has(event)) {
             await this.db.postgresQuery(
-                `UPDATE posthog_team SET
-                    ingested_event = $1,
-                    event_names = $2,
-                    event_names_with_usage = $3,
-                    event_properties = $4,
-                    event_properties_with_usage = $5,
-                    event_properties_numerical = $6
-                WHERE id = $7`,
-                [
-                    true,
-                    JSON.stringify(team.event_names),
-                    JSON.stringify(team.event_names_with_usage),
-                    JSON.stringify(team.event_properties),
-                    JSON.stringify(team.event_properties_with_usage),
-                    JSON.stringify(team.event_properties_numerical),
-                    team.id,
-                ],
-                'updateEventNamesAndProperties'
+                `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, NULL, NULL, $3) ON CONFLICT DO NOTHING`,
+                [new UUIDT().toString(), event, team.id],
+                'insertEventDefinition'
             )
-            clearTimeout(timeout2)
+            this.eventNamesCache.get(team.id)?.add(event)
         }
+
+        for (const [key, value] of Object.entries(properties)) {
+            if (!this.eventPropertiesCache.get(team.id)?.has(key)) {
+                await this.db.postgresQuery(
+                    `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, NULL, NULL, $4) ON CONFLICT DO NOTHING`,
+                    [new UUIDT().toString(), key, typeof value === 'number', team.id],
+                    'insertPropertyDefinition'
+                )
+                this.eventPropertiesCache.get(team.id)?.add(key)
+            }
+        }
+
         if (team && !team.ingested_event) {
+            await this.db.postgresQuery(
+                `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`,
+                [true, team.id],
+                'setTeamIngestedEvent'
+            )
+
             // First event for the team captured
             const organizationMembers = await this.db.postgresQuery(
                 'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
@@ -157,37 +149,28 @@ export class TeamManager {
         clearTimeout(timeout)
     }
 
-    private calculateUpdates(team: Team | null, event: string, properties: Properties): boolean {
-        if (!team) {
-            return false
+    public async cacheEventNamesAndProperties(teamId: number): Promise<void> {
+        let eventNamesCache = this.eventNamesCache.get(teamId)
+        if (!eventNamesCache) {
+            const eventNames = await this.db.postgresQuery(
+                'SELECT name FROM posthog_eventdefinition WHERE team_id = $1',
+                [teamId],
+                'fetchEventDefinitions'
+            )
+            eventNamesCache = new Set(eventNames.rows.map((r) => r.name))
+            this.eventNamesCache.set(teamId, eventNamesCache)
         }
 
-        let shouldUpdate = false
-        if (!team.ingested_event) {
-            shouldUpdate = true
+        let eventPropertiesCache = this.eventPropertiesCache.get(teamId)
+        if (!eventPropertiesCache) {
+            const eventProperties = await this.db.postgresQuery(
+                'SELECT name FROM posthog_propertydefinition WHERE team_id = $1',
+                [teamId],
+                'fetchPropertyDefinitions'
+            )
+            eventPropertiesCache = new Set(eventProperties.rows.map((r) => r.name))
+            this.eventPropertiesCache.set(teamId, eventPropertiesCache)
         }
-
-        if (team.event_names && !team.event_names.includes(event)) {
-            shouldUpdate = true
-            team.event_names.push(event)
-            team.event_names_with_usage.push({ event: event, usage_count: null, volume: null })
-        }
-        for (const [key, value] of Object.entries(properties)) {
-            if (!team.event_properties || !team.event_properties.includes(key)) {
-                team.event_properties.push(key)
-                team.event_properties_with_usage.push({ key: key, usage_count: null, volume: null })
-                shouldUpdate = true
-            }
-            if (
-                typeof value === 'number' &&
-                (!team.event_properties_numerical || !team.event_properties_numerical.includes(key))
-            ) {
-                team.event_properties_numerical.push(key)
-                shouldUpdate = true
-            }
-        }
-
-        return shouldUpdate
     }
 
     private getByAge<K, V>(cache: Map<K, [V, number]>, key: K, maxAgeMs = 30_000): V | undefined {

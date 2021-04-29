@@ -76,7 +76,7 @@ jobs:
             - uses: actions/cache@v2
               with:
                   path: ${{ env.pythonLocation }}
-                  key: ${{ env.pythonLocation }}-${{ hashFiles('posthog/requirements.txt') }}
+                  key: ${{ env.pythonLocation }}-v1-${{ hashFiles('posthog/requirements.txt') }}
 
             - name: Install requirements.txt dependencies with pip
               run: |
@@ -151,7 +151,7 @@ jobs:
             - uses: actions/cache@v2
               with:
                   path: ${{ env.pythonLocation }}
-                  key: ${{ env.pythonLocation }}-${{ hashFiles('posthog/requirements.txt') }}
+                  key: ${{ env.pythonLocation }}-v1-${{ hashFiles('posthog/requirements.txt') }}
 
             - name: Install requirements.txt dependencies with pip
               run: |
@@ -241,7 +241,7 @@ jobs:
             - uses: actions/cache@v2
               with:
                   path: ${{ env.pythonLocation }}
-                  key: ${{ env.pythonLocation }}-${{ hashFiles('posthog/requirements.txt') }}
+                  key: ${{ env.pythonLocation }}-v1-${{ hashFiles('posthog/requirements.txt') }}
 
             - name: Install requirements.txt dependencies with pip
               run: |
@@ -332,7 +332,7 @@ jobs:
             - uses: actions/cache@v2
               with:
                   path: ${{ env.pythonLocation }}
-                  key: ${{ env.pythonLocation }}-${{ hashFiles('posthog/requirements.txt') }}
+                  key: ${{ env.pythonLocation }}-v1-${{ hashFiles('posthog/requirements.txt') }}
 
             - name: Install requirements.txt dependencies with pip
               run: |
@@ -423,7 +423,7 @@ jobs:
             - uses: actions/cache@v2
               with:
                   path: ${{ env.pythonLocation }}
-                  key: ${{ env.pythonLocation }}-${{ hashFiles('posthog/requirements.txt') }}
+                  key: ${{ env.pythonLocation }}-v1-${{ hashFiles('posthog/requirements.txt') }}
 
             - name: Install requirements.txt dependencies with pip
               run: |
@@ -499,7 +499,7 @@ jobs:
             - uses: actions/cache@v2
               with:
                   path: ${{ env.pythonLocation }}
-                  key: ${{ env.pythonLocation }}-${{ hashFiles('posthog/requirements.txt') }}
+                  key: ${{ env.pythonLocation }}-v1-${{ hashFiles('posthog/requirements.txt') }}
 
             - name: Install requirements.txt dependencies with pip
               run: |
@@ -574,7 +574,7 @@ jobs:
             - uses: actions/cache@v2
               with:
                   path: ${{ env.pythonLocation }}
-                  key: ${{ env.pythonLocation }}-${{ hashFiles('posthog/requirements.txt') }}
+                  key: ${{ env.pythonLocation }}-v1-${{ hashFiles('posthog/requirements.txt') }}
 
             - name: Install requirements.txt dependencies with pip
               run: |
@@ -649,7 +649,7 @@ jobs:
             - uses: actions/cache@v2
               with:
                   path: ${{ env.pythonLocation }}
-                  key: ${{ env.pythonLocation }}-${{ hashFiles('posthog/requirements.txt') }}
+                  key: ${{ env.pythonLocation }}-v1-${{ hashFiles('posthog/requirements.txt') }}
 
             - name: Install requirements.txt dependencies with pip
               run: |

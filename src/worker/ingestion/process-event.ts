@@ -373,7 +373,7 @@ export class EventsProcessor {
             }))
         }
 
-        const team = await this.teamManager.fetchTeam(teamId, eventUuid)
+        const team = await this.teamManager.fetchTeam(teamId)
 
         if (!team) {
             throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
@@ -383,7 +383,7 @@ export class EventsProcessor {
             properties['$ip'] = ip
         }
 
-        await this.teamManager.updateEventNamesAndProperties(teamId, event, eventUuid, properties, this.posthog)
+        await this.teamManager.updateEventNamesAndProperties(teamId, event, properties, this.posthog)
 
         if (await this.personManager.isNewPerson(this.db, teamId, distinctId)) {
             // Catch race condition where in between getting and creating, another request already created this user
