@@ -1,6 +1,5 @@
 import { Card, Carousel, Divider, Image, Space, Spin, Tooltip, Typography } from 'antd'
 import React, { useState } from 'react'
-import { ArrowLeftOutlined, ArrowRightOutlined } from '@ant-design/icons'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useActions } from 'kea'
@@ -16,7 +15,7 @@ import trackingSpas from 'scenes/onboarding/home/static/tracking-spas.png'
 import salesRevenueTracking from 'scenes/onboarding/home/static/sales-revenue-tracking.png'
 import trackingB2b from 'scenes/onboarding/home/static/tracking-b2b.png'
 import trackingTeams from 'scenes/onboarding/home/static/tracking-teams.png'
-import { ContainedCarouselArrow } from 'scenes/onboarding/home/utils'
+import { CarouselArrow } from 'scenes/onboarding/home/sections/CarouselArrow'
 
 const UTM_TAGS = '?utm_medium=in-product&utm_campaign=project-home'
 
@@ -87,16 +86,8 @@ function Tutorials(): JSX.Element {
         slidesToShow: 4,
         slidesToScroll: 2,
         arrows: true,
-        nextArrow: (
-            <ContainedCarouselArrow>
-                <ArrowRightOutlined />
-            </ContainedCarouselArrow>
-        ),
-        prevArrow: (
-            <ContainedCarouselArrow>
-                <ArrowLeftOutlined />
-            </ContainedCarouselArrow>
-        ),
+        nextArrow: <CarouselArrow direction="next" />,
+        prevArrow: <CarouselArrow direction="prev" />,
         autoplay: true,
         vertical: false,
         autoplaySpeed: 7500,
