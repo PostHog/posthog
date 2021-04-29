@@ -10,6 +10,7 @@ from semantic_version.base import SimpleSpec, Version
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
 from posthog.plugins.utils import download_plugin_archive, get_json_from_archive, load_json_file, parse_url
 from posthog.version import VERSION
@@ -169,8 +170,8 @@ class PluginStorage(models.Model):
 
 @receiver(models.signals.post_save, sender=Organization)
 def preinstall_plugins_for_new_organization(sender, instance: Organization, created: bool, **kwargs):
-    if created and not settings.MULTI_TENANCY and not settings.TEST:
-        # Disable this in tests to avoid hitting GitHub API limits
+    if created and not settings.MULTI_TENANCY and not settings.TEST and can_install_plugins(instance):
+        # This in disabled in tests to avoid hitting GitHub API limits
         for plugin_url in settings.PLUGINS_PREINSTALLED_URLS:
             Plugin.objects.install(
                 organization=instance, plugin_type=Plugin.PluginType.REPOSITORY, url=plugin_url, preinstalled=True
@@ -179,7 +180,7 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
 
 @receiver(models.signals.post_save, sender=Team)
 def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    if created:
+    if created and can_configure_plugins(instance.organization):
         for order, preinstalled_plugin in enumerate(Plugin.objects.filter(preinstalled=True)):
             PluginConfig.objects.create(team=instance, plugin=preinstalled_plugin, enabled=True, order=order)
 
