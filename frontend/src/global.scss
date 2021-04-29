@@ -42,10 +42,10 @@ style files without adding already imported styles. */
     --apricot: #ffd8b1;
     --brown: #9a6324;
     // Lifecycle series
-    --lifecycle-new: #99c5ff;
-    --lifecycle-returning: #71b96b;
-    --lifecycle-resurrecting: #c277cf;
-    --lifecycle-dormant: #f86234;
+    --lifecycle-new: #{$lifecycle_new};
+    --lifecycle-returning: #{$lifecycle_returning};
+    --lifecycle-resurrecting: #{$lifecycle_resurrecting};
+    --lifecycle-dormant: #{$lifecycle_dormant};
 }
 
 // Text styles
