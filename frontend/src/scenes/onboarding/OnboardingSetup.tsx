@@ -26,7 +26,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { pluginsLogic } from '../plugins/pluginsLogic'
 import { PluginImage } from '../plugins/plugin/PluginImage'
-import { endWithPunctation } from '../../lib/utils'
+import { endWithPunctation, Loading } from '../../lib/utils'
 import { preflightLogic } from '../PreflightCheck/logic'
 
 const { Panel } = Collapse
@@ -224,6 +224,10 @@ export function OnboardingSetup(): JSX.Element {
     const { currentOrganizationLoading } = useValues(organizationLogic)
 
     const UTM_TAGS = 'utm_medium=in-product&utm_campaign=onboarding-setup-2822'
+
+    if (currentOrganizationLoading) {
+        return <Loading />
+    }
 
     return (
         <div className="onboarding-setup">
