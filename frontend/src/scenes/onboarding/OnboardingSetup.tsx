@@ -370,7 +370,7 @@ export function OnboardingSetup(): JSX.Element {
                                 </Row>
                                 <Row>
                                     <OnboardingStepGroup
-                                        title="Configure plugins"
+                                        title="Make use of plugins"
                                         entries={preinstalledPlugins
                                             .map(({ name, description, url, plugin_type, pluginConfig }) => ({
                                                 identifier: `plugins-${name}`,
