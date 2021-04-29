@@ -16,6 +16,7 @@ import {
     Element,
     ElementGroup,
     Event,
+    EventDefinitionType,
     Person,
     PersonDistinctId,
     PluginConfig,
@@ -23,6 +24,7 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PostgresSessionRecordingEvent,
+    PropertyDefinitionType,
     RawOrganization,
     RawPerson,
     SessionRecordingEvent,
@@ -641,5 +643,16 @@ export class DB {
         }
 
         return entry
+    }
+
+    public async fetchEventDefinitions(): Promise<EventDefinitionType[]> {
+        return (await this.postgresQuery('SELECT * FROM posthog_eventdefinition', undefined, 'fetchEventDefinitions'))
+            .rows as EventDefinitionType[]
+    }
+
+    public async fetchPropertyDefinitions(): Promise<PropertyDefinitionType[]> {
+        return (
+            await this.postgresQuery('SELECT * FROM posthog_propertydefinition', undefined, 'fetchPropertyDefinitions')
+        ).rows as PropertyDefinitionType[]
     }
 }

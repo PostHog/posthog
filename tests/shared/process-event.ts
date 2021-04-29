@@ -204,13 +204,16 @@ export const createProcessEventTests = (
 
     test('capture new person', async () => {
         await server.db.postgresQuery(
-            `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`,
+            `UPDATE posthog_team
+             SET ingested_event = $1
+             WHERE id = $2`,
             [true, team.id],
             'testTag'
         )
         team = await getFirstTeam(server)
 
-        expect(team.event_names).toEqual([])
+        expect(await server.db.fetchEventDefinitions()).toEqual([])
+        expect(await server.db.fetchPropertyDefinitions()).toEqual([])
 
         await processEvent(
             '2',
@@ -241,9 +244,9 @@ export const createProcessEventTests = (
         )
 
         if (database === 'clickhouse') {
-            expect(queryCounter).toBe(11)
+            expect(queryCounter).toBe(11 + 14 /* event & prop definitions */)
         } else if (database === 'postgresql') {
-            expect(queryCounter).toBe(15)
+            expect(queryCounter).toBe(15 + 14 /* event & prop definitions */)
         }
 
         let persons = await server.db.fetchPersons()
@@ -314,55 +317,97 @@ export const createProcessEventTests = (
         }
 
         team = await getFirstTeam(server)
-        expect(team.event_names).toEqual(['$autocapture'])
-        expect(team.event_names_with_usage).toEqual([{ event: '$autocapture', volume: null, usage_count: null }])
-        expect(team.event_properties).toEqual([
-            'distinct_id',
-            'token',
-            '$browser',
-            '$current_url',
-            '$os',
-            '$browser_version',
-            '$initial_referring_domain',
-            '$initial_referrer_url',
-            'utm_medium',
-            '$ip',
+
+        expect(await server.db.fetchEventDefinitions()).toEqual([
+            {
+                id: expect.any(String),
+                name: '$autocapture',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
+            },
         ])
-        expect(team.event_properties_with_usage).toEqual([
-            { key: 'distinct_id', usage_count: null, volume: null },
-            { key: 'token', usage_count: null, volume: null },
-            { key: '$browser', usage_count: null, volume: null },
+        expect(await server.db.fetchPropertyDefinitions()).toEqual([
             {
-                key: '$current_url',
-                usage_count: null,
-                volume: null,
+                id: expect.any(String),
+                is_numerical: true,
+                name: 'distinct_id',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
             },
             {
-                key: '$os',
-                usage_count: null,
-                volume: null,
+                id: expect.any(String),
+                is_numerical: false,
+                name: 'token',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
             },
             {
-                key: '$browser_version',
-                usage_count: null,
-                volume: null,
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$browser',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
             },
             {
-                key: '$initial_referring_domain',
-                usage_count: null,
-                volume: null,
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$current_url',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
             },
             {
-                key: '$initial_referrer_url',
-                usage_count: null,
-                volume: null,
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$os',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
             },
             {
-                key: 'utm_medium',
-                usage_count: null,
-                volume: null,
+                id: expect.any(String),
+                is_numerical: true,
+                name: '$browser_version',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
             },
-            { key: '$ip', usage_count: null, volume: null },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$initial_referring_domain',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$initial_referrer_url',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: 'utm_medium',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$ip',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
+            },
         ])
     })
 
@@ -1215,7 +1260,8 @@ export const createProcessEventTests = (
     })
 
     test('team event_properties', async () => {
-        expect(team.event_properties_numerical).toEqual([])
+        expect(await server.db.fetchEventDefinitions()).toEqual([])
+        expect(await server.db.fetchPropertyDefinitions()).toEqual([])
 
         await processEvent(
             'xxx',
@@ -1229,8 +1275,42 @@ export const createProcessEventTests = (
         )
 
         team = await getFirstTeam(server)
-        expect(team.event_properties).toEqual(['price', 'name', '$ip'])
-        expect(team.event_properties_numerical).toEqual(['price'])
+
+        expect(await server.db.fetchEventDefinitions()).toEqual([
+            {
+                id: expect.any(String),
+                name: 'purchase',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
+            },
+        ])
+        expect(await server.db.fetchPropertyDefinitions()).toEqual([
+            {
+                id: expect.any(String),
+                is_numerical: true,
+                name: 'price',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: 'name',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$ip',
+                query_usage_30_day: null,
+                team_id: 2,
+                volume_30_day: null,
+            },
+        ])
     })
 
     test('event name object json', async () => {

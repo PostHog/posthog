@@ -40,6 +40,8 @@ export async function resetTestDatabase(
         ${config.ENABLE_PERSISTENT_CONSOLE ? 'DELETE FROM posthog_pluginlogentry;' : '' /* TODO: remove this if */}
         DELETE FROM posthog_pluginconfig;
         DELETE FROM posthog_plugin;
+        DELETE FROM posthog_eventdefinition;
+        DELETE FROM posthog_propertydefinition;
         DELETE FROM posthog_team;
         DELETE FROM posthog_organizationmembership;
         DELETE FROM posthog_organization;

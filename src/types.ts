@@ -281,11 +281,6 @@ export interface Team {
     api_token: string
     app_urls: string[]
     completed_snippet_onboarding: boolean
-    event_names: string[]
-    event_properties: string[]
-    event_properties_numerical: string[]
-    event_names_with_usage: EventUsage[]
-    event_properties_with_usage: PropertyUsage[]
     opt_out_capture: boolean
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
@@ -415,3 +410,20 @@ export interface ScheduleControl {
 }
 
 export type IngestEventResponse = { success?: boolean; error?: string }
+
+export interface EventDefinitionType {
+    id: string
+    name: string
+    volume_30_day: number | null
+    query_usage_30_day: number | null
+    team_id: number
+}
+
+export interface PropertyDefinitionType {
+    id: string
+    name: string
+    is_numerical: boolean
+    volume_30_day: number | null
+    query_usage_30_day: number | null
+    team_id: number
+}
