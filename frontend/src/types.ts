@@ -633,7 +633,8 @@ export interface PreflightStatus {
     email_service_available?: boolean
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
-    licensed_users_available: number | null
+    licensed_users_available?: number | null
+    site_url?: string
 }
 
 export enum DashboardMode { // Default mode is null
