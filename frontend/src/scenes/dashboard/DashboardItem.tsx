@@ -45,7 +45,6 @@ dayjs.extend(relativeTime)
 interface Props {
     item: DashboardItemType
     dashboardId?: number
-    dashboardName?: string
     updateItemColor?: (id: number, itemClassName: string) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
@@ -69,7 +68,7 @@ interface DisplayProps {
     element: (props: any) => JSX.Element | null
     icon: (props: any) => JSX.Element | null
     viewText: string
-    link: (item: DashboardItemType, dashboardName: string) => string
+    link: (item: DashboardItemType) => string
 }
 
 export const displayMap: Record<DisplayedType, DisplayProps> = {
@@ -78,11 +77,11 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: ActionsLineGraph,
         icon: LineChartOutlined,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType, dashboardName: string): string => {
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
                 {
-                    dashboardItem: { id: id, name: name, dashboard: dashboard, dashboardName: dashboardName },
+                    dashboardItem: { id: id, name: name, dashboard: dashboard },
                     ...filters,
                 },
                 {}
@@ -94,11 +93,11 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: ActionsLineGraph,
         icon: LineChartOutlined,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType, dashboardName: string): string => {
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
                 {
-                    dashboardItem: { id: id, name: name, dashboard: dashboard, dashboardName: dashboardName },
+                    dashboardItem: { id: id, name: name, dashboard: dashboard },
                     ...filters,
                 },
                 {}
@@ -110,11 +109,11 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: ActionsLineGraph,
         icon: BarChartOutlined,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType, dashboardName: string): string => {
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
                 {
-                    dashboardItem: { id: id, name: name, dashboard: dashboard, dashboardName: dashboardName },
+                    dashboardItem: { id: id, name: name, dashboard: dashboard },
                     ...filters,
                 },
                 {}
@@ -126,11 +125,11 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: ActionsBarValueGraph,
         icon: BarChartOutlined,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType, dashboardName: string): string => {
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
                 {
-                    dashboardItem: { id: id, name: name, dashboard: dashboard, dashboardName: dashboardName },
+                    dashboardItem: { id: id, name: name, dashboard: dashboard },
                     ...filters,
                 },
                 {}
@@ -142,11 +141,11 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: ActionsTable,
         icon: TableOutlined,
         viewText: 'View table',
-        link: ({ id, dashboard, name, filters }: DashboardItemType, dashboardName: string): string => {
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
                 {
-                    dashboardItem: { id: id, name: name, dashboard: dashboard, dashboardName: dashboardName },
+                    dashboardItem: { id: id, name: name, dashboard: dashboard },
                     ...filters,
                 },
                 {}
@@ -158,11 +157,11 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: ActionsPie,
         icon: PieChartOutlined,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType, dashboardName: string): string => {
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
                 {
-                    dashboardItem: { id: id, name: name, dashboard: dashboard, dashboardName: dashboardName },
+                    dashboardItem: { id: id, name: name, dashboard: dashboard },
                     ...filters,
                 },
                 {}
@@ -174,12 +173,12 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: FunnelViz,
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
-        link: ({ id, dashboard, name, filters }: DashboardItemType, dashboardName: string): string => {
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
                 {
                     insight: ViewType.FUNNELS,
-                    dashboardItem: { id: id, name: name, dashboard: dashboard, dashboardName: dashboardName },
+                    dashboardItem: { id: id, name: name, dashboard: dashboard },
                     ...filters,
                 },
                 {}
@@ -191,12 +190,12 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: RetentionContainer,
         icon: TableOutlined,
         viewText: 'View retention',
-        link: ({ id, dashboard, name, filters }: DashboardItemType, dashboardName: string): string => {
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
                 {
                     insight: ViewType.RETENTION,
-                    dashboardItem: { id: id, name: name, dashboard: dashboard, dashboardName: dashboardName },
+                    dashboardItem: { id: id, name: name, dashboard: dashboard },
                     ...filters,
                 },
                 {}
@@ -208,12 +207,12 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: Paths,
         icon: FunnelPlotOutlined,
         viewText: 'View graph',
-        link: ({ id, dashboard, name, filters }: DashboardItemType, dashboardName: string): string => {
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
                 {
                     insight: ViewType.PATHS,
-                    dashboardItem: { id: id, name: name, dashboard: dashboard, dashboardName: dashboardName },
+                    dashboardItem: { id: id, name: name, dashboard: dashboard },
                     ...filters,
                 },
                 {}
@@ -225,7 +224,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
 export function DashboardItem({
     item,
     dashboardId,
-    dashboardName,
     updateItemColor,
     loadDashboardItems,
     isDraggingRef,
@@ -270,7 +268,7 @@ export function DashboardItem({
     const Element = displayMap[_type].element
     const Icon = displayMap[_type].icon
     const viewText = displayMap[_type].viewText
-    const link = displayMap[_type].link(item, dashboardName || '')
+    const link = displayMap[_type].link(item)
     const color = item.color || 'white'
     const { dashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)

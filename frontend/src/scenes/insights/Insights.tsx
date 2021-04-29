@@ -488,7 +488,7 @@ interface Props {
     dashboardItem: any
 }
 function Header({ dashboardItem }: Props): JSX.Element {
-    if (Object.keys(dashboardItem).length > 1) {
+    if (dashboardItem) {
         return <DashboardItemHeader />
     }
     return <PageHeader title="Insights" />
