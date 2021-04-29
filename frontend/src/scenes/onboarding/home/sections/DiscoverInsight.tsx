@@ -25,7 +25,7 @@ const insights = [
         name: 'Trends',
         target: '/insights?insight=TRENDS',
         questions: [
-            'How many active users do we have?',
+            'How many users do we have?',
             'How many times do users perform specific events?',
             'When are my users most active?',
         ],
@@ -35,23 +35,23 @@ const insights = [
         name: 'Funnels',
         questions: [
             'What percent of users get through my sign up funnel?',
-            'Where do most of my users experience the most friction?',
-            'Which users complete some steps but not others?',
+            'Where do my users experience the most friction?',
+            'Which users make it to each step of a funnel?',
         ],
         target: '/insights?insight=FUNNELS',
         icon: <FunnelPlotOutlined />,
     },
     {
         name: 'Sessions',
-        questions: ["How much time do users spend when they're using our product?"],
+        questions: ['How much time do users spend in our product?'],
         target: '/insights?insight=SESSIONS',
         icon: <FieldTimeOutlined />,
     },
     {
         name: 'Retention',
         questions: [
-            'What percentage of users continue to use our product?',
-            'How do different events correlate to more users returning?',
+            'What percentage of users repeatedly use our product?',
+            'How do different events impact how often users come back?',
         ],
         target: '/insights?insight=RETENTION',
         icon: <TableOutlined />,
@@ -64,14 +64,14 @@ const insights = [
     },
     {
         name: 'Stickiness',
-        questions: ['How often are users repeating specific events across subsequent time periods?'],
+        questions: ['How many times do users typically perform an action within a select time period?'],
         target: '/insights?insight=STICKINESS',
         icon: <FallOutlined />,
     },
     {
         name: 'Lifecycle',
         target: '/insights?insight=LIFECYCLE',
-        questions: ['How many users are you losing, re-engaging, activating, and acquiring across time periods?'],
+        questions: ['How many users are we gaining, activating, and losing within a select time period?'],
         icon: <SlidersOutlined />,
     },
 ]
