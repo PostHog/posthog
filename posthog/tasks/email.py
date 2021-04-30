@@ -4,7 +4,7 @@ from typing import Optional, Sequence, cast
 
 from posthog.celery import app
 from posthog.email import EmailMessage, is_email_available
-from posthog.models import Event, Organization, OrganizationInvite, PersonDistinctId, Team, User
+from posthog.models import Event, Organization, OrganizationInvite, PersonDistinctId, Team, User, organization
 from posthog.templatetags.posthog_filters import compact_number
 from posthog.utils import get_previous_week
 
@@ -128,18 +128,17 @@ def send_invite(invite_id: str) -> None:
 
 
 @app.task(max_retries=1)
-def send_member_join(invite_id: str) -> None:
-    invite: OrganizationInvite = OrganizationInvite.objects.select_related(
-        "created_by", "used_by", "organization"
-    ).prefetch_related("organization__members").get(id=invite_id)
-    campaign_key: str = f"member_join_email_{invite.id}"
+def send_member_join(invitee_uuid: str, organization_id: str) -> None:
+    invitee: User = User.objects.get(uuid=invitee_uuid)
+    organization: Organization = Organization.objects.get(id=organization_id)
+    campaign_key: str = f"member_join_email_org_{organization_id}_user_{invitee_uuid}"
     message = EmailMessage(
         campaign_key=campaign_key,
-        subject=f"{invite.used_by.first_name} joined you at {invite.organization.name} on PostHog",
+        subject=f"{invitee.first_name} joined you on PostHog",
         template_name="member_join",
-        template_context={"invite": invite},
+        template_context={"invitee": invitee, "organization": organization},
     )
-    for user in invite.organization.members.all():
-        if user.id != invite.used_by_id:  # Don't send this email to the new member themselves
+    for user in organization.members.all():
+        if user.uuid != invitee_uuid:  # Don't send this email to the new member themselves
             message.add_recipient(email=user.email, name=user.first_name)
     message.send()
