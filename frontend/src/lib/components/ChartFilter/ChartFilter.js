@@ -9,7 +9,6 @@ import {
     ACTIONS_TABLE,
     FUNNEL_VIZ,
     ACTIONS_BAR_CHART_VALUE,
-    ShownAsValue,
 } from '~/lib/constants'
 import { chartFilterLogic } from './chartFilterLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -22,12 +21,12 @@ export function ChartFilter(props) {
 
     const linearDisabled = filters.session && filters.session === 'dist'
     const cumulativeDisabled =
-        filters.session || filters.shown_as === ShownAsValue.STICKINESS || filters.insight === ViewType.RETENTION
+        filters.session || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION
     const tableDisabled = false
     const pieDisabled = filters.session || filters.insight === ViewType.RETENTION
     const barDisabled = filters.session || filters.insight === ViewType.RETENTION
     const barValueDisabled =
-        barDisabled || filters.shown_as === ShownAsValue.STICKINESS || filters.insight === ViewType.RETENTION
+        barDisabled || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION
     const defaultDisplay =
         filters.insight === ViewType.RETENTION
             ? ACTIONS_TABLE

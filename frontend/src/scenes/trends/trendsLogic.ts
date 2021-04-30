@@ -92,11 +92,11 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
     })
 
     // casting here is not the best
-    if (filters.shown_as === ShownAsValue.STICKINESS) {
+    if (filters.insight === ViewType.STICKINESS) {
         params.stickiness_days = date_from as number
     } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
         params.date_to = date_from as string
-    } else if (filters.shown_as === ShownAsValue.LIFECYCLE) {
+    } else if (filters.insight === ViewType.LIFECYCLE) {
         params.date_from = filters.date_from
         params.date_to = filters.date_to
     } else {
@@ -399,14 +399,14 @@ export const trendsLogic = kea<
         },
         loadPeople: async ({ label, action, date_from, date_to, breakdown_value }, breakpoint) => {
             let people = []
-            if (values.filters.shown_as === ShownAsValue.LIFECYCLE) {
+            if (values.filters.insight === ViewType.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
                     { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                     values.filters
                 )
                 actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
                 people = await api.get(`api/person/lifecycle/?${filterParams}`)
-            } else if (values.filters.shown_as === ShownAsValue.STICKINESS) {
+            } else if (values.filters.insight === ViewType.STICKINESS) {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
                     values.filters
@@ -545,6 +545,7 @@ export const trendsLogic = kea<
                     cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
                 }
 
+                // TODO: Deprecated; should be removed once backend is updated
                 if (searchParams.insight === ViewType.STICKINESS) {
                     cleanSearchParams['shown_as'] = ShownAsValue.STICKINESS
                 }
@@ -556,7 +557,7 @@ export const trendsLogic = kea<
                     cleanSearchParams['session'] = 'avg'
                 }
 
-                if (searchParams.date_from === 'all' || searchParams.shown_as === ShownAsValue.LIFECYCLE) {
+                if (searchParams.date_from === 'all' || searchParams.insight === ViewType.LIFECYCLE) {
                     cleanSearchParams['compare'] = false
                 }
 
@@ -581,7 +582,7 @@ const handleLifecycleDefault = (
     params: Partial<FilterType>,
     callback: (filters: Partial<FilterType>) => void
 ): void => {
-    if (params.shown_as === ShownAsValue.LIFECYCLE) {
+    if (params.insight === ViewType.LIFECYCLE) {
         if (params.events?.length) {
             callback({
                 ...params,
