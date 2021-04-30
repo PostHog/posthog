@@ -6,6 +6,7 @@ import { useValues } from 'kea'
 import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 import { PropertySelect } from '../PropertyFilters/PropertySelect'
 import { SelectOption } from '~/types'
+import { CloseButton } from '../CloseButton'
 
 type onConfirmCallback = (options: CheckboxValueType[]) => any
 type onCancelCallback = (options: CheckboxValueType[]) => any
@@ -33,7 +34,7 @@ export function PropertyColumnSelector(props: PropertyColumnSelectorProps): Reac
         setCheckedValues(selectedItems)
     }
 
-    const { propertyDefinitions } = useValues(propertyDefinitionsLogic)
+    const { propertyDefinitions, loaded } = useValues(propertyDefinitionsLogic)
     return (
         <>
             <Modal
@@ -41,7 +42,7 @@ export function PropertyColumnSelector(props: PropertyColumnSelectorProps): Reac
                 title={title}
                 visible={visible}
                 onOk={_onConfirm}
-                confirmLoading={loading}
+                confirmLoading={!loaded}
                 onCancel={_onCancel}
                 width={700}
                 bodyStyle={{
@@ -55,23 +56,34 @@ export function PropertyColumnSelector(props: PropertyColumnSelectorProps): Reac
             >
                 {JSON.stringify(checkedValues)}
                 {checkedValues.map((value, index) => (
-                    <PropertySelect
-                        key={index}
-                        optionGroups={[
-                            {
-                                type: 'event',
-                                label: 'Events',
-                                options: propertyDefinitions.map((d) => ({ value: d.name })),
-                            },
-                        ]}
-                        placeholder="Select property"
-                        value={value !== '' ? ({ value, label: value } as SelectOption) : null}
-                        onChange={(_, value) => {
-                            const arr = [...checkedValues]
-                            arr[index] = value
-                            setCheckedValues(arr)
-                        }}
-                    />
+                    <>
+                        <PropertySelect
+                            key={index}
+                            optionGroups={[
+                                {
+                                    type: 'event',
+                                    label: 'Events',
+                                    options: propertyDefinitions.map((d) => ({ value: d.name })),
+                                },
+                            ]}
+                            placeholder="Select property"
+                            value={value !== '' ? ({ value, label: value } as SelectOption) : null}
+                            onChange={(_, value) => {
+                                const arr = [...checkedValues]
+                                arr[index] = value
+                                setCheckedValues(arr)
+                            }}
+                        />
+                        <CloseButton
+                            className="ml-1"
+                            onClick={() => {
+                                const arr = [...checkedValues]
+                                arr.splice(index, 1)
+                                setCheckedValues(arr)
+                            }}
+                            style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
+                        />
+                    </>
                 ))}
                 <Button onClick={() => setCheckedValues([...checkedValues, ''])}>Add column</Button>
             </Modal>

@@ -55,12 +55,28 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
     const [choosingColumns, setChoosingColumns] = useState(false)
     const closeColumnChooser = (): void => setChoosingColumns(false)
     const openColumnChooser = (): void => setChoosingColumns(true)
+    console.log('columsn', columnConfig)
     const onColumnChooserConfirm = (selectedColumns: CheckboxValueType[]): void => {
         setColumnConfig(selectedColumns)
         closeColumnChooser()
     }
 
     const showLinkToPerson = !fixedFilters?.person_id
+    const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
+        return {
+            children: item.date_break
+                ? item.date_break
+                : newEvents.length === 1
+                ? `There is 1 new event. Click here to load it.`
+                : `There are ${newEvents.length} new events. Click here to load them.`,
+            props: {
+                colSpan,
+                style: {
+                    cursor: 'pointer',
+                },
+            },
+        }
+    }
     const defaultColumns: ResizableColumnType<EventFormattedType>[] = [
         {
             title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
@@ -68,19 +84,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             span: 4,
             render: function render(item) {
                 if (!item.event) {
-                    return {
-                        children: item.date_break
-                            ? item.date_break
-                            : newEvents.length === 1
-                            ? `There is 1 new event. Click here to load it.`
-                            : `There are ${newEvents.length} new events. Click here to load them.`,
-                        props: {
-                            colSpan: 6,
-                            style: {
-                                cursor: 'pointer',
-                            },
-                        },
-                    }
+                    return newEventsRender(item, 7)
                 }
                 const { event } = item
                 return <PropertyKeyInfo value={eventToName(event)} />
@@ -229,13 +233,19 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         columnConfig === 'DEFAULT'
             ? defaultColumns
             : columnConfig.map(
-                  (e: string) =>
+                  (e: string, index: number) =>
                       defaultColumns.find((d) => d.key === e) || {
                           title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
                           key: e,
-                          render: function renderURL({ event }) {
+                          span: 2,
+                          render: function renderURL(item) {
+                              const { event } = item
                               if (!event) {
-                                  return { props: { colSpan: 0 } }
+                                  if (index === 0) {
+                                      return newEventsRender(item, columnConfig.length + 1)
+                                  } else {
+                                      return { props: { colSpan: 0 } }
+                                  }
                               }
                               if (filtersEnabled) {
                                   return (
@@ -301,6 +311,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     loading={isLoading}
                     columns={columns}
                     size="small"
+                    key={columnConfig === 'DEFAULT' ? 'default' : columnConfig}
                     className="ph-no-capture"
                     scroll={{ x: true }}
                     locale={{
