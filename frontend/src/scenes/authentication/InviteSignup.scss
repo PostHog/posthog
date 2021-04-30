@@ -54,7 +54,6 @@
         .whoami-mock {
             display: flex;
             align-items: center;
-            padding-left: $default_spacing;
             height: 100%;
             width: 100%;
 
@@ -65,8 +64,7 @@
                     border: 1px $text_light dashed;
                     border-radius: $radius;
                     background-color: rgba(white, 0.3);
-                    padding-left: 4px;
-                    padding-right: 4px;
+                    padding: 4px;
                 }
                 .whoami,
                 span {
