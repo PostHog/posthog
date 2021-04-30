@@ -39,6 +39,7 @@ import { DashboardItemType, DashboardType, DisplayType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
+
 dayjs.extend(relativeTime)
 
 interface Props {
@@ -190,6 +191,19 @@ export function DashboardItem({
             ? 'FunnelViz'
             : item.filters.display || 'ActionsLineGraph'
 
+    const insightTypeDisplayName =
+        item.filters.insight === ViewType.RETENTION
+            ? 'Retention'
+            : item.filters.insight === ViewType.PATHS
+            ? 'Paths'
+            : item.filters.insight === ViewType.FUNNELS
+            ? 'Funnel'
+            : item.filters.insight === ViewType.SESSIONS
+            ? 'Sessions'
+            : item.filters.insight === ViewType.STICKINESS
+            ? 'Stickiness'
+            : 'Trends'
+
     const className = displayMap[_type].className
     const Element = displayMap[_type].element
     const Icon = displayMap[_type].icon
@@ -253,12 +267,12 @@ export function DashboardItem({
                                 preventClick
                                 onClick={() => {
                                     if (!isDraggingRef?.current) {
-                                        router.actions.push(link)
+                                        onClick ? onClick() : router.actions.push(link)
                                     }
                                 }}
                                 style={{ fontSize: 16, fontWeight: 500 }}
                             >
-                                {item.name || 'Unsaved query'}
+                                {item.name || `Untitled ${insightTypeDisplayName} Query`}
                             </Link>
                         )}
                     </div>

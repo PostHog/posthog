@@ -27,7 +27,12 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const { toggleLifecycle } = useActions(trendsLogic)
-    const lifecycleNames = ['new', 'resurrecting', 'returning', 'dormant']
+    const lifecycles = [
+        { name: 'new', tooltip: 'Users that are new.' },
+        { name: 'resurrecting', tooltip: 'Users who were once active but became dormant, and are now active again.' },
+        { name: 'returning', tooltip: 'Users who consistently use the product.' },
+        { name: 'dormant', tooltip: 'Users who are inactive.' },
+    ]
 
     return (
         <>
@@ -61,10 +66,20 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         <Skeleton active />
                     ) : (
                         <div className="toggles">
-                            {lifecycleNames.map((cycle, idx) => (
+                            {lifecycles.map((lifecycle, idx) => (
                                 <div key={idx}>
-                                    {cycle}{' '}
-                                    <Switch size="small" defaultChecked onChange={() => toggleLifecycle(cycle)} />
+                                    {lifecycle.name}{' '}
+                                    <div>
+                                        <Switch
+                                            size="small"
+                                            className={lifecycle.name}
+                                            defaultChecked
+                                            onChange={() => toggleLifecycle(lifecycle.name)}
+                                        />
+                                        <Tooltip title={lifecycle.tooltip}>
+                                            <InfoCircleOutlined className="info-indicator" />
+                                        </Tooltip>
+                                    </div>
                                 </div>
                             ))}
                         </div>

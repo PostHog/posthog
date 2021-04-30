@@ -265,8 +265,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
 
     return (
         <div className="events" data-attr="events-table">
-            {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} /> : null}
-            <Row>
+            <Row style={{ paddingTop: '0.5rem' }}>
                 <Col span={pageKey === 'events' ? 22 : 20}>
                     <EventName
                         value={eventFilter}
@@ -274,6 +273,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                             setEventFilter(value || '')
                         }}
                     />
+                    {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} /> : null}
                 </Col>
                 <Col span={pageKey === 'events' ? 2 : 4} className="text-right">
                     <Button data-attr="events-table-column-selector" onClick={openColumnChooser} type="default">

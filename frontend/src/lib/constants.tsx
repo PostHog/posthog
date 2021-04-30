@@ -225,4 +225,5 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 
 export const FEATURE_FLAGS: Record<string, string> = {
     INGESTION_GRID: 'ingestion-grid-exp-3',
+    PROJECT_HOME: 'project-home-exp-5',
 }

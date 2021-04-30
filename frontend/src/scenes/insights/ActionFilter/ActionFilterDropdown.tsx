@@ -64,14 +64,17 @@ export function ActionFilterDropdown({
             onSelect={callUpdateFilter}
             items={[
                 {
-                    name: (
-                        <>
-                            <FireOutlined /> Suggested for you{' '}
-                            <Tooltip title="We'll suggest events you (or your team) have used frequently in other queries">
-                                <InfoCircleOutlined />
-                            </Tooltip>
-                        </>
-                    ),
+                    name: 'Suggested for you',
+                    header: function suggestionHeader(label: string) {
+                        return (
+                            <>
+                                <FireOutlined /> {label}{' '}
+                                <Tooltip title="We'll suggest events you (or your team) have used frequently in other queries">
+                                    <InfoCircleOutlined />
+                                </Tooltip>
+                            </>
+                        )
+                    },
                     dataSource: suggestions.map((definition) => ({
                         ...definition,
                         key: 'suggestions' + definition.id,
@@ -100,11 +103,14 @@ export function ActionFilterDropdown({
                     getLabel: (item: SelectedItem) => item.name || '',
                 },
                 {
-                    name: (
-                        <>
-                            <AimOutlined /> Actions
-                        </>
-                    ),
+                    name: 'Actions',
+                    header: function actionHeader(label: string) {
+                        return (
+                            <>
+                                <AimOutlined /> {label}
+                            </>
+                        )
+                    },
                     dataSource: actions.map((action: ActionType) => ({
                         key: EntityTypes.ACTIONS + action.id,
                         name: action.name,
@@ -118,11 +124,14 @@ export function ActionFilterDropdown({
                     getLabel: (item: SelectedItem) => item.action?.name || '',
                 },
                 {
-                    name: (
-                        <>
-                            <ContainerOutlined /> Events
-                        </>
-                    ),
+                    name: 'Events',
+                    header: function eventHeader(label: string) {
+                        return (
+                            <>
+                                <ContainerOutlined /> {label}
+                            </>
+                        )
+                    },
                     dataSource:
                         eventDefinitions.map((definition) => ({
                             ...definition,
