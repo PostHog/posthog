@@ -6,14 +6,22 @@ import { appEditorUrl } from './utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { Modal, Button } from 'antd'
 
-export function AppEditorLink({ actionId, style, children }) {
+export function AppEditorLink({
+    actionId,
+    style,
+    children,
+}: {
+    actionId?: number
+    style?: React.CSSProperties
+    children: React.ReactNode
+}): JSX.Element {
     const [modalOpen, setModalOpen] = useState(false)
     const { currentTeam } = useValues(teamLogic)
 
     return (
         <>
             <Button
-                href={appEditorUrl(actionId, currentTeam?.appUrls?.[0])}
+                href={appEditorUrl(currentTeam?.app_urls?.[0], actionId)}
                 style={style}
                 size="small"
                 onClick={(e) => {
@@ -33,7 +41,7 @@ export function AppEditorLink({ actionId, style, children }) {
                 footer={<Button onClick={() => setModalOpen(false)}>Close</Button>}
                 onCancel={() => setModalOpen(false)}
             >
-                <EditAppUrls actionId={actionId} allowNavigation={true} dismissModal={() => setModalOpen(false)} />
+                <EditAppUrls actionId={actionId} allowNavigation />
             </Modal>
         </>
     )

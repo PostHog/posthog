@@ -26,7 +26,7 @@ if settings.STATSD_HOST is not None:
 
 if is_ee_enabled():
     from ee.kafka_client.client import KafkaProducer
-    from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_WAL
+    from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 
     producer = KafkaProducer()
 
@@ -40,10 +40,10 @@ if is_ee_enabled():
         sent_at: Optional[datetime],
         event_uuid: UUIDT,
         *,
-        topics: Sequence[str],
+        topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,
     ) -> None:
         if settings.DEBUG:
-            print(f'Logging event {data["event"]} to Kafka topics {" and ".join(topics)}')
+            print(f'Logging event {data["event"]} to Kafka topic {topic}')
         data = {
             "uuid": str(event_uuid),
             "distinct_id": distinct_id,
@@ -54,8 +54,7 @@ if is_ee_enabled():
             "now": now.isoformat(),
             "sent_at": sent_at.isoformat() if sent_at else "",
         }
-        for topic in topics:
-            producer.produce(topic=topic, data=data)
+        producer.produce(topic=topic, data=data)
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -254,7 +253,6 @@ def get_event(request):
                 now=now,
                 sent_at=sent_at,
                 event_uuid=event_uuid,
-                topics=[KAFKA_EVENTS_WAL, KAFKA_EVENTS_PLUGIN_INGESTION],
             )
         else:
             task_name = "posthog.tasks.process_event.process_event_with_plugins"

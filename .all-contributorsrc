@@ -1128,6 +1128,26 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "swong194",
+      "name": "Sunny Wong",
+      "avatar_url": "https://avatars.githubusercontent.com/u/25137899?v=4",
+      "profile": "https://github.com/swong194",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "Rajakavitha1",
+      "name": "Rajakavitha1",
+      "avatar_url": "https://avatars.githubusercontent.com/u/37059749?v=4",
+      "profile": "http://rajie.space",
+      "contributions": [
+        "doc",
+        "bug",
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

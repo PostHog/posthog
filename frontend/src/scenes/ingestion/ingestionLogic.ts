@@ -127,7 +127,7 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
         updateCurrentTeamSuccess: () => {
             const usingOnboardingSetup = organizationLogic.values.currentOrganization?.setup.is_active
             // If user is under the new setup state (#2822), take them back to start section II of the setup
-            window.location.href = usingOnboardingSetup ? '/setup' : '/insights'
+            window.location.href = usingOnboardingSetup ? '/setup' : '/'
         },
     }),
 })

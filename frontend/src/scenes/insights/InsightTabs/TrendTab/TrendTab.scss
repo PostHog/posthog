@@ -5,5 +5,22 @@
         display: flex;
         justify-content: space-between;
         padding-bottom: 4px;
+        align-items: center;
+    }
+
+    .new {
+        background-color: var(--lifecycle-new);
+    }
+
+    .returning {
+        background-color: var(--lifecycle-returning);
+    }
+
+    .resurrecting {
+        background-color: var(--lifecycle-resurrecting);
+    }
+
+    .dormant {
+        background-color: var(--lifecycle-dormant);
     }
 }

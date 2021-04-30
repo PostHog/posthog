@@ -22,7 +22,8 @@ export function EventName({ value, onChange, isActionStep = false }: EventNameIn
                 onChange={onChange}
                 filterOption={(input, option) => option?.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
                 disabled={isActionStep && eventNamesGrouped[0].options.length === 0}
-                value={value}
+                value={value || undefined}
+                placeholder="All events"
                 data-attr="event-name-box"
             >
                 {eventNamesGrouped.map((typeGroup) => {
@@ -31,7 +32,7 @@ export function EventName({ value, onChange, isActionStep = false }: EventNameIn
                             <Select.OptGroup key={typeGroup.label} label={typeGroup.label}>
                                 {typeGroup.options.map((item, index) => (
                                     <Select.Option key={item.value} value={item.value} data-attr={'prop-val-' + index}>
-                                        <PropertyKeyInfo value={item.label} />
+                                        <PropertyKeyInfo value={item.label ?? item.value} />
                                     </Select.Option>
                                 ))}
                             </Select.OptGroup>

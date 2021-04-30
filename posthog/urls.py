@@ -80,7 +80,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
     if user:
         return {"is_new": False}
     user_email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
-    user_name = details["fullname"]
+    user_name = details["fullname"] or details["username"]
     strategy.session_set("user_name", user_name)
     strategy.session_set("backend", backend.name)
     from_invite = False

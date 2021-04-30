@@ -3,8 +3,8 @@ import { Loading, formatLabel } from 'lib/utils'
 import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useValues } from 'kea'
-import { ActionFilter, trendsLogic } from 'scenes/trends/trendsLogic'
-import { ChartParams, TrendResultWithAggregate } from '~/types'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { ActionFilter, ChartParams, TrendResultWithAggregate } from '~/types'
 
 export function ActionsTable({
     dashboardItemId,

@@ -1,8 +1,9 @@
 # TODO: #4070 Fully temporary until these properties are migrated away from `Team` model
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from django.db import models
 from django.dispatch.dispatcher import receiver
+from sentry_sdk import capture_exception
 
 from posthog.celery import app
 from posthog.models.event_definition import EventDefinition
@@ -18,7 +19,16 @@ def team_saved(sender: Any, instance: Team, **kwargs: Dict) -> None:
 @app.task(ignore_result=True)
 def sync_event_and_properties_definitions(team_uuid: str) -> None:
 
-    team: Team = Team.objects.only("uuid", *DEFERRED_FIELDS).get(uuid=team_uuid)
+    team: Optional[Team] = None
+
+    # It is possible that the team was deleted before the task could run
+    try:
+        team = Team.objects.only("uuid", *DEFERRED_FIELDS).get(uuid=team_uuid)
+    except Team.DoesNotExist as e:
+        capture_exception(e)
+
+    if team is None:
+        return
 
     # Transform data for quick usability
     transformed_event_usage = {
