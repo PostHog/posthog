@@ -1,6 +1,6 @@
 from freezegun import freeze_time
 
-from posthog.constants import ENTITY_ID, ENTITY_TYPE
+from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Cohort, Event, Organization, Person
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.tasks.calculate_action import calculate_actions_from_last_calculation

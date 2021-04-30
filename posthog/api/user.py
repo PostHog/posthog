@@ -24,14 +24,12 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
-from posthog.plugins import reload_plugins_on_workers
 from posthog.tasks import user_identify
 from posthog.version import VERSION
 
 
 class UserSerializer(serializers.ModelSerializer):
 
-    id = serializers.SerializerMethodField()
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
@@ -44,7 +42,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id",
+            "uuid",
             "distinct_id",
             "first_name",
             "email",
@@ -66,9 +64,6 @@ class UserSerializer(serializers.ModelSerializer):
             "is_staff": {"read_only": True},
             "password": {"write_only": True},
         }
-
-    def get_id(self, instance: User) -> str:
-        return str(instance.uuid)
 
     def get_has_password(self, instance: User) -> bool:
         return instance.has_usable_password()
@@ -296,7 +291,6 @@ def user(request):
             "is_staff": user.is_staff,
             "is_impersonated": is_impersonated_session(request),
             "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
-            "is_async_event_action_mapping_enabled": getattr(settings, "ASYNC_EVENT_ACTION_MAPPING", False),
         }
     )
 

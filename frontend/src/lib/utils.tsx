@@ -3,13 +3,14 @@ import api from './api'
 import { toast } from 'react-toastify'
 import { Button, Spin } from 'antd'
 import dayjs from 'dayjs'
-import { EventType, FilterType } from '~/types'
+import { EventType, FilterType, ActionFilter } from '~/types'
 import { lightColors } from 'lib/colors'
-import { ActionFilter } from 'scenes/trends/trendsLogic'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './logic/featureFlagLogic'
 import { open } from '@papercups-io/chat-widget'
 import posthog from 'posthog-js'
+import { WEBHOOK_SERVICES } from 'lib/constants'
+import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -268,7 +269,7 @@ export function isValidRegex(value: string): boolean {
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohorts: Record<string, any>[],
-    keyMapping: Record<string, Record<string, any>>
+    keyMapping: KeyMappingInterface
 ): string {
     const { value, key, operator, type } = item
     return type === 'cohort'
@@ -286,7 +287,7 @@ export function formatProperty(property: Record<string, any>): string {
 // Format a label that gets returned from the /insights api
 export function formatLabel(label: string, action: ActionFilter): string {
     if (action.math === 'dau') {
-        label += ` (Active Users) `
+        label += ` (Unique users) `
     } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
         label += ` (${action.math} of ${action.math_property}) `
     }
@@ -336,8 +337,8 @@ export function triggerResize(): void {
  * change when the sidebar's expansion is animating.
  */
 export function triggerResizeAfterADelay(): void {
-    for (const delay of [10, 100, 500, 750, 1000, 2000]) {
-        window.setTimeout(triggerResize, delay)
+    for (const duration of [10, 100, 500, 750, 1000, 2000]) {
+        window.setTimeout(triggerResize, duration)
     }
 }
 
@@ -534,7 +535,7 @@ export function dateFilterToText(
     return name
 }
 
-export function humanizeNumber(number: number, digits: number = 1): string {
+export function humanizeNumber(number: number | null, digits: number = 1): string {
     if (number === null) {
         return '-'
     }
@@ -829,4 +830,13 @@ export function humanTzOffset(timezone?: string): string {
     const hourForm = absoluteOffset === 1 ? 'hour' : 'hours'
     const direction = offset > 0 ? 'ahead' : 'behind'
     return `${absoluteOffset} ${hourForm} ${direction}`
+}
+
+export function resolveWebhookService(webhookUrl: string): string {
+    for (const [service, domain] of Object.entries(WEBHOOK_SERVICES)) {
+        if (webhookUrl.includes(domain + '/')) {
+            return service
+        }
+    }
+    return 'your webhook service'
 }

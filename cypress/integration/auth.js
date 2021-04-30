@@ -56,7 +56,7 @@ describe('Auth', () => {
         cy.get('[type=submit]').click()
 
         cy.location('search').should('include', 'autocapture')
-        cy.get('[data-attr=trend-element-subject-1]').should('contain', '$autocapture') // Ensure the URL was properly parsed and components shown correctly
+        cy.get('[data-attr=trend-element-subject-1]').should('contain', 'Autocapture') // Ensure the URL was properly parsed and components shown correctly
     })
 
     it('Cannot access signup page if authenticated', () => {

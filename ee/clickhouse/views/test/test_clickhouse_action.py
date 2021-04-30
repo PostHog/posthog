@@ -6,6 +6,7 @@ from rest_framework import status
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_action_people import action_people_test_factory
+from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Cohort, Organization, Person
 
 
@@ -72,3 +73,55 @@ class TestAction(
 
         response = self.client.get("/api/action/%s/" % action.pk).json()
         self.assertEqual(response["count"], 1)
+
+    def test_active_user_weekly_people(self):
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-10T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        people = self.client.get(
+            "/api/action/people/",
+            data={
+                "date_from": "2020-01-10",
+                "date_to": "2020-01-10",
+                ENTITY_TYPE: "events",
+                ENTITY_ID: "$pageview",
+                ENTITY_MATH: "weekly_active",
+            },
+        ).json()
+        self.assertEqual(len(people["results"][0]["people"]), 2)

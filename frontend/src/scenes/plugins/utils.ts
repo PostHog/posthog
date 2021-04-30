@@ -58,7 +58,7 @@ export function getPluginConfigFormData(
             if (value && !value.saved) {
                 formData.append(`add_attachment[${key}]`, value)
             }
-            if (!value && editingPlugin.pluginConfig.config[key]) {
+            if (!value && editingPlugin.pluginConfig.config?.[key]) {
                 formData.append(`remove_attachment[${key}]`, 'true')
             }
         } else if (!configSchema[key]?.secret || value !== SECRET_FIELD_VALUE) {

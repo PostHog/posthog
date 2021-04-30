@@ -12,7 +12,7 @@ from posthog.utils import get_instance_realm
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey
 from .team import Team
-from .utils import UUIDT, UUIDClassicModel, generate_random_token, sane_repr
+from .utils import UUIDClassicModel, generate_random_token, sane_repr
 
 
 class UserManager(BaseUserManager):

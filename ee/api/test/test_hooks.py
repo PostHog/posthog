@@ -23,7 +23,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
                 "resource_id": None,
                 "team": self.team.id,
             },
-            cast(dict, response.data),
+            cast(dict, response.json()),
         )
 
     def test_create_hook_with_resource_id(self):
@@ -43,7 +43,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
                 "resource_id": int(data["resource_id"]),
                 "team": self.team.id,
             },
-            cast(dict, response.data),
+            cast(dict, response.json()),
         )
 
     def test_delete_hook(self):

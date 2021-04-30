@@ -10,6 +10,7 @@ from rest_framework.serializers import raise_errors_on_nested_writes
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
+from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
 
 
@@ -23,7 +24,7 @@ class OrganizationMemberObjectPermissions(BasePermission):
             return True
         organization = extract_organization(membership)
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
-            user_id=request.user.id, organization=organization
+            user_id=cast(User, request.user).id, organization=organization
         )
         try:
             requesting_membership.validate_update(membership)

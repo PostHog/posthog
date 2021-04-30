@@ -22,12 +22,6 @@ def _setup_test_data(klass):
 
 
 class ErrorResponsesMixin:
-    ERROR_RESPONSE_UNAUTHENTICATED: Dict[str, Optional[str]] = {
-        "type": "authentication_error",
-        "code": "not_authenticated",
-        "detail": "Authentication credentials were not provided.",
-        "attr": None,
-    }
 
     ERROR_INVALID_CREDENTIALS = {
         "type": "validation_error",
@@ -60,6 +54,26 @@ class ErrorResponsesMixin:
             "code": "method_not_allowed",
             "detail": f'Method "{method}" not allowed.',
             "attr": None,
+        }
+
+    def unauthenticated_response(
+        self, message: str = "Authentication credentials were not provided.", code: str = "not_authenticated"
+    ) -> Dict[str, Optional[str]]:
+        return {
+            "type": "authentication_error",
+            "code": code,
+            "detail": message,
+            "attr": None,
+        }
+
+    def validation_error_response(
+        self, message: str = "Malformed request", code: str = "invalid", attr: Optional[str] = None,
+    ) -> Dict[str, Optional[str]]:
+        return {
+            "type": "validation_error",
+            "code": code,
+            "detail": message,
+            "attr": attr,
         }
 
 

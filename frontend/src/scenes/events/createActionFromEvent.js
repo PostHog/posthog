@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { eventToName } from 'lib/utils'
+import { Link } from 'lib/components/Link'
 
 export function recurseSelector(elements, parts, index) {
     let element = elements[index]
@@ -63,8 +64,15 @@ export async function createActionFromEvent(event, increment, recurse = createAc
     try {
         action = await api.create('api/action', actionData)
     } catch (response) {
-        if (response.detail === 'action-exists' && increment < 30) {
+        if (response.type === 'validation_error' && response.code === 'unique' && increment < 30) {
             return recurse(event, increment + 1, recurse)
+        } else {
+            toast.error(
+                <>
+                    Couldn't create this action. You can try{' '}
+                    <Link to="/action">manually creating an action instead.</Link>
+                </>
+            )
         }
     }
     if (action.id) {

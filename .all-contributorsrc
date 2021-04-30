@@ -1023,7 +1023,8 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/328367?v=4",
       "profile": "https://leggetter.co.uk",
       "contributions": [
-        "code"
+        "code",
+        "doc"
       ]
     },
     {
@@ -1069,7 +1070,8 @@
       "profile": "https://github.com/jeduden",
       "contributions": [
         "ideas",
-        "code"
+        "code",
+        "doc"
       ]
     },
     {
@@ -1089,6 +1091,62 @@
       "contributions": [
         "code",
         "doc"
+      ]
+    },
+    {
+      "login": "daviddanielarch",
+      "name": "David Arch",
+      "avatar_url": "https://avatars.githubusercontent.com/u/78377120?v=4",
+      "profile": "https://daviddanielarch.github.io/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "angelahuang89",
+      "name": "Angela Huang",
+      "avatar_url": "https://avatars.githubusercontent.com/u/22755100?v=4",
+      "profile": "https://github.com/angelahuang89",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "kevinhu",
+      "name": "Kevin Hu",
+      "avatar_url": "https://avatars.githubusercontent.com/u/6051736?v=4",
+      "profile": "http://kevinhu.io",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "afterwind-io",
+      "name": "Afterwind",
+      "avatar_url": "https://avatars.githubusercontent.com/u/16891493?v=4",
+      "profile": "https://github.com/afterwind-io",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "swong194",
+      "name": "Sunny Wong",
+      "avatar_url": "https://avatars.githubusercontent.com/u/25137899?v=4",
+      "profile": "https://github.com/swong194",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "Rajakavitha1",
+      "name": "Rajakavitha1",
+      "avatar_url": "https://avatars.githubusercontent.com/u/37059749?v=4",
+      "profile": "http://rajie.space",
+      "contributions": [
+        "doc",
+        "bug",
+        "code"
       ]
     }
   ],

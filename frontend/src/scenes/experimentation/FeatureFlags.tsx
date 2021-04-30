@@ -159,9 +159,9 @@ function GroupFilters({ group }: { group: FeatureFlagGroupType }): JSX.Element |
         )
     } else if (group.properties && group.properties.length > 0) {
         return <PropertyFiltersDisplay filters={group.properties} style={{ margin: 0 }} />
-    } else if (group.rollout_percentage) {
+    } else if (group.rollout_percentage !== null && group.rollout_percentage !== undefined) {
         return `${group.rollout_percentage}% of all users`
     } else {
-        return 'N/A'
+        return '100% of all users'
     }
 }

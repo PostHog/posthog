@@ -38,7 +38,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        self.assertEqual(response_data["id"], str(self.user.uuid))
+        self.assertEqual(response_data["uuid"], str(self.user.uuid))
         self.assertEqual(response_data["distinct_id"], self.user.distinct_id)
         self.assertEqual(response_data["first_name"], self.user.first_name)
         self.assertEqual(response_data["email"], self.user.email)
@@ -95,7 +95,7 @@ class TestUserAPI(APIBaseTest):
         self.client.logout()
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json(), self.ERROR_RESPONSE_UNAUTHENTICATED)
+        self.assertEqual(response.json(), self.unauthenticated_response())
 
     # CREATING USERS
 
@@ -127,6 +127,7 @@ class TestUserAPI(APIBaseTest):
                 "email": "updated@posthog.com",
                 "anonymize_data": True,
                 "email_opt_in": False,
+                "uuid": 1,  # should be ignored
                 "id": 1,  # should be ignored
                 "is_staff": True,  # should be ignored
                 "organization": str(another_org.id),  # should be ignored
@@ -137,7 +138,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        self.assertNotEqual(response_data["id"], 1)
+        self.assertNotEqual(response_data["uuid"], 1)
         self.assertEqual(response_data["first_name"], "Cooper")
         self.assertEqual(response_data["email"], "updated@posthog.com")
         self.assertEqual(response_data["anonymize_data"], True)
@@ -148,6 +149,7 @@ class TestUserAPI(APIBaseTest):
 
         user.refresh_from_db()
         self.assertNotEqual(user.pk, 1)
+        self.assertNotEqual(user.uuid, 1)
         self.assertEqual(user.first_name, "Cooper")
         self.assertEqual(user.email, "updated@posthog.com")
         self.assertEqual(user.anonymize_data, True)
@@ -435,7 +437,7 @@ class TestUserAPI(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json(), self.ERROR_RESPONSE_UNAUTHENTICATED)
+        self.assertEqual(response.json(), self.unauthenticated_response())
 
         self.user.refresh_from_db()
         self.assertNotEqual(self.user.email, "new@posthog.com")

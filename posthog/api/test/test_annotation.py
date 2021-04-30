@@ -87,7 +87,7 @@ class TestAnnotation(APIBaseTest):
         )
         date_marker: datetime = datetime(2020, 1, 1, 0, 0, 0).replace(tzinfo=pytz.UTC)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        instance = Annotation.objects.get(pk=response.data["id"])  # type: ignore
+        instance = Annotation.objects.get(pk=response.json()["id"])
         self.assertEqual(instance.content, "Marketing campaign")
         self.assertEqual(instance.scope, "organization")
         self.assertEqual(instance.date_marker, date_marker)

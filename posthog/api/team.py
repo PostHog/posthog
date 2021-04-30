@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, Optional, Type, cast
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -8,13 +8,9 @@ from rest_framework.decorators import action
 from posthog.api.shared import TeamBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token
-from posthog.permissions import (
-    CREATE_METHODS,
-    OrganizationAdminWritePermissions,
-    OrganizationMemberPermissions,
-    ProjectMembershipNecessaryPermissions,
-)
+from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, ProjectMembershipNecessaryPermissions
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -23,11 +19,12 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
+        user = cast(User, request.user)
         if request.method in CREATE_METHODS and (
-            (request.user.organization is None)
+            (user.organization is None)
             or (
-                request.user.organization.teams.exclude(is_demo=True).count() >= 1
-                and not request.user.organization.is_feature_available("organizations_projects")
+                user.organization.teams.exclude(is_demo=True).count() >= 1
+                and not user.organization.is_feature_available("organizations_projects")
             )
         ):
             return False
@@ -35,9 +32,6 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 
 
 class TeamSerializer(serializers.ModelSerializer):
-    event_names_with_usage = serializers.SerializerMethodField()
-    event_properties_with_usage = serializers.SerializerMethodField()
-
     class Meta:
         model = Team
         fields = (
@@ -57,11 +51,8 @@ class TeamSerializer(serializers.ModelSerializer):
             "is_demo",
             "timezone",
             "data_attributes",
-            "event_names",
-            "event_properties",
-            "event_properties_numerical",
-            "event_names_with_usage",
-            "event_properties_with_usage",
+            "session_recording_opt_in",
+            "session_recording_retention_period_days",
         )
         read_only_fields = (
             "id",
@@ -72,9 +63,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "ingested_event",
-            "event_names",
-            "event_properties",
-            "event_properties_numerical",
         )
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
@@ -87,12 +75,6 @@ class TeamSerializer(serializers.ModelSerializer):
             request.user.save()
         return team
 
-    def get_event_names_with_usage(self, instance: Team) -> List:
-        return instance.get_latest_event_names_with_usage()
-
-    def get_event_properties_with_usage(self, instance: Team) -> List:
-        return instance.get_latest_event_properties_with_usage()
-
 
 class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     serializer_class = TeamSerializer
@@ -101,27 +83,26 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         permissions.IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
         PremiumMultiprojectPermissions,
-        OrganizationMemberPermissions,
-        OrganizationAdminWritePermissions,
     ]
     lookup_field = "id"
     ordering = "-created_by"
     organization: Optional[Organization] = None
 
     def get_queryset(self):
-        return super().get_queryset().filter(organization__in=self.request.user.organizations.all())
+        # This is actually what ensures that a user cannot read/update a project for which they don't have permission
+        return super().get_queryset().filter(organization__in=cast(User, self.request.user).organizations.all())
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
-        if self.action == "list":  # type: ignore
+        if self.action == "list":
             return TeamBasicSerializer
         return super().get_serializer_class()
 
-    def get_permissions(self) -> List[permissions.BasePermission]:
+    def get_permissions(self):
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
-        if self.request.method == "POST":
-            organization = self.request.user.organization
+        if self.request.method == "POST" or self.request.method == "DELETE":
+            organization = cast(User, self.request.user).organization
 
             if not organization:
                 raise exceptions.ValidationError("You need to belong to an organization.")
@@ -143,7 +124,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
-            team = self.request.user.team
+            team = cast(User, self.request.user).team
             if team is None:
                 raise exceptions.NotFound("Current project not found.")
             return team

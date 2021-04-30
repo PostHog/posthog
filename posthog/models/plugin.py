@@ -1,4 +1,3 @@
-from django.contrib.postgres.fields import JSONField
 from django.db import models
 
 
@@ -21,14 +20,14 @@ class Plugin(models.Model):
     url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     # Describe the fields to ask in the interface; store answers in PluginConfig->config
     # - config_schema = { [fieldKey]: { name: 'api key', type: 'string', default: '', required: true }  }
-    config_schema: JSONField = JSONField(default=dict)
+    config_schema: models.JSONField = models.JSONField(default=dict)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
     source: models.TextField = models.TextField(blank=True, null=True)
     latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     # DEPRECATED: not used for anything, all install and config errors are in PluginConfig.error
-    error: JSONField = JSONField(default=None, null=True)
+    error: models.JSONField = models.JSONField(default=None, null=True)
     # DEPRECATED: these were used when syncing posthog.json with the db on app start
     from_json: models.BooleanField = models.BooleanField(default=False)
     from_web: models.BooleanField = models.BooleanField(default=False)
@@ -42,11 +41,11 @@ class PluginConfig(models.Model):
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     enabled: models.BooleanField = models.BooleanField(default=False)
     order: models.IntegerField = models.IntegerField()
-    config: JSONField = JSONField(default=dict)
+    config: models.JSONField = models.JSONField(default=dict)
     # Error when running this plugin on an event (frontend: PluginErrorType)
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
-    error: JSONField = JSONField(default=None, null=True)
+    error: models.JSONField = models.JSONField(default=None, null=True)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)

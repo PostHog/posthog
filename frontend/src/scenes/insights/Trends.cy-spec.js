@@ -14,7 +14,8 @@ describe('<Insights /> trends', () => {
     }
 
     beforeEach(() => {
-        cy.intercept('/api/user/', { fixture: 'api/user' })
+        cy.intercept('/_preflight/', { fixture: '_preflight' })
+        cy.intercept('/api/users/@me/', { fixture: 'api/users/@me' })
         cy.intercept('/api/dashboard/', { fixture: 'api/dashboard' })
         cy.intercept('/api/personal_api_keys/', { fixture: 'api/personal_api_keys' })
         cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
@@ -262,7 +263,7 @@ describe('<Insights /> trends', () => {
                 breakdown_type: 'event',
             })
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.get('[data-attr="add-breakdown-button"]').should('contain', '$browser')
+            cy.get('[data-attr="add-breakdown-button"]').should('contain', 'Browser')
         })
     })
 })

@@ -3,8 +3,8 @@ import React from 'react'
 import imgEmptyLineGraph from 'public/empty-line-graph.svg'
 import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
 import { QuestionCircleOutlined, LoadingOutlined } from '@ant-design/icons'
-import { userLogic } from 'scenes/userLogic'
 import { IllustrationDanger } from 'lib/components/icons'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
     return (
@@ -37,7 +37,7 @@ export function LineGraphEmptyState({ color, isDashboard }: { color: string; isD
 }
 
 export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
     return (
         <div className="insight-empty-state timeout-message">
             <div className="illustration-main">{isLoading ? <LoadingOutlined spin /> : <IllustrationDanger />}</div>
@@ -58,8 +58,8 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
             <ol>
                 <li>Reduce the date range of your query.</li>
                 <li>Remove some filters.</li>
-                {!user?.is_multi_tenancy && <li>Increase the size of your database server.</li>}
-                {!user?.is_multi_tenancy && !user?.ee_enabled && (
+                {!preflight?.cloud && <li>Increase the size of your database server.</li>}
+                {!preflight?.cloud && !preflight?.ee_enabled && (
                     <li>
                         <a
                             data-attr="insight-timeout-upgrade-to-clickhouse"

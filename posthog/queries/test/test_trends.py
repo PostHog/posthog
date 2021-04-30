@@ -3,7 +3,7 @@ from typing import List
 
 from freezegun import freeze_time
 
-from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LIFECYCLE, TRENDS_TABLE
+from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_LIFECYCLE, TRENDS_TABLE
 from posthog.models import (
     Action,
     ActionStep,
@@ -2027,6 +2027,37 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(result[0]["count"], 2)
             result = trends().run(filter_3, self.team,)
             self.assertEqual(result[0]["count"], 1)
+
+        def test_bar_chart_by_value(self):
+            self._create_events()
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                # with self.assertNumQueries(16):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-7d",
+                            "events": [{"id": "sign up"}, {"id": "no events"}],
+                            "display": TRENDS_BAR_VALUE,
+                        }
+                    ),
+                    self.team,
+                )
+            self.assertEqual(response[0]["aggregated_value"], 4)
+            self.assertEqual(response[1]["aggregated_value"], 1)
+            self.assertEqual(
+                response[0]["days"],
+                [
+                    "2019-12-28",
+                    "2019-12-29",
+                    "2019-12-30",
+                    "2019-12-31",
+                    "2020-01-01",
+                    "2020-01-02",
+                    "2020-01-03",
+                    "2020-01-04",
+                ],
+            )
 
     return TestTrends
 

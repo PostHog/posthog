@@ -4,7 +4,8 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
-from posthog.models import Event, Person
+from posthog.models import Event, Person, Plugin
+from posthog.models.plugin import PluginConfig
 from posthog.tasks.status_report import status_report
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
@@ -44,6 +45,14 @@ class TestStatusReport(APIBaseTest):
             self.assertEqual(team_report["persons_count_new_in_period"], 2)
             self.assertEqual(team_report["persons_count_active_in_period"], 1)
 
+    def test_status_report_plugins(self) -> None:
+        self._create_plugin("Installed but not enabled", False)
+        self._create_plugin("Installed and enabled", True)
+        report = status_report(dry_run=True)
+
+        self.assertEqual(report["plugins_installed"], {"Installed but not enabled": 1, "Installed and enabled": 1})
+        self.assertEqual(report["plugins_enabled"], {"Installed and enabled": 1})
+
     def create_person(self, distinct_id: str) -> None:
         Person.objects.create(team=self.team, distinct_ids=[distinct_id])
 
@@ -56,3 +65,7 @@ class TestStatusReport(APIBaseTest):
             created_at=created_at,
             properties={"$lib": lib},
         )
+
+    def _create_plugin(self, name: str, enabled: bool) -> None:
+        plugin = Plugin.objects.create(organization_id=self.team.organization.pk, name=name)
+        PluginConfig.objects.create(plugin=plugin, enabled=enabled, order=1)

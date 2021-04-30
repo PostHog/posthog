@@ -89,7 +89,7 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
         self.assertEqual(instance.key, "alpha-feature")
 
         # Assert analytics are sent
@@ -112,7 +112,7 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["key"], "omega-feature")
         self.assertEqual(response.json()["name"], "")
-        instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
         self.assertEqual(instance.key, "omega-feature")
         self.assertEqual(instance.name, "")
 
@@ -219,7 +219,7 @@ class TestFeatureFlag(APIBaseTest):
 
         response = self.client.post("/api/feature_flag/", {"name": "Alpha feature", "key": "alpha-feature"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        instance = FeatureFlag.objects.get(id=response.data["id"])  # type: ignore
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
         self.assertEqual(instance.key, "alpha-feature")
 
     def test_updating_a_feature_flag_with_same_team_and_key_of_a_deleted_one(self):

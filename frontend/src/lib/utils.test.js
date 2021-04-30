@@ -45,7 +45,7 @@ describe('formatLabel()', () => {
         given('action', () => ({ math: 'dau' }))
 
         it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (Active Users) ')
+            expect(given.subject).toEqual('some_event (Unique users) ')
         })
     })
 

@@ -1,5 +1,7 @@
+import json
 import logging
 import os
+from collections import Counter
 from typing import Any, Dict, List, Tuple
 
 import posthoganalytics
@@ -7,6 +9,7 @@ from django.db import connection
 from psycopg2 import sql
 
 from posthog.models import Event, Person, Team, User
+from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
 from posthog.utils import get_machine_id, get_previous_week
 from posthog.version import VERSION
@@ -18,9 +21,12 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
     period_start, period_end = get_previous_week()
     report: Dict[str, Any] = {
         "posthog_version": VERSION,
-        "deployment": os.environ.get("DEPLOYMENT", "unknown"),
+        "deployment": os.getenv("DEPLOYMENT", "unknown"),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
+        "site_url": os.getenv("SITE_URL", "unknown"),
     }
+
+    report["helm"] = get_helm_info_env()
 
     report["users_who_logged_in"] = [
         {"id": user.id, "distinct_id": user.distinct_id}
@@ -33,6 +39,13 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         "posthog_event": fetch_table_size("posthog_event"),
         "posthog_sessionrecordingevent": fetch_table_size("posthog_sessionrecordingevent"),
     }
+
+    plugin_configs = PluginConfig.objects.select_related("plugin").all()
+
+    report["plugins_installed"] = Counter((plugin_config.plugin.name for plugin_config in plugin_configs))
+    report["plugins_enabled"] = Counter(
+        (plugin_config.plugin.name for plugin_config in plugin_configs if plugin_config.enabled)
+    )
 
     for team in Team.objects.all():
         try:
@@ -116,3 +129,10 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
     with connection.cursor() as cursor:
         cursor.execute(sql.SQL(sql_), params)
         return namedtuplefetchall(cursor)
+
+
+def get_helm_info_env() -> dict:
+    try:
+        return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
+    except:
+        return {}

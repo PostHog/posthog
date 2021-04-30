@@ -33,9 +33,9 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
-from rest_framework.exceptions import APIException
-from sentry_sdk import capture_exception, push_scope
+from sentry_sdk import push_scope
 
+from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 from posthog.settings import print_warning
 
@@ -85,14 +85,6 @@ def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.
     )  # very start of the previous Monday
 
     return (period_start, period_end)
-
-
-def exception_reporting(exception: BaseException, context: Dict) -> None:
-    """
-    Determines which exceptions to report to Sentry and sends them.
-    """
-    if not isinstance(exception, APIException):
-        capture_exception(exception)
 
 
 def relative_date_parse(input: str) -> datetime.datetime:
@@ -203,34 +195,6 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     context["self_capture"] = False
     context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
 
-    # TODO: BEGINS DEPRECATED CODE
-    # Code deprecated in favor of posthog.api.authentication.AuthenticationSerializer
-    # Remove after migrating login to React
-    if settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET:
-        context["github_auth"] = True
-    if settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET:
-        context["gitlab_auth"] = True
-    if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
-        settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None
-    ):
-        if settings.MULTI_TENANCY:
-            context["google_auth"] = True
-        else:
-            google_login_paid_for = False
-            try:
-                from ee.models.license import License
-            except ImportError:
-                pass
-            else:
-                license = License.objects.first_valid()
-                if license is not None and "google_login" in license.available_features:
-                    google_login_paid_for = True
-            if google_login_paid_for:
-                context["google_auth"] = True
-            else:
-                print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
-    # ENDS DEPRECATED CODE
-
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
 
@@ -301,7 +265,7 @@ def dict_from_cursor_fetchall(cursor):
 
 def convert_property_value(input: Union[str, bool, dict, list, int]) -> str:
     if isinstance(input, bool):
-        if input == True:
+        if input is True:
             return "true"
         return "false"
     if isinstance(input, dict) or isinstance(input, list):
@@ -310,7 +274,7 @@ def convert_property_value(input: Union[str, bool, dict, list, int]) -> str:
 
 
 def get_compare_period_dates(
-    date_from: datetime.datetime, date_to: datetime.datetime
+    date_from: datetime.datetime, date_to: datetime.datetime,
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     new_date_to = date_from
     diff = date_to - date_from
@@ -342,30 +306,29 @@ def get_celery_heartbeat() -> Union[str, int]:
     return "offline"
 
 
-def base64_to_json(data) -> Dict:
-    return json.loads(
-        base64.b64decode(data.replace(" ", "+") + "===")
-        .decode("utf8", "surrogatepass")
-        .encode("utf-16", "surrogatepass")
-    )
+def base64_decode(data):
+    """
+    Decodes base64 bytes into string taking into account necessary transformations to match client libraries.
+    """
+    if not isinstance(data, str):
+        data = data.decode()
+
+    data = base64.b64decode(data.replace(" ", "+") + "===")
+
+    return data.decode("utf8", "surrogatepass").encode("utf-16", "surrogatepass")
 
 
 # Used by non-DRF endpoins from capture.py and decide.py (/decide, /batch, /capture, etc)
 def load_data_from_request(request):
-    data_res: Dict[str, Any] = {"data": {}, "body": None}
+    data = None
     if request.method == "POST":
-        if request.content_type == "application/json":
-            data = request.body
-            try:
-                data_res["body"] = {**json.loads(request.body)}
-            except:
-                pass
-        elif request.content_type == "text/plain" or request.content_type == "":
+        if request.content_type in ["", "text/plain", "application/json"]:
             data = request.body
         else:
             data = request.POST.get("data")
     else:
         data = request.GET.get("data")
+
     if not data:
         return None
 
@@ -379,27 +342,42 @@ def load_data_from_request(request):
     compression = compression.lower()
 
     if compression == "gzip" or compression == "gzip-js":
-        data = gzip.decompress(data)
+        try:
+            data = gzip.decompress(data)
+        except (EOFError, OSError) as error:
+            raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":
-        if isinstance(data, str):
-            data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
-        else:
-            data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
+        if not isinstance(data, str):
+            data = data.decode()
+        data = data.replace(" ", "+")
+
+        data = lzstring.LZString().decompressFromBase64(data)
+
+        if not data:
+            raise RequestParsingError("Failed to decompress data.")
+
         data = data.encode("utf-16", "surrogatepass").decode("utf-16")
 
-    #  Is it plain json?
+    base64_decoded = None
+    try:
+        base64_decoded = base64_decode(data)
+    except Exception:
+        pass
+
+    if base64_decoded:
+        data = base64_decoded
+
     try:
         # parse_constant gets called in case of NaN, Infinity etc
         # default behaviour is to put those into the DB directly
         # but we just want it to return None
         data = json.loads(data, parse_constant=lambda x: None)
-    except json.JSONDecodeError:
-        # if not, it's probably base64 encoded from other libraries
-        data = base64_to_json(data)
-    data_res["data"] = data
-    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
-    return data_res
+    except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
+        raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+
+    # TODO: data can also be an array, function assumes it's either None or a dictionary.
+    return data
 
 
 class SingletonDecorator:
@@ -408,7 +386,7 @@ class SingletonDecorator:
         self.instance = None
 
     def __call__(self, *args, **kwds):
-        if self.instance == None:
+        if self.instance is None:
             self.instance = self.klass(*args, **kwds)
         return self.instance
 
@@ -594,10 +572,10 @@ def get_safe_cache(cache_key: str):
     try:
         cached_result = cache.get(cache_key)  # cache.get is safe in most cases
         return cached_result
-    except:  # if it errors out, the cache is probably corrupted
+    except Exception:  # if it errors out, the cache is probably corrupted
         try:
             cache.delete(cache_key)  # in that case, try to delete the cache
-        except:
+        except Exception:
             pass
     return None
 
@@ -652,7 +630,7 @@ class GenericEmails:
         at_location = email.find("@")
         if at_location == -1:
             return False
-        return self.emails.get(email[at_location + 1 :], False)
+        return self.emails.get(email[(at_location + 1) :], False)
 
 
 def get_available_timezones_with_offsets() -> Dict[str, float]:
@@ -661,7 +639,7 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
     for tz in pytz.common_timezones:
         try:
             offset = pytz.timezone(tz).utcoffset(now)
-        except:
+        except Exception:
             offset = pytz.timezone(tz).utcoffset(now + dt.timedelta(hours=2))
         if offset is None:
             continue

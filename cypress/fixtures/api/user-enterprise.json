@@ -1,66 +1,59 @@
 {
-    "id": 2,
-    "distinct_id": "NFuDfZu5XKan7pDu3wCbvjJbVsoejlG6O6D8VaN96vA",
-    "name": "TestUser",
+    "id": "01788ed8-6d2d-0000-ccdb-d8e17589b1ea",
+    "distinct_id": "kOyAmTq2McfCD5XvqwjKf8m6GVecm9uN0L0ypEoRN50",
+    "first_name": "Jane",
     "email": "test@posthog.com",
     "email_opt_in": true,
     "anonymize_data": false,
     "toolbar_mode": "toolbar",
+    "has_password": true,
+    "is_staff": false,
+    "is_impersonated": false,
+    "team": {
+        "id": 1,
+        "uuid": "01787e47-55d7-0000-6976-b893a03aaba8",
+        "organization": "01787e47-5558-0000-bae1-6bc513b42abe",
+        "api_token": "dtrwW0uEC7LwVx64RmZmqog_XjU0nXWuEK1d1ZpjteQ",
+        "name": "HogFlix Demo App",
+        "completed_snippet_onboarding": true,
+        "ingested_event": true,
+        "is_demo": true,
+        "timezone": "UTC"
+    },
     "organization": {
-        "id": "01777279-f5a2-0000-b1d5-dbfc148b9426",
-        "name": "Foo",
-        "billing_plan": null,
-        "available_features": ["zapier", "organizations_projects", "google_login", "dashboard_collaboration"],
+        "id": "01787e47-5558-0000-bae1-6bc513b42abe",
+        "name": "Hogflix Movies",
+        "created_at": "2021-03-29T13:58:27.416616Z",
+        "updated_at": "2021-03-29T13:58:57.067131Z",
+        "membership_level": 15,
+        "personalization": {
+            "role": "engineer",
+            "products": ["web"],
+            "technical": "technical"
+        },
+        "setup": {
+            "is_active": true,
+            "current_section": 1,
+            "any_project_ingested_events": false,
+            "any_project_completed_snippet_onboarding": false,
+            "non_demo_team_id": null,
+            "has_invited_team_members": true
+        },
         "plugins_access_level": 9,
-        "created_at": "2021-02-05T13:55:31.362Z",
-        "updated_at": "2021-02-05T13:55:44.244Z",
         "teams": [
             {
-                "id": 2,
-                "name": "HogFlix Demo App"
+                "id": 1,
+                "uuid": "01787e47-55d7-0000-6976-b893a03aaba8",
+                "organization": "01787e47-5558-0000-bae1-6bc513b42abe",
+                "api_token": "dtrwW0uEC7LwVx64RmZmqog_XjU0nXWuEK1d1ZpjteQ",
+                "name": "HogFlix Demo App",
+                "completed_snippet_onboarding": true,
+                "ingested_event": true,
+                "is_demo": true,
+                "timezone": "UTC"
             }
-        ]
+        ],
+        "available_features": ["zapier", "organizations_projects", "google_login", "dashboard_collaboration"]
     },
-    "organizations": [
-        {
-            "name": "Foo",
-            "id": "01777279-f5a2-0000-b1d5-dbfc148b9426"
-        }
-    ],
-    "team": {
-        "id": 2,
-        "name": "HogFlix Demo App",
-        "app_urls": [],
-        "api_token": "JqcIEQVjX-CxbPiittsio2ZTIB2pHUBmGVGgQE4Io0I",
-        "opt_out_capture": false,
-        "anonymize_ips": false,
-        "slack_incoming_webhook": null,
-        "event_names": ["watched_movie", "installed_app"],
-        "event_names_with_usage": [],
-        "event_properties": [],
-        "event_properties_numerical": [],
-        "event_properties_with_usage": [],
-        "completed_snippet_onboarding": true,
-        "session_recording_opt_in": false,
-        "session_recording_retention_period_days": null,
-        "plugins_opt_in": false,
-        "ingested_event": true,
-        "is_demo": true
-    },
-    "teams": [
-        {
-            "name": "HogFlix Demo App",
-            "id": 2
-        }
-    ],
-    "has_password": true,
-    "opt_out_capture": null,
-    "posthog_version": "1.23.0",
-    "is_multi_tenancy": false,
-    "ee_available": true,
-    "ee_enabled": true,
-    "email_service_available": false,
-    "is_debug": false,
-    "is_staff": false,
-    "is_impersonated": false
+    "organizations": [{ "id": "01787e47-5558-0000-bae1-6bc513b42abe", "name": "Hogflix Movies" }]
 }

@@ -1,9 +1,7 @@
-import json
 from typing import Any, Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
-from django.contrib.postgres.fields import JSONField
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.db.models import Q
@@ -52,7 +50,7 @@ class Cohort(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
-    groups: JSONField = JSONField(default=list)
+    groups: models.JSONField = models.JSONField(default=list)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)

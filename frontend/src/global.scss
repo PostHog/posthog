@@ -19,7 +19,9 @@ style files without adding already imported styles. */
     --warning: #{$warning};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
+    --bg-charcoal: #{$bg_charcoal};
     --text-default: #{$text_default};
+    --text-light: #{$text_light};
     --muted: #{$text_muted};
     // Used for graph series
     --blue: #{$blue_500};
@@ -31,6 +33,19 @@ style files without adding already imported styles. */
     --cyan: #17a2b8;
     --pink: #e83e8c;
     --white: #f4f6ff;
+    --maroon: #800000;
+    --mint: #aaffc3;
+    --olive: #808000;
+    --navy: #000075;
+    --orange: #f58231;
+    --lime: #bfef45;
+    --apricot: #ffd8b1;
+    --brown: #9a6324;
+    // Lifecycle series
+    --lifecycle-new: #99c5ff;
+    --lifecycle-returning: #71b96b;
+    --lifecycle-resurrecting: #c277cf;
+    --lifecycle-dormant: #f86234;
 }
 
 // Text styles
@@ -249,8 +264,17 @@ code.code {
 }
 
 .highlighted {
-    background-color: $yellow_50;
     border-radius: $radius;
+    animation: highlight 2000ms ease-out;
+}
+
+@keyframes highlight {
+    0% {
+        background-color: $yellow_50;
+    }
+    100% {
+        background-color: initial;
+    }
 }
 
 // Toasts
@@ -594,4 +618,8 @@ code.code {
         margin-left: 6px;
         font-size: 1rem;
     }
+}
+
+.fullscreen-scroll {
+    overflow-y: auto;
 }

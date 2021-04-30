@@ -1,17 +1,17 @@
-import React from 'react'
+import React, { useState } from 'react'
+import Fuse from 'fuse.js'
 import { Select } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { EventProperty } from 'scenes/userLogic'
-
-type PropertyOption = EventProperty
+import { SelectOption } from '~/types'
 
 interface Props {
     optionGroups: Array<PropertyOptionGroup>
-    value: PropertyOption | null
+    value: Partial<SelectOption> | null
     onChange: (type: PropertyOptionGroup['type'], value: string) => void
     placeholder: string
     autoOpenIfEmpty?: boolean
+    delayBeforeAutoOpen?: number
 }
 
 interface PropertyOptionGroup {
@@ -26,29 +26,64 @@ interface SelectionOptionType {
     type: 'event' | 'person' | 'element'
 }
 
-export function PropertySelect({ optionGroups, value, onChange, placeholder, autoOpenIfEmpty }: Props): JSX.Element {
+const fuseCache: Record<string, any> = {}
+
+export const searchItems = (
+    sources: Array<{ value: string }>,
+    search: string | false,
+    groupType: 'event' | 'person' | 'element'
+): Array<{ value: string }> => {
+    if (!search) {
+        return sources
+    }
+
+    if (!fuseCache[groupType]) {
+        fuseCache[groupType] = new Fuse(sources, {
+            keys: ['value'],
+            threshold: 0.3,
+        })
+    }
+    return fuseCache[groupType].search(search).map((result: Record<string, { item: string }>) => {
+        return result.item
+    })
+}
+
+export function PropertySelect({
+    optionGroups,
+    value: propertyOption,
+    onChange,
+    placeholder,
+    autoOpenIfEmpty,
+    delayBeforeAutoOpen,
+}: Props): JSX.Element {
+    const [search, setSearch] = useState(false as string | false)
     return (
         <SelectGradientOverflow
             showSearch
-            autoFocus={autoOpenIfEmpty && !value}
-            defaultOpen={autoOpenIfEmpty && !value}
+            autoFocus={autoOpenIfEmpty && !propertyOption?.value}
+            defaultOpen={autoOpenIfEmpty && !propertyOption?.value}
+            delayBeforeAutoOpen={delayBeforeAutoOpen}
             placeholder={placeholder}
             data-attr="property-filter-dropdown"
             labelInValue
-            value={value || undefined}
-            filterOption={(input, option) => option?.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
+            value={propertyOption || undefined}
+            onSearch={(value) => {
+                setSearch(value)
+            }}
+            filterOption={() => {
+                return true // set to avoid ant.d doing its own filtering
+            }}
             onChange={(_: null, selection) => {
                 const { value: val, type } = selection as SelectionOptionType
                 onChange(type, val.replace(/^(event_|person_|element_)/gi, ''))
             }}
             style={{ width: '100%' }}
-            virtual={false}
         >
             {optionGroups.map(
                 (group) =>
                     group.options?.length > 0 && (
                         <Select.OptGroup key={group.type} label={group.label}>
-                            {group.options.map((option, index) => (
+                            {searchItems(group.options, search, group.type).map((option, index) => (
                                 <Select.Option
                                     key={`${group.type}_${option.value}`}
                                     value={`${group.type}_${option.value}`}

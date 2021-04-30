@@ -4,6 +4,7 @@ import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
 import { AnnotationScope } from 'lib/constants'
+import { AnnotationType } from '~/types'
 
 export const Annotations = function Annotations({
     dates,
@@ -49,7 +50,7 @@ export const Annotations = function Annotations({
                         left={index * interval + leftExtent - 12.5}
                         top={topExtent}
                         annotations={annotations}
-                        onCreate={(input, applyAll) => {
+                        onCreate={(input: string, applyAll: boolean) => {
                             if (applyAll) {
                                 createGlobalAnnotation(input, dates[index], dashboardItemId)
                             } else if (dashboardItemId) {
@@ -58,7 +59,7 @@ export const Annotations = function Annotations({
                                 createAnnotation(input, dates[index])
                             }
                         }}
-                        onDelete={(data) => {
+                        onDelete={(data: AnnotationType) => {
                             annotations.length === 1 && onClose?.()
                             if (data.scope !== AnnotationScope.DashboardItem) {
                                 deleteGlobalAnnotation(data.id)

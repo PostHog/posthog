@@ -2,7 +2,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 import pytz
-from django.contrib.postgres.fields import ArrayField, JSONField
+from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.dispatch.dispatcher import receiver
@@ -11,11 +11,20 @@ from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
-from .utils import UUIDT, UUIDClassicModel, generate_random_token, sane_repr
+from .utils import UUIDClassicModel, generate_random_token, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
 TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
+
+# TODO: #4070 DEPRECATED; delete when these attributes are fully removed from `Team` model
+DEFERRED_FIELDS = (
+    "event_names",
+    "event_names_with_usage",
+    "event_properties",
+    "event_properties_with_usage",
+    "event_properties_numerical",
+)
 
 
 class TeamManager(models.Manager):
@@ -39,7 +48,7 @@ class TeamManager(models.Manager):
                     ] + filters
         return filters
 
-    def create_with_data(self, user=None, default_dashboards: bool = True, **kwargs) -> "Team":
+    def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
         kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
         team = Team.objects.create(**kwargs)
 
@@ -59,7 +68,7 @@ class TeamManager(models.Manager):
         if not token:
             return None
         try:
-            return Team.objects.get(api_token=token)
+            return Team.objects.defer(*DEFERRED_FIELDS).get(api_token=token)
         except Team.DoesNotExist:
             return None
 
@@ -83,11 +92,6 @@ class Team(UUIDClassicModel):
         max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
     )
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
-    event_names: JSONField = JSONField(default=list)
-    event_names_with_usage: JSONField = JSONField(default=list)
-    event_properties: JSONField = JSONField(default=list)
-    event_properties_with_usage: JSONField = JSONField(default=list)
-    event_properties_numerical: JSONField = JSONField(default=list)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
@@ -99,9 +103,9 @@ class Team(UUIDClassicModel):
     )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
-    test_account_filters: JSONField = JSONField(default=list)
+    test_account_filters: models.JSONField = models.JSONField(default=list)
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
-    data_attributes: JSONField = JSONField(default=get_default_data_attributes)
+    data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
 
     # DEPRECATED, DISUSED: plugins are enabled for everyone now
     plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
@@ -111,6 +115,13 @@ class Team(UUIDClassicModel):
     users: models.ManyToManyField = models.ManyToManyField(
         "User", blank=True, related_name="teams_deprecated_relationship"
     )
+    # DEPRECATED: in favor of `EventDefinition` model
+    event_names: models.JSONField = models.JSONField(default=list)
+    event_names_with_usage: models.JSONField = models.JSONField(default=list)
+    # DEPRECATED: in favor of `PropertyDefinition` model
+    event_properties: models.JSONField = models.JSONField(default=list)
+    event_properties_with_usage: models.JSONField = models.JSONField(default=list)
+    event_properties_numerical: models.JSONField = models.JSONField(default=list)
 
     objects = TeamManager()
 
@@ -125,6 +136,7 @@ class Team(UUIDClassicModel):
 
     def get_latest_event_names_with_usage(self):
         """
+        TODO: #4070 This has been deprecated in favor of `EventDefinition` and should be removed upon final migration.
         Fetches `event_names_with_usage` but adding any events that may have come in since the
         property was last computed. Ensures all events are included.
         """
@@ -139,6 +151,7 @@ class Team(UUIDClassicModel):
 
     def get_latest_event_properties_with_usage(self):
         """
+        TODO: #4070 This has been deprecated in favor of `EventDefinition` and should be removed upon final migration.
         Fetches `event_properties_with_usage` but adding any properties that may have appeared since the
         property was last computed. Ensures all properties are included.
         """
