@@ -46,17 +46,9 @@ export function ManageEvents(): JSX.Element {
                     <ActionsTable />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="Events Stats" key="stats">
-                    See all event names that have ever been sent to this team, including the volume and how often
-                    queries where made using this event.
-                    <br />
-                    <br />
                     <EventsVolumeTable />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="Properties Stats" key="properties">
-                    See all property keys that have ever been sent to this team, including the volume and how often
-                    queries where made using this property key.
-                    <br />
-                    <br />
                     <PropertiesVolumeTable />
                 </Tabs.TabPane>
             </Tabs>

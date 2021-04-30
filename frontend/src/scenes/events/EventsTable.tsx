@@ -80,7 +80,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             span: 4,
             render: function render(item) {
                 if (!item.event) {
-                    return newEventsRender(item, 7)
+                    return newEventsRender(item, columnConfig === 'DEFAULT' ? 7 : columnConfig.length)
                 }
                 const { event } = item
                 return <PropertyKeyInfo value={eventToName(event)} />
