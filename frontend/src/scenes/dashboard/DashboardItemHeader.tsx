@@ -28,11 +28,10 @@ export function DashboardItemHeader({ dashboardItemId, dashboardId }: Props): JS
                 <div className="dashboard-item-description text-default">
                     <div className="title">
                         <IconDashboard />
-                        Viewing graph {dashboardItem?.name} from
-                        <div style={{ paddingLeft: 4, paddingRight: 4 }}>
-                            <Link to={`/dashboard/${dashboardId}`}>{dashboard?.name}</Link>
-                        </div>
-                        dashboard.
+                        <span style={{ paddingLeft: 6 }}>
+                            Viewing graph <b>{dashboardItem?.name}</b> from{' '}
+                            <Link to={`/dashboard/${dashboardId}`}>{dashboard?.name}</Link> dashboard.
+                        </span>
                     </div>
                 </div>
             </div>
