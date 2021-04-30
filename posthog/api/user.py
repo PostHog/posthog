@@ -230,7 +230,6 @@ def user(request):
             user.email_opt_in = data["user"].get("email_opt_in", user.email_opt_in)
             user.anonymize_data = data["user"].get("anonymize_data", user.anonymize_data)
             user.toolbar_mode = data["user"].get("toolbar_mode", user.toolbar_mode)
-            user.events_column_config = data["user"].get("events_column_config", user.events_column_config)
             user.save()
 
     user_identify.identify_task.delay(user_id=user.id)
@@ -245,7 +244,6 @@ def user(request):
             "email_opt_in": user.email_opt_in,
             "anonymize_data": user.anonymize_data,
             "toolbar_mode": user.toolbar_mode,
-            "events_column_config": user.events_column_config,
             "organization": None
             if organization is None
             else {
