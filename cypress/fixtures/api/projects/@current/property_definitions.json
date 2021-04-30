@@ -1,0 +1,10 @@
+{
+    "results": [
+        { "name": "$current_url" },
+        { "name": "is_first_movie" },
+        { "name": "plan" },
+        { "name": "first_visit" },
+        { "name": "$set" },
+        { "name": "$ip" }
+    ]
+}
