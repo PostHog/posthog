@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             """
                 ALTER TABLE posthog_element
-                    ALTER COLUMN attr_class TYPE varchar(10000),
+                    ALTER COLUMN attr_class TYPE varchar(10000)[],
                     ALTER COLUMN attr_id TYPE varchar(10000),
                     ALTER COLUMN href TYPE varchar(10000),
                     ALTER COLUMN tag_name TYPE varchar(1000),
