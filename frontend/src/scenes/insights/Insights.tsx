@@ -488,8 +488,8 @@ interface Props {
     dashboardItem: any
 }
 function Header({ dashboardItem }: Props): JSX.Element {
-    if (dashboardItem) {
-        return <DashboardItemHeader />
+    if (dashboardItem?.id) {
+        return <DashboardItemHeader dashboardId={dashboardItem.dashboard} dashboardItemId={dashboardItem.id} />
     }
     return <PageHeader title="Insights" />
 }
