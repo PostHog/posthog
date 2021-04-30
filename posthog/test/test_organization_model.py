@@ -29,7 +29,9 @@ class TestOrganization(BaseTest):
 
     def test_plugins_are_preinstalled_on_self_hosted(self):
         with self.settings(TEST=False, MULTI_TENANCY=False):
-            new_org, _, _ = Organization.objects.bootstrap(self.user)
+            new_org, _, _ = Organization.objects.bootstrap(
+                self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+            )
 
         self.assertEqual(
             Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(),
@@ -38,7 +40,9 @@ class TestOrganization(BaseTest):
 
     def test_plugins_are_not_preinstalled_on_cloud(self):
         with self.settings(TEST=False, MULTI_TENANCY=True):
-            new_org, _, _ = Organization.objects.bootstrap(self.user)
+            new_org, _, _ = Organization.objects.bootstrap(
+                self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+            )
 
         self.assertEqual(
             Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 0,

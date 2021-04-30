@@ -161,7 +161,9 @@ class TestTeam(BaseTest):
 
     def test_preinstalled_are_autoenabled(self):
         with self.settings(TEST=False, MULTI_TENANCY=False):
-            _, _, new_team = Organization.objects.bootstrap(self.user)
+            _, _, new_team = Organization.objects.bootstrap(
+                self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+            )
 
         self.assertEqual(
             PluginConfig.objects.filter(team=new_team, enabled=True).count(), len(settings.PLUGINS_PREINSTALLED_URLS)
