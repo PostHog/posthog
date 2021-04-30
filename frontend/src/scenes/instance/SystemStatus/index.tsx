@@ -7,6 +7,7 @@ import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SystemStatusSubrows } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { IconExternalLink } from 'lib/components/icons'
 
 function RenderValue(value: any): JSX.Element | string {
     if (typeof value === 'boolean') {
@@ -61,7 +62,14 @@ export function SystemStatus(): JSX.Element {
                                 <code>{window.location.origin}</code>
                             </b>
                             . In order for PostHog to work properly, please set this to the origin where your instance
-                            is hosted.
+                            is hosted.{' '}
+                            <a
+                                target="_blank"
+                                rel="noopener"
+                                href="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=system-status-site-url-misconfig"
+                            >
+                                Learn more <IconExternalLink />
+                            </a>
                         </>
                     }
                     showIcon
