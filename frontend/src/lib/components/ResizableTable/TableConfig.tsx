@@ -1,6 +1,6 @@
 import { Button, Card, Col, Row, Tooltip } from 'antd'
 import React, { useEffect, useState } from 'react'
-import { DownloadOutlined, SettingOutlined } from '@ant-design/icons'
+import { DownloadOutlined, SettingOutlined, SaveOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
 import { tableConfigLogic } from './tableConfigLogic'
@@ -14,26 +14,43 @@ interface TableConfigInterface {
     exportUrl?: string
     selectedColumns?: string[] // Allows column visibility customization
     availableColumns?: string[] // List of all available columns (should include selectedColumns too for simplicity)
+    immutableColumns?: string[] // List of columns that cannot be removed
     onColumnUpdate?: (selectedColumns: string[]) => void
+    saving?: boolean // Whether the saving routine is in process (i.e. loading indicators should be shown)
 }
 
 export function TableConfig({
     exportUrl,
     selectedColumns,
     availableColumns,
-}: // onColumnUpdate,
-TableConfigInterface): JSX.Element {
+    immutableColumns,
+    onColumnUpdate,
+    saving,
+}: TableConfigInterface): JSX.Element {
     const { state } = useValues(tableConfigLogic)
     const { setState } = useActions(tableConfigLogic)
+
     return (
         <>
             <div className="table-options">
-                {selectedColumns && availableColumns && (
-                    <Button
-                        data-attr="events-table-column-selector"
-                        onClick={() => setState('columnConfig')}
-                        icon={<SettingOutlined />}
-                    />
+                {selectedColumns && availableColumns && onColumnUpdate && (
+                    <>
+                        <Button
+                            data-attr="events-table-column-selector"
+                            onClick={() => setState('columnConfig')}
+                            icon={<SettingOutlined />}
+                        />
+                        {state === 'columnConfig' && (
+                            <ColumnConfigurator
+                                allColumns={availableColumns}
+                                currentSelection={selectedColumns}
+                                immutableColumns={immutableColumns}
+                                onClose={() => setState(null)}
+                                onColumnUpdate={onColumnUpdate}
+                                saving={saving}
+                            />
+                        )}
+                    </>
                 )}
                 {exportUrl && (
                     <Tooltip title="Export up to 100,000 latest events.">
@@ -41,9 +58,6 @@ TableConfigInterface): JSX.Element {
                     </Tooltip>
                 )}
             </div>
-            {selectedColumns && availableColumns && state === 'columnConfig' && (
-                <ColumnConfigurator allColumns={availableColumns} currentSelection={selectedColumns} />
-            )}
         </>
     )
 }
@@ -51,9 +65,20 @@ TableConfigInterface): JSX.Element {
 interface ColumnConfiguratorInterface {
     currentSelection: string[] // List of currently selected columns
     allColumns: string[] // List of all possible columns
+    immutableColumns?: string[]
+    onClose: () => void
+    onColumnUpdate: (selectedColumns: string[]) => void
+    saving?: boolean
 }
 
-function ColumnConfigurator({ currentSelection, allColumns }: ColumnConfiguratorInterface): JSX.Element {
+function ColumnConfigurator({
+    currentSelection,
+    allColumns,
+    immutableColumns,
+    onClose,
+    onColumnUpdate,
+    saving,
+}: ColumnConfiguratorInterface): JSX.Element {
     const [selectableColumns, setSelectableColumns] = useState([] as string[])
     const [selectedColumns, setSelectedColumns] = useState([] as string[])
     const [scrollSelectedToIndex, setScrollSelectedToIndex] = useState(0)
@@ -75,28 +100,30 @@ function ColumnConfigurator({ currentSelection, allColumns }: ColumnConfigurator
     }
 
     function RenderAvailableColumn({ index, style, key }: ListRowProps): JSX.Element {
+        const disabled = saving
         return (
             <div
-                className="column-display-item"
+                className={`column-display-item${disabled ? ' disabled' : ''}`}
                 style={style}
                 key={key}
-                onClick={() => selectColumn(selectableColumns[index])}
+                onClick={() => !disabled && selectColumn(selectableColumns[index])}
             >
-                <Checkbox style={{ marginRight: 8 }} checked={false} />
+                <Checkbox style={{ marginRight: 8 }} checked={false} disabled={disabled} />
                 {<PropertyKeyInfo value={selectableColumns[index]} />}
             </div>
         )
     }
 
     function RenderSelectedColumn({ index, style, key }: ListRowProps): JSX.Element {
+        const disabled = immutableColumns?.includes(selectedColumns[index]) || saving
         return (
             <div
-                className="column-display-item"
+                className={`column-display-item${disabled ? ' disabled' : ''}`}
                 style={style}
                 key={key}
-                onClick={() => unSelectColumn(selectedColumns[index])}
+                onClick={() => !disabled && unSelectColumn(selectedColumns[index])}
             >
-                <Checkbox style={{ marginRight: 8 }} checked />
+                <Checkbox style={{ marginRight: 8 }} checked disabled={disabled} />
                 {<PropertyKeyInfo value={selectedColumns[index]} />}
             </div>
         )
@@ -107,13 +134,18 @@ function ColumnConfigurator({ currentSelection, allColumns }: ColumnConfigurator
             centered
             visible
             title="Toggle column visibility"
-            /*onOk={_onConfirm}
-            confirmLoading={!loaded}*/
+            confirmLoading={saving}
+            onOk={() => onColumnUpdate(selectedColumns)}
             width={700}
             className="column-configurator-modal"
             okButtonProps={{
-                className: 'items-selector-confirm',
+                // @ts-ignore
+                'data-attr': 'items-selector-confirm',
+                loading: saving,
+                icon: <SaveOutlined />,
             }}
+            okText="Save preferences"
+            onCancel={onClose}
         >
             <Row gutter={16}>
                 <Col sm={11}>

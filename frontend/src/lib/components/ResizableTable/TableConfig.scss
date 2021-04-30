@@ -18,5 +18,10 @@
         &:hover {
             background-color: $bg_mid;
         }
+
+        &.disabled {
+            cursor: not-allowed;
+            color: $text_muted;
+        }
     }
 }

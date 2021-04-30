@@ -52,9 +52,10 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         newEvents,
         eventFilter,
         columnConfig,
+        columnConfigSaving,
     } = useValues(logic)
     const { propertyNames } = useValues(propertyDefinitionsLogic)
-    const { fetchNextEvents, prependNewEvents } = useActions(logic)
+    const { fetchNextEvents, prependNewEvents, setColumnConfig } = useActions(logic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
@@ -222,6 +223,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             },
         },
     ]
+
     const selectedConfigOptions = columnConfig === 'DEFAULT' ? defaultColumns.map((e) => e.key) : columnConfig
 
     const columns =
@@ -275,6 +277,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 })}`}
                 selectedColumns={selectedConfigOptions}
                 availableColumns={propertyNames}
+                immutableColumns={['event', 'person', 'when']}
+                onColumnUpdate={setColumnConfig}
+                saving={columnConfigSaving}
             />
 
             <div>
