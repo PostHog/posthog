@@ -3,6 +3,8 @@ set -e
 
 trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 
+export DEBUG=1
+
 ./bin/start-worker &
 ./bin/start-backend &
 ./bin/start-frontend &

@@ -4,8 +4,8 @@ import api from 'lib/api'
 import { eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
 import { PersonType, SessionType } from '~/types'
-import moment from 'moment'
-import { EventIndex } from 'posthog-react-rrweb-player'
+import dayjs from 'dayjs'
+import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { toast } from 'react-toastify'
 
@@ -124,7 +124,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                 if (!sessionPlayerData?.start_time) {
                     return null
                 }
-                return moment(sessionPlayerData.start_time).format('MMM Do')
+                return dayjs(sessionPlayerData.start_time).format('MMM Do')
             },
         ],
         eventIndex: [
@@ -170,7 +170,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                 if (!sessionPlayerData) {
                     return []
                 }
-                const startTime = +moment(sessionPlayerData.start_time)
+                const startTime = +dayjs(sessionPlayerData.start_time)
 
                 const pageChangeEvents = eventIndex.pageChangeEvents().map(({ playerTime, href }) => ({
                     playerTime,
@@ -178,7 +178,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                     color: 'blue',
                 }))
                 const highlightedEvents = events.map((event) => ({
-                    playerTime: +moment(event.timestamp) - startTime,
+                    playerTime: +dayjs(event.timestamp) - startTime,
                     text: eventToName(event),
                     color: 'orange',
                 }))

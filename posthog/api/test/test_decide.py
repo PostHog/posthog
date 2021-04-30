@@ -1,13 +1,23 @@
 import base64
 import json
 
-from posthog.models import FeatureFlag, Person, PersonalAPIKey
+from django.test.client import Client
+from rest_framework import status
 
-from .base import BaseTest
+from posthog.models import FeatureFlag, Person, PersonalAPIKey
+from posthog.test.base import BaseTest
 
 
 class TestDecide(BaseTest):
-    TESTS_API = True
+    """
+    Tests the `/decide` endpoint.
+    We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.client.force_login(self.user)
 
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
@@ -95,10 +105,17 @@ class TestDecide(BaseTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
-        Person.objects.create(team=self.team, distinct_ids=["example_id"])
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
         )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
 
         # Test number of queries with multiple property filter feature flags
         FeatureFlag.objects.create(
@@ -111,19 +128,23 @@ class TestDecide(BaseTest):
         )
         FeatureFlag.objects.create(
             team=self.team,
-            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
-            rollout_percentage=50,
+            filters={"groups": [{"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]}]},
             name="Filter by property 2",
             key="filer-by-property-2",
             created_by=self.user,
         )
-        with self.assertNumQueries(5):
-            response = self._post_decide().json()
-        self.assertEqual(response["featureFlags"][0], "beta-feature")
 
         with self.assertNumQueries(5):
-            response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"}).json()
-        self.assertEqual(len(response["featureFlags"]), 0)
+            response = self._post_decide()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("default-flag", response.json()["featureFlags"])
+        self.assertIn("beta-feature", response.json()["featureFlags"])
+        self.assertIn("filer-by-property-2", response.json()["featureFlags"])
+
+        with self.assertNumQueries(5):
+            response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["featureFlags"], ["default-flag"])
 
     def test_feature_flags_with_personal_api_key(self):
         key = PersonalAPIKey(label="X", user=self.user)
@@ -132,10 +153,19 @@ class TestDecide(BaseTest):
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
         )
+        FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=100, name="Disabled", key="disabled", created_by=self.user, active=False,
+        )  # disabled flag
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            key="default-flag",
+            created_by=self.user,
+        )  # enabled for everyone
         response = self._post_decide(
             {"distinct_id": "example_id", "api_key": key.value, "project_id": self.team.id}
         ).json()
-        self.assertEqual(len(response["featureFlags"]), 1)
+        self.assertEqual(response["featureFlags"], ["test", "default-flag"])
 
     def test_personal_api_key_without_project_id(self):
         key = PersonalAPIKey(label="X", user=self.user)
@@ -143,8 +173,43 @@ class TestDecide(BaseTest):
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
 
         response = self._post_decide({"distinct_id": "example_id", "api_key": key.value})
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(
-            response.json()["message"],
-            "Project API key invalid. You can find your project API key in PostHog project settings.",
+            response.json(),
+            {
+                "type": "authentication_error",
+                "code": "invalid_api_key",
+                "detail": "Project API key invalid. You can find your project API key in PostHog project settings.",
+                "attr": None,
+            },
         )
+
+    def test_invalid_payload_on_decide_endpoint(self):
+
+        invalid_payloads = [base64.b64encode("1-1".encode("utf-8")).decode("utf-8"), "1==1", "{distinct_id-1}"]
+
+        for payload in invalid_payloads:
+            response = self.client.post("/decide/", {"data": payload}, HTTP_ORIGIN="http://127.0.0.1:8000")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            response_data = response.json()
+            detail = response_data.pop("detail")
+            self.assertEqual(
+                response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None},
+            )
+            self.assertIn("Malformed request data:", detail)
+
+    def test_invalid_gzip_payload_on_decide_endpoint(self):
+
+        response = self.client.post(
+            "/decide/?compression=gzip",
+            data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03",
+            HTTP_ORIGIN="http://127.0.0.1:8000",
+            content_type="text/plain",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        detail = response_data.pop("detail")
+        self.assertEqual(
+            response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None},
+        )
+        self.assertIn("Malformed request data:", detail)

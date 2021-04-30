@@ -5,7 +5,7 @@ import re
 import tarfile
 from typing import Dict, Optional, Tuple
 from urllib.parse import parse_qs, quote
-from zipfile import BadZipFile, ZipFile
+from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 import requests
 from django.conf import settings
@@ -42,12 +42,14 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
             headers = {"Authorization": "token {}".format(token)} if token else {}
             commits_url = "https://api.github.com/repos/{}/{}/commits".format(parsed["user"], parsed["repo"])
             commits = requests.get(commits_url, headers=headers).json()
+            if isinstance(commits, dict):
+                raise Exception(commits.get("message"))
             if len(commits) > 0 and commits[0].get("sha", None):
                 parsed["tag"] = commits[0]["sha"]
             else:
-                raise
-        except Exception:
-            raise Exception("Could not get latest commit for: {}".format(parsed["root_url"]))
+                raise Exception(f"Could not find a commit with a hash in {commits}")
+        except Exception as e:
+            raise Exception(f"Could not get latest commit for {parsed['root_url']}. Reason: {e}")
     if parsed["tag"]:
         parsed["tagged_url"] = "https://github.com/{}/{}/tree/{}{}".format(
             parsed["user"],
@@ -244,3 +246,20 @@ def get_json_from_archive(archive: bytes, filename: str):
         return get_json_from_zip_archive(archive, filename)
     except BadZipFile:
         return get_json_from_tgz_archive(archive, filename)
+
+
+def put_json_into_zip_archive(archive: bytes, json_data: dict, filename: str):
+    input_zip = ZipFile(io.BytesIO(archive), "r")
+    root_folder = input_zip.namelist()[0]
+    file_path = os.path.join(root_folder, filename)
+
+    zip_buffer = io.BytesIO()
+    with ZipFile(zip_buffer, "a", ZIP_DEFLATED, False) as zip_file:
+        for file in input_zip.filelist:
+            if file.filename != file_path:
+                zip_file.writestr(file, input_zip.read(file.filename))
+        zip_file.writestr(file_path, json.dumps(json_data))
+        for zfile in zip_file.filelist:
+            zfile.create_system = 0
+
+    return zip_buffer.getvalue()

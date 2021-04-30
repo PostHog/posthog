@@ -12,10 +12,10 @@ import { ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/es/form'
 import { posthog } from '~/toolbar/posthog'
 
-function newAction(element: HTMLElement | null): Partial<ActionType> {
+function newAction(element: HTMLElement | null, dataAttributes: string[]): Partial<ActionType> {
     return {
         name: '',
-        steps: [element ? actionStepToAntdForm(elementToActionStep(element), true) : {}],
+        steps: [element ? actionStepToAntdForm(elementToActionStep(element, dataAttributes), true) : {}],
     }
 }
 
@@ -142,7 +142,10 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, A
         },
         inspectElementSelected: ({ element, index }) => {
             if (values.form) {
-                const actionStep = actionStepToAntdForm(elementToActionStep(element), true)
+                const actionStep = actionStepToAntdForm(
+                    elementToActionStep(element, toolbarLogic.values.dataAttributes),
+                    true
+                )
                 const fields = Object.entries(actionStep).map(([key, value]) => {
                     return { name: ['steps', index || 0, key], value }
                 })

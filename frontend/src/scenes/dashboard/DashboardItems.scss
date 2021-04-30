@@ -322,53 +322,31 @@
 
     @keyframes keyframes1 {
         0% {
-            transform: rotate(-0.5deg);
+            transform: rotate(-0.2deg);
             animation-timing-function: ease-in;
         }
 
         50% {
-            transform: rotate(0.75deg);
+            transform: rotate(0.2deg);
             animation-timing-function: ease-out;
         }
     }
 
     @keyframes keyframes2 {
         0% {
-            transform: rotate(0.5deg);
+            transform: rotate(0.2deg);
             animation-timing-function: ease-in;
         }
 
         50% {
-            transform: rotate(-0.75deg);
+            transform: rotate(-0.2deg);
             animation-timing-function: ease-out;
         }
     }
 }
 
 .Toastify .drag-items-toast {
-    background: hsla(210, 10%, 12%, 1);
-    color: hsla(220, 9%, 92%, 1);
-    padding: 15px 30px;
-    text-align: center;
-    border-radius: 5px;
     @media (max-width: 480px) {
         border-radius: 0;
-    }
-    p {
-        margin-bottom: 10px;
-    }
-    p:last-child {
-        margin-bottom: 0;
-    }
-    .headline {
-        font-size: 150%;
-    }
-    a {
-        color: white;
-        text-decoration: underline;
-        white-space: nowrap;
-    }
-    u {
-        white-space: nowrap;
     }
 }

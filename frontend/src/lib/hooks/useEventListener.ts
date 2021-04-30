@@ -1,8 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { DependencyList, useEffect, useRef } from 'react'
 
 export type EventHandler = (event: Event) => void
 
-export function useEventListener(eventName: string, handler: EventHandler, element: Element | Window = window): void {
+export function useEventListener(
+    eventName: string,
+    handler: EventHandler,
+    element: Element | Window = window,
+    deps?: DependencyList
+): void {
     // Create a ref that stores handler
     const savedHandler = useRef<EventHandler>(() => {})
 
@@ -30,6 +35,6 @@ export function useEventListener(eventName: string, handler: EventHandler, eleme
                 element.removeEventListener(eventName, eventListener)
             }
         },
-        [eventName, element] // Re-run if eventName or element changes
+        [eventName, element, ...(deps || [])] // Re-run if eventName or element changes
     )
 }

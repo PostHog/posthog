@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.utils import timezone
 from freezegun.api import freeze_time
 
+from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Cohort, Element, Event, Filter, Organization, Person, Team
 from posthog.queries.base import properties_to_Q
 from posthog.test.base import BaseTest
@@ -314,9 +315,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
 
             filter = Filter(data={"properties": {"is_first": ["true"]}})
             events = filter_events(filter, self.team)
-            import pprint
 
-            pprint.pprint(events)
             self.assertEqual(events[0]["id"], event2.pk)
 
         def test_is_not_true_false(self):
@@ -377,9 +376,43 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                     Element.objects.create(tag_name="div"),
                 ],
             )
+
+            event3 = event_factory(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="distinct_id",
+                elements=[
+                    Element.objects.create(tag_name="a", text="some other text"),
+                    Element.objects.create(tag_name="div"),
+                ],
+            )
+
             event2 = event_factory(team=self.team, event="$autocapture", distinct_id="distinct_id")
-            filter = Filter(data={"properties": [{"key": "text", "value": "some text", "type": "element"}]})
+            filter = Filter(
+                data={"properties": [{"key": "text", "value": ["some text", "some other text"], "type": "element"}]}
+            )
             events = filter_events(filter=filter, team=self.team)
+            self.assertEqual(len(events), 2)
+
+            filter2 = Filter(data={"properties": [{"key": "text", "value": "some text", "type": "element"}]})
+            events_response_2 = filter_events(filter=filter2, team=self.team)
+            self.assertEqual(len(events_response_2), 1)
+
+        def test_filter_out_team_members(self):
+            person1 = person_factory(
+                team_id=self.team.pk, distinct_ids=["team_member"], properties={"email": "test@posthog.com"}
+            )
+            person1 = person_factory(
+                team_id=self.team.pk, distinct_ids=["random_user"], properties={"email": "test@gmail.com"}
+            )
+            self.team.test_account_filters = [
+                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+            ]
+            self.team.save()
+            event_factory(team=self.team, distinct_id="team_member", event="$pageview")
+            event_factory(team=self.team, distinct_id="random_user", event="$pageview")
+            filter = Filter(data={FILTER_TEST_ACCOUNTS: True, "events": [{"id": "$pageview"}]})
+            events = filter_events(filter=filter, team=self.team, person_query=True)
             self.assertEqual(len(events), 1)
 
     return TestPropertiesToQ
@@ -391,7 +424,10 @@ def _filter_events(filter: Filter, team: Team, person_query: Optional[bool] = Fa
     if person_query:
         events = events.add_person_id(team.pk)
 
-    events = events.filter(properties_to_Q(filter.properties, team_id=team.pk))
+    events = events.filter(
+        properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+    )
+    events = events.filter(team_id=team.pk)
     if order_by:
         events = events.order_by(order_by)
     return events.values()

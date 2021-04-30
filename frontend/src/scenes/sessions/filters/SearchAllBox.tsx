@@ -1,8 +1,8 @@
 import React from 'react'
-import { SearchOutlined } from '@ant-design/icons'
 import { Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import { SelectDownIcon } from 'lib/components/SelectDownIcon'
 
 export function SearchAllBox(): JSX.Element {
     const { openFilter } = useValues(sessionsFiltersLogic)
@@ -11,13 +11,14 @@ export function SearchAllBox(): JSX.Element {
     return (
         <div className="mb-05 full-width">
             <Button
-                className="full-width"
                 style={{ textAlign: 'left' }}
                 data-attr="sessions-filter-open"
                 onClick={() => (openFilter ? closeFilterSelect() : openFilterSelect('new'))}
             >
-                <SearchOutlined />
-                <span className="text-muted">Filter sessions by users, actions, events, ...</span>
+                <span className="text-muted">
+                    Filter by user, action, or event properties
+                    <SelectDownIcon />
+                </span>
             </Button>
         </div>
     )

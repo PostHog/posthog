@@ -6,6 +6,7 @@ import {
     capitalizeFirstLetter,
     compactNumber,
     pluralize,
+    endWithPunctation,
 } from './utils'
 
 describe('capitalizeFirstLetter()', () => {
@@ -44,7 +45,7 @@ describe('formatLabel()', () => {
         given('action', () => ({ math: 'dau' }))
 
         it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (Active Users) ')
+            expect(given.subject).toEqual('some_event (Unique users) ')
         })
     })
 
@@ -57,10 +58,15 @@ describe('formatLabel()', () => {
     })
 
     describe('action with properties', () => {
-        given('action', () => ({ properties: [{ value: 'hello' }, { operator: 'gt', value: 5 }] }))
+        given('action', () => ({
+            properties: [
+                { value: 'hello', key: 'greeting' },
+                { operator: 'gt', value: 5 },
+            ],
+        }))
 
         it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (= hello, > 5)')
+            expect(given.subject).toEqual('some_event (greeting = hello, > 5)')
         })
     })
 })
@@ -103,10 +109,10 @@ describe('compactNumber()', () => {
         expect(compactNumber(10)).toEqual('10')
         expect(compactNumber(293)).toEqual('293')
         expect(compactNumber(5001)).toEqual('5K')
-        expect(compactNumber(5312)).toEqual('5.3K')
-        expect(compactNumber(5392)).toEqual('5.4K')
-        expect(compactNumber(2833102, 2)).toEqual('2.83M')
-        expect(compactNumber(8283310234)).toEqual('8.3B')
+        expect(compactNumber(5312)).toEqual('5.31K')
+        expect(compactNumber(5392)).toEqual('5.39K')
+        expect(compactNumber(2833102)).toEqual('2.83M')
+        expect(compactNumber(8283310234)).toEqual('8.28B')
     })
 })
 describe('pluralize()', () => {
@@ -119,5 +125,16 @@ describe('pluralize()', () => {
         expect(pluralize(28321, 'member')).toEqual('28321 members')
         expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
         expect(pluralize(3, 'word', null, false)).toEqual('words')
+    })
+})
+
+describe('endWithPunctation()', () => {
+    it('adds period at the end when needed', () => {
+        expect(endWithPunctation('Hello')).toEqual('Hello.')
+        expect(endWithPunctation('Learn more! ')).toEqual('Learn more!')
+        expect(endWithPunctation('Stop.')).toEqual('Stop.')
+        expect(endWithPunctation(null)).toEqual('')
+        expect(endWithPunctation('   ')).toEqual('')
+        expect(endWithPunctation('  Why? ')).toEqual('Why?')
     })
 })

@@ -14,15 +14,16 @@ describe('<Insights /> trends', () => {
     }
 
     beforeEach(() => {
-        cy.intercept('/api/user/', { fixture: 'api/user' })
+        cy.intercept('/_preflight/', { fixture: '_preflight' })
+        cy.intercept('/api/users/@me/', { fixture: 'api/users/@me' })
         cy.intercept('/api/dashboard/', { fixture: 'api/dashboard' })
         cy.intercept('/api/personal_api_keys/', { fixture: 'api/personal_api_keys' })
         cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
         cy.intercept('/api/annotation/', { fixture: 'api/annotations' })
         cy.intercept('/api/action/', { fixture: 'api/action/actions' })
         cy.intercept('/api/cohort/', { fixture: 'api/cohort/cohorts' })
-        cy.intercept('/api/insight/', { fixture: 'api/insight/trends' }).as('api_insight')
         cy.intercept('/api/person/properties/', { fixture: 'api/person/properties' })
+        cy.interceptLazy('/api/insight/', () => ({ fixture: 'api/insight/trends' })).as('api_insight')
 
         helpers.mockPosthog()
     })
@@ -69,6 +70,29 @@ describe('<Insights /> trends', () => {
                 ]),
             })
         cy.get('[data-attr="trend-line-graph"]').should('be.visible')
+    })
+
+    it('can render bar graphs', () => {
+        mountAndCheckAPI()
+
+        cy.overrideInterceptLazy('/api/insight/', () => ({ fixture: 'api/insight/trends/breakdown' }))
+
+        cy.get('[data-attr=add-breakdown-button]').click()
+        cy.get('[data-attr=prop-breakdown-select]').click().type('Browser').type('{enter}')
+
+        cy.get('[data-attr=chart-filter]').click()
+        cy.contains('Value').click()
+        cy.get('body').click()
+
+        cy.wait(1000)
+        cy.get('.graph-container').should('be.visible')
+
+        cy.get('[data-attr=chart-filter]').click()
+        cy.contains('Time').click()
+        cy.get('body').click()
+
+        cy.wait(1000)
+        cy.get('.graph-container').should('be.visible')
     })
 
     describe('filtered in url', () => {
@@ -215,30 +239,6 @@ describe('<Insights /> trends', () => {
             cy.get('[data-attr="property-filter-1"]').should('contain', 'http://posthog.com')
         })
 
-        it('reponds to shown as parameter', () => {
-            helpers.setLocation('/insights', {
-                insight: 'TRENDS',
-                interval: 'day',
-                display: 'ActionsLineGraph',
-                events: [
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                        order: 0,
-                    },
-                ],
-                properties: [],
-                shown_as: 'Stickiness',
-            })
-            mount()
-            cy.wait('@api_insight').map(helpers.getSearchParameters).should('include', {
-                shown_as: 'Stickiness',
-            })
-            cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.get('[data-attr="shownas-filter"]').should('contain', 'Stickiness')
-        })
-
         it('responds to breakdown paramters', () => {
             helpers.setLocation('/insights', {
                 insight: 'TRENDS',
@@ -263,7 +263,7 @@ describe('<Insights /> trends', () => {
                 breakdown_type: 'event',
             })
             cy.get('[data-attr="trend-line-graph"]').should('be.visible')
-            cy.get('[data-attr="add-breakdown-button"]').should('contain', '$browser')
+            cy.get('[data-attr="add-breakdown-button"]').should('contain', 'Browser')
         })
     })
 })

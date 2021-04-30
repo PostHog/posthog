@@ -19,7 +19,13 @@ from posthog.constants import (
 from posthog.models.entity import Entity
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.mixins.common import DisplayDerivedMixin, InsightMixin, IntervalMixin, OffsetMixin
+from posthog.models.filters.mixins.common import (
+    DisplayDerivedMixin,
+    FilterTestAccountsMixin,
+    InsightMixin,
+    IntervalMixin,
+    OffsetMixin,
+)
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.retention import (
     EntitiesDerivedMixin,
@@ -39,6 +45,7 @@ class RetentionFilter(
     RetentionDateDerivedMixin,
     PropertyMixin,
     DisplayDerivedMixin,
+    FilterTestAccountsMixin,
     InsightMixin,
     OffsetMixin,
     BaseFilter,

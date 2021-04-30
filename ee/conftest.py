@@ -2,7 +2,6 @@ import pytest
 from infi.clickhouse_orm import Database
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.person import Person
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -10,6 +9,7 @@ from posthog.settings import (
     CLICKHOUSE_USER,
     CLICKHOUSE_VERIFY,
 )
+from posthog.test.base import TestMixin
 
 
 @pytest.fixture(scope="package")
@@ -83,3 +83,17 @@ def db(db):
         sync_execute(PERSON_STATIC_COHORT_TABLE_SQL)
     except:
         pass
+
+
+@pytest.fixture
+def base_test_mixin_fixture():
+    kls = TestMixin()
+    kls.setUp()
+    kls.setUpTestData()
+
+    return kls
+
+
+@pytest.fixture
+def team(base_test_mixin_fixture):
+    return base_test_mixin_fixture.team

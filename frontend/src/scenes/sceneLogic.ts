@@ -4,11 +4,13 @@ import { identifierToHuman, delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
-import { userLogic } from './userLogic'
 import { sceneLogicType } from './sceneLogicType'
+import { eventUsageLogic } from '../lib/utils/eventUsageLogic'
+import { preflightLogic } from './PreflightCheck/logic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export enum Scene {
-    // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
     Dashboards = 'dashboards',
     Dashboard = 'dashboard',
     Insights = 'insights',
@@ -19,8 +21,8 @@ export enum Scene {
     Persons = 'persons',
     Action = 'action',
     FeatureFlags = 'featureFlags',
+    FeatureFlag = 'featureFlag',
     OrganizationSettings = 'organizationSettings',
-    OrganizationMembers = 'organizationMembers',
     OrganizationCreateFirst = 'organizationCreateFirst',
     ProjectSettings = 'projectSettings',
     ProjectCreateFirst = 'projectCreateFirst',
@@ -31,12 +33,14 @@ export enum Scene {
     Billing = 'billing',
     Plugins = 'plugins',
     // Onboarding / setup routes
+    Login = 'login',
     PreflightCheck = 'preflightCheck',
     Signup = 'signup',
     InviteSignup = 'inviteSignup',
     Personalization = 'personalization',
     Ingestion = 'ingestion',
     OnboardingSetup = 'onboardingSetup',
+    Home = 'home',
 }
 
 interface LoadedScene {
@@ -59,10 +63,9 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
+    [Scene.FeatureFlag]: () => import(/* webpackChunkName: 'featureFlag' */ './experimentation/FeatureFlag'),
     [Scene.OrganizationSettings]: () =>
         import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
-    [Scene.OrganizationMembers]: () =>
-        import(/* webpackChunkName: 'organizationMembers' */ './organization/TeamMembers'),
     [Scene.OrganizationCreateFirst]: () =>
         import(/* webpackChunkName: 'organizationCreateFirst' */ './organization/Create'),
     [Scene.ProjectSettings]: () => import(/* webpackChunkName: 'projectSettings' */ './project/Settings'),
@@ -72,28 +75,27 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.MySettings]: () => import(/* webpackChunkName: 'mySettings' */ './me/Settings'),
     [Scene.Annotations]: () => import(/* webpackChunkName: 'annotations' */ './annotations'),
     [Scene.PreflightCheck]: () => import(/* webpackChunkName: 'preflightCheck' */ './PreflightCheck'),
-    [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './onboarding/Signup'),
-    [Scene.InviteSignup]: () => import(/* webpackChunkName: 'inviteSignup' */ './onboarding/InviteSignup'),
+    [Scene.Signup]: () => import(/* webpackChunkName: 'signup' */ './authentication/Signup'),
+    [Scene.InviteSignup]: () => import(/* webpackChunkName: 'inviteSignup' */ './authentication/InviteSignup'),
     [Scene.Ingestion]: () => import(/* webpackChunkName: 'ingestion' */ './ingestion/IngestionWizard'),
     [Scene.Billing]: () => import(/* webpackChunkName: 'billing' */ './billing/Billing'),
     [Scene.Plugins]: () => import(/* webpackChunkName: 'plugins' */ './plugins/Plugins'),
     [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
     [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
+    [Scene.Login]: () => import(/* webpackChunkName: 'login' */ './authentication/Login'),
+    [Scene.Home]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/Home'),
 }
 
 interface SceneConfig {
     onlyUnauthenticated?: boolean // Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too)
-    allowUnauthenticated?: boolean // Route **can** be accessed when logged out (i.e. can be accessed when logged in too)
+    allowUnauthenticated?: boolean // Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too)
     dark?: boolean // Background is $bg_mid
     plain?: boolean // Only keeps the main content and the top navigation bar
     hideTopNav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
-    hideDemoWarnings?: boolean // Hides demo project (DemoWarning.tsx)
+    hideDemoWarnings?: boolean // Hides demo project warnings (DemoWarning.tsx)
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
-    [Scene.Dashboard]: {
-        dark: true,
-    },
     [Scene.Insights]: {
         dark: true,
     },
@@ -107,6 +109,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         hideDemoWarnings: true,
     },
     // Onboarding / setup routes
+    [Scene.Login]: {
+        onlyUnauthenticated: true,
+    },
     [Scene.PreflightCheck]: {
         onlyUnauthenticated: true,
     },
@@ -136,6 +141,7 @@ export const redirects: Record<string, string | ((params: Params) => any)> = {
     '/': '/insights',
     '/plugins': '/project/plugins',
     '/actions': '/events/actions',
+    '/organization/members': '/organization/settings',
 }
 
 export const routes: Record<string, Scene> = {
@@ -152,18 +158,19 @@ export const routes: Record<string, Scene> = {
     '/cohorts/:id': Scene.Cohorts,
     '/cohorts': Scene.Cohorts,
     '/feature_flags': Scene.FeatureFlags,
+    '/feature_flags/:id': Scene.FeatureFlag,
     '/annotations': Scene.Annotations,
     '/project/settings': Scene.ProjectSettings,
     '/project/plugins': Scene.Plugins,
     '/project/create': Scene.ProjectCreateFirst,
     '/organization/settings': Scene.OrganizationSettings,
-    '/organization/members': Scene.OrganizationMembers,
     '/organization/billing': Scene.Billing,
     '/organization/create': Scene.OrganizationCreateFirst,
     '/instance/licenses': Scene.InstanceLicenses,
     '/instance/status': Scene.SystemStatus,
     '/me/settings': Scene.MySettings,
     // Onboarding / setup routes
+    '/login': Scene.Login,
     '/preflight': Scene.PreflightCheck,
     '/signup': Scene.Signup,
     '/signup/:id': Scene.InviteSignup,
@@ -171,6 +178,7 @@ export const routes: Record<string, Scene> = {
     '/ingestion': Scene.Ingestion,
     '/ingestion/*': Scene.Ingestion,
     '/setup': Scene.OnboardingSetup,
+    '/home': Scene.Home,
 }
 
 export const sceneLogic = kea<sceneLogicType>({
@@ -178,7 +186,7 @@ export const sceneLogic = kea<sceneLogicType>({
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
         setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
-        showUpgradeModal: (featureName: string) => ({ featureName }),
+        showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
         hideUpgradeModal: true,
         takeToPricing: true,
     },
@@ -215,10 +223,10 @@ export const sceneLogic = kea<sceneLogicType>({
                 setScene: () => null,
             },
         ],
-        upgradeModalFeatureName: [
-            null as string | null,
+        upgradeModalFeatureNameAndCaption: [
+            null as [string, string] | null,
             {
-                showUpgradeModal: (_, { featureName }) => featureName,
+                showUpgradeModal: (_, { featureName, featureCaption }) => [featureName, featureCaption],
                 hideUpgradeModal: () => null,
                 takeToPricing: () => null,
             },
@@ -233,6 +241,11 @@ export const sceneLogic = kea<sceneLogicType>({
         ],
     },
     urlToAction: ({ actions }) => {
+        featureFlagLogic.mount() // Otherwise logic is not loaded before this
+        if (featureFlagLogic && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
+            redirects['/'] = '/home'
+        }
+
         const mapping: Record<string, (params: Params) => any> = {}
 
         for (const [paths, redirect] of Object.entries(redirects)) {
@@ -241,29 +254,27 @@ export const sceneLogic = kea<sceneLogicType>({
                     router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
-
         for (const [paths, scene] of Object.entries(routes)) {
             for (const path of paths.split('|')) {
                 mapping[path] = (params) => actions.loadScene(scene, params)
             }
         }
+
         mapping['/*'] = () => actions.loadScene('404', {})
 
         return mapping
     },
     listeners: ({ values, actions }) => ({
         showUpgradeModal: ({ featureName }) => {
-            posthog.capture('upgrade modal shown', { featureName })
-        },
-        hideUpgradeModal: () => {
-            posthog.capture('upgrade modal cancellation')
+            eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
         takeToPricing: () => {
             posthog.capture('upgrade modal pricing interaction')
-            if (userLogic.values.user?.is_multi_tenancy) {
+            if (preflightLogic.values.preflight?.cloud) {
                 return router.actions.push('/organization/billing')
             }
-            window.open(`https://posthog.com/pricing?o=enterprise`)
+            const pricingTab = preflightLogic.values.preflight?.cloud ? 'cloud' : 'vpc'
+            window.open(`https://posthog.com/pricing?o=${pricingTab}`)
         },
         setScene: () => {
             posthog.capture('$pageview')

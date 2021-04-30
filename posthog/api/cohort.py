@@ -1,5 +1,5 @@
 import csv
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import posthoganalytics
 from django.db.models import Count, QuerySet
@@ -10,13 +10,14 @@ from sentry_sdk.api import capture_exception
 
 from posthog.api.action import calculate_people, filter_by_type
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.constants import TRENDS_STICKINESS
 from posthog.models import Cohort, Entity
 from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries.stickiness import (
     stickiness_fetch_people,
@@ -27,7 +28,7 @@ from posthog.tasks.calculate_cohort import calculate_cohort, calculate_cohort_fr
 
 
 class CohortSerializer(serializers.ModelSerializer):
-    created_by = UserSerializer(required=False, read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
     count = serializers.SerializerMethodField()
     earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
 
@@ -83,7 +84,7 @@ class CohortSerializer(serializers.ModelSerializer):
         else:
             try:
                 filter = Filter(request=request)
-                team = request.user.team
+                team = cast(User, request.user).team
                 target_entity = get_target_entity(request)
                 if filter.shown_as == TRENDS_STICKINESS:
                     stickiness_filter = StickinessFilter(
@@ -131,7 +132,7 @@ class CohortSerializer(serializers.ModelSerializer):
             cohort.is_calculating = True
         cohort.save()
 
-        if not is_deletion_change:
+        if not deleted_state:
             if cohort.is_static:
                 self._handle_static(cohort, request)
             else:

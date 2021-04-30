@@ -11,10 +11,18 @@ import {
     retentionOptions,
     retentionOptionDescriptions,
 } from 'scenes/retention/retentionTableLogic'
-import { Button, DatePicker, Select, Tooltip } from 'antd'
+import { Button, Select, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { CloseButton } from 'lib/components/CloseButton'
-import moment from 'moment'
+import dayjs from 'dayjs'
+import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
+import generatePicker from 'antd/es/date-picker/generatePicker'
+import { FilterType } from '~/types'
+import { TestAccountFilter } from '../TestAccountFilter'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import './RetentionTab.scss'
+
+const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 export function RetentionTab(): JSX.Element {
     const node = useRef<HTMLElement>(null)
@@ -25,10 +33,10 @@ export function RetentionTab(): JSX.Element {
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
 
     const entityLogic = entityFilterLogic({
-        setFilters: (filters) => {
-            if (filters.events.length > 0) {
+        setFilters: (filters: FilterType) => {
+            if (filters.events && filters.events.length > 0) {
                 setFilters({ target_entity: filters.events[0] })
-            } else if (filters.actions.length > 0) {
+            } else if (filters.actions && filters.actions.length > 0) {
                 setFilters({ target_entity: filters.actions[0] })
             } else {
                 setFilters({ target_entity: null })
@@ -41,10 +49,10 @@ export function RetentionTab(): JSX.Element {
     })
 
     const entityLogicReturning = entityFilterLogic({
-        setFilters: (filters) => {
-            if (filters.events.length > 0) {
+        setFilters: (filters: FilterType) => {
+            if (filters.events && filters.events.length > 0) {
                 setFilters({ returning_entity: filters.events[0] })
-            } else if (filters.actions.length > 0) {
+            } else if (filters.actions && filters.actions.length > 0) {
                 setFilters({ returning_entity: filters.actions[0] })
             } else {
                 setFilters({ returning_entity: null })
@@ -56,8 +64,18 @@ export function RetentionTab(): JSX.Element {
         singleMode: true,
     })
 
+    const selectedRetainingEvent =
+        filters.returning_entity?.name ||
+        (filters.returning_entity.id && actionsLookup[filters.returning_entity.id]) ||
+        'Select action'
+
+    const selectedCohortizingEvent =
+        filters.target_entity?.name ||
+        (filters.target_entity.id && actionsLookup[filters.target_entity.id]) ||
+        'Select action'
+
     return (
-        <div data-attr="retention-tab">
+        <div data-attr="retention-tab" className="retention-tab">
             <h4 className="secondary">
                 Cohortizing Event
                 <Tooltip
@@ -68,33 +86,37 @@ export function RetentionTab(): JSX.Element {
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             </h4>
-            <Button
-                ref={node}
-                data-attr="retention-action"
-                onClick={(): void => setOpen(!open)}
-                style={{ marginRight: 8 }}
-            >
-                {filters.target_entity?.name ||
-                    (filters.target_entity.id && actionsLookup[filters.target_entity.id]) ||
-                    'Select action'}
-                <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
-            </Button>
-            <Select
-                value={retentionOptions[filters.retention_type]}
-                onChange={(value): void => setFilters({ retention_type: value })}
-                dropdownMatchSelectWidth={false}
-                style={{ marginTop: 8 }}
-            >
-                {Object.entries(retentionOptions).map(([key, value]) => (
-                    <Select.Option key={key} value={key}>
-                        {value}
-                        <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
-                            <InfoCircleOutlined className="info-indicator" />
-                        </Tooltip>
-                    </Select.Option>
-                ))}
-            </Select>
-            <ActionFilterDropdown open={open} logic={entityLogic} openButtonRef={node} onClose={() => setOpen(false)} />
+            <div style={{ display: '-webkit-inline-box', flexWrap: 'wrap' }}>
+                <Button
+                    ref={node}
+                    data-attr="retention-action"
+                    onClick={(): void => setOpen(!open)}
+                    style={{ marginRight: 8, marginBottom: 8 }}
+                >
+                    <PropertyKeyInfo value={selectedCohortizingEvent} />
+                    <DownOutlined className="text-muted svg-fix" style={{ marginRight: '-6px' }} />
+                </Button>
+                <Select
+                    value={retentionOptions[filters.retention_type]}
+                    onChange={(value): void => setFilters({ retention_type: value })}
+                    dropdownMatchSelectWidth={false}
+                >
+                    {Object.entries(retentionOptions).map(([key, value]) => (
+                        <Select.Option key={key} value={key}>
+                            {value}
+                            <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
+                                <InfoCircleOutlined className="info-indicator" />
+                            </Tooltip>
+                        </Select.Option>
+                    ))}
+                </Select>
+                <ActionFilterDropdown
+                    open={open}
+                    logic={entityLogic as any}
+                    openButtonRef={node}
+                    onClose={() => setOpen(false)}
+                />
+            </div>
             <h4 style={{ marginTop: '0.5rem' }} className="secondary">
                 Retaining event
                 <Tooltip
@@ -111,14 +133,12 @@ export function RetentionTab(): JSX.Element {
                 data-attr="retention-returning-action"
                 onClick={(): void => setReturningOpen(!returningOpen)}
             >
-                {filters.returning_entity?.name ||
-                    (filters.returning_entity.id && actionsLookup[filters.returning_entity.id]) ||
-                    'Select action'}
-                <DownOutlined className="text-muted" style={{ marginRight: '-6px' }} />
+                <PropertyKeyInfo value={selectedRetainingEvent} />
+                <DownOutlined className="text-muted svg-fix" style={{ marginRight: '-6px' }} />
             </Button>
             <ActionFilterDropdown
                 open={returningOpen}
-                logic={entityLogicReturning}
+                logic={entityLogicReturning as any}
                 openButtonRef={returningNode}
                 onClose={() => setReturningOpen(false)}
             />
@@ -135,6 +155,7 @@ export function RetentionTab(): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="insight-retention" />
+            <TestAccountFilter filters={filters} onChange={setFilters} />
             <>
                 <hr />
                 <h4 className="secondary">Current Date</h4>
@@ -144,8 +165,8 @@ export function RetentionTab(): JSX.Element {
                         use12Hours
                         format={filters.period === 'Hour' ? 'YYYY-MM-DD, h a' : 'YYYY-MM-DD'}
                         className="mb-05"
-                        value={filters.date_to && moment(filters.date_to)}
-                        onChange={(date_to): void => setFilters({ date_to: date_to && moment(date_to).toISOString() })}
+                        value={filters.date_to && dayjs(filters.date_to)}
+                        onChange={(date_to): void => setFilters({ date_to: date_to && dayjs(date_to).toISOString() })}
                         allowClear={false}
                     />
                     {filters.date_to && (

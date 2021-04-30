@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
@@ -25,7 +25,9 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
     const title =
         filters.shown_as === 'Stickiness'
             ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
-            : `"${people?.label}" on ${people?.day ? moment(people.day).format('ll') : '...'}`
+            : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie'
+            ? `"${people?.label}"`
+            : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
     const closeModal = (): void => setShowingPeople(false)
     return (
         <Modal
@@ -49,26 +51,21 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                 </Button>
                             )}
                     </div>
-                    {featureFlags['filter_by_session_props_link'] ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                            <Link
-                                to={peopleModalURL.sessions}
-                                style={{ marginLeft: 8 }}
-                                data-attr="persons-modal-sessions"
-                            >
-                                <ClockCircleOutlined /> View related sessions <ArrowRightOutlined />
-                            </Link>
-                            <Link to={peopleModalURL.recordings} type="primary" data-attr="persons-modal-recordings">
-                                View related recordings <ArrowRightOutlined />
-                            </Link>
-                        </div>
-                    ) : null}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                        <Link to={peopleModalURL.sessions} style={{ marginLeft: 8 }} data-attr="persons-modal-sessions">
+                            <ClockCircleOutlined /> View related sessions <ArrowRightOutlined />
+                        </Link>
+                        <Link to={peopleModalURL.recordings} type="primary" data-attr="persons-modal-recordings">
+                            View related recordings <ArrowRightOutlined />
+                        </Link>
+                    </div>
                 </div>
             ) : (
                 <p>Loading users...</p>
             )}
 
-            <PersonsTable loading={!people?.people} people={people?.people} />
+            {people && <PersonsTable loading={!people?.people} people={people.people} />}
             <div
                 style={{
                     margin: '1rem',

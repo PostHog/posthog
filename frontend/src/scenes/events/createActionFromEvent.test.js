@@ -40,7 +40,7 @@ describe('createActionFromEvent()', () => {
 
             expect(api.create).toHaveBeenCalledWith('api/action', {
                 name: 'some-event event',
-                steps: [{ event: 'some-event', url: 'http://foo.bar/some/path', url_matching: 'exact' }],
+                steps: [{ event: 'some-event' }],
             })
         })
 
@@ -59,7 +59,7 @@ describe('createActionFromEvent()', () => {
 
                 expect(api.create).toHaveBeenCalledWith('api/action', {
                     name: 'some-event event 4',
-                    steps: [{ event: 'some-event', url: 'http://foo.bar/some/path', url_matching: 'exact' }],
+                    steps: [{ event: 'some-event' }],
                 })
             })
         })
@@ -105,7 +105,7 @@ describe('createActionFromEvent()', () => {
     describe('action already exists', () => {
         beforeEach(() => {
             api.create.mockImplementation(() => {
-                throw { detail: 'action-exists' }
+                throw { type: 'validation_error', code: 'unique' }
             })
         })
 

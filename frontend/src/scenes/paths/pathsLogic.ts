@@ -34,6 +34,7 @@ function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
         date_from: filters.date_from,
         date_to: filters.date_to,
         insight: ViewType.PATHS,
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
     }
 }
 
@@ -74,7 +75,7 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
                 try {
                     paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                 } catch (e) {
-                    insightLogic.actions.endQuery(ViewType.PATHS, false, e)
+                    insightLogic.actions.endQuery(ViewType.PATHS, null, e)
                     return { paths: [], filter, error: true }
                 }
                 breakpoint()

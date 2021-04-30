@@ -1,3 +1,5 @@
+from typing import cast
+
 from rest_framework.request import Request
 
 from posthog.demo.app_data_generator import AppDataGenerator
@@ -12,12 +14,17 @@ TEAM_NAME = "HogFlix Demo App"
 
 
 def demo(request: Request):
-    user = request.user
+    user = cast(User, request.user)
     organization = user.organization
+
+    if not organization:
+        raise AttributeError("This user has no organization.")
+
     try:
         team = organization.teams.get(is_demo=True)
     except Team.DoesNotExist:
         team = create_demo_team(organization, user, request)
+
     user.current_team = team
     user.save()
 
@@ -36,9 +43,14 @@ def demo(request: Request):
     return render_template("demo.html", request=request, context={"api_token": team.api_token})
 
 
-def create_demo_team(organization: Organization, user: User, request: Request) -> Team:
+def create_demo_team(organization: Organization, *args) -> Team:
     team = Team.objects.create_with_data(
-        organization=organization, name=TEAM_NAME, ingested_event=True, completed_snippet_onboarding=True, is_demo=True,
+        default_dashboards=False,
+        organization=organization,
+        name=TEAM_NAME,
+        ingested_event=True,
+        completed_snippet_onboarding=True,
+        is_demo=True,
     )
     create_demo_data(team)
     return team

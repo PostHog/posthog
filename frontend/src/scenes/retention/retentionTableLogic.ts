@@ -45,6 +45,8 @@ function defaultFilters(filters: Record<string, any>): Record<string, any> {
         retention_type: filters.retention_type || RETENTION_FIRST_TIME,
         display: filters.display || ACTIONS_TABLE,
         properties: filters.properties || [],
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        insight: ViewType.RETENTION,
     }
 }
 
@@ -73,7 +75,7 @@ export const retentionTableLogic = kea<
                 try {
                     res = await api.get(`api/insight/retention/?${urlParams}`)
                 } catch (e) {
-                    insightLogic.actions.endQuery(ViewType.RETENTION, false, e)
+                    insightLogic.actions.endQuery(ViewType.RETENTION, null, e)
                     return []
                 }
                 breakpoint()

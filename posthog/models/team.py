@@ -1,64 +1,62 @@
-from typing import Dict, Optional
+import re
+from typing import Any, Dict, List, Optional
 
-import posthoganalytics
-from django.contrib.postgres.fields import ArrayField, JSONField
+import pytz
+from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
-from django.utils import timezone
+from django.dispatch.dispatcher import receiver
 
-from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_TABLE
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
-from .dashboard_item import DashboardItem
-from .utils import UUIDT, generate_random_token, sane_repr
+from .utils import UUIDClassicModel, generate_random_token, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
+TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
+
+# TODO: #4070 DEPRECATED; delete when these attributes are fully removed from `Team` model
+DEFERRED_FIELDS = (
+    "event_names",
+    "event_names_with_usage",
+    "event_properties",
+    "event_properties_with_usage",
+    "event_properties_numerical",
+)
+
 
 class TeamManager(models.Manager):
-    def create_with_data(self, user=None, **kwargs) -> "Team":
+    def set_test_account_filters(self, organization: Optional[Any]) -> List:
+        filters = [
+            {
+                "key": "$host",
+                "operator": "is_not",
+                "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
+            },
+        ]
+        if organization:
+            example_emails = organization.members.only("email")
+            generic_emails = GenericEmails()
+            example_emails = [email.email for email in example_emails if not generic_emails.is_generic(email.email)]
+            if len(example_emails) > 0:
+                example_email = re.search("@[\w.]+", example_emails[0])
+                if example_email:
+                    return [
+                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
+                    ] + filters
+        return filters
+
+    def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
+        kwargs["test_account_filters"] = self.set_test_account_filters(kwargs.get("organization"))
         team = Team.objects.create(**kwargs)
 
-        # Create default dashboard
-        if user and posthoganalytics.feature_enabled("1694-dashboards", user.distinct_id):
-            # Create app template dashboard if feature flag is active
-            dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team,)
+        # Create default dashboards (skipped for demo projects)
+        # TODO: Support multiple dashboard flavors based on #2822 personalization
+        if default_dashboards:
+            dashboard = Dashboard.objects.create(name="My App Dashboard", pinned=True, team=team)
             create_dashboard_from_template("DEFAULT_APP", dashboard)
-        else:
-            # DEPRECATED: Will be retired in favor of dashboard_templates.py
-            dashboard = Dashboard.objects.create(
-                name="Default", pinned=True, team=team, share_token=generate_random_token()
-            )
-
-            DashboardItem.objects.create(
-                team=team,
-                dashboard=dashboard,
-                name="Pageviews this week",
-                filters={TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}]},
-                last_refresh=timezone.now(),
-            )
-            DashboardItem.objects.create(
-                team=team,
-                dashboard=dashboard,
-                name="Most popular browsers this week",
-                filters={
-                    TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}],
-                    "display": TRENDS_TABLE,
-                    "breakdown": "$browser",
-                },
-                last_refresh=timezone.now(),
-            )
-            DashboardItem.objects.create(
-                team=team,
-                dashboard=dashboard,
-                name="Daily Active Users",
-                filters={
-                    TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}]
-                },
-                last_refresh=timezone.now(),
-            )
-
         return team
 
     def create(self, *args, **kwargs) -> "Team":
@@ -70,12 +68,16 @@ class TeamManager(models.Manager):
         if not token:
             return None
         try:
-            return Team.objects.get(api_token=token)
+            return Team.objects.defer(*DEFERRED_FIELDS).get(api_token=token)
         except Team.DoesNotExist:
             return None
 
 
-class Team(models.Model):
+def get_default_data_attributes() -> Any:
+    return ["data-attr"]
+
+
+class Team(UUIDClassicModel):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
@@ -85,34 +87,41 @@ class Team(models.Model):
         default=generate_random_token,
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
-    app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
+    app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
     name: models.CharField = models.CharField(
         max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
     )
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
-    event_names: JSONField = JSONField(default=list)
-    event_names_with_usage: JSONField = JSONField(default=list)
-    event_properties: JSONField = JSONField(default=list)
-    event_properties_with_usage: JSONField = JSONField(default=list)
-    event_properties_numerical: JSONField = JSONField(default=list)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
-    uuid: models.UUIDField = models.UUIDField(default=UUIDT, editable=False, unique=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
-    session_recording_retention_period_days: models.IntegerField = models.IntegerField(null=True, default=None)
-    plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
+    session_recording_retention_period_days: models.IntegerField = models.IntegerField(
+        null=True, default=None, blank=True
+    )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
+    test_account_filters: models.JSONField = models.JSONField(default=list)
+    timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
+    data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
 
+    # DEPRECATED, DISUSED: plugins are enabled for everyone now
+    plugins_opt_in: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: now managing access in an Organization-centric way
     users: models.ManyToManyField = models.ManyToManyField(
         "User", blank=True, related_name="teams_deprecated_relationship"
     )
+    # DEPRECATED: in favor of `EventDefinition` model
+    event_names: models.JSONField = models.JSONField(default=list)
+    event_names_with_usage: models.JSONField = models.JSONField(default=list)
+    # DEPRECATED: in favor of `PropertyDefinition` model
+    event_properties: models.JSONField = models.JSONField(default=list)
+    event_properties_with_usage: models.JSONField = models.JSONField(default=list)
+    event_properties_numerical: models.JSONField = models.JSONField(default=list)
 
     objects = TeamManager()
 
@@ -124,3 +133,39 @@ class Team(models.Model):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
+
+    def get_latest_event_names_with_usage(self):
+        """
+        TODO: #4070 This has been deprecated in favor of `EventDefinition` and should be removed upon final migration.
+        Fetches `event_names_with_usage` but adding any events that may have come in since the
+        property was last computed. Ensures all events are included.
+        """
+
+        def get_key(event: str, type: str):
+            return next((item.get(type) for item in self.event_names_with_usage if item["event"] == event), None)
+
+        return [
+            {"event": event, "volume": get_key(event, "volume"), "usage_count": get_key(event, "usage_count")}
+            for event in self.event_names
+        ]
+
+    def get_latest_event_properties_with_usage(self):
+        """
+        TODO: #4070 This has been deprecated in favor of `EventDefinition` and should be removed upon final migration.
+        Fetches `event_properties_with_usage` but adding any properties that may have appeared since the
+        property was last computed. Ensures all properties are included.
+        """
+
+        def get_key(key: str, type: str):
+            return next((item.get(type) for item in self.event_properties_with_usage if item["key"] == key), None)
+
+        return [
+            {"key": key, "volume": get_key(key, "volume"), "usage_count": get_key(key, "usage_count")}
+            for key in self.event_properties
+        ]
+
+
+@receiver(models.signals.pre_delete, sender=Team)
+def team_deleted(sender, instance, **kwargs):
+    instance.event_set.all().delete()
+    instance.elementgroup_set.all().delete()

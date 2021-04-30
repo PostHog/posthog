@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Event, Filter
+from posthog.models import Event
 from posthog.models.filters.path_filter import PathFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths

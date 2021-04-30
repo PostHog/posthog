@@ -1,11 +1,9 @@
-from typing import Any, Callable, Optional, Union, cast
+from typing import Any, Callable, Optional, Union
 from urllib.parse import urlparse
 
-import posthoganalytics
 from django import forms
 from django.conf import settings
 from django.contrib import admin
-from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
@@ -41,37 +39,6 @@ from .views import health, login_required, preflight_check, stats, system_status
 
 def home(request, *args, **kwargs):
     return render_template("index.html", request)
-
-
-def login_view(request):
-    if request.user.is_authenticated:
-        return redirect("/")
-
-    if not User.objects.exists():
-        return redirect("/preflight")
-    if request.method == "POST":
-        email = request.POST["email"]
-        password = request.POST["password"]
-        user = cast(Optional[User], authenticate(request, email=email, password=password))
-        next_url = request.GET.get("next")
-        if user is not None:
-            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-            if user.distinct_id:
-                posthoganalytics.capture(user.distinct_id, "user logged in")
-            if next_url:
-                return redirect(next_url)
-            return redirect("/")
-        else:
-            return render_template(
-                "login.html",
-                request=request,
-                context={
-                    "email": email,
-                    "error": True,
-                    "action": "/login" if not next_url else f"/login?next={next_url}",
-                },
-            )
-    return render_template("login.html", request)
 
 
 class TeamInviteSurrogate:
@@ -113,7 +80,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
     if user:
         return {"is_new": False}
     user_email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
-    user_name = details["fullname"]
+    user_name = details["fullname"] or details["username"]
     strategy.session_set("user_name", user_name)
     strategy.session_set("backend", backend.name)
     from_invite = False
@@ -260,7 +227,6 @@ urlpatterns = [
     opt_slash_path("s", capture.get_event),  # session recordings
     # auth
     path("logout", logout, name="login"),
-    path("login", login_view, name="login"),
     path("signup/finish/", finish_social_signup, name="signup_finish"),
     path("", include("social_django.urls", namespace="social")),
     *(
@@ -281,21 +247,6 @@ urlpatterns = [
     path("accounts/", include("django.contrib.auth.urls")),
 ]
 
-
-if settings.DEBUG:
-    try:
-        import debug_toolbar
-    except ImportError:
-        pass
-    else:
-        urlpatterns.append(path("__debug__/", include(debug_toolbar.urls)))
-
-    @csrf_exempt
-    def debug(request):
-        assert False, locals()
-
-    urlpatterns.append(path("debug/", debug))
-
 if settings.TEST:
 
     @csrf_exempt
@@ -308,7 +259,7 @@ if settings.TEST:
     urlpatterns.append(path("delete_events/", delete_events))
 
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*"]
+frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*", "login"]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 

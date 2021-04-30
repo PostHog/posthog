@@ -15,11 +15,12 @@ class AnalyticsDestroyModelMixin:
     def destroy(self, request, *args, **kwgars):
 
         instance = self.get_object()  # type: ignore
-        self.perform_destroy(instance)
 
         metadata: Optional[Dict] = instance.get_analytics_metadata() if hasattr(
             instance, "get_analytics_metadata",
         ) else None
+
+        self.perform_destroy(instance)
 
         posthoganalytics.capture(
             request.user.distinct_id, f"{instance._meta.verbose_name} deleted", metadata,

@@ -18,6 +18,9 @@ class AppDataGenerator(DataGenerator):
         self.add_if_not_contained(self.team.event_names, "rated_app")
         self.add_if_not_contained(self.team.event_properties, "$current_url")
         self.add_if_not_contained(self.team.event_properties, "is_first_movie")
+        self.add_if_not_contained(
+            self.team.event_properties, "app_rating",
+        )  # numerical properties must also be declared here
         self.add_if_not_contained(self.team.event_properties_numerical, "app_rating")
 
     def create_actions_dashboards(self):

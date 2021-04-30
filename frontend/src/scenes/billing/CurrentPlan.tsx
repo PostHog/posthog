@@ -1,21 +1,20 @@
 import { Alert, Button, Card } from 'antd'
 import { useValues } from 'kea'
 import React from 'react'
-import { userLogic } from 'scenes/userLogic'
 import defaultImg from 'public/plan-default.svg'
 import { Link } from 'lib/components/Link'
 import { IconExternalLink } from 'lib/components/icons'
 import { ToolOutlined, WarningOutlined } from '@ant-design/icons'
-import { UTM_TAGS } from './billingLogic'
+import { billingLogic, UTM_TAGS } from './billingLogic'
 import { PlanInterface } from '~/types'
 
 export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { billing } = useValues(billingLogic)
 
     return (
         <>
             <div className="space-top" />
-            {user?.billing?.should_setup_billing ? (
+            {billing?.should_setup_billing ? (
                 <Alert
                     type="warning"
                     message={
@@ -25,8 +24,8 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                         </>
                     }
                     action={
-                        user.billing.subscription_url && (
-                            <Button href={user.billing.subscription_url} icon={<ToolOutlined />}>
+                        billing.subscription_url && (
+                            <Button href={billing.subscription_url} icon={<ToolOutlined />}>
                                 Finish setup
                             </Button>
                         )

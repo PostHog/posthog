@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
+import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
 import { formatLabel } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors } from 'lib/colors'
@@ -8,7 +9,7 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import './Insights.scss'
 
 //--Chart Style Options--//
@@ -78,10 +79,10 @@ export function LineGraph({
 
     useEffect(() => {
         if (annotationsCondition && datasets[0]?.days?.length > 0) {
-            const begin = moment(datasets[0].days[0])
-            const end = moment(datasets[0].days[datasets[0].days.length - 1]).add(2, 'days')
+            const begin = dayjs(datasets[0].days[0])
+            const end = dayjs(datasets[0].days[datasets[0].days.length - 1]).add(2, 'days')
             const checkBetween = (element) =>
-                moment(element.date_marker).isSameOrBefore(end) && moment(element.date_marker).isSameOrAfter(begin)
+                dayjs(element.date_marker).isSameOrBefore(end) && dayjs(element.date_marker).isSameOrAfter(begin)
             setInRange(annotationsList.some(checkBetween))
         }
     }, [datasets, annotationsList, annotationsCondition])
@@ -114,7 +115,9 @@ export function LineGraph({
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
-        const borderColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index]
+        const borderColor = dataset?.status
+            ? getBarColorFromStatus(dataset.status)
+            : colorList[index % colorList.length]
 
         return {
             borderColor,
@@ -290,8 +293,6 @@ export function LineGraph({
                         gridLines: { color: axisLineColor, zeroLineColor: axisColor },
                         ticks: percentage
                             ? {
-                                  min: 0,
-                                  max: 100, // Your absolute max value
                                   callback: function (value) {
                                       return value.toFixed(0) + '%' // convert it to percentage
                                   },
@@ -320,12 +321,21 @@ export function LineGraph({
                         },
                     },
                 ],
+                yAxes: [
+                    {
+                        ticks: { fontColor: axisLabelColor },
+                    },
+                ],
             }
         } else if (type === 'doughnut') {
             options = {
                 responsive: true,
                 maintainAspectRatio: false,
-                hover: { mode: 'index' },
+                hover: {
+                    mode: 'index',
+                    onHover: options.hover.onHover,
+                },
+                onClick: options.onClick,
             }
         }
 

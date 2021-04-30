@@ -99,6 +99,6 @@ export function RetentionLineGraph({
             </Modal>
         </>
     ) : (
-        <LineGraphEmptyState color={color} />
+        <LineGraphEmptyState color={color} isDashboard={!!dashboardItemId} />
     )
 }

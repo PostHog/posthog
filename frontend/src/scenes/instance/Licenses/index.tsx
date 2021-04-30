@@ -1,11 +1,11 @@
 import React from 'react'
-import { hot } from 'react-hot-loader/root'
-import { Alert, Form, Button, Table, Input } from 'antd'
+import { Alert, Form, Button, Table, Input, Tooltip } from 'antd'
 import { licenseLogic } from './logic'
 import { useValues, useActions } from 'kea'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { PageHeader } from 'lib/components/PageHeader'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 const columns = [
     {
@@ -25,6 +25,22 @@ const columns = [
         dataIndex: 'plan',
     },
     {
+        title: function Render() {
+            return (
+                <Tooltip
+                    placement="right"
+                    title="Maximum number of team members that you can have across all organizations with your current license."
+                >
+                    Max # of team members
+                    <InfoCircleOutlined className="info-indicator" />
+                </Tooltip>
+            )
+        },
+        render: function renderMaxUsers(license: any) {
+            return license.max_users === null ? 'Unlimited' : license.max_users
+        },
+    },
+    {
         title: 'Key',
         render: function renderActive(license: any) {
             return <CodeSnippet>{license.key}</CodeSnippet>
@@ -38,8 +54,7 @@ const columns = [
     },
 ]
 
-export const Licenses = hot(_Licenses)
-function _Licenses(): JSX.Element {
+export function Licenses(): JSX.Element {
     const [form] = Form.useForm()
     const { licenses, licensesLoading, error } = useValues(licenseLogic)
     const { createLicense } = useActions(licenseLogic)

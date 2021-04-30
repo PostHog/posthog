@@ -6,7 +6,7 @@ import { kea, useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Input, Select, Modal, Radio } from 'antd'
 import { prompt } from 'lib/logic/prompt'
-import moment from 'moment'
+import dayjs from 'dayjs'
 
 const saveToDashboardModalLogic = kea({
     connect: {
@@ -90,7 +90,7 @@ export function SaveToDashboardModal({
                 for (const { content, date_marker, created_at, scope } of annotations) {
                     await api.create('api/annotation', {
                         content,
-                        date_marker: moment(date_marker),
+                        date_marker: dayjs(date_marker),
                         created_at,
                         dashboard_item: response.id,
                         scope,

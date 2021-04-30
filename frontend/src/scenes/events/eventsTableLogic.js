@@ -1,8 +1,8 @@
 import { kea } from 'kea'
-import { objectsEqual, toParams } from 'lib/utils'
+import { errorToast, objectsEqual, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import moment from 'moment'
+import dayjs from 'dayjs'
 
 const POLL_TIMEOUT = 5000
 
@@ -21,9 +21,9 @@ const formatEvents = (events, newEvents, apiUrl) => {
         if (
             index > 0 &&
             eventsFormatted[index - 1].event &&
-            !moment(event.event.timestamp).isSame(eventsFormatted[index - 1].event.timestamp, 'day')
+            !dayjs(event.event.timestamp).isSame(eventsFormatted[index - 1].event.timestamp, 'day')
         ) {
-            eventsFormatted.splice(index, 0, { date_break: moment(event.event.timestamp).format('LL') })
+            eventsFormatted.splice(index, 0, { date_break: dayjs(event.event.timestamp).format('LL') })
         }
     })
     if (newEvents.length > 0) {
@@ -50,6 +50,7 @@ export const eventsTableLogic = kea({
         fetchEvents: (nextParams = null) => ({ nextParams }),
         fetchEventsSuccess: (events, hasNext = false, isNext = false) => ({ events, hasNext, isNext }),
         fetchNextEvents: true,
+        fetchOrPollFailure: (error) => ({ error }),
         flipSort: true,
         pollEvents: true,
         pollEventsSuccess: (events) => ({ events }),
@@ -71,7 +72,7 @@ export const eventsTableLogic = kea({
             },
         ],
         eventFilter: [
-            false,
+            '',
             {
                 setEventFilter: (_, { event }) => event,
             },
@@ -82,6 +83,7 @@ export const eventsTableLogic = kea({
                 fetchEvents: (state, { nextParams }) => (nextParams ? state : state || null),
                 setDelayedLoading: () => true,
                 fetchEventsSuccess: () => false,
+                fetchOrPollFailure: () => false,
             },
         ],
         isLoadingNext: [
@@ -185,10 +187,7 @@ export const eventsTableLogic = kea({
                 return
             }
 
-            if (
-                !objectsEqual(searchParams?.properties, []) &&
-                !objectsEqual(searchParams.properties || {}, values.properties)
-            ) {
+            if (!objectsEqual(searchParams.properties || {}, values.properties)) {
                 actions.setProperties(searchParams.properties || {})
             }
         },
@@ -225,7 +224,15 @@ export const eventsTableLogic = kea({
                     orderBy: [values.orderBy],
                 })
 
-                const events = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                let events = null
+
+                try {
+                    events = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                } catch (error) {
+                    actions.fetchOrPollFailure(error)
+                    return
+                }
+
                 breakpoint()
                 actions.fetchEventsSuccess(events.results, events.next, !!nextParams)
 
@@ -251,7 +258,15 @@ export const eventsTableLogic = kea({
                 params.after = event.timestamp || event.event.timestamp
             }
 
-            const events = await api.get(`${props.apiUrl || 'api/event/'}?${toParams(params)}`)
+            let events = null
+
+            try {
+                events = await api.get(`${props.apiUrl || 'api/event/'}?${toParams(params)}`)
+            } catch (e) {
+                // We don't call fetchOrPollFailure because we don't to generate an error alert for this
+                return
+            }
+
             breakpoint()
 
             if (props.live) {
@@ -261,6 +276,14 @@ export const eventsTableLogic = kea({
             }
 
             actions.setPollTimeout(setTimeout(actions.pollEvents, POLL_TIMEOUT))
+        },
+        fetchOrPollFailure: ({ error }) => {
+            errorToast(
+                undefined,
+                'There was a problem fetching your events. Please refresh this page to try again.',
+                error.detail,
+                error.code
+            )
         },
     }),
 })

@@ -10,6 +10,7 @@ import { Button, Row } from 'antd'
 import { useState } from 'react'
 import SaveModal from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
+import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
@@ -58,6 +59,7 @@ export function FunnelTab(): JSX.Element {
                         })
                     }
                 />
+                <TestAccountFilter filters={filters} onChange={setFilters} />
                 <hr />
                 <Row justify="space-between">
                     <Row justify="start">

@@ -6,10 +6,12 @@ from posthog.ee import is_ee_enabled
 from . import (
     action,
     annotation,
+    authentication,
     cohort,
     dashboard,
     element,
     event,
+    event_definition,
     feature_flag,
     insight,
     organization,
@@ -19,8 +21,10 @@ from . import (
     person,
     personal_api_key,
     plugin,
+    property_definition,
     sessions_filter,
     team,
+    user,
 )
 
 
@@ -32,7 +36,7 @@ def api_not_found(request):
 
 
 router = DefaultRouterPlusPlus()
-# legacy endpoints (to be removed eventually)
+# Legacy endpoints (to be removed eventually)
 router.register(r"annotation", annotation.AnnotationsViewSet)
 router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
 router.register(r"dashboard", dashboard.DashboardsViewSet)
@@ -40,9 +44,9 @@ router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"plugin_config", plugin.PluginConfigViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"sessions_filter", sessions_filter.SessionsFilterViewSet)
-# nested endpoints
-projects_router = router.register(r"projects", team.TeamViewSet)
-organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
+
+# Organization nested endpoints
+organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organizations_router.register(r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"])
 organizations_router.register(
     r"members", organization_member.OrganizationMemberViewSet, "organization_members", ["organization_id"],
@@ -53,6 +57,19 @@ organizations_router.register(
 organizations_router.register(
     r"onboarding", organization.OrganizationOnboardingViewset, "organization_onboarding", ["organization_id"],
 )
+
+# Project nested endpoints
+projects_router = router.register(r"projects", team.TeamViewSet, "projects")
+projects_router.register(
+    r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
+)
+projects_router.register(
+    r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
+)
+
+# General endpoints (shared across EE & FOSS)
+router.register(r"login", authentication.LoginViewSet)
+router.register(r"users", user.UserViewSet)
 
 if is_ee_enabled():
     try:

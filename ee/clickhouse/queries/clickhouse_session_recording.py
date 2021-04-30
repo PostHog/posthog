@@ -35,7 +35,7 @@ SESSIONS_IN_RANGE_QUERY = """
             distinct_id,
             MIN(timestamp) AS start_time,
             MAX(timestamp) AS end_time,
-            COUNT(JSONExtractInt(snapshot_data, 'type') = 2 ? 1 : NULL) as full_snapshots
+            COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
         FROM session_recording_events
         WHERE
             team_id = %(team_id)s

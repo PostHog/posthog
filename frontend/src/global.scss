@@ -19,7 +19,9 @@ style files without adding already imported styles. */
     --warning: #{$warning};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
+    --bg-charcoal: #{$bg_charcoal};
     --text-default: #{$text_default};
+    --text-light: #{$text_light};
     --muted: #{$text_muted};
     // Used for graph series
     --blue: #{$blue_500};
@@ -31,6 +33,19 @@ style files without adding already imported styles. */
     --cyan: #17a2b8;
     --pink: #e83e8c;
     --white: #f4f6ff;
+    --maroon: #800000;
+    --mint: #aaffc3;
+    --olive: #808000;
+    --navy: #000075;
+    --orange: #f58231;
+    --lime: #bfef45;
+    --apricot: #ffd8b1;
+    --brown: #9a6324;
+    // Lifecycle series
+    --lifecycle-new: #99c5ff;
+    --lifecycle-returning: #71b96b;
+    --lifecycle-resurrecting: #c277cf;
+    --lifecycle-dormant: #f86234;
 }
 
 // Text styles
@@ -81,6 +96,10 @@ style files without adding already imported styles. */
     font-size: 22px;
     line-height: 26px;
     font-weight: 700;
+
+    &.highlighted {
+        padding: $default_spacing $default_spacing $default_spacing $default_spacing / 2;
+    }
 }
 
 .l3 {
@@ -135,8 +154,16 @@ code.code {
     margin-bottom: $default_spacing * 0.5;
 }
 
+.mb-025 {
+    margin-bottom: $default_spacing * 0.25;
+}
+
 .mt-05 {
     margin-top: $default_spacing * 0.5;
+}
+
+.mt-025 {
+    margin-top: $default_spacing * 0.25;
 }
 
 .mr {
@@ -151,8 +178,16 @@ code.code {
     margin-right: $default_spacing * 0.5;
 }
 
+.mr-025 {
+    margin-right: $default_spacing * 0.25;
+}
+
 .ml-05 {
     margin-left: $default_spacing * 0.5;
+}
+
+.ml-025 {
+    margin-left: $default_spacing * 0.25;
 }
 
 .pa {
@@ -228,7 +263,22 @@ code.code {
     cursor: pointer;
 }
 
+.highlighted {
+    border-radius: $radius;
+    animation: highlight 2000ms ease-out;
+}
+
+@keyframes highlight {
+    0% {
+        background-color: $yellow_50;
+    }
+    100% {
+        background-color: initial;
+    }
+}
+
 // Toasts
+
 .Toastify__toast-container {
     opacity: 1;
     transform: none;
@@ -240,19 +290,54 @@ code.code {
     color: $text_default;
     font-family: inherit;
     background-color: $bg_light;
-}
+    border: 1px solid $border;
+    @extend .text-default;
+    color: $text_default;
 
-.Toastify__toast-body {
-    @extend .l3;
-    color: $success;
-    p {
-        @extend .text-default;
-        color: $text_default;
+    h1 {
+        font-size: 1.14rem;
+        font-weight: bold;
+    }
+
+    .action-bar {
+        @extend .text-small;
+        color: $text_muted;
+        margin-top: $default_spacing / 2;
+        display: flex;
+        align-items: center;
+        a {
+            color: $text_muted;
+        }
+        .help-button {
+            flex-grow: 1;
+            text-align: right;
+        }
+        .ant-btn-link {
+            padding: 0;
+        }
     }
 }
 
-.Toastify__progress-bar--default {
+.Toastify__progress-bar {
     background: $success;
+}
+
+.Toastify__toast--success {
+    h1 {
+        color: $success;
+    }
+}
+
+.Toastify__toast--info {
+    h1 {
+        color: $primary_alt;
+    }
+    &.accent-border {
+        border-color: $primary_alt;
+    }
+    .Toastify__progress-bar {
+        background: $primary_alt;
+    }
 }
 
 .Toastify__toast--error {
@@ -268,11 +353,13 @@ code.code {
 }
 
 // Table styles
+
 .table-bordered td {
     border: 1px solid $border;
 }
 
 // Card styles
+
 .ant-card-body > :first-child {
     margin-top: 0;
 }
@@ -282,6 +369,7 @@ code.code {
 }
 
 // Form & input styles
+
 .input-set {
     padding-bottom: $default_spacing;
     color: $text_default;
@@ -294,6 +382,12 @@ code.code {
     .caption {
         color: $text_muted;
         @extend .text-small;
+    }
+
+    .ant-radio-button-wrapper {
+        // To properly handle label styles above
+        font-weight: normal !important;
+        line-height: 30px !important;
     }
 
     &.errored {
@@ -313,7 +407,12 @@ code.code {
     }
 }
 
+.ant-form-item-label {
+    font-weight: bold;
+}
+
 // Button styles
+
 .btn-close {
     color: $text_muted;
 }
@@ -335,6 +434,15 @@ code.code {
     margin-left: 5px;
 }
 
+.btn-lg-2x {
+    font-size: 1.5rem !important;
+    line-height: 1 !important;
+    svg {
+        width: 1.5rem !important;
+        height: 1.5rem !important;
+    }
+}
+
 // Badges styles
 .badge {
     border-radius: 50%;
@@ -349,6 +457,7 @@ code.code {
 }
 
 // Overlays styles
+
 #bottom-notice {
     z-index: 10500;
     display: flex;
@@ -459,8 +568,58 @@ code.code {
         background-color: $blue_300;
     }
 
+    &.width-locked {
+        width: 40px;
+        text-align: center;
+    }
+
     &.and {
         background-color: $yellow_100;
         color: $primary_alt;
     }
+}
+
+// Simple tags
+
+.simple-tag {
+    border-radius: $radius;
+    font-weight: bold;
+    padding: 2px 6px;
+
+    &.tag-light-lilac {
+        background-color: $hc_light_lilac;
+        color: $hc_navy;
+    }
+}
+
+// Hotkey styles
+.hotkey {
+    width: 22px;
+    height: 22px;
+    border-radius: $radius;
+    font-weight: bold;
+    margin-left: 6px;
+    background-color: white;
+    color: $primary;
+    text-shadow: none;
+    text-transform: uppercase;
+    border: 1px solid $border_light;
+    margin-bottom: 2px;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hotkey-plus {
+    display: inline;
+    &::after {
+        content: '+';
+        margin-left: 6px;
+        font-size: 1rem;
+    }
+}
+
+.fullscreen-scroll {
+    overflow-y: auto;
 }

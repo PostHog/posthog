@@ -6,15 +6,14 @@ describe('<Person /> ', () => {
     const mount = () => helpers.mountPage(<Person />)
 
     beforeEach(() => {
-        cy.intercept('/api/user/', { fixture: 'api/user' })
+        cy.intercept('/_preflight/', { fixture: '_preflight' })
+        cy.intercept('/api/users/@me/', { fixture: 'api/users/@me' })
         cy.intercept('/api/person/', { fixture: 'api/person' }).as('api_person')
         cy.intercept('/api/event/?', { fixture: 'api/event/single_person_events' }).as('api_event')
 
         helpers.mockPosthog()
         helpers.setLocation('/person/01779064-53be-000c-683f-23b1a8c8eb4c')
     })
-
-    given('featureFlags', () => ['persons-2353'])
 
     it('shows user properties and events', () => {
         mount()

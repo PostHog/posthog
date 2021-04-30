@@ -2,7 +2,7 @@ import json
 
 from freezegun import freeze_time
 
-from posthog.constants import TRENDS_LIFECYCLE
+from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
 from posthog.queries.trends import Trends
 from posthog.test.base import APIBaseTest, BaseTest
@@ -16,7 +16,13 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             person_result = []
             for person in data:
                 id = person[0]
-                person_result.append(person_factory(team_id=self.team.pk, distinct_ids=[id], properties={"name": id}),)
+                person_result.append(
+                    person_factory(
+                        team_id=self.team.pk,
+                        distinct_ids=[id],
+                        properties={"name": id, **({"email": "test@posthog.com"} if id == "p1" else {})},
+                    ),
+                )
                 timestamps = person[1]
                 for timestamp in timestamps:
                     event_factory(
@@ -448,18 +454,20 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             self.assertEqual(len(result), 4)
             self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
             self.assertTrue(
-                result[0]["days"] == ["2020-02-09", "2020-02-16", "2020-02-23", "2020-03-01", "2020-03-08"]
-                or result[0]["days"] == ["2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
+                result[0]["days"]
+                == ["2020-02-02", "2020-02-09", "2020-02-16", "2020-02-23", "2020-03-01", "2020-03-08"]
+                or result[0]["days"]
+                == ["2020-02-03", "2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
             )
             for res in result:
                 if res["status"] == "dormant":
-                    self.assertEqual(res["data"], [0, -2, -1, -1, -1])
+                    self.assertEqual(res["data"], [0, 0, -2, -1, -1, -1])
                 elif res["status"] == "returning":
-                    self.assertEqual(res["data"], [1, 1, 0, 1, 0])
+                    self.assertEqual(res["data"], [0, 1, 1, 0, 1, 0])
                 elif res["status"] == "resurrecting":
-                    self.assertEqual(res["data"], [0, 0, 1, 0, 0])
+                    self.assertEqual(res["data"], [0, 0, 0, 1, 0, 0])
                 elif res["status"] == "new":
-                    self.assertEqual(res["data"], [2, 0, 1, 0, 0])
+                    self.assertEqual(res["data"], [0, 2, 0, 1, 0, 0])
 
         def test_lifecycle_trend_months(self):
 
@@ -528,6 +536,64 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                     self.assertEqual(res["data"], [1, 0, 0, 1, 0, 1, 0, 1])
                 elif res["status"] == "new":
                     self.assertEqual(res["data"], [1, 0, 0, 1, 0, 0, 0, 0])
+
+        def test_filter_test_accounts(self):
+            self._create_events(
+                data=[
+                    (
+                        "p1",  # p1 gets test@posthog.com as email and gets filtered out
+                        [
+                            "2020-01-11T12:00:00Z",
+                            "2020-01-12T12:00:00Z",
+                            "2020-01-13T12:00:00Z",
+                            "2020-01-15T12:00:00Z",
+                            "2020-01-17T12:00:00Z",
+                            "2020-01-19T12:00:00Z",
+                        ],
+                    ),
+                    ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                    ("p3", ["2020-01-12T12:00:00Z"]),
+                    ("p4", ["2020-01-15T12:00:00Z"]),
+                ]
+            )
+
+            result = trends().run(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "shown_as": TRENDS_LIFECYCLE,
+                        FILTER_TEST_ACCOUNTS: True,
+                    }
+                ),
+                self.team,
+            )
+            self.assertEqual(sorted([res["status"] for res in result]), ["dormant", "new", "resurrecting", "returning"])
+            for res in result:
+                if res["status"] == "dormant":
+                    self.assertEqual(res["data"], [0, -2, 0, 0, -1, 0, 0, 0])
+                elif res["status"] == "returning":
+                    self.assertEqual(res["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+                elif res["status"] == "resurrecting":
+                    self.assertEqual(res["data"], [1, 0, 0, 0, 0, 0, 0, 0])
+                elif res["status"] == "new":
+                    self.assertEqual(res["data"], [1, 0, 0, 1, 0, 0, 0, 0])
+
+            dormant_result = trends().get_people(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                        "shown_as": TRENDS_LIFECYCLE,
+                        FILTER_TEST_ACCOUNTS: True,
+                    }
+                ),
+                self.team.pk,
+                relative_date_parse("2020-01-13T00:00:00Z"),
+                "dormant",
+            )
 
     return TestLifecycle
 

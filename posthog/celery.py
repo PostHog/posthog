@@ -30,7 +30,13 @@ app.autodiscover_tasks()
 app.conf.broker_pool_limit = 0
 
 # How frequently do we want to calculate action -> event relationships if async is enabled
-ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 5
+ACTION_EVENT_MAPPING_INTERVAL_SECONDS = settings.ACTION_EVENT_MAPPING_INTERVAL_SECONDS
+
+# How frequently do we want to calculate event property stats if async is enabled
+EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = settings.EVENT_PROPERTY_USAGE_INTERVAL_SECONDS
+
+# How frequently do we want to check if dashboard items need to be recalculated
+UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS
 
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
@@ -65,21 +71,29 @@ def setup_periodic_tasks(sender, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    sender.add_periodic_task(90, check_cached_items.s(), name="check dashboard items")
+    sender.add_periodic_task(
+        UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
+    )
 
     if is_ee_enabled():
         sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
         sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
+    else:
+        sender.add_periodic_task(
+            ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
+            calculate_event_action_mappings.s(),
+            name="calculate event action mappings",
+            expires=ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
+        )
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
-    if settings.ASYNC_EVENT_ACTION_MAPPING:
+    if settings.ASYNC_EVENT_PROPERTY_USAGE:
         sender.add_periodic_task(
-            (60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
-            calculate_event_action_mappings.s(),
-            name="calculate event action mappings",
-            expires=(60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
+            EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
+            calculate_event_property_usage.s(),
+            name="calculate event property usage",
         )
 
 

@@ -9,6 +9,7 @@ import statsd
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
+from clickhouse_pool import ChPool
 from django.conf import settings as app_settings
 from django.core.cache import cache
 from django.utils.timezone import now
@@ -65,6 +66,18 @@ else:
             verify=CLICKHOUSE_VERIFY,
         )
 
+        ch_pool = ChPool(
+            host=CLICKHOUSE_HOST,
+            database=CLICKHOUSE_DATABASE,
+            secure=CLICKHOUSE_SECURE,
+            user=CLICKHOUSE_USER,
+            password=CLICKHOUSE_PASSWORD,
+            ca_certs=CLICKHOUSE_CA,
+            verify=CLICKHOUSE_VERIFY,
+            connections_min=20,
+            connections_max=1000,
+        )
+
         @async_to_sync
         async def async_execute(query, args=None, settings=None):
             loop = asyncio.get_event_loop()
@@ -83,6 +96,18 @@ else:
             verify=CLICKHOUSE_VERIFY,
         )
 
+        ch_pool = ChPool(
+            host=CLICKHOUSE_HOST,
+            database=CLICKHOUSE_DATABASE,
+            secure=CLICKHOUSE_SECURE,
+            user=CLICKHOUSE_USER,
+            password=CLICKHOUSE_PASSWORD,
+            ca_certs=CLICKHOUSE_CA,
+            verify=CLICKHOUSE_VERIFY,
+            connections_min=20,
+            connections_max=1000,
+        )
+
         def async_execute(query, args=None, settings=None):
             return sync_execute(query, args, settings=settings)
 
@@ -99,27 +124,19 @@ else:
             return result
 
     def sync_execute(query, args=None, settings=None):
-        client = SyncClient(
-            host=CLICKHOUSE_HOST,
-            database=CLICKHOUSE_DATABASE,
-            secure=CLICKHOUSE_SECURE,
-            user=CLICKHOUSE_USER,
-            password=CLICKHOUSE_PASSWORD,
-            ca_certs=CLICKHOUSE_CA,
-            verify=CLICKHOUSE_VERIFY,
-        )
-        start_time = time()
-        try:
-            result = client.execute(query, args, settings=settings)
-        finally:
-            execution_time = time() - start_time
-            g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (STATSD_PREFIX,))
-            g.send("clickhouse_sync_query_time", execution_time)
-            if app_settings.SHELL_PLUS_PRINT_SQL:
-                print(format_sql(query, args))
-                print("Execution time: %.6fs" % (execution_time,))
-            if _save_query_user_id:
-                save_query(query, args, execution_time)
+        with ch_pool.get_client() as client:
+            start_time = time()
+            try:
+                result = client.execute(query, args, settings=settings)
+            finally:
+                execution_time = time() - start_time
+                g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (STATSD_PREFIX,))
+                g.send("clickhouse_sync_query_time", execution_time)
+                if app_settings.SHELL_PLUS_PRINT_SQL:
+                    print(format_sql(query, args))
+                    print("Execution time: %.6fs" % (execution_time,))
+                if _save_query_user_id:
+                    save_query(query, args, execution_time)
         return result
 
 

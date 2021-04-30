@@ -4,9 +4,10 @@ from posthog.test.base import BaseTest
 
 class TestFeatureFlag(BaseTest):
     def test_blank_flag(self):
+        # Blank feature flags now default to be released for everyone
         feature_flag = self.create_feature_flag()
-        self.assertFalse(feature_flag.distinct_id_matches("example_id"))
-        self.assertFalse(feature_flag.distinct_id_matches("another_id"))
+        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
+        self.assertTrue(feature_flag.distinct_id_matches("another_id"))
 
     def test_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"rollout_percentage": 50}]})
@@ -15,8 +16,12 @@ class TestFeatureFlag(BaseTest):
 
     def test_empty_group(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{}]})
-        self.assertFalse(feature_flag.distinct_id_matches("example_id"))
-        self.assertFalse(feature_flag.distinct_id_matches("another_id"))
+        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
+        self.assertTrue(feature_flag.distinct_id_matches("another_id"))
+
+    def test_null_rollout_percentage(self):
+        feature_flag = self.create_feature_flag(filters={"groups": [{"properties": [], "rollout_percentage": None}]})
+        self.assertTrue(feature_flag.distinct_id_matches("example_id"))
 
     def test_complicated_flag(self):
         Person.objects.create(

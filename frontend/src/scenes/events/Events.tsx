@@ -1,7 +1,6 @@
 import React from 'react'
 import { kea, useActions, useValues } from 'kea'
 
-import { hot } from 'react-hot-loader/root'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Tabs } from 'antd'
 import { ActionsTable } from 'scenes/actions/ActionsTable'
@@ -35,17 +34,15 @@ const eventsLogic = kea<eventsLogicType>({
     }),
 })
 
-export const ManageEvents = hot(_ManageEvents)
-function _ManageEvents({}): JSX.Element {
+export function ManageEvents(): JSX.Element {
     const { tab } = useValues(eventsLogic)
     const { setTab } = useActions(eventsLogic)
-
     return (
         <div className="manage-events" data-attr="manage-events-table">
             <PageHeader title="Events" />
             <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={setTab}>
                 <Tabs.TabPane tab="Events" key="live">
-                    See all events that are being sent to this project in real time.
+                    See events being sent to this project in near real time.
                     <EventsTable />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions">

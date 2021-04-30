@@ -5,6 +5,7 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin')
+const AntdDayjsWebpackPlugin = require('antd-dayjs-webpack-plugin')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0.0.1' : webpackDevServerHost
@@ -85,11 +86,6 @@ function createEntry(entry) {
                 types: path.resolve(__dirname, 'frontend', 'types'),
                 public: path.resolve(__dirname, 'frontend', 'public'),
                 cypress: path.resolve(__dirname, 'cypress'),
-                ...(process.env.NODE_ENV !== 'production'
-                    ? {
-                          'react-dom': '@hot-loader/react-dom',
-                      }
-                    : {}),
             },
         },
         module: {
@@ -182,24 +178,31 @@ function createEntry(entry) {
                 },
             ],
         },
-        devServer: {
-            contentBase: path.join(__dirname, 'frontend', 'dist'),
-            hot: true,
-            host: webpackDevServerHost,
-            port: 8234,
-            stats: 'minimal',
-            disableHostCheck: !!process.env.LOCAL_HTTPS,
-            public: process.env.JS_URL ? new URL(process.env.JS_URL).host : `${webpackDevServerFrontendAddr}:8234`,
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': '*',
-            },
-        },
+        // add devServer config only to 'main' entry
+        ...(entry === 'main'
+            ? {
+                  devServer: {
+                      contentBase: path.join(__dirname, 'frontend', 'dist'),
+                      hot: true,
+                      host: webpackDevServerHost,
+                      port: 8234,
+                      stats: 'minimal',
+                      disableHostCheck: !!process.env.LOCAL_HTTPS,
+                      public: process.env.JS_URL
+                          ? new URL(process.env.JS_URL).host
+                          : `${webpackDevServerFrontendAddr}:8234`,
+                      headers: {
+                          'Access-Control-Allow-Origin': '*',
+                          'Access-Control-Allow-Headers': '*',
+                      },
+                  },
+              }
+            : {}),
         plugins: [
             new MonacoWebpackPlugin({
                 languages: ['json', 'javascript'],
             }),
-
+            new AntdDayjsWebpackPlugin(),
             // common plugins for all entrypoints
         ].concat(
             entry === 'main'

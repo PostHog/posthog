@@ -8,7 +8,7 @@ interface Props {
 }
 
 interface DashboardItemAttributes {
-    type: string
+    type?: string
     entity: TrendPayload | FunnelPayload
 }
 
@@ -25,7 +25,7 @@ export function SaveToDashboard(props: Props): JSX.Element {
     const { item } = props
     const [openModal, setOpenModal] = useState<boolean>(false)
     const [{ fromItem, fromItemName, fromDashboard }] = useState(router.values.hashParams)
-    let _name: string
+    let _name: string = ''
     let _filters: Record<string, any> | null = null
     let _annotations: Array<Record<string, any>> | null = null
 

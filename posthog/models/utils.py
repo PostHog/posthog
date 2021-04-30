@@ -52,10 +52,21 @@ class UUIDT(uuid.UUID):
 
 
 class UUIDModel(models.Model):
+    """Base Django Model with default autoincremented ID field replaced with UUIDT."""
+
     class Meta:
         abstract = True
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+
+class UUIDClassicModel(models.Model):
+    """Base Django Model with default autoincremented ID field kept and a UUIDT field added."""
+
+    class Meta:
+        abstract = True
+
+    uuid: models.UUIDField = models.UUIDField(unique=True, default=UUIDT, editable=False)
 
 
 def sane_repr(*attrs: str, include_id=True) -> Callable[[object], str]:

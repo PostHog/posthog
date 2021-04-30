@@ -34,7 +34,8 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             )
             result = ClickhouseStickiness().run(stickiness_filter, team)
         else:
-            result = ClickhouseTrends().run(filter, team)
+            trends_query = ClickhouseTrends()
+            result = trends_query.run(filter, team)
 
         self._refresh_dashboard(request=request)
         return {"result": result}

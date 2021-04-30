@@ -3,8 +3,8 @@ import { Loading, formatLabel } from 'lib/utils'
 import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useValues } from 'kea'
-import { ActionFilter, trendsLogic } from 'scenes/trends/trendsLogic'
-import { ChartParams, TrendResultWithAggregate } from '~/types'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { ActionFilter, ChartParams, TrendResultWithAggregate } from '~/types'
 
 export function ActionsTable({
     dashboardItemId,
@@ -13,10 +13,10 @@ export function ActionsTable({
     cachedResults,
 }: ChartParams): JSX.Element {
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
-    const { filters, results, resultsLoading } = useValues(logic)
+    const { filters, indexedResults, resultsLoading } = useValues(logic)
 
-    let data = results as TrendResultWithAggregate[]
-    if (!filters.session) {
+    let data = (indexedResults as any) as TrendResultWithAggregate[]
+    if (!filters.session && data) {
         data = data.sort((a, b) => b.aggregated_value - a.aggregated_value)
     }
     return data && !resultsLoading ? (

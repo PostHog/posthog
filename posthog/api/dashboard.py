@@ -1,9 +1,8 @@
 import secrets
 from distutils.util import strtobool
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, Optional
 
 import posthoganalytics
-from django.core.cache import cache
 from django.db.models import Model, Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpRequest
@@ -17,7 +16,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Team
@@ -26,8 +25,8 @@ from posthog.utils import get_safe_cache, render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
-    items = serializers.SerializerMethodField()  # type: ignore
-    created_by = UserSerializer(read_only=True)
+    items = serializers.SerializerMethodField()
+    created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
 
     class Meta:
@@ -35,6 +34,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "description",
             "pinned",
             "items",
             "created_at",
@@ -42,16 +42,20 @@ class DashboardSerializer(serializers.ModelSerializer):
             "is_shared",
             "share_token",
             "deleted",
+            "creation_mode",
             "use_template",
             "filters",
+            "tags",
         ]
+        read_only_fields = ("creation_mode",)
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         team = Team.objects.get(id=self.context["team_id"])
         use_template: str = validated_data.pop("use_template", None)
-        dashboard = Dashboard.objects.create(team=team, **validated_data)
+        creation_mode = "template" if use_template else "default"
+        dashboard = Dashboard.objects.create(team=team, creation_mode=creation_mode, **validated_data)
 
         if use_template:
             try:
@@ -75,9 +79,7 @@ class DashboardSerializer(serializers.ModelSerializer):
 
         return dashboard
 
-    def update(  # type: ignore
-        self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any,
-    ) -> Dashboard:
+    def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any,) -> Dashboard:
         validated_data.pop("use_template", None)  # Remove attribute if present
         if validated_data.get("is_shared") and not instance.share_token:
             instance.share_token = secrets.token_urlsafe(22)

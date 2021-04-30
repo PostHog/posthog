@@ -4,13 +4,20 @@ describe('Funnels', () => {
         cy.wait(200)
     })
 
+    it('Add only events to funnel', () => {
+        cy.get('[data-attr=add-action-event-button]').click()
+
+        cy.get('[data-attr=save-funnel-button]').click()
+
+        cy.get('[data-attr=funnel-viz]').should('exist')
+    })
+
     it('Add 1 action to funnel and navigate to persons', () => {
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-0]').click()
 
         cy.wait(200)
-        // Double click: https://www.cypress.io/blog/2019/01/22/when-can-the-test-click/
-        cy.contains('HogFlix homepage view').click().click()
+        cy.contains('HogFlix homepage view').click()
 
         cy.get('[data-attr=save-funnel-button]').click()
 
@@ -32,7 +39,7 @@ describe('Funnels', () => {
     it('Apply date filter to funnel', () => {
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.contains('HogFlix homepage view').click().click()
+        cy.contains('HogFlix homepage view').click()
         cy.get('[data-attr=save-funnel-button]').click()
 
         cy.get('[data-attr=date-filter]').click()
@@ -47,11 +54,11 @@ describe('Funnels', () => {
     it('Add 2 actions to funnel', () => {
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.contains('HogFlix homepage view').click().click()
+        cy.contains('HogFlix homepage view').click()
 
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-1]').click()
-        cy.contains('HogFlix paid').click().click()
+        cy.contains('HogFlix paid').click()
 
         cy.get('[data-attr=save-funnel-button]').click()
 

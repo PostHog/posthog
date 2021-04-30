@@ -1,6 +1,5 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import React from 'react'
-import { hot } from 'react-hot-loader/root'
 import { Button, Col, Collapse, Progress, Row, Switch } from 'antd'
 import {
     ProjectOutlined,
@@ -19,11 +18,11 @@ import { onboardingSetupLogic } from './onboardingSetupLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { Link } from 'lib/components/Link'
 import { IconExternalLink } from 'lib/components/icons'
-import { userLogic } from 'scenes/userLogic'
-import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
+import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
 import { LinkButton } from 'lib/components/LinkButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 const { Panel } = Collapse
 
@@ -111,8 +110,7 @@ function OnboardingStep({
     )
 }
 
-export const OnboardingSetup = hot(_OnboardingSetup)
-function _OnboardingSetup(): JSX.Element {
+export function OnboardingSetup(): JSX.Element {
     const {
         stepProjectSetup,
         stepInstallation,
@@ -132,8 +130,8 @@ function _OnboardingSetup(): JSX.Element {
         callSlack,
     } = useActions(onboardingSetupLogic)
 
-    const { user, userUpdateLoading } = useValues(userLogic)
-    const { userUpdateRequest } = useActions(userLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
     const { currentOrganizationLoading } = useValues(organizationLogic)
 
     const UTM_TAGS = 'utm_medium=in-product&utm_campaign=onboarding-setup-2822'
@@ -211,8 +209,8 @@ function _OnboardingSetup(): JSX.Element {
                                     icon={<PlaySquareOutlined />}
                                     identifier="session-recording"
                                     handleClick={() =>
-                                        userUpdateRequest({
-                                            team: { session_recording_opt_in: !user?.team?.session_recording_opt_in },
+                                        updateCurrentTeam({
+                                            session_recording_opt_in: !currentTeam?.session_recording_opt_in,
                                         })
                                     }
                                     caption={
@@ -230,20 +228,20 @@ function _OnboardingSetup(): JSX.Element {
                                     }
                                     customActionElement={
                                         <div style={{ fontWeight: 'bold' }}>
-                                            {user?.team?.session_recording_opt_in ? (
+                                            {currentTeam?.session_recording_opt_in ? (
                                                 <span style={{ color: 'var(--success)' }}>Enabled</span>
                                             ) : (
                                                 <span style={{ color: 'var(--danger)' }}>Disabled</span>
                                             )}
                                             <Switch
-                                                checked={user?.team?.session_recording_opt_in}
-                                                loading={userUpdateLoading}
+                                                checked={currentTeam?.session_recording_opt_in}
+                                                loading={currentTeamLoading}
                                                 style={{ marginLeft: 6 }}
                                             />
                                         </div>
                                     }
                                     analyticsExtraArgs={{
-                                        new_session_recording_enabled: !user?.team?.session_recording_opt_in,
+                                        new_session_recording_enabled: !currentTeam?.session_recording_opt_in,
                                     }}
                                 />
                                 <OnboardingStep

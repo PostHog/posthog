@@ -6,7 +6,8 @@ describe('<Sessions />', () => {
     const mount = () => helpers.mountPage(<Sessions />)
 
     beforeEach(() => {
-        cy.intercept('/api/user/', { fixture: 'api/user' })
+        cy.intercept('/_preflight/', { fixture: '_preflight' })
+        cy.intercept('/api/users/@me/', { fixture: 'api/users/@me' })
         cy.intercept('/api/dashboard/', { fixture: 'api/dashboard' })
         cy.intercept('/api/personal_api_keys/', { fixture: 'api/personal_api_keys' })
         cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
@@ -17,7 +18,6 @@ describe('<Sessions />', () => {
         helpers.setLocation('/sessions')
     })
 
-    given('featureFlags', () => ['filter_by_session_props'])
     given('sessions', () => () => ({ fixture: 'api/event/sessions/demo_sessions' }))
 
     const iterateResponses = (responses) => {
@@ -78,7 +78,7 @@ describe('<Sessions />', () => {
 
         cy.get('[data-attr="sessions-filter-open"]').click()
         cy.focused().type('br').type('{downarrow}').type('{enter}')
-        cy.get('.sessions-filter-row input').last().type('Chrome').type('{enter}')
+        cy.get('.sessions-filter-row input').last().click().type('Chrome').type('{enter}')
 
         cy.contains('There are unapplied filters').should('be.visible')
         cy.get('[data-attr="sessions-apply-filters"]').click()

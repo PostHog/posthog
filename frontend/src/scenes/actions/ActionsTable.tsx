@@ -2,8 +2,8 @@ import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Input, Radio, Table } from 'antd'
-import { QuestionCircleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
-import { DeleteWithUndo, stripHTTP } from 'lib/utils'
+import { QuestionCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined } from '@ant-design/icons'
+import { DeleteWithUndo, stripHTTP, toParams } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from './NewActionButton'
@@ -14,6 +14,7 @@ import { ActionType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -27,7 +28,7 @@ const searchActions = (sources: ActionType[], search: string): ActionType[] => {
 export function ActionsTable(): JSX.Element {
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
-    const [searchTerm, setSearchTerm] = useState(false)
+    const [searchTerm, setSearchTerm] = useState('')
     const [filterByMe, setFilterByMe] = useState(false)
     const { user } = useValues(userLogic)
 
@@ -37,7 +38,7 @@ export function ActionsTable(): JSX.Element {
             dataIndex: 'name',
             key: 'name',
             sorter: (a: ActionType, b: ActionType) => ('' + a.name).localeCompare(b.name),
-            render: function RenderName(_, action: ActionType, index: number) {
+            render: function RenderName(_: null, action: ActionType, index: number) {
                 return (
                     <Link
                         data-attr={'action-link-' + index}
@@ -52,7 +53,7 @@ export function ActionsTable(): JSX.Element {
             ? [
                   {
                       title: 'Volume',
-                      render: function RenderVolume(_, action: ActionType) {
+                      render: function RenderVolume(_: null, action: ActionType) {
                           return <span>{action.count}</span>
                       },
                       sorter: (a: ActionType, b: ActionType) => (a.count || 0) - (b.count || 0),
@@ -61,7 +62,7 @@ export function ActionsTable(): JSX.Element {
             : []),
         {
             title: 'Type',
-            render: function RenderType(_, action: ActionType) {
+            render: function RenderType(_: null, action: ActionType) {
                 return (
                     <span>
                         {action.steps?.map((step) => (
@@ -112,6 +113,23 @@ export function ActionsTable(): JSX.Element {
         {
             title: '',
             render: function RenderActions(action: ActionType) {
+                const params = {
+                    insight: ViewType.TRENDS,
+                    interval: 'day',
+                    display: 'ActionsLineGraph',
+                    actions: [
+                        {
+                            id: action.id,
+                            name: action.name,
+                            type: 'actions',
+                            order: 0,
+                        },
+                    ],
+                }
+                const encodedParams = toParams(params)
+
+                const actionsLink = `/insights?${encodedParams}#backTo=Actions&backToURL=${window.location.pathname}`
+
                 return (
                     <span>
                         <Link to={'/action/' + action.id + '#backTo=Actions&backToURL=' + window.location.pathname}>
@@ -121,22 +139,25 @@ export function ActionsTable(): JSX.Element {
                             endpoint="action"
                             object={action}
                             className="text-danger"
-                            style={{ marginLeft: 8 }}
+                            style={{ marginLeft: 8, marginRight: 8 }}
                             callback={loadActions}
                         >
                             <DeleteOutlined />
                         </DeleteWithUndo>
+                        <Link to={`${actionsLink}`} data-attr="actions-table-usage">
+                            Insights <ExportOutlined />
+                        </Link>
                     </span>
                 )
             },
         },
     ]
     let data = actions
-    if (searchTerm) {
+    if (searchTerm && searchTerm !== '') {
         data = searchActions(data, searchTerm)
     }
     if (filterByMe) {
-        data = data.filter((item) => item.created_by?.id === user?.id)
+        data = data.filter((item) => item.created_by?.uuid === user?.uuid)
     }
 
     return (

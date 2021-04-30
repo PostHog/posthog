@@ -5,6 +5,7 @@ import { autocorrectInterval, objectsEqual, toParams } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '../../models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function wait(ms = 1000) {
     return new Promise((resolve) => {
@@ -38,6 +39,7 @@ const cleanFunnelParams = (filters) => {
         ...(filters.display ? { display: filters.display } : {}),
         ...(filters.interval ? { interval: filters.interval } : {}),
         ...(filters.properties ? { properties: filters.properties } : {}),
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
         interval: autocorrectInterval(filters),
         insight: ViewType.FUNNELS,
     }
@@ -55,6 +57,7 @@ export const funnelLogic = kea({
         clearFunnel: true,
         setFilters: (filters, refresh = false) => ({ filters, refresh }),
         saveFunnelInsight: (name) => ({ name }),
+        setStepsWithCountLoading: (stepsWithCountLoading) => ({ stepsWithCountLoading }),
     }),
 
     connect: {
@@ -64,9 +67,11 @@ export const funnelLogic = kea({
     loaders: ({ props, values, actions }) => ({
         results: {
             loadResults: async (refresh = false, breakpoint) => {
+                actions.setStepsWithCountLoading(true)
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return props.cachedResults
                 }
+
                 const { from_dashboard } = values.filters
                 const cleanedParams = cleanFunnelParams(values.filters)
                 const params = {
@@ -74,13 +79,21 @@ export const funnelLogic = kea({
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
                 }
+
                 let result
 
                 insightLogic.actions.startQuery()
+
+                const eventCount = params.events?.length
+                const actionCount = params.actions?.length
+                const interval = params.interval
+
                 try {
                     result = await pollFunnel(params)
+                    eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
                 } catch (e) {
                     insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
+                    eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, false, e.message)
                     return []
                 }
                 breakpoint()
@@ -115,7 +128,7 @@ export const funnelLogic = kea({
         stepsWithCountLoading: [
             false,
             {
-                setSteps: () => false,
+                setStepsWithCountLoading: (_, { stepsWithCountLoading }) => stepsWithCountLoading,
             },
         ],
         people: {
@@ -152,6 +165,12 @@ export const funnelLogic = kea({
                 return result
             },
         ],
+        isValidFunnel: [
+            () => [selectors.stepsWithCount],
+            (stepsWithCount) => {
+                return stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -159,6 +178,7 @@ export const funnelLogic = kea({
             if (values.stepsWithCount[0]?.people?.length > 0) {
                 actions.loadPeople(values.stepsWithCount)
             }
+            actions.setStepsWithCountLoading(false)
         },
         setFilters: ({ refresh }) => {
             if (refresh) {

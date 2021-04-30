@@ -1,5 +1,5 @@
 from distutils.util import strtobool
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from django.core.cache import cache
 from django.db.models import QuerySet
@@ -11,12 +11,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import format_next_url
 from posthog.celery import update_cache_item_task
 from posthog.constants import FROM_DASHBOARD, INSIGHT, INSIGHT_FUNNELS, INSIGHT_PATHS, TRENDS_STICKINESS
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Event, Filter, Team
-from posthog.models.filters import Filter, RetentionFilter
+from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -28,7 +29,7 @@ from posthog.utils import generate_cache_key, get_safe_cache
 
 class InsightSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
-    created_by = serializers.SerializerMethodField()
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = DashboardItem
@@ -79,10 +80,6 @@ class InsightSerializer(serializers.ModelSerializer):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
         return result.get("data")
-
-    def get_created_by(self, dashboard_item: DashboardItem):
-        if dashboard_item.created_by:
-            return UserSerializer(dashboard_item.created_by).data
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -149,7 +146,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_trends(request)
-        return Response(result)
+        filter = Filter(request=request)
+        next = format_next_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
+        return Response({**result, "next": next})
 
     @cached_function()
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
