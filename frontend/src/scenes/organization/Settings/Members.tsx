@@ -74,8 +74,9 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
 
     const { level } = member
 
-    function generateHandleClick(listLevel: OrganizationMembershipLevel): () => void {
-        return function handleClick() {
+    function generateHandleClick(listLevel: OrganizationMembershipLevel): (event: MouseEvent) => void {
+        return function handleClick(event: MouseEvent) {
+            event.preventDefault()
             if (!user) {
                 throw Error
             }
