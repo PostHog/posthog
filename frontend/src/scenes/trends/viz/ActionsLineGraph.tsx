@@ -5,8 +5,9 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { router } from 'kea-router'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
-import { ACTIONS_BAR_CHART, ShownAsValue } from 'lib/constants'
+import { ACTIONS_BAR_CHART } from 'lib/constants'
 import { ChartParams } from '~/types'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 export function ActionsLineGraph({
     dashboardItemId,
@@ -30,11 +31,7 @@ export function ActionsLineGraph({
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
             <LineGraph
                 data-attr="trend-line-graph"
-                type={
-                    filters.shown_as === ShownAsValue.LIFECYCLE || filters.display === ACTIONS_BAR_CHART
-                        ? 'bar'
-                        : 'line'
-                }
+                type={filters.insight === ViewType.LIFECYCLE || filters.display === ACTIONS_BAR_CHART ? 'bar' : 'line'}
                 color={color}
                 datasets={indexedResults}
                 visibilityMap={visibilityMap}

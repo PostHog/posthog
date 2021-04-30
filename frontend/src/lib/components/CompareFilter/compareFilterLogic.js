@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { ShownAsValue } from 'lib/constants'
 import { objectsEqual } from 'lib/utils'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 export const compareFilterLogic = kea({
     actions: () => ({
@@ -39,11 +39,11 @@ export const compareFilterLogic = kea({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, { compare, shown_as, date_from }) => {
+        '/insights': (_, { compare, insight, date_from }) => {
             if (compare != null) {
                 actions.setCompare(compare)
             }
-            if (shown_as === ShownAsValue.LIFECYCLE || date_from === 'all') {
+            if (insight === ViewType.LIFECYCLE || date_from === 'all') {
                 actions.setDisabled(true)
             } else {
                 actions.setDisabled(false)
