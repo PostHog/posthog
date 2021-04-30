@@ -89,7 +89,7 @@ describe('<Sessions />', () => {
         })
 
         cy.get('[data-attr="edit-session-filter"]').click()
-        cy.focused().type('unseen').wait(150).type('{downarrow}').type('{enter}')
+        cy.focused().type('unseen').wait(150).type('{downarrow}').wait(150).type('{enter}').wait(150)
         cy.get('[data-attr="sessions-apply-filters"]').click()
 
         cy.wait('@api_sessions').map(helpers.getSearchParameters).should('include', {
