@@ -25,6 +25,8 @@ import { EventFormattedType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TableConfig } from 'lib/components/ResizableTable'
 import { propertyDefinitionsLogic } from './propertyDefinitionsLogic'
+import { EventName } from 'scenes/actions/EventName'
+import { PropertyFilters } from 'lib/components/PropertyFilters'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -55,7 +57,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         columnConfigSaving,
     } = useValues(logic)
     const { propertyNames } = useValues(propertyDefinitionsLogic)
-    const { fetchNextEvents, prependNewEvents, setColumnConfig } = useActions(logic)
+    const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter } = useActions(logic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
@@ -280,6 +282,19 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 immutableColumns={['event', 'person', 'when']}
                 onColumnUpdate={setColumnConfig}
                 saving={columnConfigSaving}
+                mainActionComponent={
+                    <>
+                        <EventName
+                            value={eventFilter}
+                            onChange={(value: string) => {
+                                setEventFilter(value || '')
+                            }}
+                        />
+                        {filtersEnabled ? (
+                            <PropertyFilters pageKey={'EventsTable'} style={{ marginBottom: 0 }} />
+                        ) : null}
+                    </>
+                }
             />
 
             <div>

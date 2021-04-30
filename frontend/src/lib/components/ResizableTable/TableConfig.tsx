@@ -17,6 +17,7 @@ interface TableConfigInterface {
     immutableColumns?: string[] // List of columns that cannot be removed
     onColumnUpdate?: (selectedColumns: string[]) => void
     saving?: boolean // Whether the saving routine is in process (i.e. loading indicators should be shown)
+    mainActionComponent?: JSX.Element
 }
 
 export function TableConfig({
@@ -26,6 +27,7 @@ export function TableConfig({
     immutableColumns,
     onColumnUpdate,
     saving,
+    mainActionComponent,
 }: TableConfigInterface): JSX.Element {
     const { state } = useValues(tableConfigLogic)
     const { setState } = useActions(tableConfigLogic)
@@ -33,30 +35,33 @@ export function TableConfig({
     return (
         <>
             <div className="table-options">
-                {selectedColumns && availableColumns && onColumnUpdate && (
-                    <>
-                        <Button
-                            data-attr="events-table-column-selector"
-                            onClick={() => setState('columnConfig')}
-                            icon={<SettingOutlined />}
-                        />
-                        {state === 'columnConfig' && (
-                            <ColumnConfigurator
-                                allColumns={availableColumns}
-                                currentSelection={selectedColumns}
-                                immutableColumns={immutableColumns}
-                                onClose={() => setState(null)}
-                                onColumnUpdate={onColumnUpdate}
-                                saving={saving}
+                <div className="main-actions">{mainActionComponent}</div>
+                <div className="rhs-actions">
+                    {selectedColumns && availableColumns && onColumnUpdate && (
+                        <>
+                            <Button
+                                data-attr="events-table-column-selector"
+                                onClick={() => setState('columnConfig')}
+                                icon={<SettingOutlined />}
                             />
-                        )}
-                    </>
-                )}
-                {exportUrl && (
-                    <Tooltip title="Export up to 100,000 latest events.">
-                        <Button icon={<DownloadOutlined />} href={exportUrl} />
-                    </Tooltip>
-                )}
+                            {state === 'columnConfig' && (
+                                <ColumnConfigurator
+                                    allColumns={availableColumns}
+                                    currentSelection={selectedColumns}
+                                    immutableColumns={immutableColumns}
+                                    onClose={() => setState(null)}
+                                    onColumnUpdate={onColumnUpdate}
+                                    saving={saving}
+                                />
+                            )}
+                        </>
+                    )}
+                    {exportUrl && (
+                        <Tooltip title="Export up to 100,000 latest events." placement="left">
+                            <Button icon={<DownloadOutlined />} href={exportUrl} />
+                        </Tooltip>
+                    )}
+                </div>
             </div>
         </>
     )

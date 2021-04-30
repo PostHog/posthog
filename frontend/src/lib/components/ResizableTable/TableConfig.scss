@@ -2,6 +2,19 @@
 
 .table-options {
     margin-bottom: $default_spacing;
+    display: flex;
+
+    .main-actions {
+        flex-grow: 1;
+    }
+
+    .rhs-actions {
+        display: flex;
+        align-items: flex-end;
+        > * {
+            margin-left: 8px;
+        }
+    }
 }
 
 .column-configurator-modal {
