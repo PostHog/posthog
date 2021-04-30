@@ -77,8 +77,8 @@ describe('<Sessions />', () => {
         cy.wait('@api_sessions')
 
         cy.get('[data-attr="sessions-filter-open"]').click()
-        cy.focused().type('br').type('{downarrow}').type('{enter}')
-        cy.get('.sessions-filter-row input').last().click().type('Chrome').type('{enter}')
+        cy.focused().type('br').wait(150).type('{downarrow}').wait(150).type('{enter}').wait(150)
+        cy.get('.sessions-filter-row input').last().click().type('Chrome').wait(150).type('{enter}').wait(150)
 
         cy.contains('There are unapplied filters').should('be.visible')
         cy.get('[data-attr="sessions-apply-filters"]').click()
