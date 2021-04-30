@@ -10,7 +10,7 @@ export interface PluginLogsProps {
 
 export const LOGS_PORTION_LIMIT = 50
 
-export const pluginLogsLogic = kea<pluginLogsLogicType & { props: PluginLogsProps }>({
+export const pluginLogsLogic = kea<pluginLogsLogicType>({
     key: ({ teamId, pluginConfigId }) => `${teamId}-${pluginConfigId}`,
 
     actions: {
