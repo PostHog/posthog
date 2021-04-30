@@ -47,9 +47,8 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     typeKey={'trends_' + view}
                     copy="Add graph series"
                     showLetters={isUsingFormulas}
-                    disabled={
-                        filters.insight === ViewType.LIFECYCLE && !!(filters.events?.length || filters.actions?.length)
-                    }
+                    singleFilter={filters.insight === ViewType.LIFECYCLE}
+                    hidePropertySelector={filters.insight === ViewType.LIFECYCLE}
                 />
             )}
 
