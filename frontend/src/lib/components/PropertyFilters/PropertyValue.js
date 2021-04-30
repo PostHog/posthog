@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { AutoComplete, Select } from 'antd'
+import { useThrottledCallback } from 'use-debounce'
 import api from '../../api'
 import { isMobile, isOperatorFlag, isOperatorMulti, isOperatorRegex, isValidRegex } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
@@ -20,7 +21,7 @@ export function PropertyValue({
     const [optionsCache, setOptionsCache] = useState({})
     const [options, setOptions] = useState({})
 
-    function loadPropertyValues(newInput) {
+    const loadPropertyValues = useThrottledCallback((newInput) => {
         if (type === 'cohort') {
             return
         }
@@ -44,7 +45,7 @@ export function PropertyValue({
                 }
             )
         }
-    }
+    }, 300)
 
     function setValue(newValue) {
         onSet(newValue)
