@@ -1,14 +1,14 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+//import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { ExportOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { Button, Spin, Tooltip, Col, Row } from 'antd'
+import { Button, Spin } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
-import { EventName } from 'scenes/actions/EventName'
+//import { EventName } from 'scenes/actions/EventName'
 import { eventToName, toParams } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
@@ -16,13 +16,15 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { PropertyColumnSelector } from 'lib/components/PropertyColumnSelector'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { EventFormattedType } from '~/types'
-import { CheckboxValueType } from 'antd/lib/checkbox/Group'
+//import { CheckboxValueType } from 'antd/lib/checkbox/Group'
+import { PageHeader } from 'lib/components/PageHeader'
+import { TableConfig } from 'lib/components/ResizableTable'
+import { propertyDefinitionsLogic } from './propertyDefinitionsLogic'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -51,15 +53,8 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         eventFilter,
         columnConfig,
     } = useValues(logic)
-    const { fetchNextEvents, prependNewEvents, setEventFilter, setColumnConfig } = useActions(logic)
-    const [choosingColumns, setChoosingColumns] = useState(false)
-    const closeColumnChooser = (): void => setChoosingColumns(false)
-    const openColumnChooser = (): void => setChoosingColumns(true)
-    console.log('columsn', columnConfig)
-    const onColumnChooserConfirm = (selectedColumns: CheckboxValueType[]): void => {
-        setColumnConfig(selectedColumns)
-        closeColumnChooser()
-    }
+    const { propertyNames } = useValues(propertyDefinitionsLogic)
+    const { fetchNextEvents, prependNewEvents } = useActions(logic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
@@ -265,46 +260,23 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
 
     return (
         <div className="events" data-attr="events-table">
-            <Row style={{ paddingTop: '0.5rem' }}>
-                <Col span={pageKey === 'events' ? 22 : 20}>
-                    <EventName
-                        value={eventFilter}
-                        onChange={(value: string) => {
-                            setEventFilter(value || '')
-                        }}
-                    />
-                    {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} /> : null}
-                </Col>
-                <Col span={pageKey === 'events' ? 2 : 4} className="text-right">
-                    <Button data-attr="events-table-column-selector" onClick={openColumnChooser} type="default">
-                        Change columns
-                    </Button>
-                    <Tooltip title="Up to 100,000 latest events.">
-                        <Button
-                            type="default"
-                            icon={<ExportOutlined />}
-                            href={`/api/event.csv?${toParams({
-                                properties,
-                                ...(fixedFilters || {}),
-                                ...(eventFilter ? { event: eventFilter } : {}),
-                                orderBy: [orderBy],
-                            })}`}
-                            style={{ marginBottom: '1rem' }}
-                        >
-                            Export
-                        </Button>
-                    </Tooltip>
-                    {choosingColumns && (
-                        <PropertyColumnSelector
-                            selectedItems={selectedConfigOptions}
-                            title={'Choose Columns to display'}
-                            visible={true}
-                            onCancel={closeColumnChooser}
-                            onConfirm={onColumnChooserConfirm}
-                        />
-                    )}
-                </Col>
-            </Row>
+            <PageHeader
+                title="Events"
+                caption="See events being sent to this project in near real time."
+                style={{ marginTop: 0 }}
+            />
+
+            <TableConfig
+                exportUrl={`/api/event.csv?${toParams({
+                    properties,
+                    ...(fixedFilters || {}),
+                    ...(eventFilter ? { event: eventFilter } : {}),
+                    orderBy: [orderBy],
+                })}`}
+                selectedColumns={selectedConfigOptions}
+                availableColumns={propertyNames}
+            />
+
             <div>
                 <ResizableTable
                     dataSource={eventsFormatted}

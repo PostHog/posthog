@@ -1,0 +1,22 @@
+@import '~/vars';
+
+.table-options {
+    margin-bottom: $default_spacing;
+}
+
+.column-configurator-modal {
+    .column-display-item {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding-left: $default_spacing / 2;
+        padding-right: $default_spacing / 2;
+        overflow: hidden;
+        border-radius: $radius;
+
+        &:hover {
+            background-color: $bg_mid;
+        }
+    }
+}
