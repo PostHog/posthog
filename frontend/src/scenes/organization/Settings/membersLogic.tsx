@@ -45,7 +45,7 @@ export const membersLogic = kea<membersLogicType>({
             member: OrganizationMemberType
             level: OrganizationMembershipLevel
         }) => {
-            await api.update(`api/organizations/@current/members/${member.user.uuid}/`, { level })
+            await api.update(`api/organizations/@current/members/${member.user.id}/`, { level })
             toast(
                 <div>
                     <h1 className="text-success">
