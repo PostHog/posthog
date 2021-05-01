@@ -280,6 +280,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 selectedColumns={selectedConfigOptions}
                 availableColumns={propertyNames}
                 immutableColumns={['event', 'person', 'when']}
+                defaultColumns={defaultColumns.map((e) => e.key || '')}
                 onColumnUpdate={setColumnConfig}
                 saving={columnConfigSaving}
                 mainActionComponent={
