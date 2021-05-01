@@ -63,6 +63,7 @@ class TestPreflight(APIBaseTest):
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
                     "licensed_users_available": None,
+                    "site_url": "http://localhost:8000",
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -94,7 +95,7 @@ class TestPreflight(APIBaseTest):
     @pytest.mark.ee
     def test_cloud_preflight_request(self):
 
-        with self.settings(MULTI_TENANCY=True, PRIMARY_DB=RDBMS.CLICKHOUSE):
+        with self.settings(MULTI_TENANCY=True, PRIMARY_DB=RDBMS.CLICKHOUSE, SITE_URL="https://app.posthog.com"):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
@@ -120,6 +121,7 @@ class TestPreflight(APIBaseTest):
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
                     "licensed_users_available": None,
+                    "site_url": "https://app.posthog.com",
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -159,6 +161,7 @@ class TestPreflight(APIBaseTest):
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
                     "licensed_users_available": None,
+                    "site_url": "http://localhost:8000",
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
