@@ -103,13 +103,13 @@ export function getChartColors(backgroundColor: string): string[] {
     return darkWhites
 }
 
-export function getBarColorFromStatus(status: string): string {
+export function getBarColorFromStatus(status: string, hover?: boolean): string {
     switch (status) {
         case 'new':
         case 'returning':
         case 'resurrecting':
         case 'dormant':
-            return getColorVar(`lifecycle-${status}`)
+            return getColorVar(`lifecycle-${status}${hover ? '-hover' : ''}`)
         default:
             return 'black'
     }

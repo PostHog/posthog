@@ -19,7 +19,6 @@ import {
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART_VALUE,
     FUNNEL_VIZ,
-    ShownAsValue,
 } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -337,7 +336,7 @@ export function Insights(): JSX.Element {
                                                         }
                                                     }}
                                                     filters={allFilters}
-                                                    disabled={allFilters.shown_as === ShownAsValue.LIFECYCLE}
+                                                    disabled={allFilters.insight === ViewType.LIFECYCLE}
                                                 />
                                             )}
 
