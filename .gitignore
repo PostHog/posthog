@@ -6,3 +6,4 @@ dist/
 yalc.lock
 .yalc/
 src/idl/protos.*
+tmp

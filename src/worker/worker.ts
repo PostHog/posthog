@@ -6,7 +6,7 @@ import { status } from '../shared/status'
 import { cloneObject } from '../shared/utils'
 import { PluginsServer, PluginsServerConfig } from '../types'
 import { ingestEvent } from './ingestion/ingest-event'
-import { runPlugins, runPluginsOnBatch, runPluginTask } from './plugins/run'
+import { runOnRetry, runPlugins, runPluginsOnBatch, runPluginTask } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 
@@ -45,6 +45,9 @@ export const createTaskRunner = (server: PluginsServer): TaskWorker => async ({ 
         const processedEvents = await runPluginsOnBatch(server, args.batch)
         // must clone the object, as we may get from VM2 something like { ..., properties: Proxy {} }
         response = cloneObject(processedEvents as any[])
+    }
+    if (task === 'retry') {
+        response = await runOnRetry(server, args.retry)
     }
     if (task === 'getPluginSchedule') {
         response = cloneObject(server.pluginSchedule)

@@ -10,6 +10,7 @@ import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
+import { RetryQueueManager } from '../main/retry/retry-queue-manager'
 import { PluginsServer, PluginsServerConfig } from '../types'
 import { EventsProcessor } from '../worker/ingestion/process-event'
 import { defaultConfig } from './config'
@@ -164,9 +165,11 @@ export async function createServer(
 
     // :TODO: This is only used on worker threads, not main
     server.eventsProcessor = new EventsProcessor(server as PluginsServer)
+    server.retryQueueManager = new RetryQueueManager(server as PluginsServer)
 
     const closeServer = async () => {
         server.mmdbUpdateJob?.cancel()
+        await server.retryQueueManager?.quit()
         if (kafkaProducer) {
             clearInterval(kafkaProducer.flushInterval)
             await kafkaProducer.flush()

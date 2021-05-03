@@ -1,12 +1,11 @@
 import Piscina from '@posthog/piscina'
-import * as Sentry from '@sentry/node'
 import * as schedule from 'node-schedule'
-import Redlock from 'redlock'
 
 import { processError } from '../../shared/error'
 import { status } from '../../shared/status'
-import { createRedis, delay } from '../../shared/utils'
+import { delay } from '../../shared/utils'
 import { PluginConfigId, PluginsServer, ScheduleControl } from '../../types'
+import { startRedlock } from './redlock'
 
 export const LOCKED_RESOURCE = 'plugin-server:locks:schedule'
 
@@ -19,73 +18,8 @@ export async function startSchedule(
 
     let stopped = false
     let weHaveTheLock = false
-    let lock: Redlock.Lock
-    let lockTimeout: NodeJS.Timeout
-
-    const lockTTL = server.SCHEDULE_LOCK_TTL * 1000 // 60 sec
-    const retryDelay = lockTTL / 10 // 6 sec
-    const extendDelay = lockTTL / 2 // 30 sec
-
-    // use another redis connection for redlock
-    const redis = await createRedis(server)
-
-    const redlock = new Redlock([redis], {
-        // we handle retires ourselves to have a way to cancel the promises on quit
-        // without this, the `await redlock.lock()` code will remain inflight and cause issues
-        retryCount: 0,
-    })
-
-    redlock.on('clientError', (error) => {
-        if (stopped) {
-            return
-        }
-        status.error('🔴', 'Redlock client error occurred:\n', error)
-        Sentry.captureException(error)
-    })
-
-    const tryToGetTheLock = async () => {
-        try {
-            lock = await redlock.lock(LOCKED_RESOURCE, lockTTL)
-            weHaveTheLock = true
-
-            status.info('🔒', 'Scheduler lock acquired!')
-
-            const extendLock = async () => {
-                if (stopped) {
-                    return
-                }
-                try {
-                    lock = await lock.extend(lockTTL)
-                    lockTimeout = setTimeout(extendLock, extendDelay)
-                } catch (error) {
-                    status.error('🔴', 'Redlock cannot extend lock:\n', error)
-                    Sentry.captureException(error)
-                    weHaveTheLock = false
-                    lockTimeout = setTimeout(tryToGetTheLock, 0)
-                }
-            }
-
-            lockTimeout = setTimeout(extendLock, extendDelay)
-
-            onLock?.()
-        } catch (error) {
-            if (stopped) {
-                return
-            }
-            weHaveTheLock = false
-            if (error instanceof Redlock.LockError) {
-                lockTimeout = setTimeout(tryToGetTheLock, retryDelay)
-            } else {
-                Sentry.captureException(error)
-                status.error('🔴', 'Redlock error:\n', error)
-            }
-        }
-    }
-
     let pluginSchedulePromise = loadPluginSchedule(piscina)
     server.pluginSchedule = await pluginSchedulePromise
-
-    lockTimeout = setTimeout(tryToGetTheLock, 0)
 
     const runEveryMinuteJob = schedule.scheduleJob('* * * * *', async () => {
         !stopped &&
@@ -106,15 +40,26 @@ export async function startSchedule(
             runTasksDebounced(server!, piscina!, 'runEveryDay')
     })
 
+    const unlock = await startRedlock({
+        server,
+        resource: LOCKED_RESOURCE,
+        onLock: () => {
+            weHaveTheLock = true
+            onLock?.()
+        },
+        onUnlock: () => {
+            weHaveTheLock = false
+        },
+        ttl: server.SCHEDULE_LOCK_TTL,
+    })
+
     const stopSchedule = async () => {
         stopped = true
-        lockTimeout && clearTimeout(lockTimeout)
         runEveryDayJob && schedule.cancelJob(runEveryDayJob)
         runEveryHourJob && schedule.cancelJob(runEveryHourJob)
         runEveryMinuteJob && schedule.cancelJob(runEveryMinuteJob)
 
-        await lock?.unlock().catch(Sentry.captureException)
-        await redis.quit()
+        await unlock()
         await waitForTasksToFinish(server!)
     }
 

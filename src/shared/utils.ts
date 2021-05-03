@@ -455,12 +455,11 @@ export enum NodeEnv {
     Test = 'test',
 }
 
-export function stringToBoolean(value: any): boolean {
+export function stringToBoolean(value: unknown): boolean {
     if (!value) {
         return false
     }
-    value = String(value)
-    return ['y', 'yes', 't', 'true', 'on', '1'].includes(value.toLowerCase())
+    return ['y', 'yes', 't', 'true', 'on', '1'].includes(String(value).toLowerCase())
 }
 
 export function determineNodeEnv(): NodeEnv {

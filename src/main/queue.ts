@@ -14,9 +14,13 @@ export type WorkerMethods = {
     ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
 }
 
-function pauseQueueIfWorkerFull(queue: Queue | undefined, server: PluginsServer, piscina?: Piscina) {
-    if (queue && (piscina?.queueSize || 0) > (server.WORKER_CONCURRENCY || 4) * (server.WORKER_CONCURRENCY || 4)) {
-        void queue.pause()
+export function pauseQueueIfWorkerFull(
+    pause: undefined | (() => void | Promise<void>),
+    server: PluginsServer,
+    piscina?: Piscina
+): void {
+    if (pause && (piscina?.queueSize || 0) > (server.WORKER_CONCURRENCY || 4) * (server.WORKER_CONCURRENCY || 4)) {
+        void pause()
     }
 }
 
@@ -81,10 +85,10 @@ function startQueueRedis(server: PluginsServer, piscina: Piscina | undefined, wo
                 ...data,
             } as PluginEvent)
             try {
-                pauseQueueIfWorkerFull(celeryQueue, server, piscina)
+                pauseQueueIfWorkerFull(() => celeryQueue.pause(), server, piscina)
                 const processedEvent = await workerMethods.processEvent(event)
                 if (processedEvent) {
-                    pauseQueueIfWorkerFull(celeryQueue, server, piscina)
+                    pauseQueueIfWorkerFull(() => celeryQueue.pause(), server, piscina)
                     await workerMethods.ingestEvent(processedEvent)
                 }
             } catch (e) {

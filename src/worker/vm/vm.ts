@@ -7,6 +7,7 @@ import { createConsole } from './extensions/console'
 import { createGeoIp } from './extensions/geoip'
 import { createGoogle } from './extensions/google'
 import { createPosthog } from './extensions/posthog'
+import { createRetry } from './extensions/retry'
 import { createStorage } from './extensions/storage'
 import { imports } from './imports'
 import { transformCode } from './transforms'
@@ -65,6 +66,7 @@ export async function createPluginConfigVM(
             attachments: pluginConfig.attachments,
             storage: createStorage(server, pluginConfig),
             geoip: createGeoIp(server),
+            retry: createRetry(server, pluginConfig),
         },
         '__pluginHostMeta'
     )
@@ -137,6 +139,7 @@ export async function createPluginConfigVM(
                 teardownPlugin: __asyncFunctionGuard(__bindMeta('teardownPlugin')),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent')),
                 processEventBatch: __asyncFunctionGuard(__bindMeta('processEventBatch')),
+                onRetry: __asyncFunctionGuard(__bindMeta('onRetry')),
             };
 
             // gather the runEveryX commands and export in __tasks

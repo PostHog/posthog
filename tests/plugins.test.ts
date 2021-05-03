@@ -69,7 +69,13 @@ test('setupPlugins and runPlugins', async () => {
     })
     expect(pluginConfig.vm).toBeDefined()
     const vm = await pluginConfig.vm!.resolveInternalVm
-    expect(Object.keys(vm!.methods)).toEqual(['setupPlugin', 'teardownPlugin', 'processEvent', 'processEventBatch'])
+    expect(Object.keys(vm!.methods).sort()).toEqual([
+        'onRetry',
+        'processEvent',
+        'processEventBatch',
+        'setupPlugin',
+        'teardownPlugin',
+    ])
 
     expect(clearError).toHaveBeenCalledWith(mockServer, pluginConfig)
 
@@ -122,6 +128,7 @@ test('plugin meta has what it should have', async () => {
         'config',
         'geoip',
         'global',
+        'retry',
         'storage',
     ])
     expect(returnedEvent!.properties!['attachments']).toEqual({

@@ -71,7 +71,7 @@ describe('e2e kafka processing timeout benchmark', () => {
 
         // hope that 5sec is enough to load kafka with all the events (posthog.capture can't be awaited)
         await delay(5000)
-        queue.resume()
+        await queue.resume()
 
         console.log('Starting timer')
         const startTime = performance.now()
