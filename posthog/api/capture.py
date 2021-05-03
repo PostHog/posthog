@@ -166,6 +166,10 @@ def get_event(request):
             ),
         )
 
+    # Support test_[apiKey] for users with multiple environments
+    is_test_environment = token.startswith("test_")
+    token = token[5:] if is_test_environment else token
+
     team = Team.objects.get_team_from_token(token)
 
     if team is None:
@@ -235,6 +239,10 @@ def get_event(request):
 
         if not event.get("properties"):
             event["properties"] = {}
+
+        # Support test_[apiKey] for users with multiple environments
+        if event["properties"].get("test_environment") is None:
+            event["properties"]["test_environment"] = True if is_test_environment else False
 
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 

@@ -64,6 +64,7 @@ class TestCapture(BaseTest):
                     {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
                     {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
                 ],
+                "test_environment": False,
             },
         }
         now = timezone.now()
@@ -87,6 +88,40 @@ class TestCapture(BaseTest):
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
+    def test_test_api_key(self, patch_process_event_with_plugins):
+        api_token = "test_" + self.team.api_token
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": 2,
+                "token": api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                ],
+            },
+        }
+        now = timezone.now()
+        with freeze_time(now):
+            with self.assertNumQueries(2):
+                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
+        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
+        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments.pop("now")  # can't compare fakedate
+        arguments.pop("sent_at")  # can't compare fakedate
+        self.assertDictEqual(
+            arguments,
+            {
+                "distinct_id": "2",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "data": {**data, "properties": {**data["properties"], "test_environment": True,}},
+                "team_id": self.team.pk,
+            },
+        )
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_personal_api_key(self, patch_process_event_with_plugins):
         key = PersonalAPIKey(label="X", user=self.user)
         key.save()
@@ -100,6 +135,7 @@ class TestCapture(BaseTest):
                     {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
                     {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
                 ],
+                "test_environment": False,
             },
         }
         now = timezone.now()
@@ -164,6 +200,7 @@ class TestCapture(BaseTest):
                         "$device_type": "Desktop",
                         "distinct_id": "94b03e599131fd5026b",
                         "token": "fake token",
+                        "test_environment": False,
                     },
                     "timestamp": "2021-04-20T19:11:33.841Z",
                 },
@@ -326,7 +363,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data, "properties": {}},
+                "data": {**data, "properties": {"test_environment": False,}},
                 "team_id": self.team.pk,
             },
         )
@@ -336,7 +373,7 @@ class TestCapture(BaseTest):
     def test_batch_gzip_header(self, patch_process_event_with_plugins):
         data = {
             "api_key": self.team.api_token,
-            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
+            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2",}],
         }
 
         response = self.client.generic(
@@ -356,7 +393,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {}},
+                "data": {**data["batch"][0], "properties": {"test_environment": False,}},
                 "team_id": self.team.pk,
             },
         )
@@ -385,7 +422,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {}},
+                "data": {**data["batch"][0], "properties": {"test_environment": False}},
                 "team_id": self.team.pk,
             },
         )
@@ -415,7 +452,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {}},
+                "data": {**data["batch"][0], "properties": {"test_environment": False,}},
                 "team_id": self.team.pk,
             },
         )
