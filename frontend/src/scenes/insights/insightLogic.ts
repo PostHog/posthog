@@ -213,10 +213,10 @@ export const insightLogic = kea<insightLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/insights': (_: any, searchParams: Record<string, any>) => {
-            if (searchParams.insight && searchParams.insight !== values.activeView) {
+            if ((searchParams.insight && searchParams.insight !== values.activeView) || values.dashboardItem.id) {
                 actions.updateActiveView(searchParams.insight)
-                actions.setDashboardItem({})
             }
+            actions.setDashboardItem({})
             actions.setIsFromDashboardItem(false)
         },
         '/insights/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {

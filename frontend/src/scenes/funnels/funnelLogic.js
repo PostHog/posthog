@@ -251,7 +251,7 @@ export const funnelLogic = kea({
         },
         '/insights/(:dashboardItemId)': () => {
             const dashboardItem = insightLogic.values.dashboardItem
-            if (dashboardItem.id) {
+            if (dashboardItem.id && dashboardItem.filters.insight === ViewType.FUNNELS) {
                 actions.setFilters(cleanFunnelParams(dashboardItem.filters), true)
             }
         },

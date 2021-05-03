@@ -579,7 +579,7 @@ export const trendsLogic = kea<
         },
         '/insights/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
             const dashboardItem = await api.get(`api/dashboard_item/${dashboardItemId}`)
-            if (dashboardItem.id) {
+            if (dashboardItem.id && dashboardItem.filters.insight === ViewType.TRENDS) {
                 actions.setFilters(cleanFilters(dashboardItem.filters), true)
             }
         },
