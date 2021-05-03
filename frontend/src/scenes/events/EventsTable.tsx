@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { EventDetails } from 'scenes/events/EventDetails'
@@ -56,6 +56,12 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
     const { propertyNames } = useValues(propertyDefinitionsLogic)
     const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter } = useActions(logic)
 
+    const [localColumnConfig, setLocalColumnConfig] = useState(columnConfig)
+    const handleColumnConfigChange = (columns: string[] | 'DEFAULT'): void => {
+        setLocalColumnConfig(columns)
+        setColumnConfig(columns)
+    }
+
     const showLinkToPerson = !fixedFilters?.person_id
     const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
         return {
@@ -79,7 +85,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             span: 4,
             render: function render(item) {
                 if (!item.event) {
-                    return newEventsRender(item, columnConfig === 'DEFAULT' ? 7 : columnConfig.length)
+                    return newEventsRender(item, localColumnConfig === 'DEFAULT' ? 7 : localColumnConfig.length)
                 }
                 const { event } = item
                 return <PropertyKeyInfo value={eventToName(event)} />
@@ -223,12 +229,12 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         },
     ]
 
-    const selectedConfigOptions = columnConfig === 'DEFAULT' ? defaultColumns.map((e) => e.key) : columnConfig
+    const selectedConfigOptions = localColumnConfig === 'DEFAULT' ? defaultColumns.map((e) => e.key) : localColumnConfig
 
     const columns =
-        columnConfig === 'DEFAULT'
+        localColumnConfig === 'DEFAULT'
             ? defaultColumns
-            : columnConfig.map(
+            : localColumnConfig.map(
                   (e: string, index: number) =>
                       defaultColumns.find((d) => d.key === e) || {
                           title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
@@ -238,7 +244,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                               const { event } = item
                               if (!event) {
                                   if (index === 0) {
-                                      return newEventsRender(item, columnConfig.length + 1)
+                                      return newEventsRender(item, localColumnConfig.length + 1)
                                   } else {
                                       return { props: { colSpan: 0 } }
                                   }
@@ -278,7 +284,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 availableColumns={propertyNames}
                 immutableColumns={['event', 'person', 'when']}
                 defaultColumns={defaultColumns.map((e) => e.key || '')}
-                onColumnUpdate={setColumnConfig}
+                onColumnUpdate={handleColumnConfigChange}
                 saving={columnConfigSaving}
                 mainActionComponent={
                     <>
@@ -301,7 +307,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     loading={isLoading}
                     columns={columns}
                     size="small"
-                    key={columnConfig === 'DEFAULT' ? 'default' : columnConfig}
+                    key={localColumnConfig === 'DEFAULT' ? 'default' : localColumnConfig}
                     className="ph-no-capture"
                     scroll={{ x: true }}
                     locale={{
