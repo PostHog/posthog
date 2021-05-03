@@ -2,9 +2,10 @@ import * as Sentry from '@sentry/node'
 
 import { initApp } from '../init'
 import { PluginsServer, PluginsServerConfig } from '../types'
+import { processError } from '../utils/db/error'
 import { createServer } from '../utils/db/server'
 import { status } from '../utils/status'
-import { cloneObject } from '../utils/utils'
+import { cloneObject, pluginConfigIdFromStack } from '../utils/utils'
 import { ingestEvent } from './ingestion/ingest-event'
 import { runOnRetry, runPlugins, runPluginsOnBatch, runPluginTask } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
@@ -23,6 +24,8 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
         process.on(signal, closeServer)
     }
+
+    process.on('unhandledRejection', (error: Error) => processUnhandledRejections(error, server))
 
     return createTaskRunner(server)
 }
@@ -74,4 +77,23 @@ export const createTaskRunner = (server: PluginsServer): TaskWorker => async ({ 
 
     server.statsd?.timing(`piscina_task.${task}`, timer)
     return response
+}
+
+export function processUnhandledRejections(error: Error, server: PluginsServer): void {
+    const pluginConfigId = pluginConfigIdFromStack(error.stack || '', server.pluginConfigSecretLookup)
+    const pluginConfig = pluginConfigId ? server.pluginConfigs.get(pluginConfigId) : null
+
+    if (pluginConfig) {
+        void processError(server, pluginConfig, error)
+        return
+    }
+
+    Sentry.captureException(error, {
+        extra: {
+            type: 'Unhandled promise error in worker',
+        },
+    })
+
+    status.error('🤮', `Unhandled Promise Error!`)
+    status.error('🤮', error)
 }

@@ -10,7 +10,7 @@ import { Readable } from 'stream'
 import * as tar from 'tar-stream'
 import * as zlib from 'zlib'
 
-import { LogLevel, Plugin, PluginsServerConfig, TimestampFormat } from '../types'
+import { LogLevel, Plugin, PluginConfigId, PluginsServerConfig, TimestampFormat } from '../types'
 import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
@@ -504,5 +504,27 @@ export function getPiscinaStats(piscina: Piscina): Record<string, number> {
         'runTime.p90': piscina.runTime.p90,
         'runTime.p75': piscina.runTime.p75,
         'runTime.p50': piscina.runTime.p50,
+    }
+}
+
+export function pluginConfigIdFromStack(
+    stack: string,
+    pluginConfigSecretLookup: Map<string, PluginConfigId>
+): PluginConfigId | void {
+    // This matches `pluginConfigIdentifier` from worker/vm/vm.ts
+    // For example: "at __asyncGuard__PluginConfig_39_3af03d... (vm.js:11..."
+    const regexp = /at __[a-zA-Z0-9]+__PluginConfig_([0-9]+)_([0-9a-f]+) \(vm\.js\:/
+    const [_, id, hash] =
+        stack
+            .split('\n')
+            .map((l) => l.match(regexp))
+            .filter((a) => a)
+            .pop() || [] // using pop() to get the lowest matching stack entry, avoiding higher user-defined functions
+
+    if (id && hash) {
+        const secretId = pluginConfigSecretLookup.get(hash)
+        if (secretId === parseInt(id)) {
+            return secretId
+        }
     }
 }

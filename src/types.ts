@@ -93,6 +93,10 @@ export interface PluginsServer extends PluginsServerConfig {
     pluginConfigsPerTeam: Map<TeamId, PluginConfig[]>
     pluginSchedule: Record<string, PluginConfigId[]> | null
     pluginSchedulePromises: Record<string, Record<PluginConfigId, Promise<any> | null>>
+    // unique hash for each plugin config; used to verify IDs caught on stack traces for unhandled promise rejections
+    pluginConfigSecrets: Map<PluginConfigId, string>
+    pluginConfigSecretLookup: Map<string, PluginConfigId>
+    // tools
     eventsProcessor: EventsProcessor
     jobQueueManager: JobQueue
     // diagnostics

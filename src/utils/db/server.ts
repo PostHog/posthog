@@ -158,6 +158,8 @@ export async function createServer(
         plugins: new Map(),
         pluginConfigs: new Map(),
         pluginConfigsPerTeam: new Map(),
+        pluginConfigSecrets: new Map(),
+        pluginConfigSecretLookup: new Map(),
 
         pluginSchedule: null,
         pluginSchedulePromises: { runEveryMinute: {}, runEveryHour: {}, runEveryDay: {} },
