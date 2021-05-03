@@ -62,7 +62,7 @@ class TestUrls(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.content, b"User-agent: *\nDisallow: /")
 
-    # robots.txt needs a separate test to reload urlpatterns based on new settings
+    # robots.txt needs separate tests to reload urlpatterns based on new settings
     @pytest.mark.urls("posthog.test.mock_urls")
     def test_robots_txt_allow_crawl_on_cloud(self):
         with self.settings(MULTI_TENANCY=True):
@@ -70,7 +70,7 @@ class TestUrls(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @pytest.mark.urls("posthog.test.mock_urls")
-    def test_robots_txt_allow_crawl_on_cloud(self):
+    def test_robots_txt_allow_crawl_with_env_override(self):
         with self.settings(ALLOW_SEARCH_ENGINE_CRAWLING=True):
             response = self.client.get("/robots.txt")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
