@@ -1157,6 +1157,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "gesposito",
+      "name": "Gianluca Esposito",
+      "avatar_url": "https://avatars.githubusercontent.com/u/735227?v=4",
+      "profile": "https://www.esposi.to",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
