@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
@@ -26,6 +26,7 @@ from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
+from posthog.models.utils import UUIDT
 from posthog.utils import convert_property_value, flatten
 
 
@@ -111,18 +112,14 @@ class ClickhouseEventsViewSet(EventViewSet):
 
         return Response({"next": next_url, "results": result})
 
-    def retrieve(self, request: Request, pk: Optional[int] = None, *args: Any, **kwargs: Any) -> Response:
-        try:
-            query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk},)
-            result = ClickhouseEventSerializer(query_result[0], many=False).data
-            return Response(result)
-        except Exception as e:
-            error = f"Invalid event UUID: {pk}"
-            if isinstance(e, ServerException):
-                error = f"Event ID {pk} is not a UUID"
-            elif isinstance(e, IndexError):
-                error = f"No event exists for event UUID {pk}"
-            return Response({"detail": error, "code": "invalid", "type": "validation_error",}, status=400)
+    def retrieve(self, request: Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any) -> Response:
+        if pk and not UUIDT.is_valid_uuid(pk):
+            return Response({"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400)
+        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
+        res = f"No events exist for event UUID {pk}"
+        if len(query_result) > 0:
+            res = ClickhouseEventSerializer(query_result[0], many=False).data
+        return Response(res)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request, **kwargs) -> Response:

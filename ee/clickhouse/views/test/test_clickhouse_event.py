@@ -44,9 +44,3 @@ class ClickhouseTestEventApi(
         patch_sync_execute.return_value = [("event", "d", "{}", timezone.now(), "d", "d", "d") for _ in range(0, 100)]
         response = self.client.get("/api/event/").json()
         self.assertEqual(patch_sync_execute.call_count, 3)
-
-    @patch("ee.clickhouse.views.events.sync_execute")
-    def test_get_event_by_uuid(self, patch_sync_execute):
-        patch_sync_execute.return_value = [("some-uuid", "d", "{}", timezone.now(), "d", "d", "d")]
-        response = self.client.get("/api/event/some-uuid").json()
-        self.assertEqual(response["id"], "some-uuid")
