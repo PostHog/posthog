@@ -8,6 +8,7 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { DashboardItemType, FilterType } from '~/types'
+import api from 'lib/api'
 
 export enum ViewType {
     TRENDS = 'TRENDS',
@@ -61,6 +62,7 @@ export const insightLogic = kea<insightLogicType>({
         setTimeout: (timeout) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
+        setIsFromDashboardItem: (isFromDashboardItem) => ({ isFromDashboardItem }),
     }),
 
     reducers: {
@@ -140,6 +142,12 @@ export const insightLogic = kea<insightLogicType>({
                 setDashboardItem: (_, { dashboardItem }) => dashboardItem,
             },
         ],
+        fromDashboardItem: [
+            false,
+            {
+                setIsFromDashboardItem: (_, { isFromDashboardItem }) => isFromDashboardItem,
+            },
+        ],
     },
     listeners: ({ actions, values }) => ({
         setAllFilters: (filters) => {
@@ -205,11 +213,16 @@ export const insightLogic = kea<insightLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/insights': (_: any, searchParams: Record<string, any>) => {
-            const dashboardItem = searchParams.dashboardItem || {}
-            actions.setDashboardItem(dashboardItem)
             if (searchParams.insight && searchParams.insight !== values.activeView) {
                 actions.updateActiveView(searchParams.insight)
             }
+            actions.setIsFromDashboardItem(false)
+        },
+        '/insights/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
+            const dashboardItem = await api.get(`api/dashboard_item/${dashboardItemId}`)
+            actions.setDashboardItem(dashboardItem)
+            actions.updateActiveView(dashboardItem.filters.insight)
+            actions.setIsFromDashboardItem(true)
         },
     }),
     events: ({ values }) => ({

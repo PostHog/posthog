@@ -2,7 +2,7 @@ import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
 import { Dropdown, Menu, Tooltip, Alert, Button, Skeleton } from 'antd'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { RefObject, useEffect, useState } from 'react'
 import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
@@ -74,17 +74,8 @@ const displayMapItem = (className: string, element: any, icon: any, viewText: st
     return { className, element, icon, viewText }
 }
 
-const displayMapItemLink = ({ id, dashboard, filters }: DashboardItemType): string => {
-    const specialViewTypes = [ViewType.FUNNELS, ViewType.PATHS, ViewType.RETENTION]
-
-    if (specialViewTypes.includes(filters.insights)) {
-        return combineUrl(
-            `/insights`,
-            { insight: filters.insights, dashboardItem: { id: id, dashboard: dashboard }, ...filters },
-            {}
-        ).url
-    }
-    return combineUrl(`/insights`, { dashboardItem: { id: id, dashboard: dashboard }, ...filters }, {}).url
+const displayMapItemLink = ({ id }: DashboardItemType): string => {
+    return `/insights/${id}`
 }
 
 export const displayMap: Record<DisplayedType, DisplayProps> = {
