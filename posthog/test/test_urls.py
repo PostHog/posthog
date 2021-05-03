@@ -58,9 +58,10 @@ class TestUrls(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_robots_txt_block_crawl_by_default(self):
-        response = self.client.get("/robots.txt")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content, b"User-agent: *\nDisallow: /")
+        with self.settings(MULTI_TENANCY=False):
+            response = self.client.get("/robots.txt")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.content, b"User-agent: *\nDisallow: /")
 
     # robots.txt needs separate tests to reload urlpatterns based on new settings
     @pytest.mark.urls("posthog.test.mock_urls")
