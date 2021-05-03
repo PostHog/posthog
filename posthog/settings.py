@@ -591,3 +591,5 @@ LOGGING = {
         "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
     },
 }
+
+ALLOW_SEARCH_ENGINE_CRAWLING: bool = get_from_env("ALLOW_SEARCH_ENGINE_CRAWLING", False, type_cast=strtobool)
