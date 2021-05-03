@@ -34,16 +34,42 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus, PreflightM
     selectors: {
         socialAuthAvailable: [
             (s) => [s.preflight],
-            (preflight: PreflightStatus | null) =>
-                preflight && Object.values(preflight.available_social_auth_providers).filter((i) => i).length,
+            (preflight): boolean =>
+                Boolean(preflight && Object.values(preflight.available_social_auth_providers).filter((i) => i).length),
         ],
         realm: [
             (s) => [s.preflight],
-            (preflight: PreflightStatus | null): 'cloud' | 'hosted' | null => {
+            (preflight): 'cloud' | 'hosted' | null => {
                 if (!preflight) {
                     return null
                 }
                 return preflight.cloud ? 'cloud' : 'hosted'
+            },
+        ],
+        siteUrlMisconfigured: [
+            (s) => [s.preflight],
+            (preflight): boolean => {
+                return Boolean(preflight && (!preflight.site_url || preflight.site_url != window.location.origin))
+            },
+        ],
+        configOptions: [
+            (s) => [s.preflight],
+            (preflight): Record<string, string>[] => {
+                // Returns the preflight config options to display in the /instance/status page
+
+                const RELEVANT_CONFIGS = [
+                    {
+                        key: 'site_url',
+                        label: 'Site URL',
+                    },
+                    { key: 'email_service_available', label: 'Email service available' },
+                ]
+
+                if (!preflight) {
+                    return []
+                }
+                // @ts-ignore
+                return RELEVANT_CONFIGS.map((config) => ({ metric: config.label, value: preflight[config.key] }))
             },
         ],
     },
