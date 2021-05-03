@@ -70,6 +70,10 @@ export class LazyPluginVM {
         return (await this.resolveInternalVm)?.methods.teardownPlugin || null
     }
 
+    async getOnRetry(): Promise<PluginConfigVMReponse['methods']['onRetry'] | null> {
+        return (await this.resolveInternalVm)?.methods.onRetry || null
+    }
+
     async getTask(name: string): Promise<PluginTask | null> {
         return (await this.resolveInternalVm)?.tasks[name] || null
     }

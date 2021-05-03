@@ -1,4 +1,3 @@
-import { ReaderModel } from '@maxmind/geoip2-node'
 import ClickHouse from '@posthog/clickhouse'
 import { PluginAttachment, PluginConfigSchema, PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
@@ -6,7 +5,6 @@ import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
@@ -73,6 +71,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     DISTINCT_ID_LRU_SIZE: number
     INTERNAL_MMDB_SERVER_PORT: number
     PLUGIN_SERVER_IDLE: boolean
+    RETRY_QUEUES: string
+    RETRY_QUEUE_GRAPHILE_URL: string
     ENABLE_PERSISTENT_CONSOLE: boolean
     STALENESS_RESTART_SECONDS: number
 }
@@ -94,24 +94,40 @@ export interface PluginsServer extends PluginsServerConfig {
     pluginSchedule: Record<string, PluginConfigId[]> | null
     pluginSchedulePromises: Record<string, Record<PluginConfigId, Promise<any> | null>>
     eventsProcessor: EventsProcessor
+    retryQueueManager: RetryQueue
     // diagnostics
     lastActivity: number
     lastActivityType: string
 }
 
 export interface Pausable {
-    pause: () => Promise<void>
-    resume: () => void
+    pause: () => Promise<void> | void
+    resume: () => Promise<void> | void
     isPaused: () => boolean
 }
 
 export interface Queue extends Pausable {
-    start: () => Promise<void>
-    stop: () => Promise<void>
+    start: () => Promise<void> | void
+    stop: () => Promise<void> | void
 }
 
-export interface Queue {
-    stop: () => Promise<void>
+export type OnRetryCallback = (queue: EnqueuedRetry[]) => Promise<void> | void
+export interface EnqueuedRetry {
+    type: string
+    payload: Record<string, any>
+    timestamp: number
+    pluginConfigId: number
+    pluginConfigTeam: number
+}
+
+export interface RetryQueue {
+    startConsumer: (onRetry: OnRetryCallback) => Promise<void> | void
+    stopConsumer: () => Promise<void> | void
+    pauseConsumer: () => Promise<void> | void
+    resumeConsumer: () => Promise<void> | void
+    isConsumerPaused: () => boolean
+    enqueue: (retry: EnqueuedRetry) => Promise<void> | void
+    quit: () => Promise<void> | void
 }
 
 export type PluginId = number
@@ -219,6 +235,7 @@ export interface PluginConfigVMReponse {
         teardownPlugin: () => Promise<void>
         processEvent: (event: PluginEvent) => Promise<PluginEvent>
         processEventBatch: (batch: PluginEvent[]) => Promise<PluginEvent[]>
+        onRetry: (task: string, payload: Record<string, any>) => Promise<void>
     }
     tasks: Record<string, PluginTask>
 }
@@ -407,6 +424,11 @@ export enum Database {
 export interface ScheduleControl {
     stopSchedule: () => Promise<void>
     reloadSchedule: () => Promise<void>
+}
+
+export interface RetryQueueConsumerControl {
+    stop: () => Promise<void>
+    resume: () => Promise<void> | void
 }
 
 export type IngestEventResponse = { success?: boolean; error?: string }

@@ -10,9 +10,10 @@ import { defaultConfig } from '../shared/config'
 import { createServer } from '../shared/server'
 import { status } from '../shared/status'
 import { createRedis, delay, getPiscinaStats } from '../shared/utils'
-import { PluginsServer, PluginsServerConfig, Queue, ScheduleControl } from '../types'
+import { PluginsServer, PluginsServerConfig, Queue, RetryQueueConsumerControl, ScheduleControl } from '../types'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './mmdb'
 import { startQueue } from './queue'
+import { startRetryQueueConsumer } from './services/retry-queue-consumer'
 import { startSchedule } from './services/schedule'
 import { startFastifyInstance, stopFastifyInstance } from './web/server'
 
@@ -46,6 +47,7 @@ export async function startPluginsServer(
     let statsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
     let queue: Queue | undefined
+    let retryQueueConsumer: RetryQueueConsumerControl | undefined
     let closeServer: () => Promise<void> | undefined
     let scheduleControl: ScheduleControl | undefined
     let mmdbServer: net.Server | undefined
@@ -73,6 +75,7 @@ export async function startPluginsServer(
         await pubSub?.quit()
         pingJob && schedule.cancelJob(pingJob)
         statsJob && schedule.cancelJob(statsJob)
+        await retryQueueConsumer?.stop()
         await scheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
@@ -129,9 +132,12 @@ export async function startPluginsServer(
         }
 
         scheduleControl = await startSchedule(server, piscina)
+        retryQueueConsumer = await startRetryQueueConsumer(server, piscina)
+
         queue = await startQueue(server, piscina)
         piscina.on('drain', () => {
-            queue?.resume()
+            void queue?.resume()
+            void retryQueueConsumer?.resume()
         })
 
         // use one extra connection for redis pubsub

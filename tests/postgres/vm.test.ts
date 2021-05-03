@@ -39,6 +39,7 @@ test('empty plugins', async () => {
 
     expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm'])
     expect(Object.keys(vm.methods).sort()).toEqual([
+        'onRetry',
         'processEvent',
         'processEventBatch',
         'setupPlugin',

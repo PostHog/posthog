@@ -7,6 +7,8 @@ import fetch from 'node-fetch'
 import snowflake from 'snowflake-sdk'
 import * as zlib from 'zlib'
 
+import { writeToFile } from './extensions/test-utils'
+
 export const imports = {
     crypto: crypto,
     zlib: zlib,
@@ -16,4 +18,9 @@ export const imports = {
     '@google-cloud/bigquery': { BigQuery },
     '@posthog/plugin-contrib': contrib,
     'aws-sdk': AWS,
+    ...(process.env.NODE_ENV === 'test'
+        ? {
+              'test-utils/write-to-file': writeToFile,
+          }
+        : {}),
 }

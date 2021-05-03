@@ -84,7 +84,7 @@ test('pause and resume queue', async () => {
 
     expect(await redis.llen(server.PLUGINS_CELERY_QUEUE)).toBe(pluginQueue)
 
-    queue.resume()
+    await queue.resume()
 
     await delay(500)
 
