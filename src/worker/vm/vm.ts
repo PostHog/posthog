@@ -80,6 +80,19 @@ export async function createPluginConfigVM(
         ${transformedCode};
     `)
 
+    // Add a secret hash to the end of some function names, so that we can (sometimes) identify
+    // the crashed plugin if it throws an uncaught exception in a promise.
+    if (!server.pluginConfigSecrets.has(pluginConfig.id)) {
+        const secret = randomBytes(16).toString('hex')
+        server.pluginConfigSecrets.set(pluginConfig.id, secret)
+        server.pluginConfigSecretLookup.set(secret, pluginConfig.id)
+    }
+
+    // Keep the format of this in sync with `pluginConfigIdFromStack` in utils.ts
+    // Only place this after functions whose names match /^__[a-zA-Z0-9]+$/
+    const pluginConfigIdentifier = `__PluginConfig_${pluginConfig.id}_${server.pluginConfigSecrets.get(
+        pluginConfig.id
+    )}`
     const responseVar = `__pluginDetails${randomBytes(64).toString('hex')}`
 
     // Explicitly passing __asyncGuard to the returned function from `vm.run` in order
@@ -93,9 +106,11 @@ export async function createPluginConfigVM(
         let ${responseVar} = undefined;
         ((__asyncGuard) => {
             // helpers to get globals
-            const __getExportDestinations = () => [exports, module.exports, global]
-            const __getExported = (key) => __getExportDestinations().find(a => a[key])?.[key];
-            const __asyncFunctionGuard = (func) => func ? (...args) => __asyncGuard(func(...args)) : func
+            function __getExportDestinations () { return [exports, module.exports, global] };
+            function __getExported (key) { return __getExportDestinations().find(a => a[key])?.[key] };
+            function __asyncFunctionGuard (func) {
+                return func ? function __innerAsyncGuard${pluginConfigIdentifier}(...args) { return __asyncGuard(func(...args)) } : func
+            };
 
             // inject the meta object + shareable 'global' to the end of each exported function
             const __pluginMeta = {
@@ -104,7 +119,7 @@ export async function createPluginConfigVM(
             };
             function __bindMeta (keyOrFunc) {
                 const func = typeof keyOrFunc === 'function' ? keyOrFunc : __getExported(keyOrFunc);
-                if (func) return (...args) => func(...args, __pluginMeta);
+                if (func) return function __inBindMeta${pluginConfigIdentifier} (...args) { return func(...args, __pluginMeta) };
             }
             function __callWithMeta (keyOrFunc, ...args) {
                 const func = __bindMeta(keyOrFunc);
@@ -113,10 +128,10 @@ export async function createPluginConfigVM(
 
             // we have processEvent, but not processEventBatch
             if (!__getExported('processEventBatch') && __getExported('processEvent')) {
-                exports.processEventBatch = async function processEventBatch (batch, meta) {
+                exports.processEventBatch = async function __processEventBatch${pluginConfigIdentifier} (batch, meta) {
                     const processEvent = __getExported('processEvent');
                     let waitFor = false
-                    const processedEvents = batch.map(event => {
+                    const processedEvents = batch.map(function __eventBatchToEvent${pluginConfigIdentifier} (event) {
                         const e = processEvent(event, meta)
                         if (e && typeof e.then !== 'undefined') {
                             waitFor = true
@@ -128,7 +143,7 @@ export async function createPluginConfigVM(
                 }
             // we have processEventBatch, but not processEvent
             } else if (!__getExported('processEvent') && __getExported('processEventBatch')) {
-                exports.processEvent = async function processEvent (event, meta) {
+                exports.processEvent = async function __processEvent${pluginConfigIdentifier} (event, meta) {
                     return (await (__getExported('processEventBatch'))([event], meta))?.[0]
                 }
             }
