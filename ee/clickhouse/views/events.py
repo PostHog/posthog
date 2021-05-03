@@ -2,7 +2,6 @@ import json
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Union
 
-from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -113,10 +112,10 @@ class ClickhouseEventsViewSet(EventViewSet):
         return Response({"next": next_url, "results": result})
 
     def retrieve(self, request: Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any) -> Response:
-        if pk and not UUIDT.is_valid_uuid(pk):
+        if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
             return Response({"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400)
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
-        res = f"No events exist for event UUID {pk}"
+        res: Union[Dict, str] = f"No events exist for event UUID {pk}"
         if len(query_result) > 0:
             res = ClickhouseEventSerializer(query_result[0], many=False).data
         return Response(res)
