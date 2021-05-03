@@ -5,18 +5,16 @@ import { ArrowLeftOutlined } from '@ant-design/icons'
 import { IconDashboard } from 'lib/components/icons'
 import { useValues } from 'kea'
 import { dashboardLogic } from './dashboardLogic'
-import { DashboardItemType } from '~/types'
 import './Dashboard.scss'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface Props {
-    dashboardItemId: number
     dashboardId: number
 }
 
-export function DashboardItemHeader({ dashboardItemId, dashboardId }: Props): JSX.Element {
-    const { items, dashboard } = useValues(dashboardLogic({ id: dashboardId }))
-
-    const dashboardItem = items?.find((item: DashboardItemType) => item.id === dashboardItemId)
+export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
+    const { dashboard } = useValues(dashboardLogic({ id: dashboardId }))
+    const { dashboardItem } = useValues(insightLogic)
 
     return (
         <div className="dashboard-item-header">

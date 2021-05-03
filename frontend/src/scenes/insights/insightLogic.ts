@@ -215,6 +215,7 @@ export const insightLogic = kea<insightLogicType>({
         '/insights': (_: any, searchParams: Record<string, any>) => {
             if (searchParams.insight && searchParams.insight !== values.activeView) {
                 actions.updateActiveView(searchParams.insight)
+                actions.setDashboardItem({})
             }
             actions.setIsFromDashboardItem(false)
         },
