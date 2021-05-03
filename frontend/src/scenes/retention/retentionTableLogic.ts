@@ -146,7 +146,7 @@ export const retentionTableLogic = kea<
     }),
     actionToUrl: ({ props, values }) => ({
         setFilters: () => {
-            if (props.dashboardItemId) {
+            if (props.dashboardItemId || insightLogic.values.fromDashboardItem) {
                 return // don't use the URL if on the dashboard
             }
             return ['/insights', values.filters, router.values.hashParams]
@@ -176,6 +176,10 @@ export const retentionTableLogic = kea<
                     actions.setFilters(cleanSearchParams)
                 }
             }
+        },
+        '/insights/(:dashboardItemId)': () => {
+            const dashboardItem = insightLogic.values.dashboardItem
+            actions.setFilters(dashboardItem.filters)
         },
     }),
     listeners: ({ actions, values, props }) => ({
