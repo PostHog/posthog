@@ -89,9 +89,10 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
             (props.filters
                 ? cleanPathParams(props.filters as Partial<FilterType>)
                 : (state: Record<string, any>) =>
-                      cleanPathParams(router.selectors.searchParams(state)) as Record<string, any>) as Partial<
-                FilterType
-            >,
+                      cleanPathParams(router.selectors.searchParams(state)) as Record<
+                          string,
+                          any
+                      >) as Partial<FilterType>,
             {
                 setFilter: (state, filter) => ({ ...state, ...filter }),
             },

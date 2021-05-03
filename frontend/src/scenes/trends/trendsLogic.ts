@@ -229,9 +229,8 @@ export const trendsLogic = kea<
         filters: [
             (props.filters
                 ? props.filters
-                : (state: Record<string, any>) => cleanFilters(router.selectors.searchParams(state))) as Partial<
-                FilterType
-            >,
+                : (state: Record<string, any>) =>
+                      cleanFilters(router.selectors.searchParams(state))) as Partial<FilterType>,
             {
                 setFilters: (state, { filters, mergeFilters }) =>
                     cleanFilters({
