@@ -1,13 +1,13 @@
-import Client from './client'
+import { Client } from './client'
 
-export default class Task {
+export class Task {
     client: Client
     name: string
 
     /**
      * Asynchronous Task
      * @constructor Task
-     * @param {Client} clinet celery client instance
+     * @param {Client} client celery client instance
      * @param {string} name celery task name
      */
     constructor(client: Client, name: string) {

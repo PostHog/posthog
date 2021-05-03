@@ -1,7 +1,7 @@
 import { fastify, FastifyInstance } from 'fastify'
 import { PluginsServer } from 'types'
 
-import { status } from '../../shared/status'
+import { status } from '../../utils/status'
 
 export function buildFastifyInstance(): FastifyInstance {
     const fastifyInstance = fastify()

@@ -1,7 +1,7 @@
+import { defaultConfig, formatConfigHelp } from './config/config'
 import { initApp } from './init'
 import { startPluginsServer } from './main/pluginsServer'
-import { defaultConfig, formatConfigHelp } from './shared/config'
-import { Status } from './shared/status'
+import { Status } from './utils/status'
 import { makePiscina } from './worker/piscina'
 
 const { version } = require('../package.json')

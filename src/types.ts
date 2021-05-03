@@ -8,9 +8,9 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
-import { DB } from './shared/db'
-import { KafkaProducerWrapper } from './shared/kafka-producer-wrapper'
-import { UUID } from './shared/utils'
+import { DB } from './utils/db/db'
+import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
+import { UUID } from './utils/utils'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { LazyPluginVM } from './worker/vm/lazy'
 
@@ -94,7 +94,7 @@ export interface PluginsServer extends PluginsServerConfig {
     pluginSchedule: Record<string, PluginConfigId[]> | null
     pluginSchedulePromises: Record<string, Record<PluginConfigId, Promise<any> | null>>
     eventsProcessor: EventsProcessor
-    retryQueueManager: RetryQueue
+    jobQueueManager: JobQueue
     // diagnostics
     lastActivity: number
     lastActivityType: string
@@ -120,7 +120,7 @@ export interface EnqueuedRetry {
     pluginConfigTeam: number
 }
 
-export interface RetryQueue {
+export interface JobQueue {
     startConsumer: (onRetry: OnRetryCallback) => Promise<void> | void
     stopConsumer: () => Promise<void> | void
     pauseConsumer: () => Promise<void> | void
@@ -426,7 +426,7 @@ export interface ScheduleControl {
     reloadSchedule: () => Promise<void>
 }
 
-export interface RetryQueueConsumerControl {
+export interface JobQueueConsumerControl {
     stop: () => Promise<void>
     resume: () => Promise<void> | void
 }

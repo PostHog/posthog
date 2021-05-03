@@ -1,7 +1,7 @@
 import { v4 } from 'uuid'
 
-import Base from './base'
-import Task from './task'
+import { Base } from './base'
+import { Task } from './task'
 
 class TaskMessage {
     constructor(
@@ -12,7 +12,7 @@ class TaskMessage {
     ) {}
 }
 
-export default class Client extends Base {
+export class Client extends Base {
     private taskProtocols = {
         1: this.asTaskV1,
         2: this.asTaskV2,

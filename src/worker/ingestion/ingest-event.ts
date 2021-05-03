@@ -2,9 +2,9 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
-import { timeoutGuard } from '../../shared/ingestion/utils'
-import { status } from '../../shared/status'
 import { IngestEventResponse, PluginsServer } from '../../types'
+import { timeoutGuard } from '../../utils/db/utils'
+import { status } from '../../utils/status'
 
 export async function ingestEvent(server: PluginsServer, event: PluginEvent): Promise<IngestEventResponse> {
     const timeout = timeoutGuard('Still ingesting event inside worker. Timeout warning after 30 sec!', {

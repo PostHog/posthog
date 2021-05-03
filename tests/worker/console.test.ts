@@ -1,11 +1,8 @@
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
-import { mocked } from 'ts-jest/utils'
 
-import { createServer } from '../../src/shared/server'
-import { getPluginConfigRows } from '../../src/shared/sql'
-import { code } from '../../src/shared/utils'
 import { PluginLogEntryType, PluginsServer } from '../../src/types'
-import { TeamManager } from '../../src/worker/ingestion/team-manager'
+import { createServer } from '../../src/utils/db/server'
+import { getPluginConfigRows } from '../../src/utils/db/sql'
 import { createConsole } from '../../src/worker/vm/extensions/console'
 import { resetTestDatabase } from '../helpers/sql'
 

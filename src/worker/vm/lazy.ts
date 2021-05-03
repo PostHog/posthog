@@ -1,5 +1,3 @@
-import { clearError, processError } from '../../shared/error'
-import { status } from '../../shared/status'
 import {
     PluginConfig,
     PluginConfigVMReponse,
@@ -8,6 +6,8 @@ import {
     PluginsServer,
     PluginTask,
 } from '../../types'
+import { clearError, processError } from '../../utils/db/error'
+import { status } from '../../utils/status'
 import { createPluginConfigVM } from './vm'
 
 export class LazyPluginVM {

@@ -3,10 +3,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 import { performance } from 'perf_hooks'
 
-import { IEvent } from '../../src/idl/protos'
-import { hashElements } from '../../src/shared/ingestion/utils'
-import { createServer } from '../../src/shared/server'
-import { delay, UUIDT } from '../../src/shared/utils'
+import { IEvent } from '../../src/config/idl/protos'
 import {
     Database,
     Event,
@@ -17,6 +14,9 @@ import {
     SessionRecordingEvent,
     Team,
 } from '../../src/types'
+import { createServer } from '../../src/utils/db/server'
+import { hashElements } from '../../src/utils/db/utils'
+import { delay, UUIDT } from '../../src/utils/utils'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, onQuery, resetTestDatabase } from '../helpers/sql'
 

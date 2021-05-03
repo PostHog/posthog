@@ -6,19 +6,8 @@ import { DateTime, Duration } from 'luxon'
 import * as fetch from 'node-fetch'
 import { nodePostHog } from 'posthog-js-lite/dist/src/targets/node'
 
-import { Event as EventProto, IEvent } from '../../idl/protos'
-import Client from '../../shared/celery/client'
-import { DB } from '../../shared/db'
-import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../shared/ingestion/topics'
-import {
-    elementsToString,
-    personInitialAndUTMProperties,
-    sanitizeEventName,
-    timeoutGuard,
-} from '../../shared/ingestion/utils'
-import { KafkaProducerWrapper } from '../../shared/kafka-producer-wrapper'
-import { status } from '../../shared/status'
-import { castTimestampOrNow, UUID, UUIDT } from '../../shared/utils'
+import { Event as EventProto, IEvent } from '../../config/idl/protos'
+import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
     Person,
@@ -30,6 +19,12 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
+import { Client } from '../../utils/celery/client'
+import { DB } from '../../utils/db/db'
+import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
+import { elementsToString, personInitialAndUTMProperties, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
+import { status } from '../../utils/status'
+import { castTimestampOrNow, UUID, UUIDT } from '../../utils/utils'
 import { PersonManager } from './person-manager'
 import { TeamManager } from './team-manager'
 

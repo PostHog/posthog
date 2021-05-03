@@ -1,8 +1,8 @@
 import { PluginAttachment } from '@posthog/plugin-scaffold'
 
-import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../../shared/sql'
-import { status } from '../../shared/status'
 import { Plugin, PluginConfig, PluginConfigId, PluginId, PluginsServer, TeamId } from '../../types'
+import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../../utils/db/sql'
+import { status } from '../../utils/status'
 import { LazyPluginVM } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
 import { teardownPlugins } from './teardown'

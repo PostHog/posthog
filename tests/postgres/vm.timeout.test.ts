@@ -1,5 +1,5 @@
-import { createServer } from '../../src/shared/server'
 import { PluginsServer } from '../../src/types'
+import { createServer } from '../../src/utils/db/server'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'

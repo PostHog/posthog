@@ -5,5 +5,5 @@ yarn-error.log
 dist/
 yalc.lock
 .yalc/
-src/idl/protos.*
+src/config/idl/protos.*
 tmp

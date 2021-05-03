@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { castTimestampOrNow, UUIDT } from '../../src/shared/utils'
 import { Database, LogLevel, PluginsServer, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
+import { castTimestampOrNow, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
 import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'

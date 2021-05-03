@@ -1,8 +1,8 @@
 import { Pool, PoolClient } from 'pg'
 
-import { defaultConfig } from '../../src/shared/config'
-import { delay, UUIDT } from '../../src/shared/utils'
+import { defaultConfig } from '../../src/config/config'
 import { Plugin, PluginAttachmentDB, PluginConfig, PluginsServer, PluginsServerConfig, Team } from '../../src/types'
+import { UUIDT } from '../../src/utils/utils'
 import {
     commonOrganizationId,
     commonOrganizationMembershipId,

@@ -1,8 +1,8 @@
 import { makeWorkerUtils } from 'graphile-worker'
 import { Pool } from 'pg'
 
-import { defaultConfig } from '../../src/shared/config'
-import { status } from '../../src/shared/status'
+import { defaultConfig } from '../../src/config/config'
+import { status } from '../../src/utils/status'
 
 export async function resetGraphileSchema(): Promise<void> {
     const db = new Pool({ connectionString: defaultConfig.DATABASE_URL })

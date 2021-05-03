@@ -1,11 +1,11 @@
 import Piscina from '@posthog/piscina'
 import * as schedule from 'node-schedule'
 
-import { processError } from '../../shared/error'
-import { status } from '../../shared/status'
-import { delay } from '../../shared/utils'
 import { PluginConfigId, PluginsServer, ScheduleControl } from '../../types'
-import { startRedlock } from './redlock'
+import { processError } from '../../utils/db/error'
+import { startRedlock } from '../../utils/redlock'
+import { status } from '../../utils/status'
+import { delay } from '../../utils/utils'
 
 export const LOCKED_RESOURCE = 'plugin-server:locks:schedule'
 
