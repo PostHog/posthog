@@ -1,8 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { processError } from '../../shared/error'
 import { EnqueuedRetry, PluginConfig, PluginsServer } from '../../types'
+import { processError } from '../../utils/db/error'
 
 export async function runPlugins(server: PluginsServer, event: PluginEvent): Promise<PluginEvent | null> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)

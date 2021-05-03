@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto'
 
+import { LogLevel } from '../src/types'
 import {
     bufferToStream,
     cloneObject,
@@ -11,8 +12,7 @@ import {
     setLogLevel,
     UUID,
     UUIDT,
-} from '../src/shared/utils'
-import { LogLevel } from '../src/types'
+} from '../src/utils/utils'
 
 // .zip in Base64: github repo posthog/helloworldplugin
 const zip =

@@ -1,6 +1,6 @@
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { UUIDT } from '../../src/shared/utils'
 import { LogLevel, PluginsServer } from '../../src/types'
+import { UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
 import { pluginConfig39 } from '../helpers/plugins'

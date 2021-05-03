@@ -1,9 +1,9 @@
-import { EnqueuedRetry, OnRetryCallback, RetryQueue } from '../../types'
+import { EnqueuedRetry, JobQueue, OnRetryCallback } from '../../types'
 import Timeout = NodeJS.Timeout
 import * as fs from 'fs'
 import * as path from 'path'
 
-export class FsQueue implements RetryQueue {
+export class FsQueue implements JobQueue {
     paused: boolean
     started: boolean
     interval: Timeout | null

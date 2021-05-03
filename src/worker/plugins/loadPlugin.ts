@@ -1,9 +1,9 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-import { processError } from '../../shared/error'
-import { getFileFromArchive, pluginDigest } from '../../shared/utils'
 import { PluginConfig, PluginJsonConfig, PluginsServer } from '../../types'
+import { processError } from '../../utils/db/error'
+import { getFileFromArchive, pluginDigest } from '../../utils/utils'
 
 export async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Promise<boolean> {
     const { plugin } = pluginConfig

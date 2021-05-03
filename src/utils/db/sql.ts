@@ -6,7 +6,7 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginsServer,
-} from '../types'
+} from '../../types'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
     return `SELECT posthog_pluginconfig.${specificField || '*'}

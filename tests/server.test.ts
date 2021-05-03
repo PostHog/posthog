@@ -1,13 +1,13 @@
 import * as Sentry from '@sentry/node'
 
 import { startPluginsServer } from '../src/main/pluginsServer'
-import { delay } from '../src/shared/utils'
 import { LogLevel } from '../src/types'
+import { delay } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('@sentry/node')
-jest.mock('../src/shared/sql')
+jest.mock('../src/utils/db/sql')
 jest.setTimeout(60000) // 60 sec timeout
 
 test('startPluginsServer', async () => {

@@ -1,10 +1,10 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { nodePostHog } from 'posthog-js-lite/dist/src/targets/node'
 
-import { DB } from '../../shared/db'
-import { timeoutGuard } from '../../shared/ingestion/utils'
-import { UUIDT } from '../../shared/utils'
 import { Team, TeamId } from '../../types'
+import { DB } from '../../utils/db/db'
+import { timeoutGuard } from '../../utils/db/utils'
+import { UUIDT } from '../../utils/utils'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
 

@@ -1,6 +1,6 @@
-import { defaultConfig } from './shared/config'
-import { Status } from './shared/status'
-import { createRedis } from './shared/utils'
+import { defaultConfig } from './config/config'
+import { Status } from './utils/status'
+import { createRedis } from './utils/utils'
 
 const healthStatus = new Status('HLTH')
 

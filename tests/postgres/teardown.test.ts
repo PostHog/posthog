@@ -1,11 +1,11 @@
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { delay } from '../../src/shared/utils'
 import { LogLevel } from '../../src/types'
+import { delay } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { pluginConfig39 } from '../helpers/plugins'
 import { getErrorForPluginConfig, resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/shared/status')
+jest.mock('../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 const defaultEvent = {

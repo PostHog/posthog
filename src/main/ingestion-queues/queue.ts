@@ -2,11 +2,11 @@ import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { status } from '../shared/status'
-import { sanitizeEvent, UUIDT } from '../shared/utils'
-import { IngestEventResponse, PluginsServer, Queue } from '../types'
-import CeleryQueueWorker from './ingestion/celery-queue-worker'
-import { KafkaQueue } from './ingestion/kafka-queue'
+import { IngestEventResponse, PluginsServer, Queue } from '../../types'
+import { status } from '../../utils/status'
+import { sanitizeEvent, UUIDT } from '../../utils/utils'
+import { CeleryQueue } from './celery-queue'
+import { KafkaQueue } from './kafka-queue'
 
 export type WorkerMethods = {
     processEvent: (event: PluginEvent) => Promise<PluginEvent | null>
@@ -61,7 +61,7 @@ export async function startQueue(
 }
 
 function startQueueRedis(server: PluginsServer, piscina: Piscina | undefined, workerMethods: WorkerMethods): Queue {
-    const celeryQueue = new CeleryQueueWorker(server.db, server.PLUGINS_CELERY_QUEUE)
+    const celeryQueue = new CeleryQueue(server.db, server.PLUGINS_CELERY_QUEUE)
 
     celeryQueue.register(
         'posthog.tasks.process_event.process_event_with_plugins',

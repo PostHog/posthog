@@ -1,9 +1,9 @@
 import { StatsD } from 'hot-shots'
 import { Producer, ProducerRecord } from 'kafkajs'
 
-import { PluginsServerConfig } from '../types'
-import { timeoutGuard } from './ingestion/utils'
-import { instrumentQuery } from './metrics'
+import { PluginsServerConfig } from '../../types'
+import { instrumentQuery } from '../metrics'
+import { timeoutGuard } from './utils'
 
 /** This class wraps kafkajs producer, adding batching to optimize performance.
  *

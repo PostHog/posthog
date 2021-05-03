@@ -1,6 +1,6 @@
-import { createServer } from '../src/shared/server'
-import { code } from '../src/shared/utils'
 import { PluginsServer } from '../src/types'
+import { createServer } from '../src/utils/db/server'
+import { code } from '../src/utils/utils'
 import { transformCode } from '../src/worker/vm/transforms'
 import { resetTestDatabase } from './helpers/sql'
 

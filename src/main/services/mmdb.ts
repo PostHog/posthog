@@ -8,7 +8,6 @@ import prettyBytes from 'pretty-bytes'
 import { serialize } from 'v8'
 import { brotliDecompress } from 'zlib'
 
-import { ServerInstance } from '../main/pluginsServer'
 import {
     MMDB_ATTACHMENT_KEY,
     MMDB_ENDPOINT,
@@ -16,10 +15,11 @@ import {
     MMDB_STALE_AGE_DAYS,
     MMDB_STATUS_REDIS_KEY,
     MMDBRequestStatus,
-} from '../shared/mmdb-constants'
-import { status } from '../shared/status'
-import { delay } from '../shared/utils'
-import { PluginAttachmentDB, PluginsServer } from '../types'
+} from '../../config/mmdb-constants'
+import { PluginAttachmentDB, PluginsServer } from '../../types'
+import { status } from '../../utils/status'
+import { delay } from '../../utils/utils'
+import { ServerInstance } from '../pluginsServer'
 
 type MMDBPrepServerInstance = Pick<ServerInstance, 'server' | 'mmdb'>
 

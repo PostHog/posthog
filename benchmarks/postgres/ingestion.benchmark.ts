@@ -1,18 +1,18 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { DateTime } from 'luxon'
-import os from 'os'
+import * as os from 'os'
 import { performance } from 'perf_hooks'
 
-import { IEvent } from '../../src/idl/protos'
-import { createServer } from '../../src/shared/server'
-import { UUIDT } from '../../src/shared/utils'
+import { IEvent } from '../../src/config/idl/protos'
 import { LogLevel, PluginsServer, SessionRecordingEvent, Team } from '../../src/types'
+import { createServer } from '../../src/utils/db/server'
+import { UUIDT } from '../../src/utils/utils'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { endLog, startLog } from './helpers/log'
 import { ingestCountEvents, setupPiscina } from './helpers/piscina'
 
-jest.mock('../../src/shared/sql')
+jest.mock('../../src/utils/db/sql')
 jest.setTimeout(600000) // 600 sec timeout
 
 describe('ingestion benchmarks', () => {

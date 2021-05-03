@@ -2,8 +2,8 @@ import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import crypto from 'crypto'
 
+import { defaultConfig } from '../../config/config'
 import { BasePerson, Element, Person, RawPerson } from '../../types'
-import { defaultConfig } from '../config'
 
 export function unparsePersonPartial(person: Partial<Person>): Partial<RawPerson> {
     return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }

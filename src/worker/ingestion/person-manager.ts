@@ -1,7 +1,7 @@
 import LRU from 'lru-cache'
 
-import { DB } from '../../shared/db'
 import { PluginsServerConfig } from '../../types'
+import { DB } from '../../utils/db/db'
 
 const ONE_HOUR = 60 * 60 * 1000
 

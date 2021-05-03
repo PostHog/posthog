@@ -1,11 +1,11 @@
-import Base from '../../shared/celery/base'
-import { Message } from '../../shared/celery/message'
-import { status } from '../../shared/status'
 import { Queue } from '../../types'
+import { Base } from '../../utils/celery/base'
+import { Message } from '../../utils/celery/message'
+import { status } from '../../utils/status'
 
 type Handler = (...args: any[]) => Promise<void>
 
-export class CeleryQueueWorker extends Base implements Queue {
+export class CeleryQueue extends Base implements Queue {
     handlers: Record<string, Handler> = {}
     activeTasks: Set<Promise<any>> = new Set()
 
@@ -224,5 +224,3 @@ export class CeleryQueueWorker extends Base implements Queue {
         status.info('🛑', 'Celery worker disconnected!')
     }
 }
-
-export default CeleryQueueWorker

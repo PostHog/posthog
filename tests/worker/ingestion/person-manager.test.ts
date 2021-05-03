@@ -1,12 +1,8 @@
 import { DateTime } from 'luxon'
-import { Pool } from 'pg'
-import { mocked } from 'ts-jest/utils'
 
-import { defaultConfig } from '../../../src/shared/config'
-import { DB } from '../../../src/shared/db'
-import { createServer } from '../../../src/shared/server'
-import { UUIDT } from '../../../src/shared/utils'
 import { PluginsServer } from '../../../src/types'
+import { createServer } from '../../../src/utils/db/server'
+import { UUIDT } from '../../../src/utils/utils'
 import { PersonManager } from '../../../src/worker/ingestion/person-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 

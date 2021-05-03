@@ -1,31 +1,31 @@
 import * as Sentry from '@sentry/node'
 
-import { EnqueuedRetry, OnRetryCallback, PluginsServer, RetryQueue } from '../../types'
+import { EnqueuedRetry, JobQueue, OnRetryCallback, PluginsServer } from '../../types'
 import { FsQueue } from './fs-queue'
 import { GraphileQueue } from './graphile-queue'
 
-enum QueueType {
+enum JobQueueType {
     FS = 'fs',
     Graphile = 'graphile',
 }
 
-const queues: Record<QueueType, (server: PluginsServer) => RetryQueue> = {
+const queues: Record<JobQueueType, (server: PluginsServer) => JobQueue> = {
     fs: () => new FsQueue(),
     graphile: (pluginsServer: PluginsServer) => new GraphileQueue(pluginsServer),
 }
 
-export class RetryQueueManager implements RetryQueue {
+export class JobQueueManager implements JobQueue {
     pluginsServer: PluginsServer
-    retryQueues: RetryQueue[]
+    jobQueues: JobQueue[]
 
     constructor(pluginsServer: PluginsServer) {
         this.pluginsServer = pluginsServer
 
-        this.retryQueues = pluginsServer.RETRY_QUEUES.split(',')
-            .map((q) => q.trim() as QueueType)
+        this.jobQueues = pluginsServer.RETRY_QUEUES.split(',')
+            .map((q) => q.trim() as JobQueueType)
             .filter((q) => !!q)
             .map(
-                (queue): RetryQueue => {
+                (queue): JobQueue => {
                     if (queues[queue]) {
                         return queues[queue](pluginsServer)
                     } else {
@@ -36,7 +36,7 @@ export class RetryQueueManager implements RetryQueue {
     }
 
     async enqueue(retry: EnqueuedRetry): Promise<void> {
-        for (const retryQueue of this.retryQueues) {
+        for (const retryQueue of this.jobQueues) {
             try {
                 await retryQueue.enqueue(retry)
                 return
@@ -46,35 +46,35 @@ export class RetryQueueManager implements RetryQueue {
                     extra: {
                         retry: JSON.stringify(retry),
                         queue: retryQueue.toString(),
-                        queues: this.retryQueues.map((q) => q.toString()),
+                        queues: this.jobQueues.map((q) => q.toString()),
                     },
                 })
             }
         }
-        throw new Error('No RetryQueue available')
+        throw new Error('No JobQueue available')
     }
 
     async quit(): Promise<void> {
-        await Promise.all(this.retryQueues.map((r) => r.quit()))
+        await Promise.all(this.jobQueues.map((r) => r.quit()))
     }
 
     async startConsumer(onRetry: OnRetryCallback): Promise<void> {
-        await Promise.all(this.retryQueues.map((r) => r.startConsumer(onRetry)))
+        await Promise.all(this.jobQueues.map((r) => r.startConsumer(onRetry)))
     }
 
     async stopConsumer(): Promise<void> {
-        await Promise.all(this.retryQueues.map((r) => r.stopConsumer()))
+        await Promise.all(this.jobQueues.map((r) => r.stopConsumer()))
     }
 
     async pauseConsumer(): Promise<void> {
-        await Promise.all(this.retryQueues.map((r) => r.pauseConsumer()))
+        await Promise.all(this.jobQueues.map((r) => r.pauseConsumer()))
     }
 
     isConsumerPaused(): boolean {
-        return !!this.retryQueues.find((r) => r.isConsumerPaused())
+        return !!this.jobQueues.find((r) => r.isConsumerPaused())
     }
 
     async resumeConsumer(): Promise<void> {
-        await Promise.all(this.retryQueues.map((r) => r.resumeConsumer()))
+        await Promise.all(this.jobQueues.map((r) => r.resumeConsumer()))
     }
 }

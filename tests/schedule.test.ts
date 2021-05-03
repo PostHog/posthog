@@ -7,15 +7,15 @@ import {
     startSchedule,
     waitForTasksToFinish,
 } from '../src/main/services/schedule'
-import { createServer } from '../src/shared/server'
-import { delay } from '../src/shared/utils'
 import { LogLevel, ScheduleControl } from '../src/types'
+import { createServer } from '../src/utils/db/server'
+import { delay } from '../src/utils/utils'
 import { createPromise } from './helpers/promises'
 import { resetTestDatabase } from './helpers/sql'
 import { setupPiscina } from './helpers/worker'
 
-jest.mock('../src/shared/sql')
-jest.mock('../src/shared/status')
+jest.mock('../src/utils/db/sql')
+jest.mock('../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 function createEvent(index = 0): PluginEvent {

@@ -1,16 +1,13 @@
 import Piscina from '@posthog/piscina'
 
 import { JobQueueConsumerControl, OnRetryCallback, PluginsServer } from '../../types'
+import { startRedlock } from '../../utils/redlock'
 import { status } from '../../utils/status'
 import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
-import { startRedlock } from './redlock'
 
 export const LOCKED_RESOURCE = 'plugin-server:locks:retry-queue-consumer'
 
-export async function startRetryQueueConsumer(
-    server: PluginsServer,
-    piscina: Piscina
-): Promise<JobQueueConsumerControl> {
+export async function startJobQueueConsumer(server: PluginsServer, piscina: Piscina): Promise<JobQueueConsumerControl> {
     status.info('🔄', 'Starting retry queue consumer, trying to get lock...')
 
     const onRetry: OnRetryCallback = async (retries) => {

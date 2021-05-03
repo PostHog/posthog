@@ -8,6 +8,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
+import { KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import {
     ClickHouseEvent,
     ClickHousePerson,
@@ -29,11 +30,8 @@ import {
     RawPerson,
     SessionRecordingEvent,
     TimestampFormat,
-} from '../types'
-import { KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID, KAFKA_PLUGIN_LOG_ENTRIES } from './ingestion/topics'
-import { chainToElements, hashElements, timeoutGuard, unparsePersonPartial } from './ingestion/utils'
-import { KafkaProducerWrapper } from './kafka-producer-wrapper'
-import { instrumentQuery } from './metrics'
+} from '../../types'
+import { instrumentQuery } from '../metrics'
 import {
     castTimestampOrNow,
     clickHouseTimestampToISO,
@@ -42,7 +40,9 @@ import {
     tryTwice,
     UUID,
     UUIDT,
-} from './utils'
+} from '../utils'
+import { KafkaProducerWrapper } from './kafka-producer-wrapper'
+import { chainToElements, hashElements, timeoutGuard, unparsePersonPartial } from './utils'
 
 /** The recommended way of accessing the database. */
 export class DB {

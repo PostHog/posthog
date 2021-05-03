@@ -2,8 +2,8 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { PluginConfig, PluginsServer, RawEventMessage } from 'types'
 
-import Client from '../../../shared/celery/client'
-import { UUIDT } from '../../../shared/utils'
+import { Client } from '../../../utils/celery/client'
+import { UUIDT } from '../../../utils/utils'
 
 const { version } = require('../../../../package.json')
 

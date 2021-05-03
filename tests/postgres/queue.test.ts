@@ -1,9 +1,9 @@
 import { setupPiscina } from '../../benchmarks/postgres/helpers/piscina'
-import { startQueue } from '../../src/main/queue'
-import Client from '../../src/shared/celery/client'
-import { createServer } from '../../src/shared/server'
-import { delay } from '../../src/shared/utils'
+import { startQueue } from '../../src/main/ingestion-queues/queue'
 import { LogLevel, PluginsServer } from '../../src/types'
+import { Client } from '../../src/utils/celery/client'
+import { createServer } from '../../src/utils/db/server'
+import { delay } from '../../src/utils/utils'
 import { runPlugins } from '../../src/worker/plugins/run'
 
 jest.setTimeout(60000) // 60 sec timeout

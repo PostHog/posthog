@@ -1,6 +1,6 @@
 import ClickHouse from '@posthog/clickhouse'
 
-import { defaultConfig } from '../../src/shared/config'
+import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'
 
 export async function resetTestDatabaseClickhouse(extraServerConfig: Partial<PluginsServerConfig>): Promise<void> {

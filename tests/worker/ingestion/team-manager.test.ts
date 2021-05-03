@@ -1,8 +1,8 @@
 import { mocked } from 'ts-jest/utils'
 
-import { createServer } from '../../../src/shared/server'
-import { UUIDT } from '../../../src/shared/utils'
 import { PluginsServer } from '../../../src/types'
+import { createServer } from '../../../src/utils/db/server'
+import { UUIDT } from '../../../src/utils/utils'
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 

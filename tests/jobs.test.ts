@@ -1,5 +1,5 @@
+import { LOCKED_RESOURCE } from '../src/main/job-queues/job-queue-consumer'
 import { startPluginsServer } from '../src/main/pluginsServer'
-import { LOCKED_RESOURCE } from '../src/main/services/retry-queue-consumer'
 import { LogLevel } from '../src/types'
 import { createServer } from '../src/utils/db/server'
 import { delay } from '../src/utils/utils'
@@ -15,7 +15,7 @@ jest.setTimeout(60000) // 60 sec timeout
 
 const { console: testConsole } = imports['test-utils/write-to-file']
 
-describe('retry queues', () => {
+describe('job queues', () => {
     beforeEach(async () => {
         testConsole.reset()
 

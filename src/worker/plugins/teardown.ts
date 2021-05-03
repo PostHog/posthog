@@ -1,5 +1,5 @@
-import { processError } from '../../shared/error'
 import { PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginsServer } from '../../types'
+import { processError } from '../../utils/db/error'
 
 export async function teardownPlugins(server: PluginsServer, pluginConfig?: PluginConfig): Promise<void> {
     const pluginConfigs = pluginConfig ? [pluginConfig] : server.pluginConfigs.values()

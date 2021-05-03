@@ -1,7 +1,7 @@
 import { v4 } from 'uuid'
 
 import { Pausable } from '../../types'
-import { DB } from '../db'
+import { DB } from '../db/db'
 import { status } from '../status'
 import { Message } from './message'
 
@@ -33,8 +33,7 @@ export class Broker implements Pausable {
     /**
      * Redis broker class
      * @constructor RedisBroker
-     * @param {string} url the connection string of redis
-     * @param {object} opts the options object for redis connect of ioredis
+     * @param {DB} db the db object
      */
     constructor(db: DB) {
         this.db = db
@@ -129,7 +128,7 @@ export class Broker implements Pausable {
     /**
      * Ask for the next event the next chance we get.
      * @private
-     * @param {Fucntion} resolve
+     * @param {Function} resolve
      * @param {string} queue
      * @param {Function} callback
      */
@@ -140,7 +139,7 @@ export class Broker implements Pausable {
     /**
      * Pause 50ms before asking for another event. Used if no event was returned the last time.
      * @private
-     * @param {Fucntion} resolve
+     * @param {Function} resolve
      * @param {string} queue
      * @param {Function} callback
      */
@@ -180,7 +179,7 @@ export class Broker implements Pausable {
 
     /**
      * @private
-     * @param {string} queue
+     * @param {string} celeryQueue
      * @return {Promise}
      */
     private async receiveOne(celeryQueue: string): Promise<Message | null> {

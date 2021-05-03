@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/minimal'
 
-import { PluginConfig, PluginError, PluginsServer } from '../types'
+import { PluginConfig, PluginError, PluginsServer } from '../../types'
 import { setError } from './sql'
 
 export async function processError(
