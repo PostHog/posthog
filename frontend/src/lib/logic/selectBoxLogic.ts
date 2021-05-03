@@ -91,7 +91,8 @@ export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem
                 setTimeout(() => actions.setBlockMouseOver(false), 200)
             }
         },
-        onKeyDown: ({ e }: { e: React.KeyboardEvent }) => {
+        onKeyDown: async ({ e }: { e: React.KeyboardEvent }, breakpoint) => {
+            await breakpoint(100) // debounce for 100ms
             let allSources = props.items.map((item) => item.dataSource).flat()
             allSources = !values.search ? allSources : searchItems(allSources, values.search)
             const currentIndex =
