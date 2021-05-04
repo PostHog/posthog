@@ -228,7 +228,10 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-worker-celery --with-scheduler"]
+            "command": ["./bin/docker-worker-celery --with-scheduler"],
+            "linuxParameters": {
+                "initProcessEnabled": true
+            }
         }
     ],
     "requiresCompatibilities": ["FARGATE"],

@@ -2,10 +2,10 @@ import React, { useState } from 'react'
 import { Tooltip, Select, Tabs, Popover, Button } from 'antd'
 import { useValues } from 'kea'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
-import { cohortsModel } from '../../../models/cohortsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { cohortsModel } from '~/models'
 import { ViewType } from '../insightLogic'
 
 const { TabPane } = Tabs
