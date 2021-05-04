@@ -23,11 +23,13 @@ describe('error do not take down ingestion', () => {
 
     beforeEach(async () => {
         await resetTestDatabase(`
-            async function processEvent (event, meta) {
-                if (event.properties.crash === 'await') {
-                    await meta.retry('test', {}, -100)
-                } else if (event.properties.crash === 'void') {
-                    void meta.retry('test', {}, -100)
+            export async function processEvent (event, { jobs }) {
+                if (event.properties.crash === 'throw') {
+                    throw new Error('error thrown in plugin')
+                } else if (event.properties.crash === 'throw in promise') {
+                    void new Promise(() => { throw new Error('error thrown in plugin') }).then(() => {})
+                } else if (event.properties.crash === 'reject in promise') {
+                    void new Promise((_, rejects) => { rejects(new Error('error thrown in plugin')) }).then(() => {})
                 }
                 return event
             }
@@ -47,12 +49,12 @@ describe('error do not take down ingestion', () => {
         await stopServer()
     })
 
-    test('awaited errors', async () => {
+    test('thrown errors', async () => {
         expect((await server.db.fetchEvents()).length).toBe(0)
         expect(await getErrorForPluginConfig(pluginConfig39.id)).toBe(null)
 
         for (let i = 0; i < 4; i++) {
-            posthog.capture('broken event', { crash: 'await' })
+            posthog.capture('broken event', { crash: 'throw' })
         }
 
         await delayUntilEventIngested(() => server.db.fetchEvents(), 4)
@@ -60,7 +62,23 @@ describe('error do not take down ingestion', () => {
         expect((await server.db.fetchEvents()).length).toBe(4)
 
         const error2 = await getErrorForPluginConfig(pluginConfig39.id)
-        expect(error2.message).toBe('Retries must happen between 1 seconds and 24 hours from now')
+        expect(error2.message).toBe('error thrown in plugin')
+    })
+
+    test('unhandled promise errors', async () => {
+        expect((await server.db.fetchEvents()).length).toBe(0)
+        expect(await getErrorForPluginConfig(pluginConfig39.id)).toBe(null)
+
+        for (let i = 0; i < 4; i++) {
+            posthog.capture('broken event', { crash: 'throw in promise' })
+        }
+
+        await delayUntilEventIngested(() => server.db.fetchEvents(), 4)
+
+        expect((await server.db.fetchEvents()).length).toBe(4)
+
+        const error2 = await getErrorForPluginConfig(pluginConfig39.id)
+        expect(error2.message).toBe('error thrown in plugin')
     })
 
     test('unhandled promise rejections', async () => {
@@ -68,7 +86,7 @@ describe('error do not take down ingestion', () => {
         expect(await getErrorForPluginConfig(pluginConfig39.id)).toBe(null)
 
         for (let i = 0; i < 4; i++) {
-            posthog.capture('broken event', { crash: 'void' })
+            posthog.capture('broken event', { crash: 'reject in promise' })
         }
 
         await delayUntilEventIngested(() => server.db.fetchEvents(), 4)
@@ -76,6 +94,6 @@ describe('error do not take down ingestion', () => {
         expect((await server.db.fetchEvents()).length).toBe(4)
 
         const error2 = await getErrorForPluginConfig(pluginConfig39.id)
-        expect(error2.message).toBe('Retries must happen between 1 seconds and 24 hours from now')
+        expect(error2.message).toBe('error thrown in plugin')
     })
 })

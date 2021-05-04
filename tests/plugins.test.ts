@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { mocked } from 'ts-jest/utils'
 
-import { LogLevel, PluginsServer } from '../src/types'
+import { LogLevel, PluginsServer, PluginTaskType } from '../src/types'
 import { clearError, processError } from '../src/utils/db/error'
 import { createServer } from '../src/utils/db/server'
 import { loadPlugin } from '../src/worker/plugins/loadPlugin'
@@ -15,7 +15,7 @@ import {
     pluginAttachment1,
     pluginConfig39,
 } from './helpers/plugins'
-import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setError } from './helpers/sqlMock'
+import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from './helpers/sqlMock'
 
 jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/status')
@@ -70,7 +70,6 @@ test('setupPlugins and runPlugins', async () => {
     expect(pluginConfig.vm).toBeDefined()
     const vm = await pluginConfig.vm!.resolveInternalVm
     expect(Object.keys(vm!.methods).sort()).toEqual([
-        'onRetry',
         'processEvent',
         'processEventBatch',
         'setupPlugin',
@@ -128,7 +127,7 @@ test('plugin meta has what it should have', async () => {
         'config',
         'geoip',
         'global',
-        'retry',
+        'jobs',
         'storage',
     ])
     expect(returnedEvent!.properties!['attachments']).toEqual({
@@ -155,7 +154,7 @@ test('archive plugin with broken index.js does not do much', async () => {
     const { pluginConfigs } = mockServer
 
     const pluginConfig = pluginConfigs.get(39)!
-    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runPlugins(mockServer, { ...event })
@@ -180,7 +179,7 @@ test('local plugin with broken index.js does not do much', async () => {
     const { pluginConfigs } = mockServer
 
     const pluginConfig = pluginConfigs.get(39)!
-    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runPlugins(mockServer, { ...event })
@@ -211,7 +210,7 @@ test('plugin throwing error does not prevent ingestion and failure is noted in e
     await setupPlugins(mockServer)
     const { pluginConfigs } = mockServer
 
-    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runPlugins(mockServer, { ...event })
@@ -244,7 +243,7 @@ test('events have property $plugins_succeeded set to the plugins that succeeded'
     await setupPlugins(mockServer)
     const { pluginConfigs } = mockServer
 
-    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runPlugins(mockServer, { ...event })
@@ -282,7 +281,7 @@ test('archive plugin with broken plugin.json does not do much', async () => {
         `Can not load plugin.json for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
     )
 
-    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 })
 
 test('local plugin with broken plugin.json does not do much', async () => {
@@ -306,7 +305,7 @@ test('local plugin with broken plugin.json does not do much', async () => {
         pluginConfigs.get(39)!,
         expect.stringContaining('Could not load posthog config at ')
     )
-    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     unlink()
 })
@@ -329,7 +328,7 @@ test('plugin with http urls must have an archive', async () => {
         pluginConfigs.get(39)!,
         `Tried using undownloaded remote plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId} - global), which is not supported!`
     )
-    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 })
 
 test("plugin with broken archive doesn't load", async () => {
@@ -350,7 +349,7 @@ test("plugin with broken archive doesn't load", async () => {
         pluginConfigs.get(39)!,
         Error('Could not read archive as .zip or .tgz')
     )
-    expect(await pluginConfigs.get(39)!.vm!.getTasks()).toEqual({})
+    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 })
 
 test('plugin config order', async () => {

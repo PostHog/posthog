@@ -90,6 +90,9 @@ export async function startRedlock({
     lockTimeout = setTimeout(tryToGetTheLock, 0)
 
     return async () => {
+        if (weHaveTheLock) {
+            status.info('🔓', `Releasing redlock "${resource}"`)
+        }
         stopped = true
         lockTimeout && clearTimeout(lockTimeout)
 

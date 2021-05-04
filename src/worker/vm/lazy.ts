@@ -5,6 +5,7 @@ import {
     PluginLogEntryType,
     PluginsServer,
     PluginTask,
+    PluginTaskType,
 } from '../../types'
 import { clearError, processError } from '../../utils/db/error'
 import { status } from '../../utils/status'
@@ -70,15 +71,11 @@ export class LazyPluginVM {
         return (await this.resolveInternalVm)?.methods.teardownPlugin || null
     }
 
-    async getOnRetry(): Promise<PluginConfigVMReponse['methods']['onRetry'] | null> {
-        return (await this.resolveInternalVm)?.methods.onRetry || null
+    async getTask(name: string, type: PluginTaskType): Promise<PluginTask | null> {
+        return (await this.resolveInternalVm)?.tasks?.[type]?.[name] || null
     }
 
-    async getTask(name: string): Promise<PluginTask | null> {
-        return (await this.resolveInternalVm)?.tasks[name] || null
-    }
-
-    async getTasks(): Promise<Record<string, PluginTask>> {
-        return (await this.resolveInternalVm)?.tasks || {}
+    async getTasks(type: PluginTaskType): Promise<Record<string, PluginTask>> {
+        return (await this.resolveInternalVm)?.tasks?.[type] || {}
     }
 }

@@ -281,7 +281,9 @@ describe('createTaskRunner()', () => {
     })
 
     it('handles `runEvery` tasks', async () => {
-        mocked(runPluginTask).mockImplementation((server, task, pluginId) => Promise.resolve(`${task} for ${pluginId}`))
+        mocked(runPluginTask).mockImplementation((server, task, taskType, pluginId) =>
+            Promise.resolve(`${task} for ${pluginId}`)
+        )
 
         expect(await taskRunner({ task: 'runEveryMinute', args: { pluginConfigId: 1 } })).toEqual(
             'runEveryMinute for 1'

@@ -1,49 +1,44 @@
 import { makeWorkerUtils, run, Runner, WorkerUtils, WorkerUtilsOptions } from 'graphile-worker'
 
-import { EnqueuedRetry, JobQueue, OnRetryCallback, PluginsServer } from '../../types'
+import { EnqueuedJob, JobQueue, OnJobCallback, PluginsServer } from '../../types'
 
 export class GraphileQueue implements JobQueue {
     pluginsServer: PluginsServer
     started: boolean
     paused: boolean
-    onRetry: OnRetryCallback | null
+    onJob: OnJobCallback | null
     runner: Runner | null
-    workerUtils: WorkerUtils | null
+    workerUtilsPromise: Promise<WorkerUtils> | null
 
     constructor(pluginsServer: PluginsServer) {
         this.pluginsServer = pluginsServer
         this.started = false
         this.paused = false
-        this.onRetry = null
+        this.onJob = null
         this.runner = null
-        this.workerUtils = null
+        this.workerUtilsPromise = null
     }
 
-    async enqueue(retry: EnqueuedRetry): Promise<void> {
-        if (!this.workerUtils) {
-            this.workerUtils = await makeWorkerUtils(
-                this.pluginsServer.RETRY_QUEUE_GRAPHILE_URL
-                    ? {
-                          connectionString: this.pluginsServer.RETRY_QUEUE_GRAPHILE_URL,
-                      }
-                    : ({
-                          pgPool: this.pluginsServer.postgres,
-                      } as WorkerUtilsOptions)
-            )
-            await this.workerUtils.migrate()
-        }
-        await this.workerUtils.addJob('retryTask', retry, { runAt: new Date(retry.timestamp), maxAttempts: 1 })
+    async connectProducer(): Promise<void> {
+        await (await this.getWorkerUtils()).migrate()
     }
 
-    async quit(): Promise<void> {
-        const oldWorkerUtils = this.workerUtils
-        this.workerUtils = null
+    async enqueue(retry: EnqueuedJob): Promise<void> {
+        await (await this.getWorkerUtils()).addJob('pluginJob', retry, {
+            runAt: new Date(retry.timestamp),
+            maxAttempts: 1,
+        })
+    }
+
+    async disconnectProducer(): Promise<void> {
+        const oldWorkerUtils = await this.workerUtilsPromise
+        this.workerUtilsPromise = null
         await oldWorkerUtils?.release()
     }
 
-    async startConsumer(onRetry: OnRetryCallback): Promise<void> {
+    async startConsumer(onJob: OnJobCallback): Promise<void> {
         this.started = true
-        this.onRetry = onRetry
+        this.onJob = onJob
         await this.syncState()
     }
 
@@ -66,19 +61,19 @@ export class GraphileQueue implements JobQueue {
         await this.syncState()
     }
 
-    async syncState(): Promise<void> {
+    private async syncState(): Promise<void> {
         if (this.started && !this.paused) {
             if (!this.runner) {
                 this.runner = await run({
-                    connectionString: this.pluginsServer.DATABASE_URL,
+                    ...this.getConnectionOptions(),
                     concurrency: 1,
                     // Install signal handlers for graceful shutdown on SIGINT, SIGTERM, etc
                     noHandleSignals: false,
                     pollInterval: 100,
                     // you can set the taskList or taskDirectory but not both
                     taskList: {
-                        retryTask: (payload) => {
-                            void this.onRetry?.([payload as EnqueuedRetry])
+                        pluginJob: (payload) => {
+                            void this.onJob?.([payload as EnqueuedJob])
                         },
                     },
                 })
@@ -90,5 +85,22 @@ export class GraphileQueue implements JobQueue {
                 await oldRunner?.stop()
             }
         }
+    }
+
+    private getConnectionOptions(): Partial<WorkerUtilsOptions> {
+        return this.pluginsServer.JOB_QUEUE_GRAPHILE_URL
+            ? {
+                  connectionString: this.pluginsServer.JOB_QUEUE_GRAPHILE_URL,
+              }
+            : ({
+                  pgPool: this.pluginsServer.postgres,
+              } as Partial<WorkerUtilsOptions>)
+    }
+
+    private async getWorkerUtils(): Promise<WorkerUtils> {
+        if (!this.workerUtilsPromise) {
+            this.workerUtilsPromise = makeWorkerUtils(this.getConnectionOptions())
+        }
+        return await this.workerUtilsPromise
     }
 }

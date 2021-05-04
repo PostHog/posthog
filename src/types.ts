@@ -71,8 +71,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     DISTINCT_ID_LRU_SIZE: number
     INTERNAL_MMDB_SERVER_PORT: number
     PLUGIN_SERVER_IDLE: boolean
-    RETRY_QUEUES: string
-    RETRY_QUEUE_GRAPHILE_URL: string
+    JOB_QUEUES: string
+    JOB_QUEUE_GRAPHILE_URL: string
     ENABLE_PERSISTENT_CONSOLE: boolean
     STALENESS_RESTART_SECONDS: number
 }
@@ -115,8 +115,8 @@ export interface Queue extends Pausable {
     stop: () => Promise<void> | void
 }
 
-export type OnRetryCallback = (queue: EnqueuedRetry[]) => Promise<void> | void
-export interface EnqueuedRetry {
+export type OnJobCallback = (queue: EnqueuedJob[]) => Promise<void> | void
+export interface EnqueuedJob {
     type: string
     payload: Record<string, any>
     timestamp: number
@@ -125,13 +125,15 @@ export interface EnqueuedRetry {
 }
 
 export interface JobQueue {
-    startConsumer: (onRetry: OnRetryCallback) => Promise<void> | void
+    startConsumer: (onJob: OnJobCallback) => Promise<void> | void
     stopConsumer: () => Promise<void> | void
     pauseConsumer: () => Promise<void> | void
     resumeConsumer: () => Promise<void> | void
     isConsumerPaused: () => boolean
-    enqueue: (retry: EnqueuedRetry) => Promise<void> | void
-    quit: () => Promise<void> | void
+
+    connectProducer: () => Promise<void> | void
+    enqueue: (job: EnqueuedJob) => Promise<void> | void
+    disconnectProducer: () => Promise<void> | void
 }
 
 export type PluginId = number
@@ -226,10 +228,15 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
+export enum PluginTaskType {
+    Job = 'job',
+    Schedule = 'schedule',
+}
+
 export interface PluginTask {
     name: string
-    type: 'runEvery'
-    exec: () => Promise<any>
+    type: PluginTaskType
+    exec: (payload?: Record<string, any>) => Promise<any>
 }
 
 export interface PluginConfigVMReponse {
@@ -239,9 +246,8 @@ export interface PluginConfigVMReponse {
         teardownPlugin: () => Promise<void>
         processEvent: (event: PluginEvent) => Promise<PluginEvent>
         processEventBatch: (batch: PluginEvent[]) => Promise<PluginEvent[]>
-        onRetry: (task: string, payload: Record<string, any>) => Promise<void>
     }
-    tasks: Record<string, PluginTask>
+    tasks: Record<PluginTaskType, Record<string, PluginTask>>
 }
 
 export interface EventUsage {

@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 
-import { EnqueuedRetry, PluginConfig, PluginsServer } from '../../types'
+import { PluginConfig, PluginsServer, PluginTaskType } from '../../types'
 import { processError } from '../../utils/db/error'
 
 export async function runPlugins(server: PluginsServer, event: PluginEvent): Promise<PluginEvent | null> {
@@ -98,43 +97,32 @@ export async function runPluginsOnBatch(server: PluginsServer, batch: PluginEven
     return allReturnedEvents.filter(Boolean)
 }
 
-export async function runPluginTask(server: PluginsServer, taskName: string, pluginConfigId: number): Promise<any> {
+export async function runPluginTask(
+    server: PluginsServer,
+    taskName: string,
+    taskType: PluginTaskType,
+    pluginConfigId: number,
+    payload?: Record<string, any>
+): Promise<any> {
     const timer = new Date()
     let response
     const pluginConfig = server.pluginConfigs.get(pluginConfigId)
     try {
-        const task = await pluginConfig?.vm?.getTask(taskName)
-        response = await task?.exec()
+        const task = await pluginConfig?.vm?.getTask(taskName, taskType)
+        if (!task) {
+            throw new Error(
+                `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfig}`
+            )
+        }
+        response = await (payload ? task?.exec(payload) : task?.exec())
     } catch (error) {
         await processError(server, pluginConfig || null, error)
-        server.statsd?.increment(`plugin.task.${taskName}.${pluginConfigId}.ERROR`)
+        server.statsd?.increment(`plugin.task.${taskType}.${taskName}.${pluginConfigId}.ERROR`)
     }
-    server.statsd?.timing(`plugin.task.${taskName}.${pluginConfigId}`, timer)
+    server.statsd?.timing(`plugin.task.${taskType}.${taskName}.${pluginConfigId}`, timer)
     return response
 }
 
 function getPluginsForTeam(server: PluginsServer, teamId: number): PluginConfig[] {
     return server.pluginConfigsPerTeam.get(teamId) || []
-}
-
-export async function runOnRetry(server: PluginsServer, retry: EnqueuedRetry): Promise<any> {
-    const timer = new Date()
-    let response
-    const pluginConfig = server.pluginConfigs.get(retry.pluginConfigId)
-    if (pluginConfig) {
-        try {
-            const task = await pluginConfig.vm?.getOnRetry()
-            response = await task?.(retry.type, retry.payload)
-        } catch (error) {
-            await processError(server, pluginConfig, error)
-            server.statsd?.increment(`plugin.retry.${retry.type}.${retry.pluginConfigId}.ERROR`)
-        }
-    } else {
-        server.statsd?.increment(`plugin.retry.${retry.type}.${retry.pluginConfigId}.SKIP`)
-        Sentry.captureMessage(`Retrying for plugin config ${retry.pluginConfigId} that does not exist`, {
-            extra: { retry: JSON.stringify(retry) },
-        })
-    }
-    server.statsd?.timing(`plugin.retry.${retry.type}.${retry.pluginConfigId}`, timer)
-    return response
 }
