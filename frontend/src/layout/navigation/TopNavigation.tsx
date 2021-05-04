@@ -33,6 +33,7 @@ import { CreateInviteModalWithButton } from 'scenes/organization/Settings/Create
 import MD5 from 'crypto-js/md5'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface ProfilePictureProps {
     name?: string
@@ -88,6 +89,7 @@ export function TopNavigation(): JSX.Element {
     const { showPalette } = useActions(commandPaletteLogic)
     const [projectModalShown, setProjectModalShown] = useState(false) // TODO: Move to Kea (using useState for backwards-compatibility with TopSelectors.tsx)
     const [organizationModalShown, setOrganizationModalShown] = useState(false) // TODO: Same as above
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
@@ -306,19 +308,21 @@ export function TopNavigation(): JSX.Element {
                             {user?.team?.name} <DownOutlined className="ml-05" />
                         </div>
                     </Dropdown>
-                    <div style={{ marginLeft: '1rem' }}>
-                        <Radio.Group
-                            value={productionEnvironment}
-                            onChange={(e) => setProductionEnvironment(e.target.value)}
-                        >
-                            <Tooltip title="All queries use only production environment data.">
-                                <Radio.Button value={true}>PROD</Radio.Button>
-                            </Tooltip>
-                            <Tooltip title="All queries use only test environment data. Add test_[apiKey] to your apiKey to mark an environment as test.">
-                                <Radio.Button value={false}>TEST</Radio.Button>
-                            </Tooltip>
-                        </Radio.Group>
-                    </div>
+                    {featureFlags['test-environment-3149'] && (
+                        <div style={{ marginLeft: '1rem' }}>
+                            <Radio.Group
+                                value={productionEnvironment}
+                                onChange={(e) => setProductionEnvironment(e.target.value)}
+                            >
+                                <Tooltip title="All queries use only production environment data.">
+                                    <Radio.Button value={true}>PROD</Radio.Button>
+                                </Tooltip>
+                                <Tooltip title="All queries use only test environment data. Add test_[apiKey] to your apiKey to mark an environment as test.">
+                                    <Radio.Button value={false}>TEST</Radio.Button>
+                                </Tooltip>
+                            </Radio.Group>
+                        </div>
+                    )}
                 </div>
                 {user && (
                     <div>
