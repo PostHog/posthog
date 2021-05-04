@@ -95,7 +95,7 @@ export function PropertyFilters({
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
 
-    const hiddenFilters = ['test_environment']
+    const hiddenFilters = ['$test_environment']
 
     return (
         <div className="mb" style={style}>
