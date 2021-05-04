@@ -241,8 +241,8 @@ def get_event(request):
             event["properties"] = {}
 
         # Support test_[apiKey] for users with multiple environments
-        if event["properties"].get("test_environment") is None:
-            event["properties"]["test_environment"] = True if is_test_environment else False
+        if event["properties"].get("$test_environment") is None:
+            event["properties"]["$test_environment"] = True if is_test_environment else False
 
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
