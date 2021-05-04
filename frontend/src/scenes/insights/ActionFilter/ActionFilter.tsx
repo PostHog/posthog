@@ -16,12 +16,12 @@ export interface ActionFilterProps {
     typeKey: string
     hideMathSelector?: boolean
     hidePropertySelector?: boolean
-    buttonCopy: string
-    disabled?: boolean
-    singleFilter?: boolean
-    sortable?: boolean
-    showLetters?: boolean
-    showOr?: boolean
+    buttonCopy: string // Text copy for the action button to add more events/actions (graph series)
+    disabled?: boolean // Whether the full control is enabled or not
+    singleFilter?: boolean // Whether it's allowed to add multiple event/action series (e.g. lifecycle only accepts one event)
+    sortable?: boolean // Whether actions/events can be sorted (used mainly for funnel step reordering)
+    showLetters?: boolean // Whether to show a letter indicator identifying each graph
+    showOr?: boolean // Whether to show the "OR" label after each filter
     verbose?: boolean
 }
 
