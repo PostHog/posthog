@@ -55,6 +55,10 @@
                 {
                     "name": "STALENESS_RESTART_SECONDS",
                     "value": "300"
+                },
+                {
+                    "name": "JOB_QUEUES",
+                    "value": "graphile"
                 }
             ],
             "secrets": [
@@ -101,6 +105,10 @@
                 {
                     "name": "SENTRY_DSN",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SENTRY_DSN_PLUGIN_SERVER::"
+                },
+                {
+                    "name": "JOB_QUEUE_GRAPHILE_URL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:JOB_QUEUE_GRAPHILE_URL::"
                 },
                 {
                     "name": "STATSD_HOST",
