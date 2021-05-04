@@ -7,16 +7,38 @@ import { funnelsModel } from '../../models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-function wait(ms = 1000) {
+import { funnelLogicType } from './funnelLogicType'
+import { ActionFilter, FilterType } from '~/types'
+interface FunnelParams {
+    actions: ActionFilter[]
+    date_from: string
+    date_to: string
+    display: string
+    insight: string
+    interval: string
+    path_type: string
+    properties: []
+    start_point: string
+}
+
+
+interface FunnelResult {
+    is_cached: boolean
+    last_refresh: string
+    result: []
+    type: string
+}
+
+function wait(ms = 1000): Promise<void> {
     return new Promise((resolve) => {
         setTimeout(resolve, ms)
     })
 }
 const SECONDS_TO_POLL = 3 * 60
 
-async function pollFunnel(params = {}) {
+async function pollFunnel(params = {}): Promise<FunnelResult> {
     let result = await api.get('api/insight/funnel/?' + toParams(params))
-    let start = window.performance.now()
+    const start = window.performance.now()
     while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
         const { refresh: _, ...restParams } = params // eslint-disable-line
@@ -26,11 +48,12 @@ async function pollFunnel(params = {}) {
     if (result.loading) {
         throw { status: 0, statusText: 'Funnel timeout' }
     }
+    console.log('POLLING FUNNEL RESULT', result)
     return result
 }
 
-const cleanFunnelParams = (filters) => {
-    return {
+const cleanFunnelParams = (filters: Partial<FilterType>): Partial<FilterType> => {
+    const params = {
         ...filters,
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
         ...(filters.date_to ? { date_to: filters.date_to } : {}),
@@ -43,11 +66,13 @@ const cleanFunnelParams = (filters) => {
         interval: autocorrectInterval(filters),
         insight: ViewType.FUNNELS,
     }
+    console.log('CLEAN FUNNEL PARAMS', params)
+    return params
 }
 
-const isStepsEmpty = (filters) => [...(filters.actions || []), ...(filters.events || [])].length === 0
+const isStepsEmpty = (filters: Partial<FilterType>): boolean => [...(filters.actions || []), ...(filters.events || [])].length === 0
 
-export const funnelLogic = kea({
+export const funnelLogic = kea<funnelLogicType>({
     key: (props) => {
         return props.dashboardItemId || 'some_funnel'
     },
@@ -140,6 +165,7 @@ export const funnelLogic = kea({
         peopleSorted: [
             () => [selectors.stepsWithCount, selectors.people],
             (steps, people) => {
+                console.log('SELECTORS people', people)
                 if (!people) {
                     return null
                 }
@@ -158,6 +184,7 @@ export const funnelLogic = kea({
         propertiesForUrl: [
             () => [selectors.filters],
             (filters) => {
+                console.log('SELECTORS filters', filters)
                 let result = {
                     insight: ViewType.FUNNELS,
                     ...cleanFunnelParams(filters),
@@ -168,6 +195,7 @@ export const funnelLogic = kea({
         isValidFunnel: [
             () => [selectors.stepsWithCount],
             (stepsWithCount) => {
+                console.log('SELECTORS stepswithcount', stepsWithCount)
                 return stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1
             },
         ],
@@ -186,7 +214,7 @@ export const funnelLogic = kea({
             }
             const cleanedParams = cleanFunnelParams(values.filters)
             insightLogic.actions.setAllFilters(cleanedParams)
-            insightLogic.actions.setLastRefresh(false)
+            insightLogic.actions.setLastRefresh(null)
         },
         saveFunnelInsight: async ({ name }) => {
             await api.create('api/insight', {
@@ -205,20 +233,20 @@ export const funnelLogic = kea({
             }
         },
     }),
-    actionToUrl: ({ actions, values, props }) => ({
-        [actions.setSteps]: () => {
+    actionToUrl: ({ values, props }) => ({
+        setSteps: () => {
             if (!props.dashboardItemId) {
                 return ['/insights', values.propertiesForUrl]
             }
         },
-        [actions.clearFunnel]: () => {
+        clearFunnel: () => {
             if (!props.dashboardItemId) {
                 return ['/insights', { insight: ViewType.FUNNELS }]
             }
-        },
+        }
     }),
     urlToAction: ({ actions, values, props }) => ({
-        '/insights': (_, searchParams) => {
+        '/insights': (_: any, searchParams: Record<string, any>) => {
             if (props.dashboardItemId) {
                 return
             }
