@@ -173,4 +173,4 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         )
 
         events = query_action(action1)
-        self.assertEqual(len(events), 1)
+        self.assertEqual(len(events), 1)  # type: ignore
