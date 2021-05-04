@@ -7,7 +7,7 @@ import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { Link } from '../Link'
 import { PropertySelect } from './PropertySelect'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
-import { isOperatorMulti } from 'lib/utils'
+import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 
 const { TabPane } = Tabs
 
@@ -83,7 +83,11 @@ function PropertyPaneContents({
                     value={value}
                     onChange={(newOperator, newValue) => {
                         setThisFilter(propkey, newValue, newOperator, type)
-                        if (newOperator && newValue && !isOperatorMulti(newOperator)) {
+                        if (
+                            newOperator &&
+                            newValue &&
+                            !(isOperatorMulti(newOperator) || isOperatorRegex(newOperator))
+                        ) {
                             onComplete()
                         }
                     }}

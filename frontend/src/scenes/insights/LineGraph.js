@@ -118,9 +118,12 @@ export function LineGraph({
         const borderColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : colorList[index % colorList.length]
+        const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : undefined
 
         return {
             borderColor,
+            hoverBorderColor: hoverColor,
+            hoverBackgroundColor: hoverColor,
             backgroundColor: (type === 'bar' || type === 'doughnut') && borderColor,
             fill: false,
             borderWidth: 1,

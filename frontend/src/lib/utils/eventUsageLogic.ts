@@ -145,19 +145,7 @@ export const eventUsageLogic = kea<
             await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
 
             // Reports `insight viewed` event
-            const { display, interval, date_from, date_to, shown_as, filter_test_accounts, formula } = filters
-
-            // :TODO: DEPRECATED: Remove when releasing `remove-shownas`
-            // Support for legacy `shown_as` property in a way that ensures standardized data reporting
-            let { insight } = filters
-            const SHOWN_AS_MAPPING: Record<string, 'TRENDS' | 'LIFECYCLE' | 'STICKINESS'> = {
-                Volume: 'TRENDS',
-                Lifecycle: 'LIFECYCLE',
-                Stickiness: 'STICKINESS',
-            }
-            if (shown_as) {
-                insight = SHOWN_AS_MAPPING[shown_as]
-            }
+            const { display, interval, date_from, date_to, filter_test_accounts, formula, insight } = filters
 
             const properties: Record<string, any> = {
                 is_first_component_load: isFirstLoad,

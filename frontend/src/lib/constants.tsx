@@ -51,6 +51,7 @@ export const CUSTOM_EVENT = 'custom_event'
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
 
+// TODO: Deprecated; should be removed once backend is updated
 export enum ShownAsValue {
     VOLUME = 'Volume',
     STICKINESS = 'Stickiness',
