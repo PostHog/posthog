@@ -259,7 +259,7 @@ if settings.TEST:
     urlpatterns.append(path("delete_events/", delete_events))
 
 # Allow crawling on PostHog Cloud, disable by default for all self-hosted installations
-if not settings.MULTI_TENANCY and not settings.ALLOW_SEARCH_ENGINE_CRAWLING:
+if not settings.MULTI_TENANCY:
     urlpatterns.append(opt_slash_path("robots.txt", robots_txt))
 
 # Routes added individually to remove login requirement
