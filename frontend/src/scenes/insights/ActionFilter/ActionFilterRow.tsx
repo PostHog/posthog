@@ -38,7 +38,7 @@ interface ActionFilterRowProps {
     singleFilter?: boolean
     showOr?: boolean
     letter?: string | null
-    verbose?: boolean
+    horizontalUI?: boolean
 }
 
 export function ActionFilterRow({
@@ -50,7 +50,7 @@ export function ActionFilterRow({
     singleFilter,
     showOr,
     letter,
-    verbose = false,
+    horizontalUI = false,
 }: ActionFilterRowProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
@@ -124,7 +124,7 @@ export function ActionFilterRow({
                         <span>{letter}</span>
                     </Col>
                 )}
-                {verbose && (
+                {horizontalUI && (
                     <>
                         <Col>Showing</Col>
                         <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
@@ -160,7 +160,7 @@ export function ActionFilterRow({
                         onClose={() => selectFilter(null)}
                     />
                 </Col>
-                {!verbose && (
+                {!horizontalUI && (
                     <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
                         {!hideMathSelector && (
                             <MathSelector

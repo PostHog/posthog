@@ -22,7 +22,7 @@ export interface ActionFilterProps {
     sortable?: boolean // Whether actions/events can be sorted (used mainly for funnel step reordering)
     showLetters?: boolean // Whether to show a letter indicator identifying each graph
     showOr?: boolean // Whether to show the "OR" label after each filter
-    verbose?: boolean
+    horizontalUI?: boolean
 }
 
 export function ActionFilter({
@@ -37,7 +37,7 @@ export function ActionFilter({
     sortable = false,
     showLetters = false,
     showOr = false,
-    verbose = false,
+    horizontalUI = false,
 }: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
@@ -92,7 +92,7 @@ export function ActionFilter({
                             hidePropertySelector={hidePropertySelector}
                             singleFilter={singleFilter}
                             showOr={showOr}
-                            verbose={verbose}
+                            horizontalUI={horizontalUI}
                         />
                     ))
                 )

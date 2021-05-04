@@ -42,7 +42,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 <Skeleton active />
             ) : (
                 <ActionFilter
-                    verbose={featureFlags['4050-query-ui-optB']}
+                    horizontalUI={featureFlags['4050-query-ui-optB']}
                     filters={filters}
                     setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                     typeKey={'trends_' + view}
