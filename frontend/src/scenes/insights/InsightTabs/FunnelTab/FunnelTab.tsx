@@ -45,7 +45,7 @@ export function FunnelTab(): JSX.Element {
                     setFilters={(filters: Record<string, any>): void => setFilters(filters, false)}
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
-                    copy="Add funnel step"
+                    buttonCopy="Add funnel step"
                     sortable
                 />
                 <hr />
