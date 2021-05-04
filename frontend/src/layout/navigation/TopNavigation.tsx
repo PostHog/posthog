@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Button, Card, Dropdown, Tooltip } from 'antd'
+import { Button, Card, Dropdown, Radio, Tooltip } from 'antd'
 import {
     ProjectOutlined,
     DownOutlined,
@@ -78,10 +78,10 @@ export function TopNavigation(): JSX.Element {
     const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen, inviteMembersModalOpen } = useValues(
         navigationLogic
     )
-    const { user } = useValues(userLogic)
+    const { user, productionEnvironment } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { billing } = useValues(billingLogic)
-    const { logout, updateCurrentTeam, updateCurrentOrganization } = useActions(userLogic)
+    const { logout, updateCurrentTeam, updateCurrentOrganization, setProductionEnvironment } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
     const { push } = router.actions
@@ -306,6 +306,19 @@ export function TopNavigation(): JSX.Element {
                             {user?.team?.name} <DownOutlined className="ml-05" />
                         </div>
                     </Dropdown>
+                    <div style={{ marginLeft: '1rem' }}>
+                        <Radio.Group
+                            value={productionEnvironment}
+                            onChange={(e) => setProductionEnvironment(e.target.value)}
+                        >
+                            <Tooltip title="All queries use only production environment data.">
+                                <Radio.Button value={true}>PROD</Radio.Button>
+                            </Tooltip>
+                            <Tooltip title="All queries use only test environment data. Add test_[apiKey] to your apiKey to mark an environment as test.">
+                                <Radio.Button value={false}>TEST</Radio.Button>
+                            </Tooltip>
+                        </Radio.Group>
+                    </div>
                 </div>
                 {user && (
                     <div>

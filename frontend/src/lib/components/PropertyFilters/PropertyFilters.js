@@ -95,24 +95,28 @@ export function PropertyFilters({
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
 
+    const hiddenFilters = ['test_environment']
+
     return (
         <div className="mb" style={style}>
             {filters?.length &&
-                filters.map((item, index) => {
-                    return (
-                        <FilterRow
-                            key={index}
-                            logic={logic}
-                            item={item}
-                            index={index}
-                            totalCount={filters.length - 1} // empty state
-                            filters={filters}
-                            pageKey={pageKey}
-                            showConditionBadge={showConditionBadge}
-                            popoverPlacement={popoverPlacement}
-                        />
-                    )
-                })}
+                filters
+                    .filter((item) => !hiddenFilters.includes(item.key))
+                    .map((item, index) => {
+                        return (
+                            <FilterRow
+                                key={index}
+                                logic={logic}
+                                item={item}
+                                index={index}
+                                totalCount={filters.length - 1} // empty state
+                                filters={filters}
+                                pageKey={pageKey}
+                                showConditionBadge={showConditionBadge}
+                                popoverPlacement={popoverPlacement}
+                            />
+                        )
+                    })}
         </div>
     )
 }
