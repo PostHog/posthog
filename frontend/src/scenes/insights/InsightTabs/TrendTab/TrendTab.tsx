@@ -42,10 +42,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 <Skeleton active />
             ) : (
                 <ActionFilter
+                    horizontalUI={featureFlags['4050-query-ui-optB']}
                     filters={filters}
                     setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                     typeKey={'trends_' + view}
-                    copy="Add graph series"
+                    buttonCopy="Add graph series"
                     showLetters={isUsingFormulas}
                     singleFilter={filters.insight === ViewType.LIFECYCLE}
                     hidePropertySelector={filters.insight === ViewType.LIFECYCLE}
