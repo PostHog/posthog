@@ -61,12 +61,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     ) : (
                         <div className="toggles">
                             {lifecycles.map((lifecycle, idx) => (
-                                <div key={idx}>
+                                <div key={idx} className={lifecycle.name}>
                                     {lifecycle.name}{' '}
                                     <div>
                                         <Switch
                                             size="small"
-                                            className={lifecycle.name}
                                             defaultChecked
                                             onChange={() => toggleLifecycle(lifecycle.name)}
                                         />

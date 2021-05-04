@@ -1,26 +1,27 @@
 .toggles {
     text-transform: uppercase;
     div {
-        font-size: 12px;
+        font-size: 13px;
         display: flex;
         justify-content: space-between;
         padding-bottom: 4px;
         align-items: center;
+        font-weight: 700;
     }
 
     .new {
-        background-color: var(--lifecycle-new);
+        color: var(--lifecycle-new);
     }
 
     .returning {
-        background-color: var(--lifecycle-returning);
+        color: var(--lifecycle-returning);
     }
 
     .resurrecting {
-        background-color: var(--lifecycle-resurrecting);
+        color: var(--lifecycle-resurrecting);
     }
 
     .dormant {
-        background-color: var(--lifecycle-dormant);
+        color: var(--lifecycle-dormant);
     }
 }
