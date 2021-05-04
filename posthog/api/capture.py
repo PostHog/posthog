@@ -257,6 +257,7 @@ def get_event(request):
         else:
             task_name = "posthog.tasks.process_event.process_event_with_plugins"
             celery_queue = settings.PLUGINS_CELERY_QUEUE
+            print(f"Adding task to celery, {task_name}, {celery_queue}, {event['event']}")
             celery_app.send_task(
                 name=task_name,
                 queue=celery_queue,
