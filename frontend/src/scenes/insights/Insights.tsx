@@ -283,7 +283,7 @@ export function Insights(): JSX.Element {
                     </Col>
                 ) : (
                     <>
-                        <Col xs={24} xl={7}>
+                        <Col xs={24} xl={featureFlags['4050-query-ui-optB'] ? 24 : 7}>
                             <Card className="" style={{ overflow: 'visible' }}>
                                 <div>
                                     {/*
@@ -312,7 +312,9 @@ export function Insights(): JSX.Element {
                                 </Card>
                             )}
                         </Col>
-                        <Col xs={24} xl={17}>
+                        <Col xs={24} xl={featureFlags['4050-query-ui-optB'] ? 24 : 17}>
+                            {' '}
+                            {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/*
                         These are filters that are reused between insight features.
                         They each have generic logic that updates the url
