@@ -8,6 +8,8 @@ import { CloseButton } from 'lib/components/CloseButton'
 import PropertyFilterButton from './PropertyFilterButton'
 import '../../../scenes/actions/Actions.scss'
 
+import { hiddenFilters } from 'lib/components/PropertyKeyInfo'
+
 const FilterRow = React.memo(function FilterRow({
     item,
     index,
@@ -94,8 +96,6 @@ export function PropertyFilters({
 }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
-
-    const hiddenFilters = ['$test_environment']
 
     return (
         <div className="mb" style={style}>

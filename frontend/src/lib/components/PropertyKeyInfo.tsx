@@ -433,6 +433,8 @@ export const keyMapping: KeyMappingInterface = {
     },
 }
 
+export const hiddenFilters: Array<string> = ['$test_environment']
+
 interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
