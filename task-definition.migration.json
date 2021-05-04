@@ -212,7 +212,10 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-migrate"]
+            "command": ["./bin/docker-migrate"],
+            "linuxParameters": {
+                "initProcessEnabled": true
+            }
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
