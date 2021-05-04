@@ -4,69 +4,25 @@ import { useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
-import { PlusCircleOutlined, EllipsisOutlined } from '@ant-design/icons'
-import {
-    SortableContainer as sortableContainer,
-    SortableElement as sortableElement,
-    SortableHandle as sortableHandle,
-} from 'react-sortable-hoc'
+import { PlusCircleOutlined } from '@ant-design/icons'
 import { alphabet } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ActionFilter as ActionFilterType, FilterType, Optional } from '~/types'
+import { SortableContainer, SortableActionFilterRow } from './Sortable'
 
-const DragHandle = sortableHandle(() => (
-    <span className="action-filter-drag-handle">
-        <EllipsisOutlined />
-    </span>
-))
-
-interface SortableActionFilterRowProps {
-    logic: typeof entityFilterLogic
-    filter: ActionFilterType
-    filterIndex: number
-    hideMathSelector?: boolean
-    hidePropertySelector?: boolean
-    filterCount: number
-}
-
-const SortableActionFilterRow = sortableElement(
-    ({
-        logic,
-        filter,
-        filterIndex,
-        hideMathSelector,
-        hidePropertySelector,
-        filterCount,
-    }: SortableActionFilterRowProps) => (
-        <div className="draggable-action-filter">
-            {filterCount > 1 && <DragHandle />}
-            <ActionFilterRow
-                logic={logic}
-                filter={filter}
-                // sortableElement requires, yet eats the index prop, so passing via filterIndex here
-                index={filterIndex}
-                key={filterIndex}
-                hideMathSelector={hideMathSelector}
-                hidePropertySelector={hidePropertySelector}
-            />
-        </div>
-    )
-)
-const SortableContainer = sortableContainer(({ children }: { children: React.ReactNode }) => {
-    return <div>{children}</div>
-})
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
     filters: Optional<FilterType, 'type'>
     typeKey: string
     hideMathSelector?: boolean
     hidePropertySelector?: boolean
-    copy: string
+    buttonCopy: string
     disabled?: boolean
     singleFilter?: boolean
     sortable?: boolean
     showLetters?: boolean
     showOr?: boolean
+    verbose?: boolean
 }
 
 export function ActionFilter({
@@ -75,12 +31,13 @@ export function ActionFilter({
     typeKey,
     hideMathSelector,
     hidePropertySelector = false,
-    copy = '',
+    buttonCopy = '',
     disabled = false,
     singleFilter = false,
     sortable = false,
     showLetters = false,
     showOr = false,
+    verbose = false,
 }: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
@@ -135,6 +92,7 @@ export function ActionFilter({
                             hidePropertySelector={hidePropertySelector}
                             singleFilter={singleFilter}
                             showOr={showOr}
+                            verbose={verbose}
                         />
                     ))
                 )
@@ -149,7 +107,7 @@ export function ActionFilter({
                         icon={<PlusCircleOutlined />}
                         disabled={disabled}
                     >
-                        {copy || 'Action or event'}
+                        {buttonCopy || 'Action or event'}
                     </Button>
                 </div>
             )}
