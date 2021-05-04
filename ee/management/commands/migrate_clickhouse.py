@@ -5,7 +5,12 @@ from infi.clickhouse_orm import Database  # type: ignore
 from infi.clickhouse_orm.migrations import MigrationHistory  # type: ignore
 from infi.clickhouse_orm.utils import import_submodules  # type: ignore
 
-from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
+from posthog.settings import (
+    CLICKHOUSE_DATABASE,
+    CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS,
+    CLICKHOUSE_PASSWORD,
+    CLICKHOUSE_USER,
+)
 
 MIGRATIONS_PACKAGE_NAME = "ee.clickhouse.migrations"
 
@@ -23,9 +28,14 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        for index, host in enumerate(CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS):
+            print(f"Updating host {host} ({index + 1}/{len(CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS)})")
+            self.migrate(host, options)
+
+    def migrate(self, host, options):
         database = Database(
             CLICKHOUSE_DATABASE,
-            db_url=CLICKHOUSE_HTTP_URL,
+            db_url=host,
             username=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,
             verify_ssl_cert=False,
@@ -33,9 +43,10 @@ class Command(BaseCommand):
 
         if options["plan"]:
             print("List of clickhouse migrations to be applied:")
-            for migration_name in self.get_migrations(database, options["upto"]):
+            migrations = list(self.get_migrations(database, options["upto"]))
+            for migration_name in migrations:
                 print(f"Migration would get applied: {migration_name}")
-            else:
+            if len(migrations) == 0:
                 print("Clickhouse migrations up to date!")
         elif options["fake"]:
             for migration_name in self.get_migrations(database, options["upto"]):
