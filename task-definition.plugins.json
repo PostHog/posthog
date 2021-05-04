@@ -115,7 +115,10 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STATSD_HOST::"
                 }
             ],
-            "entryPoint": ["./bin/plugin-server", "--no-restart-loop"]
+            "entryPoint": ["./bin/plugin-server", "--no-restart-loop"],
+            "linuxParameters": {
+                "initProcessEnabled": true
+            }
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
