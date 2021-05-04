@@ -25,19 +25,19 @@ export async function startSchedule(
         !stopped &&
             weHaveTheLock &&
             (await pluginSchedulePromise) &&
-            runTasksDebounced(server!, piscina!, 'runEveryMinute')
+            runScheduleDebounced(server!, piscina!, 'runEveryMinute')
     })
     const runEveryHourJob = schedule.scheduleJob('0 * * * *', async () => {
         !stopped &&
             weHaveTheLock &&
             (await pluginSchedulePromise) &&
-            runTasksDebounced(server!, piscina!, 'runEveryHour')
+            runScheduleDebounced(server!, piscina!, 'runEveryHour')
     })
     const runEveryDayJob = schedule.scheduleJob('0 0 * * *', async () => {
         !stopped &&
             weHaveTheLock &&
             (await pluginSchedulePromise) &&
-            runTasksDebounced(server!, piscina!, 'runEveryDay')
+            runScheduleDebounced(server!, piscina!, 'runEveryDay')
     })
 
     const unlock = await startRedlock({
@@ -91,7 +91,7 @@ export async function loadPluginSchedule(
     throw new Error('Could not load plugin schedule in time')
 }
 
-export function runTasksDebounced(server: PluginsServer, piscina: Piscina, taskName: string): void {
+export function runScheduleDebounced(server: PluginsServer, piscina: Piscina, taskName: string): void {
     const runTask = (pluginConfigId: PluginConfigId) => piscina.runTask({ task: taskName, args: { pluginConfigId } })
 
     for (const pluginConfigId of server.pluginSchedule?.[taskName] || []) {

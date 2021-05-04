@@ -3,7 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import {
     loadPluginSchedule,
     LOCKED_RESOURCE,
-    runTasksDebounced,
+    runScheduleDebounced,
     startSchedule,
     waitForTasksToFinish,
 } from '../src/main/services/schedule'
@@ -30,7 +30,7 @@ function createEvent(index = 0): PluginEvent {
     }
 }
 
-test('runTasksDebounced', async () => {
+test('runScheduleDebounced', async () => {
     const workerThreads = 1
     const testCode = `
         const counterKey = 'test_counter_2'
@@ -58,9 +58,9 @@ test('runTasksDebounced', async () => {
     const event1 = await processEvent(createEvent())
     expect(event1.properties['counter']).toBe(0)
 
-    runTasksDebounced(server, piscina, 'runEveryMinute')
-    runTasksDebounced(server, piscina, 'runEveryMinute')
-    runTasksDebounced(server, piscina, 'runEveryMinute')
+    runScheduleDebounced(server, piscina, 'runEveryMinute')
+    runScheduleDebounced(server, piscina, 'runEveryMinute')
+    runScheduleDebounced(server, piscina, 'runEveryMinute')
     await delay(100)
 
     const event2 = await processEvent(createEvent())
@@ -77,7 +77,7 @@ test('runTasksDebounced', async () => {
     await closeServer()
 })
 
-test('runTasksDebounced exception', async () => {
+test('runScheduleDebounced exception', async () => {
     const workerThreads = 2
     const testCode = `
         async function runEveryMinute (meta) {
@@ -90,7 +90,7 @@ test('runTasksDebounced exception', async () => {
     const [server, closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log })
     server.pluginSchedule = await loadPluginSchedule(piscina)
 
-    runTasksDebounced(server, piscina, 'runEveryMinute')
+    runScheduleDebounced(server, piscina, 'runEveryMinute')
 
     await waitForTasksToFinish(server)
 

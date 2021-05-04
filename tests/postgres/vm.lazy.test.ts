@@ -1,5 +1,6 @@
 import { mocked } from 'ts-jest/utils'
 
+import { PluginTaskType } from '../../src/types'
 import { clearError, processError } from '../../src/utils/db/error'
 import { status } from '../../src/utils/status'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
@@ -21,7 +22,9 @@ describe('LazyPluginVM', () => {
                 processEvent: 'processEvent',
             },
             tasks: {
-                runEveryMinute: 'runEveryMinute',
+                schedule: {
+                    runEveryMinute: 'runEveryMinute',
+                },
             },
         }
 
@@ -35,9 +38,9 @@ describe('LazyPluginVM', () => {
 
             expect(await vm.getProcessEvent()).toEqual('processEvent')
             expect(await vm.getProcessEventBatch()).toEqual(null)
-            expect(await vm.getTask('someTask')).toEqual(null)
-            expect(await vm.getTask('runEveryMinute')).toEqual('runEveryMinute')
-            expect(await vm.getTasks()).toEqual(mockVM.tasks)
+            expect(await vm.getTask('someTask', PluginTaskType.Schedule)).toEqual(null)
+            expect(await vm.getTask('runEveryMinute', PluginTaskType.Schedule)).toEqual('runEveryMinute')
+            expect(await vm.getTasks(PluginTaskType.Schedule)).toEqual(mockVM.tasks.schedule)
         })
 
         it('logs info and clears errors on success', async () => {
@@ -63,8 +66,8 @@ describe('LazyPluginVM', () => {
 
             expect(await vm.getProcessEvent()).toEqual(null)
             expect(await vm.getProcessEventBatch()).toEqual(null)
-            expect(await vm.getTask('runEveryMinute')).toEqual(null)
-            expect(await vm.getTasks()).toEqual({})
+            expect(await vm.getTask('runEveryMinute', PluginTaskType.Schedule)).toEqual(null)
+            expect(await vm.getTasks(PluginTaskType.Schedule)).toEqual({})
         })
 
         it('logs failure', async () => {

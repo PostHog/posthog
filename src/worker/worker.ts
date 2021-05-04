@@ -6,14 +6,12 @@ import { processError } from '../utils/db/error'
 import { createServer } from '../utils/db/server'
 import { status } from '../utils/status'
 import { cloneObject, pluginConfigIdFromStack } from '../utils/utils'
-import { ingestEvent } from './ingestion/ingest-event'
-import { runOnRetry, runPlugins, runPluginsOnBatch, runPluginTask } from './plugins/run'
-import { loadSchedule, setupPlugins } from './plugins/setup'
-import { teardownPlugins } from './plugins/teardown'
+import { setupPlugins } from './plugins/setup'
+import { workerTasks } from './tasks'
 
-type TaskWorker = ({ task, args }: { task: string; args: any }) => Promise<any>
+export type PiscinaTaskWorker = ({ task, args }: { task: string; args: any }) => Promise<any>
 
-export async function createWorker(config: PluginsServerConfig, threadId: number): Promise<TaskWorker> {
+export async function createWorker(config: PluginsServerConfig, threadId: number): Promise<PiscinaTaskWorker> {
     initApp(config)
 
     status.info('🧵', `Starting Piscina worker thread ${threadId}…`)
@@ -30,49 +28,23 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
     return createTaskRunner(server)
 }
 
-export const createTaskRunner = (server: PluginsServer): TaskWorker => async ({ task, args }) => {
+export const createTaskRunner = (server: PluginsServer): PiscinaTaskWorker => async ({ task, args }) => {
     const timer = new Date()
     let response
 
     Sentry.setContext('task', { task, args })
 
-    if (task === 'hello') {
-        response = `hello ${args[0]}!`
-    }
-    if (task === 'processEvent') {
-        const processedEvent = await runPlugins(server, args.event)
-        // must clone the object, as we may get from VM2 something like { ..., properties: Proxy {} }
-        response = cloneObject(processedEvent as Record<string, any>)
-    }
-    if (task === 'processEventBatch') {
-        const processedEvents = await runPluginsOnBatch(server, args.batch)
-        // must clone the object, as we may get from VM2 something like { ..., properties: Proxy {} }
-        response = cloneObject(processedEvents as any[])
-    }
-    if (task === 'retry') {
-        response = await runOnRetry(server, args.retry)
-    }
-    if (task === 'getPluginSchedule') {
-        response = cloneObject(server.pluginSchedule)
-    }
-    if (task === 'ingestEvent') {
-        response = cloneObject(await ingestEvent(server, args.event))
-    }
-    if (task.startsWith('runEvery')) {
-        const { pluginConfigId } = args
-        response = cloneObject(await runPluginTask(server, task, pluginConfigId))
-    }
-    if (task === 'reloadPlugins') {
-        await setupPlugins(server)
-    }
-    if (task === 'reloadSchedule') {
-        await loadSchedule(server)
-    }
-    if (task === 'teardownPlugins') {
-        await teardownPlugins(server)
-    }
-    if (task === 'flushKafkaMessages') {
-        await server.kafkaProducer?.flush()
+    if (task in workerTasks) {
+        try {
+            // must clone the object, as we may get from VM2 something like { ..., properties: Proxy {} }
+            response = cloneObject(await workerTasks[task](server, args))
+        } catch (e) {
+            status.info('🔔', e)
+            Sentry.captureException(e)
+            response = { error: e.message }
+        }
+    } else {
+        response = { error: `Worker task "${task}" not found in: ${Object.keys(workerTasks).join(', ')}` }
     }
 
     server.statsd?.timing(`piscina_task.${task}`, timer)

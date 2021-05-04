@@ -6,8 +6,8 @@ import { createCache } from './extensions/cache'
 import { createConsole } from './extensions/console'
 import { createGeoIp } from './extensions/geoip'
 import { createGoogle } from './extensions/google'
+import { createJobs } from './extensions/jobs'
 import { createPosthog } from './extensions/posthog'
-import { createRetry } from './extensions/retry'
 import { createStorage } from './extensions/storage'
 import { imports } from './imports'
 import { transformCode } from './transforms'
@@ -66,7 +66,7 @@ export async function createPluginConfigVM(
             attachments: pluginConfig.attachments,
             storage: createStorage(server, pluginConfig),
             geoip: createGeoIp(server),
-            retry: createRetry(server, pluginConfig),
+            jobs: createJobs(server, pluginConfig),
         },
         '__pluginHostMeta'
     )
@@ -154,17 +154,31 @@ export async function createPluginConfigVM(
                 teardownPlugin: __asyncFunctionGuard(__bindMeta('teardownPlugin')),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent')),
                 processEventBatch: __asyncFunctionGuard(__bindMeta('processEventBatch')),
-                onRetry: __asyncFunctionGuard(__bindMeta('onRetry')),
             };
 
-            // gather the runEveryX commands and export in __tasks
-            const __tasks = {};
+            const __tasks = {
+                schedule: {},
+                job: {},
+            };
+
             for (const exportDestination of __getExportDestinations().reverse()) {
+                // gather the runEveryX commands and export in __tasks
                 for (const [name, value] of Object.entries(exportDestination)) {
                     if (name.startsWith("runEvery") && typeof value === 'function') {
-                        __tasks[name] = {
+                        __tasks.schedule[name] = {
                             name: name,
-                            type: 'runEvery',
+                            type: 'schedule',
+                            exec: __bindMeta(value)
+                        }
+                    }
+                }
+
+                // gather all jobs
+                if (typeof exportDestination['jobs'] === 'object') {
+                    for (const [key, value] of Object.entries(exportDestination['jobs'])) {
+                        __tasks.job[key] = {
+                            name: key,
+                            type: 'job',
                             exec: __bindMeta(value)
                         }
                     }
