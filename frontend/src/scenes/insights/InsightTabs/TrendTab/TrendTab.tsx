@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Tooltip, Row, Skeleton, Switch } from 'antd'
+import { Tooltip, Row, Skeleton, Checkbox } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined } from '@ant-design/icons'
@@ -61,12 +61,12 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     ) : (
                         <div className="toggles">
                             {lifecycles.map((lifecycle, idx) => (
-                                <div key={idx} className={lifecycle.name}>
+                                <div key={idx}>
                                     {lifecycle.name}{' '}
                                     <div>
-                                        <Switch
-                                            size="small"
+                                        <Checkbox
                                             defaultChecked
+                                            className={lifecycle.name}
                                             onChange={() => toggleLifecycle(lifecycle.name)}
                                         />
                                         <Tooltip title={lifecycle.tooltip}>
