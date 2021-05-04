@@ -234,7 +234,10 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-server-newrelic"]
+            "command": ["./bin/docker-server-newrelic"],
+            "linuxParameters": {
+                "initProcessEnabled": true
+            }
         }
     ],
     "requiresCompatibilities": ["FARGATE"],
