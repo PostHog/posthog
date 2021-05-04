@@ -17,7 +17,7 @@ type WarningType =
     | 'real_project_with_no_events'
     | null
 
-export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, WarningType>>({
+export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, WarningType, OrganizationType>>({
     actions: {
         setMenuCollapsed: (collapsed: boolean) => ({ collapsed }),
         collapseMenu: () => {},
@@ -68,11 +68,20 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
     },
     selectors: {
         systemStatus: [
-            () => [systemStatusLogic.selectors.systemStatus, systemStatusLogic.selectors.systemStatusLoading],
-            (statusMetrics, statusLoading) => {
+            () => [
+                systemStatusLogic.selectors.systemStatus,
+                systemStatusLogic.selectors.systemStatusLoading,
+                preflightLogic.selectors.siteUrlMisconfigured,
+            ],
+            (statusMetrics, statusLoading, siteUrlMisconfigured) => {
                 if (statusLoading) {
                     return true
                 }
+
+                if (siteUrlMisconfigured) {
+                    return false
+                }
+
                 const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive']
                 let aliveSignals = 0
                 for (const metric of statusMetrics) {

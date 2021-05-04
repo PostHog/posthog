@@ -10,6 +10,9 @@ import { teamLogic } from 'scenes/teamLogic'
 const defaultValue = 'https://'
 
 export const appUrlsLogic = kea<appUrlsLogicType<TrendResult>>({
+    connect: {
+        values: [teamLogic, ['currentTeam']],
+    },
     actions: () => ({
         setAppUrls: (appUrls: string[]) => ({ appUrls }),
         addUrl: (value: string) => ({ value }),
@@ -56,8 +59,13 @@ export const appUrlsLogic = kea<appUrlsLogicType<TrendResult>>({
             },
         },
     }),
-    events: ({ actions }) => ({
-        afterMount: actions.loadSuggestions,
+    events: ({ actions, values }) => ({
+        afterMount: () => {
+            actions.loadSuggestions()
+            if (values.currentTeam) {
+                actions.setAppUrls(values.currentTeam.app_urls)
+            }
+        },
     }),
     reducers: () => ({
         appUrls: [
@@ -85,8 +93,11 @@ export const appUrlsLogic = kea<appUrlsLogicType<TrendResult>>({
             // TODO: Need to refactor this to use `teamLogic.actions.updateCurrentTeam`
             const app_urls = [...values.appUrls, value]
             await api.update('api/projects/@current', { app_urls })
-            if (typeof props.actionId === 'number') {
-                window.location.href = appEditorUrl(props.actionId, value)
+            if (typeof props.actionId === 'number' || props.isToolbarModal) {
+                window.location.href = appEditorUrl(
+                    value,
+                    typeof props.actionId === 'number' ? props.actionId : undefined
+                )
             }
         },
         removeUrl: sharedListeners.saveAppUrls,

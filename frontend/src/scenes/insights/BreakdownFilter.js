@@ -1,17 +1,17 @@
 import React, { useState } from 'react'
 import { Tooltip, Select, Tabs, Popover, Button } from 'antd'
 import { useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { cohortsModel } from '../../models/cohortsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { ShownAsValue } from 'lib/constants'
+import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { ViewType } from './insightLogic'
 
 const { TabPane } = Tabs
 
 function PropertyFilter({ breakdown, onChange }) {
-    const { eventProperties } = useValues(teamLogic)
+    const { transformedPropertyDefinitions } = useValues(propertyDefinitionsLogic)
     const { personProperties } = useValues(propertyFilterLogic({ pageKey: 'breakdown' }))
     return (
         <SelectGradientOverflow
@@ -24,9 +24,9 @@ function PropertyFilter({ breakdown, onChange }) {
             filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
             data-attr="prop-breakdown-select"
         >
-            {eventProperties.length > 0 && (
+            {transformedPropertyDefinitions.length > 0 && (
                 <Select.OptGroup key="Event properties" label="Event properties">
-                    {Object.entries(eventProperties).map(([key, item], index) => (
+                    {Object.entries(transformedPropertyDefinitions).map(([key, item], index) => (
                         <Select.Option
                             key={'event_' + key}
                             value={'event_' + item.value}
@@ -45,7 +45,7 @@ function PropertyFilter({ breakdown, onChange }) {
                             key={'person_' + key}
                             value={'person_' + item.value}
                             type="person"
-                            data-attr={'prop-filter-person-' + (eventProperties.length + index)}
+                            data-attr={'prop-filter-person-' + (transformedPropertyDefinitions.length + index)}
                         >
                             <PropertyKeyInfo value={item.value} />
                         </Select.Option>
@@ -122,7 +122,7 @@ function Content({ breakdown, breakdown_type, onChange }) {
 
 export function BreakdownFilter({ filters, onChange }) {
     const { cohorts } = useValues(cohortsModel)
-    const { breakdown, breakdown_type, shown_as } = filters
+    const { breakdown, breakdown_type, insight } = filters
     let [open, setOpen] = useState(false)
     let label = breakdown
     if (breakdown_type === 'cohort' && breakdown) {
@@ -148,19 +148,19 @@ export function BreakdownFilter({ filters, onChange }) {
                     }}
                 />
             }
-            trigger={shown_as === ShownAsValue.STICKINESS || shown_as === ShownAsValue.LIFECYCLE ? 'none' : 'click'}
+            trigger={insight === ViewType.STICKINESS || insight === ViewType.LIFECYCLE ? 'none' : 'click'}
             placement="bottomLeft"
         >
             <Tooltip
                 title={
-                    shown_as === ShownAsValue.STICKINESS &&
+                    insight === ViewType.STICKINESS &&
                     'Break down by is not yet available in combination with Stickiness'
                 }
             >
                 <Button
                     shape="round"
                     type={breakdown ? 'primary' : 'default'}
-                    disabled={shown_as === ShownAsValue.STICKINESS || shown_as === ShownAsValue.LIFECYCLE}
+                    disabled={insight === ViewType.STICKINESS || insight === ViewType.LIFECYCLE}
                     data-attr="add-breakdown-button"
                 >
                     <PropertyKeyInfo value={label || 'Add breakdown'} />

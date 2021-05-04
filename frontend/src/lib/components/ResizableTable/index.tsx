@@ -1,12 +1,15 @@
-import React, { useLayoutEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Table, TableProps } from 'antd'
-import { Resizable } from 'react-resizable'
-import { getActiveBreakpoint, getFullwidthColumnSize, getMaxColumnWidth, getMinColumnWidth } from './responsiveUtils'
+import { ColumnType } from 'antd/lib/table'
+import { ResizableProps } from 'react-resizable'
+import ResizeObserver from 'resize-observer-polyfill'
 import { RenderedCell } from 'rc-table/lib/interface'
+import { getActiveBreakpoint, getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from './responsiveUtils'
+import VirtualTableHeader from './VirtualTableHeader'
 
 import './index.scss'
 
-export interface ResizableColumnType<RecordType> {
+export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> {
     title: string | JSX.Element
     key?: string
     render: (record: RecordType, ...rest: any) => JSX.Element | RenderedCell<RecordType>
@@ -14,42 +17,16 @@ export interface ResizableColumnType<RecordType> {
     span: number
 }
 
-function ResizableTitle(props: any): JSX.Element {
-    const { children, onResize, width, minConstraints, maxConstraints, ...restProps } = props
-    if (!width) {
-        return <th {...restProps} />
-    }
-    const [isDragging, setIsDragging] = useState(false)
-    return (
-        <Resizable
-            width={width}
-            height={0}
-            minConstraints={minConstraints}
-            maxConstraints={maxConstraints}
-            axis="x"
-            handle={<span className="resizable-handle" data-drag-active={isDragging} />}
-            onResize={onResize}
-            onResizeStart={(e) => {
-                e.preventDefault()
-                setIsDragging(true)
-            }}
-            onResizeStop={() => setIsDragging(false)}
-            draggableOpts={{ enableUserSelectHack: false }}
-        >
-            <th {...restProps}>
-                <div className="th-inner-wrapper">{children}</div>
-            </th>
-        </Resizable>
-    )
+export interface InternalColumnType<RecordType> extends ResizableColumnType<RecordType> {
+    width?: number
 }
+
+export type ResizeHandler = Exclude<ResizableProps['onResize'], undefined>
+
+export const ANTD_EXPAND_BUTTON_WIDTH = 48
 
 interface ResizableTableProps<RecordType> extends TableProps<RecordType> {
     columns: ResizableColumnType<RecordType>[]
-}
-
-interface InternalColumnType<RecordType> extends ResizableColumnType<RecordType> {
-    onHeaderCell: (props: any) => React.HTMLAttributes<HTMLElement>
-    width: number
 }
 
 // Type matches antd.Table
@@ -59,19 +36,27 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
     ...props
 }: ResizableTableProps<RecordType>): JSX.Element {
     const breakpoint = getActiveBreakpoint()
-    const minWidth = getMinColumnWidth(breakpoint)
-    const maxWidth = getMaxColumnWidth(breakpoint)
+    const minColumnWidth = getMinColumnWidth(breakpoint)
+    const [columns, setColumns] = useState(() => {
+        const lastIndex = initialColumns.length
+        return initialColumns.map((col, index) => ({
+            ...col,
+            width: index === lastIndex ? undefined : minColumnWidth,
+        })) as InternalColumnType<RecordType>[]
+    })
+    const [headerColumns, setHeaderColumns] = useState(columns)
+    const [headerShouldRender, setHeaderShouldRender] = useState(false)
     const scrollWrapperRef = useRef<HTMLDivElement>(null)
     const overlayRef = useRef<HTMLDivElement>(null)
-    function getTotalWidth(columns: InternalColumnType<RecordType>[]): number {
-        return columns.reduce((total, current) => total + current.width, 0)
-    }
+    const timeout: any = useRef()
+
     function setScrollableRight(value: boolean): void {
         if (value) {
             return overlayRef?.current?.classList.add('scrollable-right')
         }
         return overlayRef?.current?.classList.remove('scrollable-right')
     }
+
     function updateScrollGradient(): void {
         if (overlayRef.current) {
             const overlay = overlayRef.current
@@ -82,67 +67,151 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
             }
         }
     }
-    const handleResize = (index: number) => (_: unknown, { size: { width } }: { size: { width: number } }) => {
-        setColumns((columns: InternalColumnType<RecordType>[]) => {
-            const nextColumns = [...columns]
-            nextColumns[index] = {
-                ...nextColumns[index],
-                width,
+
+    function getColumnCSSWidths(): Array<number | undefined> {
+        const columnNodes = scrollWrapperRef.current?.querySelectorAll<HTMLElement>('.ant-table-content colgroup col')
+        if (columnNodes) {
+            const cols = Array.from(columnNodes)
+            return cols.map((col) => (col.style.width ? parsePixelValue(col.style.width) : undefined))
+        }
+        return []
+    }
+
+    function updateColumnWidth(index: number, width: number): void {
+        const col = scrollWrapperRef.current?.querySelector(
+            // nth-child is 1-indexed. first column is fixed. last column width must be uncontrolled.
+            `.ant-table-content colgroup col:nth-child(${index + 2}):not(:last-child)`
+        )
+        col?.setAttribute('style', `width: ${width}px;`)
+    }
+
+    function unsetLastColumnStyle(): void {
+        // last column width must be uncontrolled.
+        const col = scrollWrapperRef.current?.querySelector('.ant-table-content colgroup col:last-child')
+        col?.removeAttribute('style')
+    }
+
+    function updateTableWidth(): void {
+        // <table> elements have super strange auto-sizing: (https://css-tricks.com/fixing-tables-long-strings/)
+        // We control the width of the <table> based on the width of the virtual header.
+        const header = scrollWrapperRef.current?.querySelector('.resizable-virtual-table-header')
+        if (header?.childNodes) {
+            const children = Array.from(header?.childNodes) as HTMLElement[]
+            const headerWidth = children.reduce((total, { offsetWidth }) => total + (offsetWidth ?? 0), 0)
+            if (headerWidth) {
+                const table = scrollWrapperRef.current?.querySelector('.ant-table table')
+                table?.setAttribute('style', `width: ${headerWidth}px;`)
             }
-            return nextColumns
+        }
+        unsetLastColumnStyle()
+    }
+
+    const handleColumnResize = (index: number): ResizeHandler => (_, { size: { width } }) => {
+        if (timeout.current) {
+            cancelAnimationFrame(timeout.current)
+        }
+        timeout.current = requestAnimationFrame(function () {
+            updateColumnWidth(index, width)
+            updateTableWidth()
         })
         updateScrollGradient()
     }
-    const [columns, setColumns] = useState(() => {
-        const defaultColumnWidth = getFullwidthColumnSize()
-        return initialColumns.map(
-            (column, index) =>
-                ({
-                    ...column,
-                    width: defaultColumnWidth,
-                    onHeaderCell: ({ width }: { width: number }) => ({
-                        onResize: handleResize(index),
-                        minConstraints: [minWidth, 0],
-                        maxConstraints: [maxWidth, 0],
-                        width,
-                        style: {
-                            maxWidth,
-                            minWidth,
-                        },
-                    }),
-                } as InternalColumnType<RecordType>)
-        )
+
+    function handleWrapperResize(newWidth: number): void {
+        // Recalculate column widths if the wrapper changes size.
+        const table = scrollWrapperRef.current?.querySelector('.ant-table table')
+        const oldWidth = table?.clientWidth
+        if (!oldWidth || oldWidth === newWidth) {
+            return
+        }
+        if (timeout.current) {
+            cancelAnimationFrame(timeout.current)
+        }
+        const resizeRatio = newWidth / oldWidth
+        const columnWidths = getColumnCSSWidths()
+        timeout.current = requestAnimationFrame(function () {
+            setHeaderShouldRender(false)
+            setHeaderColumns((cols) => {
+                const lastIndex = initialColumns.length - 1
+                const nextColumns = cols.map((column, index) =>
+                    index === lastIndex
+                        ? column
+                        : {
+                              ...column,
+                              width: Math.max((columnWidths[index + 1] ?? 0) * resizeRatio, minColumnWidth),
+                          }
+                )
+                nextColumns.slice(0, lastIndex).forEach((col, index) => {
+                    updateColumnWidth(index, col.width ?? minColumnWidth)
+                })
+                updateTableWidth()
+                return nextColumns
+            })
+            setHeaderShouldRender(true)
+        })
+    }
+
+    const resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
+        entries.forEach(({ contentRect: { width } }) => handleWrapperResize(width))
     })
+
+    useEffect(() => {
+        // Update render prop when parent columns change
+        setColumns((cols) => {
+            const lastIndex = cols.length
+            const nextColumns = cols.map((column, index) =>
+                index === lastIndex
+                    ? column
+                    : {
+                          ...column,
+                          render: initialColumns[index].render,
+                      }
+            )
+            return nextColumns
+        })
+    }, [initialColumns])
+
     useLayoutEffect(() => {
         // Calculate relative column widths (px) once the wrapper is mounted.
         if (scrollWrapperRef.current) {
+            resizeObserver.observe(scrollWrapperRef.current)
             const wrapperWidth = scrollWrapperRef.current.clientWidth
-            const columnWidth = getFullwidthColumnSize(wrapperWidth)
+            const gridBasis = columns.reduce((total, { span }) => total + span, 0)
+            const columnSpanWidth = getFullwidthColumnSize(wrapperWidth, gridBasis)
             setColumns((cols) => {
-                const nextColumns = cols.map((column, index) => ({
-                    ...column,
-                    width: Math.max(minWidth, columnWidth * column.span),
-                    render: initialColumns[index].render,
-                }))
-                if (getTotalWidth(nextColumns) > wrapperWidth) {
-                    setScrollableRight(true)
-                }
+                const lastIndex = cols.length
+                const nextColumns = cols.map((column, index) =>
+                    index === lastIndex
+                        ? column
+                        : {
+                              ...column,
+                              width: Math.max(columnSpanWidth * column.span, minColumnWidth),
+                          }
+                )
+                setHeaderColumns(nextColumns)
                 return nextColumns
             })
+            updateScrollGradient()
+            setHeaderShouldRender(true)
         }
-    }, [initialColumns])
+    }, [])
 
     return (
         <div ref={scrollWrapperRef} className="resizable-table-scroll-container" onScroll={updateScrollGradient}>
             <div ref={overlayRef} className="table-gradient-overlay">
+                {headerShouldRender && (
+                    <VirtualTableHeader
+                        columns={headerColumns}
+                        handleResize={handleColumnResize}
+                        layoutEffect={updateTableWidth}
+                        minColumnWidth={minColumnWidth}
+                    />
+                )}
                 <Table
                     columns={columns}
                     components={{
                         ...components,
-                        header: {
-                            ...components?.header,
-                            cell: ResizableTitle,
-                        },
+                        header: { cell: () => null }, // Nix that header row
                     }}
                     tableLayout="fixed"
                     {...props}

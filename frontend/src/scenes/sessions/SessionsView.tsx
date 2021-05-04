@@ -99,28 +99,28 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             render: function RenderDuration(session: SessionType) {
                 return <span>{session.event_count}</span>
             },
-            span: 1.5,
+            span: 2,
         },
         {
             title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
                 return <span>{humanFriendlyDuration(session.length)}</span>
             },
-            span: 1.5,
+            span: 2,
         },
         {
             title: 'Start Time',
             render: function RenderStartTime(session: SessionType) {
                 return <span>{humanFriendlyDetailedTime(session.start_time)}</span>
             },
-            span: 2.5,
+            span: 3,
         },
         {
             title: 'End Time',
             render: function RenderEndTime(session: SessionType) {
                 return <span>{humanFriendlyDetailedTime(session.end_time)}</span>
             },
-            span: 2.5,
+            span: 3,
         },
         {
             title: 'Start Point',
@@ -129,7 +129,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
-            span: 3,
+            span: 4,
         },
         {
             title: 'End Point',
@@ -140,7 +140,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
-            span: 3,
+            span: 4,
         },
         {
             title: (

@@ -232,29 +232,6 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
             response = self.client.delete(f"/api/person/{person.pk}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-        def test_filters_by_endpoints_are_deprecated(self):
-            person_factory(
-                team=self.team, distinct_ids=["person_1"], properties={"email": "someone@gmail.com"},
-            )
-
-            # By Distinct ID
-            with self.assertWarns(DeprecationWarning) as warnings:
-                response = self.client.get("/api/person/by_distinct_id/?distinct_id=person_1")
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)  # works but it's deprecated
-            self.assertEqual(
-                str(warnings.warning), "/api/person/by_distinct_id/ endpoint is deprecated; use /api/person/ instead.",
-            )
-
-            # By Distinct ID
-            with self.assertWarns(DeprecationWarning) as warnings:
-                response = self.client.get("/api/person/by_email/?email=someone@gmail.com")
-
-            self.assertEqual(response.status_code, status.HTTP_200_OK)  # works but it's deprecated
-            self.assertEqual(
-                str(warnings.warning), "/api/person/by_email/ endpoint is deprecated; use /api/person/ instead.",
-            )
-
         def test_filter_id_or_uuid(self) -> None:
             person1 = person_factory(team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"})
             person2 = person_factory(team=self.team, properties={"random_prop": "asdf"})

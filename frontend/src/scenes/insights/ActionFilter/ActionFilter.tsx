@@ -1,21 +1,43 @@
 import './ActionFilter.scss'
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { entityFilterLogic, toFilters } from './entityFilterLogic'
+import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined, EllipsisOutlined } from '@ant-design/icons'
-import { sortableContainer, sortableElement, sortableHandle } from 'react-sortable-hoc'
+import {
+    SortableContainer as sortableContainer,
+    SortableElement as sortableElement,
+    SortableHandle as sortableHandle,
+} from 'react-sortable-hoc'
 import { alphabet } from 'lib/utils'
 import posthog from 'posthog-js'
+import { ActionFilter as ActionFilterType, FilterType, Optional } from '~/types'
 
 const DragHandle = sortableHandle(() => (
     <span className="action-filter-drag-handle">
         <EllipsisOutlined />
     </span>
 ))
+
+interface SortableActionFilterRowProps {
+    logic: typeof entityFilterLogic
+    filter: ActionFilterType
+    filterIndex: number
+    hideMathSelector?: boolean
+    hidePropertySelector?: boolean
+    filterCount: number
+}
+
 const SortableActionFilterRow = sortableElement(
-    ({ logic, filter, filterIndex, hideMathSelector, hidePropertySelector, filterCount }) => (
+    ({
+        logic,
+        filter,
+        filterIndex,
+        hideMathSelector,
+        hidePropertySelector,
+        filterCount,
+    }: SortableActionFilterRowProps) => (
         <div className="draggable-action-filter">
             {filterCount > 1 && <DragHandle />}
             <ActionFilterRow
@@ -30,9 +52,22 @@ const SortableActionFilterRow = sortableElement(
         </div>
     )
 )
-const SortableContainer = sortableContainer(({ children }) => {
+const SortableContainer = sortableContainer(({ children }: { children: React.ReactNode }) => {
     return <div>{children}</div>
 })
+export interface ActionFilterProps {
+    setFilters: (filters: FilterType) => void
+    filters: Optional<FilterType, 'type'>
+    typeKey: string
+    hideMathSelector?: boolean
+    hidePropertySelector?: boolean
+    copy: string
+    disabled?: boolean
+    singleFilter?: boolean
+    sortable?: boolean
+    showLetters?: boolean
+    showOr?: boolean
+}
 
 export function ActionFilter({
     setFilters,
@@ -46,7 +81,7 @@ export function ActionFilter({
     sortable = false,
     showLetters = false,
     showOr = false,
-}) {
+}: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
     const { localFilters } = useValues(logic)
@@ -58,8 +93,8 @@ export function ActionFilter({
         setLocalFilters(filters)
     }, [filters])
 
-    function onSortEnd({ oldIndex, newIndex }) {
-        const move = (arr, from, to) => {
+    function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
+        function move(arr: LocalFilter[], from: number, to: number): LocalFilter[] {
             const clone = [...arr]
             Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
             return clone.map((child, order) => ({ ...child, order }))
@@ -78,8 +113,8 @@ export function ActionFilter({
                         {localFilters.map((filter, index) => (
                             <SortableActionFilterRow
                                 key={index}
-                                logic={logic}
-                                filter={filter}
+                                logic={logic as any}
+                                filter={filter as ActionFilterType}
                                 index={index}
                                 filterIndex={index}
                                 hideMathSelector={hideMathSelector}
@@ -91,11 +126,11 @@ export function ActionFilter({
                 ) : (
                     localFilters.map((filter, index) => (
                         <ActionFilterRow
-                            logic={logic}
-                            filter={filter}
+                            logic={logic as any}
+                            filter={filter as ActionFilterType}
                             index={index}
                             key={index}
-                            letter={showLetters && (alphabet[index] || '-')}
+                            letter={(showLetters && (alphabet[index] || '-')) || null}
                             hideMathSelector={hideMathSelector}
                             hidePropertySelector={hidePropertySelector}
                             singleFilter={singleFilter}

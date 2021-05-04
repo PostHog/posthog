@@ -100,7 +100,7 @@ export function SelectGradientOverflow({
     }
     document.addEventListener('click', outsideClickListener)
     return (
-        <div ref={containerRef}>
+        <div ref={containerRef} style={{ width: '100%' }}>
             <Select
                 {...props}
                 ref={selectRef}

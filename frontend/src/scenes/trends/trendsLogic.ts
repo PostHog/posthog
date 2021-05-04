@@ -17,25 +17,16 @@ import {
 import { ViewType, insightLogic, defaultFilterTestAccounts } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
-import { ActionType, EntityType, FilterType, PersonType, PropertyFilter, TrendResult } from '~/types'
+import { ActionFilter, ActionType, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { teamLogic } from 'scenes/teamLogic'
+import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 
 interface TrendResponse {
     result: TrendResult[]
     next?: string
-}
-
-export interface ActionFilter {
-    id: number | string
-    math?: string
-    math_property?: string
-    name: string
-    order: number
-    properties: PropertyFilter[]
-    type: EntityType
 }
 
 export interface IndexedTrendResult extends TrendResult {
@@ -61,12 +52,6 @@ interface PeopleParamType {
     breakdown_value?: string
     target_date?: number
     lifecycle_type?: string
-}
-
-export const EntityTypes: Record<string, string> = {
-    ACTIONS: 'actions',
-    EVENTS: 'events',
-    NEW_ENTITY: 'new_entity',
 }
 
 function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
@@ -107,11 +92,11 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
     })
 
     // casting here is not the best
-    if (filters.shown_as === ShownAsValue.STICKINESS) {
+    if (filters.insight === ViewType.STICKINESS) {
         params.stickiness_days = date_from as number
     } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
         params.date_to = date_from as string
-    } else if (filters.shown_as === ShownAsValue.LIFECYCLE) {
+    } else if (filters.insight === ViewType.LIFECYCLE) {
         params.date_from = filters.date_from
         params.date_to = filters.date_to
     } else {
@@ -167,7 +152,7 @@ export const trendsLogic = kea<
     },
 
     connect: {
-        values: [teamLogic, ['eventNames'], actionsModel, ['actions']],
+        values: [actionsModel, ['actions']],
     },
 
     loaders: ({ values, props }) => ({
@@ -248,12 +233,11 @@ export const trendsLogic = kea<
                 FilterType
             >,
             {
-                setFilters: (state, { filters, mergeFilters }) => {
-                    return cleanFilters({
+                setFilters: (state, { filters, mergeFilters }) =>
+                    cleanFilters({
                         ...(mergeFilters ? state : {}),
                         ...filters,
-                    })
-                },
+                    }),
             },
         ],
         people: [
@@ -317,8 +301,8 @@ export const trendsLogic = kea<
 
     selectors: () => ({
         filtersLoading: [
-            () => [teamLogic.selectors.currentTeamLoading],
-            (currentTeamLoading: any) => currentTeamLoading,
+            () => [eventDefinitionsLogic.selectors.loaded, propertyDefinitionsLogic.selectors.loaded],
+            (eventsLoaded, propertiesLoaded) => !eventsLoaded || !propertiesLoaded,
         ],
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
@@ -415,14 +399,14 @@ export const trendsLogic = kea<
         },
         loadPeople: async ({ label, action, date_from, date_to, breakdown_value }, breakpoint) => {
             let people = []
-            if (values.filters.shown_as === ShownAsValue.LIFECYCLE) {
+            if (values.filters.insight === ViewType.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
                     { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                     values.filters
                 )
                 actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
                 people = await api.get(`api/person/lifecycle/?${filterParams}`)
-            } else if (values.filters.shown_as === ShownAsValue.STICKINESS) {
+            } else if (values.filters.insight === ViewType.STICKINESS) {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
                     values.filters
@@ -511,8 +495,15 @@ export const trendsLogic = kea<
             })
             actions.setBreakdownValuesLoading(false)
         },
-        [teamLogic.actionTypes.loadCurrentTeamSuccess]: async () => {
-            actions.setFilters(getDefaultFilters(values.filters, values.eventNames), true)
+        [eventDefinitionsLogic.actionTypes.loadEventDefinitionsSuccess]: async () => {
+            const newFilter = getDefaultFilters(values.filters, eventDefinitionsLogic.values.eventNames)
+            const mergedFilter: Partial<FilterType> = {
+                ...values.filters,
+                ...newFilter,
+            }
+            if (!objectsEqual(values.filters, mergedFilter)) {
+                actions.setFilters(mergedFilter, true)
+            }
         },
     }),
 
@@ -554,6 +545,7 @@ export const trendsLogic = kea<
                     cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
                 }
 
+                // TODO: Deprecated; should be removed once backend is updated
                 if (searchParams.insight === ViewType.STICKINESS) {
                     cleanSearchParams['shown_as'] = ShownAsValue.STICKINESS
                 }
@@ -565,11 +557,14 @@ export const trendsLogic = kea<
                     cleanSearchParams['session'] = 'avg'
                 }
 
-                if (searchParams.date_from === 'all' || searchParams.shown_as === ShownAsValue.LIFECYCLE) {
+                if (searchParams.date_from === 'all' || searchParams.insight === ViewType.LIFECYCLE) {
                     cleanSearchParams['compare'] = false
                 }
 
-                Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams, values.eventNames))
+                Object.assign(
+                    cleanSearchParams,
+                    getDefaultFilters(cleanSearchParams, eventDefinitionsLogic.values.eventNames)
+                )
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)
@@ -587,7 +582,7 @@ const handleLifecycleDefault = (
     params: Partial<FilterType>,
     callback: (filters: Partial<FilterType>) => void
 ): void => {
-    if (params.shown_as === ShownAsValue.LIFECYCLE) {
+    if (params.insight === ViewType.LIFECYCLE) {
         if (params.events?.length) {
             callback({
                 ...params,

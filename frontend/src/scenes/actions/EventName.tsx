@@ -1,11 +1,17 @@
 import React from 'react'
 import { Select } from 'antd'
 import { useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 
-export function EventName({ value, onChange, isActionStep = false }) {
-    const { eventNamesGrouped } = useValues(teamLogic)
+interface EventNameInterface {
+    value: string
+    onChange: (value: string) => void
+    isActionStep?: boolean
+}
+
+export function EventName({ value, onChange, isActionStep = false }: EventNameInterface): JSX.Element {
+    const { eventNamesGrouped } = useValues(eventDefinitionsLogic)
 
     return (
         <span>
@@ -16,7 +22,8 @@ export function EventName({ value, onChange, isActionStep = false }) {
                 onChange={onChange}
                 filterOption={(input, option) => option?.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
                 disabled={isActionStep && eventNamesGrouped[0].options.length === 0}
-                value={value}
+                value={value || undefined}
+                placeholder="All events"
                 data-attr="event-name-box"
             >
                 {eventNamesGrouped.map((typeGroup) => {
@@ -25,7 +32,7 @@ export function EventName({ value, onChange, isActionStep = false }) {
                             <Select.OptGroup key={typeGroup.label} label={typeGroup.label}>
                                 {typeGroup.options.map((item, index) => (
                                     <Select.Option key={item.value} value={item.value} data-attr={'prop-val-' + index}>
-                                        <PropertyKeyInfo value={item.label} />
+                                        <PropertyKeyInfo value={item.label ?? item.value} />
                                     </Select.Option>
                                 ))}
                             </Select.OptGroup>

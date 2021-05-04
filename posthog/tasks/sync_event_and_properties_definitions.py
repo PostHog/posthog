@@ -1,8 +1,9 @@
 # TODO: #4070 Fully temporary until these properties are migrated away from `Team` model
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from django.db import models
 from django.dispatch.dispatcher import receiver
+from sentry_sdk import capture_exception
 
 from posthog.celery import app
 from posthog.models.event_definition import EventDefinition
@@ -18,7 +19,16 @@ def team_saved(sender: Any, instance: Team, **kwargs: Dict) -> None:
 @app.task(ignore_result=True)
 def sync_event_and_properties_definitions(team_uuid: str) -> None:
 
-    team: Team = Team.objects.only("uuid", *DEFERRED_FIELDS).get(uuid=team_uuid)
+    team: Optional[Team] = None
+
+    # It is possible that the team was deleted before the task could run
+    try:
+        team = Team.objects.only("uuid", *DEFERRED_FIELDS).get(uuid=team_uuid)
+    except Team.DoesNotExist as e:
+        capture_exception(e)
+
+    if team is None:
+        return
 
     # Transform data for quick usability
     transformed_event_usage = {
@@ -32,8 +42,8 @@ def sync_event_and_properties_definitions(team_uuid: str) -> None:
     # Add or update any existing events
     for event in team.event_names:
         instance, _ = EventDefinition.objects.get_or_create(team=team, name=event)
-        instance.volume_30_day = transformed_event_usage.get(event, {}).get("volume") or 0
-        instance.query_usage_30_day = transformed_event_usage.get(event, {}).get("usage_count") or 0
+        instance.volume_30_day = transformed_event_usage.get(event, {}).get("volume")
+        instance.query_usage_30_day = transformed_event_usage.get(event, {}).get("usage_count")
         instance.save()
 
     # Remove any deleted events
@@ -42,8 +52,8 @@ def sync_event_and_properties_definitions(team_uuid: str) -> None:
     # Add or update any existing properties
     for property in team.event_properties:
         property_instance, _ = PropertyDefinition.objects.get_or_create(team=team, name=property)
-        property_instance.volume_30_day = transformed_property_usage.get(property, {}).get("volume") or 0
-        property_instance.query_usage_30_day = transformed_property_usage.get(property, {}).get("usage_count") or 0
+        property_instance.volume_30_day = transformed_property_usage.get(property, {}).get("volume")
+        property_instance.query_usage_30_day = transformed_property_usage.get(property, {}).get("usage_count")
         property_instance.is_numerical = property in team.event_properties_numerical
         property_instance.save()
 
