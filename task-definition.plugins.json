@@ -55,6 +55,10 @@
                 {
                     "name": "STALENESS_RESTART_SECONDS",
                     "value": "300"
+                },
+                {
+                    "name": "JOB_QUEUES",
+                    "value": "graphile"
                 }
             ],
             "secrets": [
