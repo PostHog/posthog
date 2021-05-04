@@ -247,6 +247,10 @@ urlpatterns = [
     path("accounts/", include("django.contrib.auth.urls")),
 ]
 
+# Allow crawling on PostHog Cloud, disable for all self-hosted installations
+if not settings.MULTI_TENANCY:
+    urlpatterns.append(opt_slash_path("robots.txt", robots_txt))
+
 if settings.TEST:
 
     @csrf_exempt
@@ -258,9 +262,6 @@ if settings.TEST:
 
     urlpatterns.append(path("delete_events/", delete_events))
 
-# Allow crawling on PostHog Cloud, disable by default for all self-hosted installations
-if not settings.MULTI_TENANCY:
-    urlpatterns.append(opt_slash_path("robots.txt", robots_txt))
 
 # Routes added individually to remove login requirement
 frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*", "login"]
