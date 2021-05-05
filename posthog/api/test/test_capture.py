@@ -13,6 +13,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import PersonalAPIKey
+from posthog.models.event import ENVIRONMENT_TEST
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import BaseTest
 
@@ -64,7 +65,6 @@ class TestCapture(BaseTest):
                     {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
                     {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
                 ],
-                "$test_environment": False,
             },
         }
         now = timezone.now()
@@ -115,7 +115,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data, "properties": {**data["properties"], "$test_environment": True}},
+                "data": {**data, "properties": {**data["properties"], "$environment": ENVIRONMENT_TEST}},
                 "team_id": self.team.pk,
             },
         )
@@ -135,7 +135,6 @@ class TestCapture(BaseTest):
                     {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
                     {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
                 ],
-                "$test_environment": False,
             },
         }
         now = timezone.now()
@@ -200,7 +199,6 @@ class TestCapture(BaseTest):
                         "$device_type": "Desktop",
                         "distinct_id": "94b03e599131fd5026b",
                         "token": "fake token",
-                        "$test_environment": False,
                     },
                     "timestamp": "2021-04-20T19:11:33.841Z",
                 },
@@ -363,7 +361,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data, "properties": {"$test_environment": False,}},
+                "data": {**data, "properties": {}},
                 "team_id": self.team.pk,
             },
         )
@@ -393,7 +391,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {"$test_environment": False,}},
+                "data": {**data["batch"][0], "properties": {}},
                 "team_id": self.team.pk,
             },
         )
@@ -422,7 +420,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {"$test_environment": False}},
+                "data": {**data["batch"][0], "properties": {}},
                 "team_id": self.team.pk,
             },
         )
@@ -452,7 +450,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data["batch"][0], "properties": {"$test_environment": False,}},
+                "data": {**data["batch"][0], "properties": {}},
                 "team_id": self.team.pk,
             },
         )

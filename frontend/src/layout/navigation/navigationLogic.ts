@@ -8,6 +8,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { ENVIRONMENTS } from 'lib/components/PropertyKeyInfo'
 
 type WarningType =
     | 'welcome'
@@ -27,6 +28,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
         setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
         setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
+        setFilteredEnvironment: (environment: string) => ({ environment }),
     },
     reducers: {
         menuCollapsed: [
@@ -63,6 +65,12 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             false,
             {
                 setHotkeyNavigationEngaged: (_, { hotkeyNavigationEngaged }) => hotkeyNavigationEngaged,
+            },
+        ],
+        filteredEnvironment: [
+            ENVIRONMENTS.PRODUCTION,
+            {
+                setFilteredEnvironment: (_, payload) => payload.environment,
             },
         ],
     },

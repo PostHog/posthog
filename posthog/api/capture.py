@@ -17,6 +17,7 @@ from posthog.ee import is_ee_enabled
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team, User
+from posthog.models.event import ENVIRONMENT_TEST
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
@@ -241,8 +242,8 @@ def get_event(request):
             event["properties"] = {}
 
         # Support test_[apiKey] for users with multiple environments
-        if event["properties"].get("$test_environment") is None:
-            event["properties"]["$test_environment"] = True if is_test_environment else False
+        if event["properties"].get("$environment") is None and is_test_environment:
+            event["properties"]["$environment"] = ENVIRONMENT_TEST
 
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 

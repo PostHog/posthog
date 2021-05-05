@@ -16,7 +16,6 @@ export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
-        setProductionEnvironment: (isProduction: boolean) => ({ isProduction }),
         logout: true,
     }),
     reducers: {
@@ -39,12 +38,6 @@ export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
             false,
             {
                 setUserLoading: (_, { loading }) => loading,
-            },
-        ],
-        productionEnvironment: [
-            true,
-            {
-                setProductionEnvironment: (_, payload) => payload.isProduction,
             },
         ],
     },

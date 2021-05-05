@@ -328,6 +328,12 @@ export const keyMapping: KeyMappingInterface = {
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
             hide: true,
         },
+        $environment: {
+            label: 'Environment',
+            description: 'Environment used to filter results on all queries when enabled.',
+            examples: ['test', 'production'],
+            hide: true,
+        },
 
         // GeoIP
         $geoip_city_name: {
@@ -433,7 +439,10 @@ export const keyMapping: KeyMappingInterface = {
     },
 }
 
-export const hiddenFilters: Array<string> = ['$test_environment']
+export const ENVIRONMENTS = {
+    PRODUCTION: 'production',
+    TEST: 'test',
+}
 
 interface PropertyKeyInfoInterface {
     value: string

@@ -36,6 +36,7 @@ import MD5 from 'crypto-js/md5'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ENVIRONMENTS } from 'lib/components/PropertyKeyInfo'
 
 export interface ProfilePictureProps {
     name?: string
@@ -77,14 +78,21 @@ export function WhoAmI({ user }: { user: UserType }): JSX.Element {
 }
 
 export function TopNavigation(): JSX.Element {
-    const { setMenuCollapsed, setChangelogModalOpen, setInviteMembersModalOpen } = useActions(navigationLogic)
-    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen, inviteMembersModalOpen } = useValues(
+    const { setMenuCollapsed, setChangelogModalOpen, setInviteMembersModalOpen, setFilteredEnvironment } = useActions(
         navigationLogic
     )
-    const { user, productionEnvironment } = useValues(userLogic)
+    const {
+        menuCollapsed,
+        systemStatus,
+        updateAvailable,
+        changelogModalOpen,
+        inviteMembersModalOpen,
+        filteredEnvironment,
+    } = useValues(navigationLogic)
+    const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { billing } = useValues(billingLogic)
-    const { logout, updateCurrentTeam, updateCurrentOrganization, setProductionEnvironment } = useActions(userLogic)
+    const { logout, updateCurrentTeam, updateCurrentOrganization } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
     const { push } = router.actions
@@ -317,7 +325,7 @@ export function TopNavigation(): JSX.Element {
                             <Tooltip
                                 title={
                                     <>
-                                        Toggle to view only test data everywhere.{' '}
+                                        Toggle to view only test or production data everywhere.{' '}
                                         <a href="https://posthog.com/docs" target="_blank" rel="noopener">
                                             Click here <IconExternalLink />
                                         </a>{' '}
@@ -328,20 +336,22 @@ export function TopNavigation(): JSX.Element {
                                 <div className="global-environment-switch">
                                     <label
                                         htmlFor="global-environment-switch"
-                                        className={!productionEnvironment ? 'active' : ''}
+                                        className={filteredEnvironment !== ENVIRONMENTS.PRODUCTION ? 'active' : ''}
                                     >
                                         Test <ExperimentOutlined />
                                     </label>
                                     <Switch
                                         // @ts-expect-error - below works even if it's not defined as a prop
                                         id="global-environment-switch"
-                                        value={productionEnvironment}
-                                        defaultChecked={productionEnvironment}
-                                        onChange={(val) => setProductionEnvironment(val)}
+                                        value={filteredEnvironment === ENVIRONMENTS.PRODUCTION}
+                                        defaultChecked={filteredEnvironment === ENVIRONMENTS.PRODUCTION}
+                                        onChange={(val) =>
+                                            setFilteredEnvironment(val ? ENVIRONMENTS.PRODUCTION : ENVIRONMENTS.TEST)
+                                        }
                                     />
                                     <label
                                         htmlFor="global-environment-switch"
-                                        className={productionEnvironment ? 'active' : ''}
+                                        className={filteredEnvironment === ENVIRONMENTS.PRODUCTION ? 'active' : ''}
                                     >
                                         <RocketOutlined /> Live
                                     </label>

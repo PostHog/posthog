@@ -8,8 +8,6 @@ import { CloseButton } from 'lib/components/CloseButton'
 import PropertyFilterButton from './PropertyFilterButton'
 import '../../../scenes/actions/Actions.scss'
 
-import { hiddenFilters } from 'lib/components/PropertyKeyInfo'
-
 const FilterRow = React.memo(function FilterRow({
     item,
     index,
@@ -100,23 +98,21 @@ export function PropertyFilters({
     return (
         <div className="mb" style={style}>
             {filters?.length &&
-                filters
-                    .filter((item) => !hiddenFilters.includes(item.key))
-                    .map((item, index) => {
-                        return (
-                            <FilterRow
-                                key={index}
-                                logic={logic}
-                                item={item}
-                                index={index}
-                                totalCount={filters.length - 1} // empty state
-                                filters={filters}
-                                pageKey={pageKey}
-                                showConditionBadge={showConditionBadge}
-                                popoverPlacement={popoverPlacement}
-                            />
-                        )
-                    })}
+                filters.map((item, index) => {
+                    return (
+                        <FilterRow
+                            key={index}
+                            logic={logic}
+                            item={item}
+                            index={index}
+                            totalCount={filters.length - 1} // empty state
+                            filters={filters}
+                            pageKey={pageKey}
+                            showConditionBadge={showConditionBadge}
+                            popoverPlacement={popoverPlacement}
+                        />
+                    )
+                })}
         </div>
     )
 }
