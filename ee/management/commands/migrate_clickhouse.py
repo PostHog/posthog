@@ -1,4 +1,5 @@
 import datetime
+from textwrap import indent
 
 from django.core.management.base import BaseCommand
 from infi.clickhouse_orm import Database  # type: ignore
@@ -26,6 +27,11 @@ class Command(BaseCommand):
         parser.add_argument(
             "--plan", action="store_true", help="Shows a list of the migration actions that will be performed."
         )
+        parser.add_argument(
+            "--print-sql",
+            action="store_true",
+            help="Only use with --plan. Also prints SQL for each migration to be applied.",
+        )
 
     def handle(self, *args, **options):
         for index, host in enumerate(CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS):
@@ -44,8 +50,12 @@ class Command(BaseCommand):
         if options["plan"]:
             print("List of clickhouse migrations to be applied:")
             migrations = list(self.get_migrations(database, options["upto"]))
-            for migration_name in migrations:
+            for migration_name, operations in migrations:
                 print(f"Migration would get applied: {migration_name}")
+                for op in operations:
+                    sql = getattr(op, "_sql")
+                    if options["print_sql"] and sql is not None:
+                        print(indent("\n\n".join(sql), "    "))
             if len(migrations) == 0:
                 print("Clickhouse migrations up to date!")
         elif options["fake"]:
@@ -71,7 +81,7 @@ class Command(BaseCommand):
         unapplied_migrations = set(modules.keys()) - applied_migrations
 
         for migration_name in sorted(unapplied_migrations):
-            yield migration_name
+            yield migration_name, modules[migration_name].operations
 
             if int(migration_name[:4]) >= upto:
                 break
