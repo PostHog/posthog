@@ -7,12 +7,12 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
 import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import './ActionFilterRow.scss'
-import { BareEntity, entityFilterLogic } from './entityFilterLogic'
+import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import './index.scss'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
