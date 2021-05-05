@@ -460,7 +460,7 @@ export const trendsLogic = kea<
             if (!props.dashboardItemId) {
                 insightHistoryLogic.actions.createInsight({
                     ...values.filters,
-                    insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
+                    insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
                 })
             }
 
