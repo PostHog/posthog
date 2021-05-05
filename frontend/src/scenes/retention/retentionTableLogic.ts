@@ -177,7 +177,7 @@ export const retentionTableLogic = kea<
                 }
             }
         },
-        '/insights/(:dashboardItemId)': () => {
+        '/insights/dashboard_item/(:dashboardItemId)': () => {
             const dashboardItem = insightLogic.values.dashboardItem
             if (dashboardItem && dashboardItem.filters.insight === ViewType.RETENTION) {
                 actions.setFilters(dashboardItem.filters)

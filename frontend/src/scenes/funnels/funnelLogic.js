@@ -249,7 +249,7 @@ export const funnelLogic = kea({
                 }
             }
         },
-        '/insights/(:dashboardItemId)': () => {
+        '/insights/dashboard_item/(:dashboardItemId)': () => {
             const dashboardItem = insightLogic.values.dashboardItem
             if (dashboardItem && dashboardItem.filters.insight === ViewType.FUNNELS) {
                 actions.setFilters(cleanFunnelParams(dashboardItem.filters), true)

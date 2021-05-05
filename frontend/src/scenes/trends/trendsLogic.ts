@@ -577,7 +577,7 @@ export const trendsLogic = kea<
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
             }
         },
-        '/insights/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
+        '/insights/dashboard_item/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
             const dashboardItem = await api.get(`api/dashboard_item/${dashboardItemId}`)
             if (dashboardItem && dashboardItem.filters.insight === ViewType.TRENDS) {
                 actions.setFilters(cleanFilters(dashboardItem.filters), true)
