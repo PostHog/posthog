@@ -221,6 +221,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Set',
             description: '',
         },
+        $set_once: {
+            label: 'Set Once',
+            description: '',
+        },
         $capture_failed_request: {
             label: 'Capture Failed Request',
             description: '',
@@ -376,14 +380,30 @@ export const keyMapping: KeyMappingInterface = {
             examples: ['Australia/Sydney', 'Asia/Kolkata'],
         },
         $geoip_subdivision_1_name: {
-            label: 'Subdivision Name',
+            label: 'Subdivision 1 Name',
             description: `Name of the subdivision matched to this event's IP address.`,
             examples: ['New South Wales', 'Tamil Nadu'],
         },
         $geoip_subdivision_1_code: {
-            label: 'Subdivision Code',
+            label: 'Subdivision 1 Code',
             description: `Code of the subdivision matched to this event's IP address.`,
             examples: ['NSW', 'TN'],
+        },
+        $geoip_subdivision_2_name: {
+            label: 'Subdivision 2 Name',
+            description: `Name of the second subdivision matched to this event's IP address.`,
+        },
+        $geoip_subdivision_2_code: {
+            label: 'Subdivision 2 Code',
+            description: `Code of the second subdivision matched to this event's IP address.`,
+        },
+        $geoip_subdivision_3_name: {
+            label: 'Subdivision 3 Name',
+            description: `Name of the third subdivision matched to this event's IP address.`,
+        },
+        $geoip_subdivision_3_code: {
+            label: 'Subdivision 3 Code',
+            description: `Code of the third subdivision matched to this event's IP address.`,
         },
     },
     element: {
@@ -441,7 +461,12 @@ interface PropertyKeyInfoInterface {
 export function PropertyKeyInfo({ value, type = 'event' }: PropertyKeyInfoInterface): JSX.Element {
     let data = null
     if (value in keyMapping[type]) {
-        data = keyMapping[type][value]
+        data = { ...keyMapping[type][value] }
+    } else if (value.startsWith('$initial_') && value.replace(/^\$initial_/, '$') in keyMapping[type]) {
+        data = { ...keyMapping[type][value.replace(/^\$initial_/, '$')] }
+        if (data.description) {
+            data.description += ' Data from the first time this user was seen.'
+        }
     } else {
         return <>{value}</>
     }
