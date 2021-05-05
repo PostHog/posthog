@@ -87,9 +87,11 @@ export function ActionFilterRow({
         })
     }
 
-    const dropDownCondition: boolean = Boolean(
+    const dropDownCondition = Boolean(
         selectedFilter && selectedFilter?.type === filter.type && selectedFilter?.index === index
     )
+
+    const separatorWord = math === 'dau' ? 'who did' : 'of' // Separator between property and value.
 
     const onClick = (): void => {
         if (dropDownCondition) {
@@ -157,7 +159,7 @@ export function ActionFilterRow({
                                 )}
                             </>
                         )}
-                        <Col>of</Col>
+                        <Col>{separatorWord}</Col>
                     </>
                 )}
                 <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
