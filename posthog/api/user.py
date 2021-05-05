@@ -285,7 +285,7 @@ def user(request):
             "posthog_version": VERSION,
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
             "ee_available": settings.EE_AVAILABLE,
-            "ee_enabled": is_clickhouse_enabled(),
+            "is_clickhouse_enabled": is_clickhouse_enabled(),
             "email_service_available": is_email_available(with_absolute_urls=True),
             "is_debug": getattr(settings, "DEBUG", False),
             "is_staff": user.is_staff,
