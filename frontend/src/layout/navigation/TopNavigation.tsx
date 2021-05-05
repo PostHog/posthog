@@ -2,12 +2,12 @@ import React, { useState } from 'react'
 import './Navigation.scss'
 import { useActions, useValues } from 'kea'
 import { navigationLogic } from './navigationLogic'
-import { IconBuilding, IconMenu } from 'lib/components/icons'
+import { IconBuilding, IconExternalLink, IconMenu } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Button, Card, Dropdown, Radio, Tooltip } from 'antd'
+import { Button, Card, Dropdown, Switch, Tooltip } from 'antd'
 import {
     ProjectOutlined,
     DownOutlined,
@@ -18,6 +18,8 @@ import {
     SettingOutlined,
     UserAddOutlined,
     InfoCircleOutlined,
+    ExperimentOutlined,
+    RocketOutlined,
 } from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -308,24 +310,44 @@ export function TopNavigation(): JSX.Element {
                             {user?.team?.name} <DownOutlined className="ml-05" />
                         </div>
                     </Dropdown>
-                    {featureFlags['test-environment-3149'] && (
-                        <div style={{ marginLeft: '1rem' }}>
-                            <Radio.Group
-                                value={productionEnvironment}
-                                onChange={(e) => setProductionEnvironment(e.target.value)}
-                            >
-                                <Tooltip title="All queries use only production environment data.">
-                                    <Radio.Button value={true}>PROD</Radio.Button>
-                                </Tooltip>
-                                <Tooltip title="All queries use only test environment data. Add test_[apiKey] to your apiKey to mark an environment as test.">
-                                    <Radio.Button value={false}>TEST</Radio.Button>
-                                </Tooltip>
-                            </Radio.Group>
-                        </div>
-                    )}
                 </div>
                 {user && (
                     <div>
+                        {featureFlags['test-environment-3149'] && (
+                            <Tooltip
+                                title={
+                                    <>
+                                        Toggle to view only test data everywhere.{' '}
+                                        <a href="https://posthog.com/docs" target="_blank" rel="noopener">
+                                            Click here <IconExternalLink />
+                                        </a>{' '}
+                                        to learn more.
+                                    </>
+                                }
+                            >
+                                <div className="global-environment-switch">
+                                    <label
+                                        htmlFor="global-environment-switch"
+                                        className={!productionEnvironment ? 'active' : ''}
+                                    >
+                                        Test <ExperimentOutlined />
+                                    </label>
+                                    <Switch
+                                        // @ts-expect-error - below works even if it's not defined as a prop
+                                        id="global-environment-switch"
+                                        value={productionEnvironment}
+                                        defaultChecked={productionEnvironment}
+                                        onChange={(val) => setProductionEnvironment(val)}
+                                    />
+                                    <label
+                                        htmlFor="global-environment-switch"
+                                        className={productionEnvironment ? 'active' : ''}
+                                    >
+                                        <RocketOutlined /> Live
+                                    </label>
+                                </div>
+                            </Tooltip>
+                        )}
                         <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
                             <div>
                                 <WhoAmI user={user} />
