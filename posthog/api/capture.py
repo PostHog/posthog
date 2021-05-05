@@ -13,7 +13,7 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 
 from posthog.celery import app as celery_app
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team, User
@@ -24,7 +24,7 @@ from posthog.utils import cors_response, get_ip_address, load_data_from_request
 if settings.STATSD_HOST is not None:
     statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
-if is_ee_enabled():
+if is_clickhouse_enabled():
     from ee.kafka_client.client import KafkaProducer
     from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 
@@ -241,7 +241,7 @@ def get_event(request):
         event_uuid = UUIDT()
         ip = None if team.anonymize_ips else get_ip_address(request)
 
-        if is_ee_enabled():
+        if is_clickhouse_enabled():
             statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
 
             log_event(

@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 
 
 class Command(BaseCommand):
@@ -13,7 +13,7 @@ class Command(BaseCommand):
         test_runner.setup_databases()
         test_runner.setup_test_environment()
 
-        if is_ee_enabled():
+        if is_clickhouse_enabled():
             from infi.clickhouse_orm import Database  # type: ignore
 
             from posthog.settings import (

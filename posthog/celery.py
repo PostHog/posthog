@@ -8,7 +8,7 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.redis import get_client
 
 # set the default Django settings module for the 'celery' program.
@@ -55,7 +55,7 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
     )
 
-    if getattr(settings, "MULTI_TENANCY", False) and not is_ee_enabled():
+    if getattr(settings, "MULTI_TENANCY", False) and not is_clickhouse_enabled():
         sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
 
     # send weekly status report on non-PostHog Cloud instances
@@ -75,7 +75,7 @@ def setup_periodic_tasks(sender, **kwargs):
         UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
     )
 
-    if is_ee_enabled():
+    if is_clickhouse_enabled():
         sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
         sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
@@ -116,7 +116,7 @@ CLICKHOUSE_TABLES = [
 
 @app.task(ignore_result=True)
 def clickhouse_lag():
-    if is_ee_enabled() and settings.EE_AVAILABLE:
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
         from ee.clickhouse.client import sync_execute
 
         for table in CLICKHOUSE_TABLES:
@@ -136,7 +136,7 @@ def clickhouse_lag():
 
 @app.task(ignore_result=True)
 def clickhouse_row_count():
-    if is_ee_enabled() and settings.EE_AVAILABLE:
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
         from ee.clickhouse.client import sync_execute
 
         for table in CLICKHOUSE_TABLES:
@@ -154,7 +154,7 @@ def clickhouse_row_count():
 
 @app.task(ignore_result=True)
 def clickhouse_part_count():
-    if is_ee_enabled() and settings.EE_AVAILABLE:
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
         from ee.clickhouse.client import sync_execute
 
         QUERY = """
