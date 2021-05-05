@@ -45,7 +45,7 @@ import { TrendLegend } from './TrendLegend'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import { DisplayType, FilterType, HotKeys } from '~/types'
+import { DashboardItemType, DisplayType, FilterType, HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardItemHeader } from 'scenes/dashboard/DashboardItemHeader'
@@ -483,10 +483,10 @@ function FunnelPeople(): JSX.Element {
     return <></>
 }
 
-interface Props {
-    dashboardItem: any
+interface HeaderProps {
+    dashboardItem: DashboardItemType | null
 }
-function Header({ dashboardItem }: Props): JSX.Element {
+function Header({ dashboardItem }: HeaderProps): JSX.Element {
     if (dashboardItem?.id) {
         return <DashboardItemHeader dashboardId={dashboardItem.dashboard} />
     }
