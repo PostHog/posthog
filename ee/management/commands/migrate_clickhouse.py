@@ -1,11 +1,17 @@
 import datetime
+from textwrap import indent
 
 from django.core.management.base import BaseCommand
 from infi.clickhouse_orm import Database  # type: ignore
 from infi.clickhouse_orm.migrations import MigrationHistory  # type: ignore
 from infi.clickhouse_orm.utils import import_submodules  # type: ignore
 
-from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
+from posthog.settings import (
+    CLICKHOUSE_DATABASE,
+    CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS,
+    CLICKHOUSE_PASSWORD,
+    CLICKHOUSE_USER,
+)
 
 MIGRATIONS_PACKAGE_NAME = "ee.clickhouse.migrations"
 
@@ -21,11 +27,21 @@ class Command(BaseCommand):
         parser.add_argument(
             "--plan", action="store_true", help="Shows a list of the migration actions that will be performed."
         )
+        parser.add_argument(
+            "--print-sql",
+            action="store_true",
+            help="Only use with --plan. Also prints SQL for each migration to be applied.",
+        )
 
     def handle(self, *args, **options):
+        for index, host in enumerate(CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS):
+            print(f"Updating host {host} ({index + 1}/{len(CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS)})")
+            self.migrate(host, options)
+
+    def migrate(self, host, options):
         database = Database(
             CLICKHOUSE_DATABASE,
-            db_url=CLICKHOUSE_HTTP_URL,
+            db_url=host,
             username=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,
             verify_ssl_cert=False,
@@ -33,9 +49,14 @@ class Command(BaseCommand):
 
         if options["plan"]:
             print("List of clickhouse migrations to be applied:")
-            for migration_name in self.get_migrations(database, options["upto"]):
+            migrations = list(self.get_migrations(database, options["upto"]))
+            for migration_name, operations in migrations:
                 print(f"Migration would get applied: {migration_name}")
-            else:
+                for op in operations:
+                    sql = getattr(op, "_sql")
+                    if options["print_sql"] and sql is not None:
+                        print(indent("\n\n".join(sql), "    "))
+            if len(migrations) == 0:
                 print("Clickhouse migrations up to date!")
         elif options["fake"]:
             for migration_name in self.get_migrations(database, options["upto"]):
@@ -60,7 +81,7 @@ class Command(BaseCommand):
         unapplied_migrations = set(modules.keys()) - applied_migrations
 
         for migration_name in sorted(unapplied_migrations):
-            yield migration_name
+            yield migration_name, modules[migration_name].operations
 
             if int(migration_name[:4]) >= upto:
                 break
