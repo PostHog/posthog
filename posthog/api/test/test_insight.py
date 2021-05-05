@@ -6,7 +6,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
 from posthog.models.filters import Filter
@@ -125,7 +125,7 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(response["result"]), 1)
 
         # TODO: remove this check
-        if not is_ee_enabled():
+        if not is_clickhouse_enabled():
 
             @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
             def test_insight_funnels_basic(self):

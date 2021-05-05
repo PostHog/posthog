@@ -4,7 +4,7 @@ from typing import Sequence, cast
 
 from celery import shared_task
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.models import Action
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ def calculate_action(action_id: int) -> None:
 
 
 def calculate_actions_from_last_calculation() -> None:
-    if is_ee_enabled():  # In EE, actions are not precalculated
+    if is_clickhouse_enabled():  # In EE, actions are not precalculated
         return
     start_time_overall = time.time()
     for action in cast(Sequence[Action], Action.objects.filter(is_calculating=False, deleted=False)):

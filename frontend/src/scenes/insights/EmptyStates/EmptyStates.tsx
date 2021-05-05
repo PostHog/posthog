@@ -59,7 +59,7 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
                 <li>Reduce the date range of your query.</li>
                 <li>Remove some filters.</li>
                 {!preflight?.cloud && <li>Increase the size of your database server.</li>}
-                {!preflight?.cloud && !preflight?.ee_enabled && (
+                {!preflight?.cloud && !preflight?.is_clickhouse_enabled && (
                     <li>
                         <a
                             data-attr="insight-timeout-upgrade-to-clickhouse"

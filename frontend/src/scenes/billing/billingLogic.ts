@@ -120,7 +120,7 @@ export const billingLogic = kea<billingLogicType<PlanInterface, UserType, Billin
                 // In practical terms, this would be priority 1 for self-hosted (as the other alerts are cloud-based only)
                 if (
                     !preflight?.cloud &&
-                    preflight?.ee_enabled &&
+                    preflight?.is_clickhouse_enabled &&
                     !user?.organization?.available_features.includes('clickhouse') &&
                     scene !== Scene.InstanceLicenses
                 ) {
