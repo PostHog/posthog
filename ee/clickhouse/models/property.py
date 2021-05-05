@@ -90,6 +90,7 @@ def prop_filter_json_extract(
     denormalized = "properties_{}".format(prop.key.lower())
     operator = prop.operator
     params: Dict[str, Any] = {}
+
     if operator == "is_not":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
         return (

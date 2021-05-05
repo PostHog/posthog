@@ -11,7 +11,7 @@ interface SaveChartModalProps {
     textPlaceholder?: string
 }
 
-const SaveModal: React.FC<SaveChartModalProps> = (props) => {
+export const SaveModal: React.FC<SaveChartModalProps> = (props) => {
     const { visible, onCancel, onSubmit, title, prompt, textLabel, textPlaceholder } = props
     const [input, setInput] = useState<string>('')
 
@@ -50,5 +50,3 @@ const SaveModal: React.FC<SaveChartModalProps> = (props) => {
         </Modal>
     )
 }
-
-export default SaveModal

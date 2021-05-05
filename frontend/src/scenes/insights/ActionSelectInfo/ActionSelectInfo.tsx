@@ -6,7 +6,7 @@ function eventToHumanName(event: string): string {
     return event && event[0] == '$' ? event[1].toUpperCase() + event.slice(2) : event
 }
 
-export function ActionSelectInfo({ entity }: { entity: ActionType }): JSX.Element {
+export function ActionSelectInfo({ entity }: { entity: ActionType }): JSX.Element | null {
     if (!entity) {
         return null
     }

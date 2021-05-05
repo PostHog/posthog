@@ -38,6 +38,7 @@ interface ActionFilterRowProps {
     singleFilter?: boolean
     showOr?: boolean
     letter?: string | null
+    horizontalUI?: boolean
 }
 
 export function ActionFilterRow({
@@ -49,6 +50,7 @@ export function ActionFilterRow({
     singleFilter,
     showOr,
     letter,
+    horizontalUI = false,
 }: ActionFilterRowProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
@@ -116,11 +118,28 @@ export function ActionFilterRow({
                     )}
                 </Row>
             )}
-            <Row gutter={8} className="mt">
+            <Row gutter={8} align="middle" className="mt">
                 {letter && (
                     <Col className="action-row-letter">
                         <span>{letter}</span>
                     </Col>
+                )}
+                {horizontalUI && (
+                    <>
+                        <Col>Showing</Col>
+                        <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
+                            {!hideMathSelector && (
+                                <MathSelector
+                                    math={math}
+                                    index={index}
+                                    onMathSelect={onMathSelect}
+                                    areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
+                                    style={{ maxWidth: '100%', width: 'initial' }}
+                                />
+                            )}
+                        </Col>
+                        <Col>of</Col>
+                    </>
                 )}
                 <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
                     <Button
@@ -141,17 +160,19 @@ export function ActionFilterRow({
                         onClose={() => selectFilter(null)}
                     />
                 </Col>
-                <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
-                    {!hideMathSelector && (
-                        <MathSelector
-                            math={math}
-                            index={index}
-                            onMathSelect={onMathSelect}
-                            areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
-                            style={{ maxWidth: '100%', width: 'initial' }}
-                        />
-                    )}
-                </Col>
+                {!horizontalUI && (
+                    <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
+                        {!hideMathSelector && (
+                            <MathSelector
+                                math={math}
+                                index={index}
+                                onMathSelect={onMathSelect}
+                                areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
+                                style={{ maxWidth: '100%', width: 'initial' }}
+                            />
+                        )}
+                    </Col>
+                )}
                 {!singleFilter && (
                     <Col>
                         <Button
