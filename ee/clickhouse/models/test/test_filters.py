@@ -41,6 +41,15 @@ def _create_person(**kwargs):
     return Person(id=person.uuid)
 
 
+def _create_cohort(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    groups = kwargs.pop("groups")
+    cohort = Cohort.objects.create(team=team, name=name, groups=groups)
+    cohort.calculate_people()
+    return cohort
+
+
 def _create_event(**kwargs):
     uuid = uuid4()
     kwargs.update({"event_uuid": uuid})
@@ -49,7 +58,7 @@ def _create_event(**kwargs):
 
 
 class TestFiltering(
-    ClickhouseTestMixin, property_to_Q_test_factory(_filter_events, _create_event, _create_person),  # type: ignore
+    ClickhouseTestMixin, property_to_Q_test_factory(_filter_events, _create_event, _create_person, _create_cohort),  # type: ignore
 ):
     def test_person_cohort_properties(self):
         person1_distinct_id = "person1"
