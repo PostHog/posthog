@@ -14,7 +14,7 @@ interface Props {
     delayBeforeAutoOpen?: number
 }
 
-interface PropertyOptionGroup {
+export interface PropertyOptionGroup {
     type: 'event' | 'person' | 'element'
     label: string
     options: Array<{ value: string }>

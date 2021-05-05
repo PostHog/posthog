@@ -41,7 +41,7 @@ function CustomTag({ label, onClose, value }: CustomTagProps): JSX.Element {
  * Ant Design Select extended with a gradient overlay to indicate a scrollable list.
  */
 
-type SelectGradientOverflowProps = SelectProps<any> & {
+export type SelectGradientOverflowProps = SelectProps<any> & {
     delayBeforeAutoOpen?: number
 }
 

@@ -29,6 +29,16 @@ export const FilterRow = React.memo(function FilterRow({
         setOpen(visible)
     }
 
+    const propertyFilterCommonProps = {
+        key: index,
+        index,
+        onComplete: () => setOpen(false),
+        logic,
+        selectProps: {
+            delayBeforeAutoOpen: 150,
+        },
+    }
+
     return (
         <Row
             align="middle"
@@ -39,15 +49,7 @@ export const FilterRow = React.memo(function FilterRow({
             }}
         >
             {disablePopover ? (
-                <PropertyFilter
-                    key={index}
-                    index={index}
-                    onComplete={() => setOpen(false)}
-                    logic={logic}
-                    selectProps={{
-                        delayBeforeAutoOpen: 150,
-                    }}
-                />
+                <PropertyFilter {...propertyFilterCommonProps} />
             ) : (
                 <Popover
                     trigger="click"
@@ -56,17 +58,7 @@ export const FilterRow = React.memo(function FilterRow({
                     defaultVisible={false}
                     visible={open}
                     placement={popoverPlacement || 'bottomLeft'}
-                    content={
-                        <PropertyFilter
-                            key={index}
-                            index={index}
-                            onComplete={() => setOpen(false)}
-                            logic={logic}
-                            selectProps={{
-                                delayBeforeAutoOpen: 150,
-                            }}
-                        />
-                    }
+                    content={<PropertyFilter {...propertyFilterCommonProps} />}
                 >
                     {key ? (
                         <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
