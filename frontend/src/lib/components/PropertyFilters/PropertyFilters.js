@@ -10,6 +10,7 @@ export function PropertyFilters({
     onChange = null,
     pageKey,
     showConditionBadge = false,
+    disablePopover = false,
     popoverPlacement = null,
     style = {},
 }) {
@@ -30,6 +31,7 @@ export function PropertyFilters({
                             filters={filters}
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadge}
+                            disablePopover={disablePopover}
                             popoverPlacement={popoverPlacement}
                         />
                     )

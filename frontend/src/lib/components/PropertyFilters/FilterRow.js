@@ -15,6 +15,7 @@ export const FilterRow = React.memo(function FilterRow({
     pageKey,
     showConditionBadge,
     totalCount,
+    disablePopover = false, // use bare PropertyFilter without popover
     popoverPlacement,
 }) {
     const { remove } = useActions(logic)
@@ -37,33 +38,45 @@ export const FilterRow = React.memo(function FilterRow({
                 maxWidth: '90vw',
             }}
         >
-            <Popover
-                trigger="click"
-                onVisibleChange={handleVisibleChange}
-                destroyTooltipOnHide={true}
-                defaultVisible={false}
-                visible={open}
-                placement={popoverPlacement || 'bottomLeft'}
-                content={
-                    <PropertyFilter
-                        key={index}
-                        index={index}
-                        onComplete={() => setOpen(false)}
-                        logic={logic}
-                        selectProps={{
-                            delayBeforeAutoOpen: 150,
-                        }}
-                    />
-                }
-            >
-                {key ? (
-                    <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
-                ) : (
-                    <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
-                        Add filter
-                    </Button>
-                )}
-            </Popover>
+            {disablePopover ? (
+                <PropertyFilter
+                    key={index}
+                    index={index}
+                    onComplete={() => setOpen(false)}
+                    logic={logic}
+                    selectProps={{
+                        delayBeforeAutoOpen: 150,
+                    }}
+                />
+            ) : (
+                <Popover
+                    trigger="click"
+                    onVisibleChange={handleVisibleChange}
+                    destroyTooltipOnHide={true}
+                    defaultVisible={false}
+                    visible={open}
+                    placement={popoverPlacement || 'bottomLeft'}
+                    content={
+                        <PropertyFilter
+                            key={index}
+                            index={index}
+                            onComplete={() => setOpen(false)}
+                            logic={logic}
+                            selectProps={{
+                                delayBeforeAutoOpen: 150,
+                            }}
+                        />
+                    }
+                >
+                    {key ? (
+                        <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
+                    ) : (
+                        <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
+                            Add filter
+                        </Button>
+                    )}
+                </Popover>
+            )}
             {!!Object.keys(filters[index]).length && (
                 <CloseButton
                     className="ml-1"
