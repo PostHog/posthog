@@ -1,7 +1,6 @@
 import os
 import time
 
-import statsd
 from celery import Celery
 from celery.schedules import crontab
 from django.conf import settings
@@ -37,9 +36,6 @@ EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = settings.EVENT_PROPERTY_USAGE_INTERVAL_S
 
 # How frequently do we want to check if dashboard items need to be recalculated
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS
-
-if settings.STATSD_HOST is not None:
-    statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
 
 @app.on_after_configure.connect
@@ -121,6 +117,8 @@ CLICKHOUSE_TABLES = [
 @app.task(ignore_result=True)
 def clickhouse_lag():
     if is_ee_enabled() and settings.EE_AVAILABLE:
+        from statshog.defaults.django import statsd
+
         from ee.clickhouse.client import sync_execute
 
         for table in CLICKHOUSE_TABLES:
@@ -130,8 +128,7 @@ def clickhouse_lag():
                 )
                 query = QUERY.format(table=table)
                 lag = sync_execute(query)[0][2]
-                g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-                g.send("clickhouse_{table}_table_lag_seconds".format(table=table), lag)
+                statsd.gauge(f"posthog_celery_clickhouse_{table}_table_lag_seconds", lag)
             except:
                 pass
     else:
@@ -141,6 +138,8 @@ def clickhouse_lag():
 @app.task(ignore_result=True)
 def clickhouse_row_count():
     if is_ee_enabled() and settings.EE_AVAILABLE:
+        from statshog.defaults.django import statsd
+
         from ee.clickhouse.client import sync_execute
 
         for table in CLICKHOUSE_TABLES:
@@ -148,8 +147,7 @@ def clickhouse_row_count():
                 QUERY = """select count(1) freq from {table};"""
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
-                g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-                g.send("clickhouse_{table}_table_row_count".format(table=table), rows)
+                statsd.gauge(f"posthog_celery_clickhouse_{table}_table_row_count", rows)
             except:
                 pass
     else:
@@ -159,18 +157,19 @@ def clickhouse_row_count():
 @app.task(ignore_result=True)
 def clickhouse_part_count():
     if is_ee_enabled() and settings.EE_AVAILABLE:
+        from statshog.defaults.django import statsd
+
         from ee.clickhouse.client import sync_execute
 
         QUERY = """
             select table, count(1) freq
             from system.parts
             group by table
-            order by freq desc; 
+            order by freq desc;
         """
         rows = sync_execute(QUERY)
         for (table, parts) in rows:
-            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-            g.send("clickhouse_{table}_table_parts_count".format(table=table), parts)
+            statsd.gauge(f"posthog_celery_clickhouse_{table}_table_parts_count", parts)
     else:
         pass
 
@@ -178,6 +177,8 @@ def clickhouse_part_count():
 @app.task(ignore_result=True)
 def clickhouse_mutation_count():
     if is_ee_enabled() and settings.EE_AVAILABLE:
+        from statshog.defaults.django import statsd
+
         from ee.clickhouse.client import sync_execute
 
         QUERY = """
@@ -186,22 +187,22 @@ def clickhouse_mutation_count():
                 count(1) AS freq
             FROM system.mutations
             GROUP BY table
-            ORDER BY freq DESC 
+            ORDER BY freq DESC
         """
         rows = sync_execute(QUERY)
         for (table, muts) in rows:
-            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
-            g.send("clickhouse_{table}_table_mutations_count".format(table=table), muts)
+            statsd.gauge(f"posthog_celery_clickhouse_{table}_table_mutations_count", muts)
     else:
         pass
 
 
 @app.task(ignore_result=True)
 def redis_celery_queue_depth():
+    from statshog.defaults.django import statsd
+
     try:
-        g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
         llen = get_client().llen("celery")
-        g.send("queue_depth", llen)
+        statsd.gauge(f"posthog_celery_queue_depth", llen)
     except:
         # if we can't connect to statsd don't complain about it.
         # not every installation will have statsd available

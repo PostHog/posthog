@@ -5,7 +5,6 @@ from time import time
 from typing import Any, Dict, List, Tuple
 
 import sqlparse
-import statsd
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
@@ -14,6 +13,7 @@ from django.conf import settings as app_settings
 from django.core.cache import cache
 from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
+from statshog.defaults.django import statsd
 
 from posthog import redis
 from posthog.constants import RDBMS
@@ -27,15 +27,9 @@ from posthog.settings import (
     CLICKHOUSE_USER,
     CLICKHOUSE_VERIFY,
     PRIMARY_DB,
-    STATSD_HOST,
-    STATSD_PORT,
-    STATSD_PREFIX,
     TEST,
 )
 from posthog.utils import get_safe_cache
-
-if STATSD_HOST is not None:
-    statsd.Connection.set_defaults(host=STATSD_HOST, port=STATSD_PORT)
 
 CACHE_TTL = 60  # seconds
 
@@ -132,8 +126,7 @@ else:
                 result = client.execute(query, args, settings=settings)
             finally:
                 execution_time = time() - start_time
-                g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (STATSD_PREFIX,))
-                g.send("clickhouse_sync_query_time", execution_time)
+                statsd.gauge("clickhouse_sync_execution_time", execution_time * 1000.0)
                 if app_settings.SHELL_PLUS_PRINT_SQL:
                     print(format_sql(query, args))
                     print("Execution time: %.6fs" % (execution_time,))
