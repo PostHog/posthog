@@ -46,7 +46,7 @@ export function EventName({ value, onChange, isActionStep = false }: EventNameIn
 
                     <small>
                         {eventNamesGrouped[0].options.length === 0 && "You haven't sent any custom events."}{' '}
-                        <a href="https://posthog.com/docs/integrations" target="_blank" rel="noopener noreferrer">
+                        <a href="https://posthog.com/docs/libraries" target="_blank" rel="noopener noreferrer">
                             See documentation
                         </a>{' '}
                         on how to send custom events in lots of languages.
