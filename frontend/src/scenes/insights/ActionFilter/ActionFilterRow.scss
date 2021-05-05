@@ -2,6 +2,7 @@
 
 .property-select {
     cursor: pointer;
+    width: 150px;
     margin-top: 6px;
     .ant-select-selector {
         border-color: #d9d9d9 !important;
@@ -36,6 +37,24 @@
     .ant-select-selection-placeholder {
         line-height: 24px !important;
         color: #2d2d2d;
+    }
+
+    &.horizontal-ui {
+        width: unset !important;
+        margin-top: 0;
+
+        .ant-select-selector,
+        .ant-select-selection-placeholder,
+        .ant-select-selection-search-input {
+            font-size: inherit;
+            height: 32px !important;
+        }
+        .ant-select-selection-item {
+            line-height: 30px !important;
+        }
+        .ant-select-selection-placeholder {
+            line-height: 30px !important;
+        }
     }
 }
 .action-row-letter {
