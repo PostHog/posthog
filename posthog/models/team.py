@@ -35,6 +35,7 @@ class TeamManager(models.Manager):
                 "operator": "is_not",
                 "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
             },
+            {"key": "$environment", "operator": "is", "value": ["test"],},
         ]
         if organization:
             example_emails = organization.members.only("email")
