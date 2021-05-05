@@ -29,7 +29,6 @@ export function RetentionLineGraph({
     const people = _people as RetentionTrendPeoplePayload
 
     const { loadPeople, loadMorePeople } = useActions(logic)
-    // const [{ fromItem }] = useState(router.values.hashParams)
     const { dashboardItem } = useValues(insightLogic)
     const [modalVisible, setModalVisible] = useState(false)
     const [day, setDay] = useState(0)
