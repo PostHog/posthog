@@ -19,7 +19,7 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
     return (
         <div className="dashboard-item-header">
             <Link to={`/dashboard/${dashboardId}`}>
-                <ArrowLeftOutlined /> Back to {dashboard?.name} dashboard
+                <ArrowLeftOutlined /> To {dashboard?.name} dashboard
             </Link>
             <div style={{ marginTop: -16 }}>
                 <PageHeader title={dashboardItem?.name} />

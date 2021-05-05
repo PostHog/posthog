@@ -36,7 +36,7 @@ export function ActionsLineGraph({
                 visibilityMap={visibilityMap}
                 labels={(indexedResults[0] && indexedResults[0].labels) || []}
                 isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId || dashboardItem.id}
+                dashboardItemId={dashboardItemId || dashboardItem?.id}
                 inSharedMode={inSharedMode}
                 onClick={
                     dashboardItemId

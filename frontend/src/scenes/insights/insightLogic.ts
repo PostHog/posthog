@@ -62,7 +62,7 @@ export const insightLogic = kea<insightLogicType>({
         setTimeout: (timeout) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
-        setIsFromDashboardItem: (isFromDashboardItem) => ({ isFromDashboardItem }),
+        setIsFromDashboardItem: (isFromDashboardItem: boolean) => ({ isFromDashboardItem }),
     }),
 
     reducers: {
@@ -137,16 +137,16 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
         dashboardItem: [
-            {} as DashboardItemType,
+            null as DashboardItemType | null,
             {
                 setDashboardItem: (_, { dashboardItem }) => dashboardItem,
             },
         ],
+    },
+    selectors: {
         fromDashboardItem: [
-            false,
-            {
-                setIsFromDashboardItem: (_, { isFromDashboardItem }) => isFromDashboardItem,
-            },
+            (selectors) => [selectors.dashboardItem],
+            (dashboardItem: DashboardItemType) => !!dashboardItem,
         ],
     },
     listeners: ({ actions, values }) => ({
@@ -213,10 +213,10 @@ export const insightLogic = kea<insightLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/insights': (_: any, searchParams: Record<string, any>) => {
-            if ((searchParams.insight && searchParams.insight !== values.activeView) || values.dashboardItem.id) {
+            if ((searchParams.insight && searchParams.insight !== values.activeView) || values.dashboardItem) {
                 actions.updateActiveView(searchParams.insight)
             }
-            actions.setDashboardItem({})
+            actions.setDashboardItem(null)
             actions.setIsFromDashboardItem(false)
         },
         '/insights/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {

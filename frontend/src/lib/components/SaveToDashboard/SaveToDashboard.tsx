@@ -45,14 +45,14 @@ export function SaveToDashboard(props: Props): JSX.Element {
                     closeModal={(): void => setOpenModal(false)}
                     name={_name}
                     filters={_filters}
-                    fromItem={dashboardItem.id}
-                    fromDashboard={dashboardItem.dashboard}
-                    fromItemName={dashboardItem.name}
+                    fromItem={dashboardItem?.id}
+                    fromDashboard={dashboardItem?.dashboard}
+                    fromItemName={dashboardItem?.name}
                     annotations={_annotations}
                 />
             )}
             <Button onClick={(): void => setOpenModal(true)} type="primary" data-attr="save-to-dashboard-button">
-                {dashboardItem.id ? 'Update Dashboard' : 'Add to dashboard'}
+                {dashboardItem?.id ? 'Update Dashboard' : 'Add to dashboard'}
             </Button>
         </span>
     )

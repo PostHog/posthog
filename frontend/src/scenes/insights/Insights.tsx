@@ -169,7 +169,7 @@ export function Insights(): JSX.Element {
     return (
         <div className="insights-page">
             <Header dashboardItem={dashboardItem} />
-            {Object.keys(dashboardItem).length === 0 && (
+            {!dashboardItem && (
                 <Row justify="space-between" align="middle" className="top-bar">
                     <Tabs
                         size="large"
