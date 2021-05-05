@@ -85,6 +85,10 @@ class UserManager(BaseUserManager):
             return personal_api_key.user
 
 
+def events_column_config_default() -> Dict[str, Any]:
+    return {"active": "DEFAULT"}
+
+
 class User(AbstractUser, UUIDClassicModel):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []
@@ -103,11 +107,14 @@ class User(AbstractUser, UUIDClassicModel):
     email = models.EmailField(_("email address"), unique=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
+
+    # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
+    events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
 
     # Remove unused attributes from `AbstractUser`
     username = None  # type: ignore

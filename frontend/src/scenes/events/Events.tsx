@@ -1,7 +1,6 @@
 import React from 'react'
 import { kea, useActions, useValues } from 'kea'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { Tabs } from 'antd'
 import { ActionsTable } from 'scenes/actions/ActionsTable'
 import { EventsTable } from './EventsTable'
@@ -38,28 +37,18 @@ export function ManageEvents(): JSX.Element {
     const { tab } = useValues(eventsLogic)
     const { setTab } = useActions(eventsLogic)
     return (
-        <div className="manage-events" data-attr="manage-events-table">
-            <PageHeader title="Events" />
+        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
             <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={setTab}>
                 <Tabs.TabPane tab="Events" key="live">
-                    See events being sent to this project in near real time.
                     <EventsTable />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions">
                     <ActionsTable />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="Events Stats" key="stats">
-                    See all event names that have ever been sent to this team, including the volume and how often
-                    queries where made using this event.
-                    <br />
-                    <br />
                     <EventsVolumeTable />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="Properties Stats" key="properties">
-                    See all property keys that have ever been sent to this team, including the volume and how often
-                    queries where made using this property key.
-                    <br />
-                    <br />
                     <PropertiesVolumeTable />
                 </Tabs.TabPane>
             </Tabs>

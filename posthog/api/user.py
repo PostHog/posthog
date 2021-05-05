@@ -59,6 +59,7 @@ class UserSerializer(serializers.ModelSerializer):
             "set_current_team",
             "password",
             "current_password",  # used when changing current password
+            "events_column_config",
         ]
         extra_kwargs = {
             "is_staff": {"read_only": True},
