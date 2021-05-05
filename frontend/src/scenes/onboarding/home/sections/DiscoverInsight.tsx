@@ -11,8 +11,7 @@ import {
 } from '@ant-design/icons'
 import React, { useEffect } from 'react'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
-import { ViewType } from 'scenes/insights/insightLogic'
+import { DashboardItem, displayHistoryItemLink } from 'scenes/dashboard/DashboardItem'
 import { router } from 'kea-router'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -200,11 +199,7 @@ function InsightPane(): JSX.Element {
                                                         'recent analysis',
                                                         { insight_type: insight.filters.insight }
                                                     )
-                                                    const _type: DisplayedType =
-                                                        insight.filters.insight === ViewType.RETENTION
-                                                            ? 'RetentionContainer'
-                                                            : insight.filters.display
-                                                    router.actions.push(displayMap[_type].link(insight))
+                                                    router.actions.push(displayHistoryItemLink(insight))
                                                 }}
                                                 preventLoading={false}
                                                 footer={

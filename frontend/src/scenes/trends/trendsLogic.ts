@@ -233,11 +233,13 @@ export const trendsLogic = kea<
                 FilterType
             >,
             {
-                setFilters: (state, { filters, mergeFilters }) =>
-                    cleanFilters({
-                        ...(mergeFilters ? state : {}),
+                setFilters: (state, { filters, mergeFilters }) => {
+                    const newState = state?.insight === ViewType.TRENDS ? state : {}
+                    return cleanFilters({
+                        ...(mergeFilters ? newState : {}),
                         ...filters,
-                    }),
+                    })
+                },
             },
         ],
         people: [
@@ -509,7 +511,7 @@ export const trendsLogic = kea<
 
     events: ({ actions, props }) => ({
         afterMount: () => {
-            if (props.dashboardItemId) {
+            if (props.dashboardItemId || insightLogic.values.fromDashboardItem) {
                 // loadResults gets called in urlToAction for non-dashboard insights
                 actions.loadResults()
             }
@@ -518,7 +520,7 @@ export const trendsLogic = kea<
 
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
-            if (props.dashboardItemId) {
+            if (props.dashboardItemId || insightLogic.values.fromDashboardItem) {
                 return // don't use the URL if on the dashboard
             }
             return ['/insights', values.filters, router.values.hashParams]
@@ -573,6 +575,12 @@ export const trendsLogic = kea<
                 }
 
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
+            }
+        },
+        '/insights/dashboard_item/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
+            const dashboardItem = await api.get(`api/dashboard_item/${dashboardItemId}`)
+            if (dashboardItem && dashboardItem.filters.insight === ViewType.TRENDS) {
+                actions.setFilters(cleanFilters(dashboardItem.filters), true)
             }
         },
     }),
