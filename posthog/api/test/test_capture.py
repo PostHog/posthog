@@ -90,7 +90,7 @@ class TestCapture(BaseTest):
     @patch("posthog.api.capture.celery_app.send_task")
     def test_test_api_key(self, patch_process_event_with_plugins):
         api_token = "test_" + self.team.api_token
-        data = {
+        data: Dict[str, Any] = {
             "event": "$autocapture",
             "properties": {
                 "distinct_id": 2,
@@ -115,7 +115,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data, "properties": {**data["properties"], "$test_environment": True,}},
+                "data": {**data, "properties": {**data["properties"], "$test_environment": True}},
                 "team_id": self.team.pk,
             },
         )
