@@ -446,6 +446,7 @@ export interface PluginType {
 export interface PluginConfigType {
     id?: number
     plugin: number
+    team_id: number
     enabled: boolean
     order: number
     config: Record<string, any>
@@ -458,6 +459,26 @@ export interface PluginErrorType {
     stack?: string
     name?: string
     event?: Record<string, any>
+}
+
+export enum PluginLogEntryType {
+    Debug = 'DEBUG',
+    Log = 'LOG',
+    Info = 'INFO',
+    Warn = 'WARN',
+    Error = 'ERROR',
+}
+
+export interface PluginLogEntry {
+    id: string
+    team_id: number
+    plugin_id: number
+    plugin_config_id: number
+    timestamp: string
+    type: PluginLogEntryType
+    is_system: boolean
+    message: string
+    instance_id: string
 }
 
 export interface AnnotationType {

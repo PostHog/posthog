@@ -12,7 +12,10 @@ import './index.scss'
 export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> {
     title: string | JSX.Element
     key?: string
-    render: (record: RecordType, ...rest: any) => JSX.Element | RenderedCell<RecordType>
+    dataIndex?: string
+    render?:
+        | ((record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
+        | ((value: any, record?: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
     ellipsis?: boolean
     span: number
 }

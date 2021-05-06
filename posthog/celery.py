@@ -71,6 +71,9 @@ def setup_periodic_tasks(sender, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
+    # delete old plugin logs every 4 hours
+    sender.add_periodic_task(crontab(minute=0, hour="*/4"), delete_old_plugin_logs.s())
+
     sender.add_periodic_task(
         UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
     )
@@ -269,3 +272,10 @@ def calculate_billing_daily_usage():
         pass
     else:
         compute_daily_usage_for_organizations()
+
+
+@app.task(ignore_result=True)
+def delete_old_plugin_logs():
+    from posthog.tasks.delete_old_plugin_logs import delete_old_plugin_logs
+
+    delete_old_plugin_logs()
