@@ -24,6 +24,7 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
     const [newDescription, setNewDescription] = useState(dashboardItem.description) // Used to update the input immediately, debouncing API calls
     const { user } = useValues(userLogic)
     const isDashboardItemEditMode = dashboardItemMode === DashboardItemMode.Edit
+    const hasDashboardCollab = user?.organization?.available_features?.includes('dashboard_collaboration')
 
     return (
         <div className="dashboard-item-header">
@@ -45,7 +46,7 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
                             </span>
                         </div>
 
-                        {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                        {hasDashboardCollab && (
                             <>
                                 <div className="description">
                                     {isDashboardItemEditMode ? (
@@ -72,25 +73,26 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
                         )}
                     </div>
 
-                    {isDashboardItemEditMode ? (
-                        <Button
-                            style={{ marginRight: 16 }}
-                            icon={<SaveOutlined />}
-                            onClick={() => updateDashboardItem(dashboardItem.id, { description: newDescription })}
-                            type="primary"
-                            data-attr="dashboard-item-description-submit"
-                        >
-                            Save changes
-                        </Button>
-                    ) : (
-                        <Button
-                            style={{ marginRight: 16 }}
-                            onClick={() => setDashboardItemMode(DashboardItemMode.Edit)}
-                        >
-                            <EditOutlined />
-                            Edit name or description
-                        </Button>
-                    )}
+                    {hasDashboardCollab &&
+                        (isDashboardItemEditMode ? (
+                            <Button
+                                style={{ marginRight: 16 }}
+                                icon={<SaveOutlined />}
+                                onClick={() => updateDashboardItem(dashboardItem.id, { description: newDescription })}
+                                type="primary"
+                                data-attr="dashboard-item-description-submit"
+                            >
+                                Save changes
+                            </Button>
+                        ) : (
+                            <Button
+                                style={{ marginRight: 16 }}
+                                onClick={() => setDashboardItemMode(DashboardItemMode.Edit)}
+                            >
+                                <EditOutlined />
+                                Edit name or description
+                            </Button>
+                        ))}
                 </div>
             </div>
         </div>
