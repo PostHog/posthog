@@ -5,7 +5,7 @@ import AdmZip from 'adm-zip'
 import { randomBytes } from 'crypto'
 import Redis, { RedisOptions } from 'ioredis'
 import { DateTime } from 'luxon'
-import { Pool, PoolConfig } from 'pg'
+import { Pool, PoolClient, PoolConfig } from 'pg'
 import { Readable } from 'stream'
 import * as tar from 'tar-stream'
 import * as zlib from 'zlib'
@@ -412,20 +412,28 @@ export function pluginDigest(plugin: Plugin, teamId?: number): string {
     return `plugin ${plugin.name} ID ${plugin.id} (${extras.join(' - ')})`
 }
 
-export function createPostgresPool(serverConfig: PluginsServerConfig): Pool {
-    const credentials: Partial<PoolConfig> = serverConfig.POSTHOG_DB_NAME
-        ? {
-              database: serverConfig.POSTHOG_DB_NAME,
-              user: serverConfig.POSTHOG_DB_USER,
-              password: serverConfig.POSTHOG_DB_PASSWORD,
-              host: serverConfig.POSTHOG_POSTGRES_HOST,
-              port: serverConfig.POSTHOG_POSTGRES_PORT,
-          }
-        : {
-              connectionString: serverConfig.DATABASE_URL,
-          }
+export function createPostgresPool(
+    configOrDatabaseUrl: PluginsServerConfig | string,
+    onError?: (error: Error) => any
+): Pool {
+    const credentials: Partial<PoolConfig> =
+        typeof configOrDatabaseUrl === 'string'
+            ? {
+                  connectionString: configOrDatabaseUrl,
+              }
+            : configOrDatabaseUrl.POSTHOG_DB_NAME
+            ? {
+                  database: configOrDatabaseUrl.POSTHOG_DB_NAME,
+                  user: configOrDatabaseUrl.POSTHOG_DB_USER,
+                  password: configOrDatabaseUrl.POSTHOG_DB_PASSWORD,
+                  host: configOrDatabaseUrl.POSTHOG_POSTGRES_HOST,
+                  port: configOrDatabaseUrl.POSTHOG_POSTGRES_PORT,
+              }
+            : {
+                  connectionString: configOrDatabaseUrl.DATABASE_URL,
+              }
 
-    const postgres = new Pool({
+    const pgPool = new Pool({
         ...credentials,
         idleTimeoutMillis: 500,
         max: 10,
@@ -436,12 +444,16 @@ export function createPostgresPool(serverConfig: PluginsServerConfig): Pool {
             : undefined,
     })
 
-    postgres.on('error', (error) => {
-        Sentry.captureException(error)
-        status.error('🔴', 'PostgreSQL error encountered!\n', error)
-    })
+    const handleError =
+        onError ||
+        ((error) => {
+            Sentry.captureException(error)
+            status.error('🔴', 'PostgreSQL error encountered!\n', error)
+        })
 
-    return postgres
+    pgPool.on('error', handleError)
+
+    return pgPool
 }
 
 export function sanitizeEvent(event: PluginEvent): PluginEvent {
@@ -526,5 +538,15 @@ export function pluginConfigIdFromStack(
         if (secretId === parseInt(id)) {
             return secretId
         }
+    }
+}
+
+export function logOrThrowJobQueueError(server: PluginsServerConfig, error: Error, message: string): void {
+    Sentry.captureException(error)
+    if (server.CRASH_IF_NO_PERSISTENT_JOB_QUEUE) {
+        status.error('🔴', message)
+        throw error
+    } else {
+        status.info('🟡', message)
     }
 }

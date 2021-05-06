@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/node'
 
 import { EnqueuedJob, JobQueue, OnJobCallback, PluginsServer } from '../../types'
 import { status } from '../../utils/status'
+import { logOrThrowJobQueueError } from '../../utils/utils'
 import { FsQueue } from './fs-queue'
 import { GraphileQueue } from './graphile-queue'
 
@@ -39,16 +40,26 @@ export class JobQueueManager implements JobQueue {
     }
 
     async connectProducer(): Promise<void> {
+        const toRemove = new Set<JobQueue>()
         await Promise.all(
             this.jobQueues.map(async (jobQueue, index) => {
+                const jobQueueType = this.jobQueueTypes[index]
                 try {
                     await jobQueue.connectProducer()
-                    status.info('💂', `Connected to job queue producer: ${this.jobQueueTypes[index]}`)
+                    status.info('🚶', `Connected to job queue producer "${jobQueueType}"`)
                 } catch (error) {
-                    Sentry.captureException(error)
+                    toRemove.add(jobQueue)
+                    logOrThrowJobQueueError(
+                        this.pluginsServer,
+                        error,
+                        `Can not start job queue producer "${jobQueueType}": ${error.message}`
+                    )
                 }
             })
         )
+        if (toRemove.size > 0) {
+            this.jobQueues = this.jobQueues.filter((jobQueue) => !toRemove.has(jobQueue))
+        }
     }
 
     async enqueue(job: EnqueuedJob): Promise<void> {

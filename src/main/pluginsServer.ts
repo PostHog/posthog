@@ -9,6 +9,7 @@ import * as schedule from 'node-schedule'
 import { defaultConfig } from '../config/config'
 import { JobQueueConsumerControl, PluginsServer, PluginsServerConfig, Queue, ScheduleControl } from '../types'
 import { createServer } from '../utils/db/server'
+import { killProcess } from '../utils/kill'
 import { status } from '../utils/status'
 import { createRedis, delay, getPiscinaStats } from '../utils/utils'
 import { startQueue } from './ingestion-queues/queue'
@@ -196,13 +197,7 @@ export async function startPluginsServer(
                     )
                     server.statsd?.increment(`alerts.stale_plugin_server_restarted`)
 
-                    // In tests, only call SIGTERM once to avoid leaky tests.
-                    // In production, kill two more times if the first one fails.
-                    setTimeout(() => process.kill(process.pid, 'SIGTERM'), 100)
-                    if (process.env.NODE_ENV !== 'test') {
-                        setTimeout(() => process.kill(process.pid, 'SIGTERM'), 60000)
-                        setTimeout(() => process.kill(process.pid, 'SIGKILL'), 120000)
-                    }
+                    killProcess()
                 }
             }, Math.min(serverConfig.STALENESS_RESTART_SECONDS, 10000))
         }
