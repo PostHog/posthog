@@ -293,9 +293,15 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
     if created and not settings.MULTI_TENANCY and not settings.TEST and can_install_plugins(instance):
         # This in disabled in tests to avoid hitting GitHub API limits
         for plugin_url in settings.PLUGINS_PREINSTALLED_URLS:
-            Plugin.objects.install(
-                organization=instance, plugin_type=Plugin.PluginType.REPOSITORY, url=plugin_url, is_preinstalled=True
-            )
+            try:
+                Plugin.objects.install(
+                    organization=instance,
+                    plugin_type=Plugin.PluginType.REPOSITORY,
+                    url=plugin_url,
+                    is_preinstalled=True,
+                )
+            except Exception:
+                print(f"ℹ⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}")
 
 
 @receiver(models.signals.post_save, sender=Team)
