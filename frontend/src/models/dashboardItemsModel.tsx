@@ -3,7 +3,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
-import { DashboardItemType } from '~/types'
+import { DashboardItemMode, DashboardItemType } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { dashboardItemsModelType } from '~/models/dashboardItemsModelType'
@@ -12,13 +12,23 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
     actions: () => ({
         renameDashboardItem: (item: DashboardItemType) => ({ item }),
         renameDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
+        updateDashboardItem: (id: number, payload: any) => ({ id, ...payload }),
         duplicateDashboardItem: (item: DashboardItemType, dashboardId?: number, move: boolean = false) => ({
             item,
             dashboardId,
             move,
         }),
+        setDashboardItemMode: (mode: DashboardItemMode) => ({ mode }),
         duplicateDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
         refreshAllDashboardItems: (filters: Record<string, any>) => filters,
+    }),
+    reducers: () => ({
+        dashboardItemMode: [
+            null,
+            {
+                setDashboardItemMode: (_, { mode }) => mode,
+            },
+        ],
     }),
     listeners: ({ actions }) => ({
         renameDashboardItem: async ({ item }) => {
@@ -33,6 +43,13 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
                     actions.renameDashboardItemSuccess(item)
                 },
             })
+        },
+        updateDashboardItem: async ({ id, ...payload }) => {
+            if (!Object.entries(payload).length) {
+                return
+            }
+            const response = await api.update(`api/dashboard_item/${id}`, payload)
+            return response
         },
         duplicateDashboardItem: async ({ item, dashboardId, move }) => {
             if (!item) {
