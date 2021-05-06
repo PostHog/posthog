@@ -11,39 +11,16 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(
-            """
-                ALTER TABLE posthog_element
-                    ALTER COLUMN attr_class TYPE varchar(10000)[],
-                    ALTER COLUMN attr_id TYPE varchar(10000),
-                    ALTER COLUMN href TYPE varchar(10000),
-                    ALTER COLUMN tag_name TYPE varchar(1000),
-                    ALTER COLUMN text TYPE varchar(10000);
-            """,
-            state_operations=[
-                migrations.AlterField(
-                    model_name="element",
-                    name="attr_class",
-                    field=django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(blank=True, max_length=10000), blank=True, null=True, size=None
-                    ),
-                ),
-                migrations.AlterField(
-                    model_name="element",
-                    name="attr_id",
-                    field=models.CharField(blank=True, max_length=10000, null=True),
-                ),
-                migrations.AlterField(
-                    model_name="element", name="href", field=models.CharField(blank=True, max_length=10000, null=True),
-                ),
-                migrations.AlterField(
-                    model_name="element",
-                    name="tag_name",
-                    field=models.CharField(blank=True, max_length=1000, null=True),
-                ),
-                migrations.AlterField(
-                    model_name="element", name="text", field=models.CharField(blank=True, max_length=10000, null=True),
-                ),
-            ],
-        )
+        migrations.AlterField(
+            model_name="element", name="attr_id", field=models.CharField(blank=True, max_length=10000, null=True),
+        ),
+        migrations.AlterField(
+            model_name="element", name="href", field=models.CharField(blank=True, max_length=10000, null=True),
+        ),
+        migrations.AlterField(
+            model_name="element", name="tag_name", field=models.CharField(blank=True, max_length=1000, null=True),
+        ),
+        migrations.AlterField(
+            model_name="element", name="text", field=models.CharField(blank=True, max_length=10000, null=True),
+        ),
     ]
