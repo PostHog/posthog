@@ -104,10 +104,10 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
             header: function eventPropertiesHeader(label: string) {
                 return <>{label}</>
             },
-            dataSource: eventProperties?.map(({ value, label, is_numerical }: PropertiesType) => ({
+            dataSource: eventProperties?.map(({ value: eventValue, label, is_numerical }: PropertiesType) => ({
                 name: label,
-                key: `event_${value}`,
-                value,
+                key: `event_${eventValue}`,
+                eventValue,
                 is_numerical,
             })),
             renderInfo: EventPropertiesInfo,
@@ -120,10 +120,10 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
             header: function personPropertiesHeader(label: string) {
                 return <>{label}</>
             },
-            dataSource: personProperties?.map(({ value, label, is_numerical }: PropertiesType) => ({
+            dataSource: personProperties?.map(({ value: propertyValue, label, is_numerical }: PropertiesType) => ({
                 name: label,
-                key: `person_${value}`,
-                value,
+                key: `person_${propertyValue}`,
+                propertyValue,
                 is_numerical,
             })),
             renderInfo: function personPropertiesRenderInfo({ item }) {
@@ -227,7 +227,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                                 setOpen(false)
                             }}
                             items={selectBoxItems}
-                            inputPlaceholder="Search event and user properties"
+                            inputPlaceholder="Search cohorts, and event or user properties"
                         />
                     </FilterDropdown>
                 </Col>
