@@ -465,7 +465,8 @@ export function PropertyKeyInfo({ value, type = 'event' }: PropertyKeyInfoInterf
     } else if (value.startsWith('$initial_') && value.replace(/^\$initial_/, '$') in keyMapping[type]) {
         data = { ...keyMapping[type][value.replace(/^\$initial_/, '$')] }
         if (data.description) {
-            data.description += ' Data from the first time this user was seen.'
+            data.label = `Initial ${data.label}`
+            data.description = `${data.description} Data from the first time this user was seen.`
         }
     } else {
         return <>{value}</>
