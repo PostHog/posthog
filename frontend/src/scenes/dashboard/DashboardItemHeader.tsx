@@ -7,6 +7,7 @@ import { useValues } from 'kea'
 import { dashboardLogic } from './dashboardLogic'
 import './Dashboard.scss'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 interface Props {
     dashboardId: number
@@ -15,6 +16,7 @@ interface Props {
 export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
     const { dashboard } = useValues(dashboardLogic({ id: dashboardId }))
     const { dashboardItem } = useValues(insightLogic)
+    const { user } = useValues(userLogic)
 
     return (
         <div className="dashboard-item-header">
@@ -23,7 +25,7 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
             </Link>
             <div style={{ marginTop: -16 }}>
                 <PageHeader title={dashboardItem?.name} />
-                <div className="dashboard-item-description text-default">
+                <div className="header-container text-default">
                     <div className="title">
                         <IconDashboard />
                         <span style={{ paddingLeft: 6 }}>
@@ -31,6 +33,11 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
                             <Link to={`/dashboard/${dashboardId}`}>{dashboard?.name}</Link> dashboard.
                         </span>
                     </div>
+                    {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                        <>
+                            <div className="description">{dashboardItem.description}</div>
+                        </>
+                    )}
                 </div>
             </div>
         </div>
