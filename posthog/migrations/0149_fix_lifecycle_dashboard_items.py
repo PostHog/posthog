@@ -13,7 +13,7 @@ def update_lifecycle(apps, _):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0147_fix_stickiness_dashboard_items"),
+        ("posthog", "0148_merge_20210506_0823"),
     ]
 
     operations = [

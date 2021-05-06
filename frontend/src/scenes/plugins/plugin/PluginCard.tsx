@@ -7,10 +7,10 @@ import {
     CheckOutlined,
     CloudDownloadOutlined,
     LoadingOutlined,
+    UnorderedListOutlined,
     SettingOutlined,
     WarningOutlined,
     InfoCircleOutlined,
-    MessageOutlined,
     DownOutlined,
     GlobalOutlined,
 } from '@ant-design/icons'
@@ -34,12 +34,6 @@ export function ExtraPluginButtons({ url, disabled = false }: { url: string; dis
                 <InfoCircleOutlined />
                 <span className="show-over-500">About</span>
             </LinkButton>
-            {url.includes('github') && (
-                <LinkButton to={`${url}/issues/new`} target="_blank" rel="noopener noreferrer" disabled={disabled}>
-                    <MessageOutlined />
-                    <span className="show-over-500">Feedback</span>
-                </LinkButton>
-            )}
         </Space>
     )
 }
@@ -82,7 +76,9 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange } = useActions(pluginsLogic)
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } = useActions(
+        pluginsLogic
+    )
     const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
 
@@ -191,16 +187,27 @@ export function PluginCard({
                                     rearranging={rearranging}
                                 />
                             ) : pluginId ? (
-                                <Button
-                                    type="primary"
-                                    className="padding-under-500"
-                                    disabled={rearranging}
-                                    onClick={() => editPlugin(pluginId)}
-                                    data-attr="plugin-configure"
-                                >
-                                    <SettingOutlined />
-                                    <span className="show-over-500">Configure</span>
-                                </Button>
+                                <>
+                                    <Button
+                                        className="padding-under-500"
+                                        disabled={rearranging}
+                                        onClick={() => showPluginLogs(pluginId)}
+                                        data-attr="plugin-logs"
+                                    >
+                                        <UnorderedListOutlined />
+                                        <span className="show-over-500">Logs</span>
+                                    </Button>
+                                    <Button
+                                        type="primary"
+                                        className="padding-under-500"
+                                        disabled={rearranging}
+                                        onClick={() => editPlugin(pluginId)}
+                                        data-attr="plugin-configure"
+                                    >
+                                        <SettingOutlined />
+                                        <span className="show-over-500">Configure</span>
+                                    </Button>
+                                </>
                             ) : !pluginId ? (
                                 <Button
                                     type="primary"
