@@ -193,7 +193,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                                 }
                                 setOpen(false)
                             }}
-                            onSelect={(itemType, id, name) => {
+                            onSelect={(itemType, _, name) => {
                                 setThisFilter(name, undefined, operator, itemType)
                                 setOpen(false)
                             }}
