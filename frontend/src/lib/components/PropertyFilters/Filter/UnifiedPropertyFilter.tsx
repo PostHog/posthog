@@ -5,13 +5,12 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useValues, useActions } from 'kea'
 import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
 import { Link } from '../../Link'
-import { InfoCircleOutlined, DownOutlined } from '@ant-design/icons'
-import { Tooltip } from 'antd'
+import { DownOutlined } from '@ant-design/icons'
 import { OperatorValueFilterType, OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { propertyFilterLogic } from '../propertyFilterLogic'
 import { PropertyOptionGroup } from '../PropertySelect'
-import { SelectBox } from 'lib/components/SelectBox'
+import { SelectBox, SelectBoxItem } from 'lib/components/SelectBox'
 
 function FilterDropdown({ open, children }: { open: boolean; children: React.ReactNode }): JSX.Element | null {
     return open ? <div>{children}</div> : null
@@ -54,8 +53,6 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
         },
     ] as PropertyOptionGroup[]
 
-    console.log(optionGroups[0])
-
     if (eventProperties.length > 0) {
         optionGroups.push({
             type: 'element',
@@ -66,6 +63,83 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
             })),
         })
     }
+
+    type PropertiesType = {
+        value: string
+        label: string
+        is_numerical: boolean
+    }
+
+    const selectBoxItems: SelectBoxItem[] = [
+        {
+            name: 'Event properties',
+            header: function eventPropertiesHeader(label: string) {
+                return <>{label}</>
+            },
+            dataSource: eventProperties?.map(({ value, label, is_numerical }: PropertiesType) => ({
+                name: label,
+                key: value,
+                value,
+                is_numerical,
+            })),
+            renderInfo: function eventPropertiesRenderInfo({ item }) {
+                return (
+                    <>
+                        Event properties
+                        <br />
+                        <h3>{item.name}</h3>
+                        {(item?.volume_30_day ?? 0 > 0) && (
+                            <>
+                                Seen <strong>{item.volume_30_day}</strong> times.{' '}
+                            </>
+                        )}
+                        {(item?.query_usage_30_day ?? 0 > 0) && (
+                            <>
+                                Used in <strong>{item.query_usage_30_day}</strong> queries.
+                            </>
+                        )}
+                    </>
+                )
+            },
+            type: 'event',
+            getValue: (item) => item.name || '',
+            getLabel: (item) => item.name || '',
+        },
+        {
+            name: 'User properties',
+            header: function personPropertiesHeader(label: string) {
+                return <>{label}</>
+            },
+            dataSource: personProperties?.map(({ value, label, is_numerical }: PropertiesType) => ({
+                name: label,
+                key: value,
+                value,
+                is_numerical,
+            })),
+            renderInfo: function personPropertiesRenderInfo({ item }) {
+                return (
+                    <>
+                        User properties
+                        <br />
+                        <h3>{item.name}</h3>
+                        {(item?.volume_30_day ?? 0 > 0) && (
+                            <>
+                                Seen <strong>{item.volume_30_day}</strong> times.{' '}
+                            </>
+                        )}
+                        {(item?.query_usage_30_day ?? 0 > 0) && (
+                            <>
+                                Used in <strong>{item.query_usage_30_day}</strong> queries.
+                            </>
+                        )}
+                    </>
+                )
+            },
+            type: 'person',
+            getValue: (item) => item.name || '',
+            getLabel: (item) => item.name || '',
+        },
+    ]
 
     const onClick = (): void => {
         setOpen(!open)
@@ -82,42 +156,23 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                         alignItems: 'center',
                     }}
                 >
-                    <span
-                        style={{
-                            color: '#C4C4C4',
-                            fontSize: 18,
-                            paddingLeft: 6,
-                            paddingRight: 8,
-                            position: 'relative',
-                            top: -4,
-                        }}
-                    >
-                        &#8627;
+                    <span style={{ opacity: key ? 1 : 0.6 }}>
+                        <span
+                            style={{
+                                color: '#C4C4C4',
+                                fontSize: 18,
+                                paddingLeft: 6,
+                                paddingRight: 8,
+                                position: 'relative',
+                                top: -4,
+                            }}
+                        >
+                            &#8627;
+                        </span>
+                        {index === 0 ? 'where' : 'and'}
                     </span>
-                    where
                 </Col>
                 <Col style={{ minWidth: '6em' }}>
-                    {/* <PropertySelect
-                        value={
-                            type === 'cohort'
-                                ? null
-                                : {
-                                      value: key,
-                                      label: keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key,
-                                  }
-                        }
-                        onChange={(newType, newValue) =>
-                            setThisFilter(
-                                newValue,
-                                undefined,
-                                newValue === '$active_feature_flags' ? 'icontains' : operator,
-                                newType
-                            )
-                        }
-                        optionGroups={optionGroups}
-                        placeholder="Property key"
-                        dropdownMatchSelectWidth={250}
-                    /> */}
                     <Button onClick={onClick} style={{ display: 'flex', alignItems: 'center' }}>
                         <span className="text-overflow" style={{ maxWidth: '100%' }}>
                             <PropertyKeyInfo value={key || 'Select property'} />
@@ -129,48 +184,10 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                             selectedItemKey={undefined}
                             onDismiss={() => setOpen(false)}
                             onSelect={(itemType, id, name) => {
-                                console.log(itemType, id, name)
                                 setThisFilter(name, undefined, operator, itemType)
                                 setOpen(false)
                             }}
-                            items={[
-                                {
-                                    name: 'Event properties',
-                                    header: function eventPropertiesHeader(label: string) {
-                                        return (
-                                            <>
-                                                {label}{' '}
-                                                <Tooltip title="We'll suggest events you (or your team) have used frequently in other queries">
-                                                    <InfoCircleOutlined />
-                                                </Tooltip>
-                                            </>
-                                        )
-                                    },
-                                    dataSource: eventProperties,
-                                    renderInfo: function eventPropertiesRenderInfo({ item }) {
-                                        return (
-                                            <>
-                                                Event properties
-                                                <br />
-                                                <h3>{item.name}</h3>
-                                                {(item?.volume_30_day ?? 0 > 0) && (
-                                                    <>
-                                                        Seen <strong>{item.volume_30_day}</strong> times.{' '}
-                                                    </>
-                                                )}
-                                                {(item?.query_usage_30_day ?? 0 > 0) && (
-                                                    <>
-                                                        Used in <strong>{item.query_usage_30_day}</strong> queries.
-                                                    </>
-                                                )}
-                                            </>
-                                        )
-                                    },
-                                    type: 'eventProperty',
-                                    getValue: (item) => item.name || '',
-                                    getLabel: (item) => item.name || '',
-                                },
-                            ]}
+                            items={selectBoxItems}
                         />
                     </FilterDropdown>
                 </Col>
