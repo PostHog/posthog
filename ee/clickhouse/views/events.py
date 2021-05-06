@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from django.utils.timezone import now
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -115,9 +116,9 @@ class ClickhouseEventsViewSet(EventViewSet):
         if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
             return Response({"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400)
         query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
-        res: Union[Dict, str] = f"No events exist for event UUID {pk}"
-        if len(query_result) > 0:
-            res = ClickhouseEventSerializer(query_result[0], many=False).data
+        if len(query_result) == 0:
+            raise NotFound(detail=f"No events exist for event UUID {pk}")
+        res = ClickhouseEventSerializer(query_result[0], many=False).data
         return Response(res)
 
     @action(methods=["GET"], detail=False)

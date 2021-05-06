@@ -92,7 +92,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
     def test_filter_event_contains_url(self):
 
-        event_target = _create_event(
+        _create_event(
             event="$autocapture",
             team=self.team,
             distinct_id="whatever",
@@ -123,7 +123,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
     def test_filter_event_regex_url(self):
 
-        event_target = _create_event(
+        _create_event(
             event="$autocapture",
             team=self.team,
             distinct_id="whatever",
