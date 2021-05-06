@@ -1,3 +1,6 @@
+/*
+Contains the **new** property filter (see #4050) component where all filters are unified in a single view
+*/
 import React, { useState } from 'react'
 import { Button, Col, Row } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'

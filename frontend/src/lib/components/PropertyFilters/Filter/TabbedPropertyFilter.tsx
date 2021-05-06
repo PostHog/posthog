@@ -1,3 +1,6 @@
+/*
+Contains the property filter component where filtering by properties or cohorts are separated in tabs.
+*/
 import React, { useState } from 'react'
 import { Col, Row, Select, Tabs } from 'antd'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
@@ -178,14 +181,19 @@ function CohortPaneContents({
     )
 }
 
-interface PropertyFilterProps {
+interface TabbedPropertyFilterProps {
     index: number
     onComplete: CallableFunction
     logic: typeof propertyFilterLogic
     selectProps: Partial<SelectGradientOverflowProps>
 }
 
-export function TabbedPropertyFilter({ index, onComplete, logic, selectProps }: PropertyFilterProps): JSX.Element {
+export function TabbedPropertyFilter({
+    index,
+    onComplete,
+    logic,
+    selectProps,
+}: TabbedPropertyFilterProps): JSX.Element {
     const { eventProperties, personProperties, filters } = useValues(logic)
     const { setFilter } = useActions(logic)
     const { key, value, operator, type } = filters[index]
