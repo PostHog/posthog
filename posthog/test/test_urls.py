@@ -1,9 +1,11 @@
+import importlib
 import uuid
 
 import pytest
 from django.conf import settings
 from rest_framework import status
 
+import posthog.urls
 from posthog.test.base import APIBaseTest
 
 
@@ -63,9 +65,9 @@ class TestUrls(APIBaseTest):
             response = self.client.get("/robots.txt")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @pytest.mark.urls("posthog.urls")
     def test_robots_txt_block_crawl_by_default(self):
         with self.settings(MULTI_TENANCY=False):
+            importlib.reload(posthog.urls)
             response = self.client.get("/robots.txt")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.content, b"User-agent: *\nDisallow: /")
