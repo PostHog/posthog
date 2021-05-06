@@ -87,3 +87,4 @@ class PersonDistinctId(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey(Person, on_delete=models.CASCADE)
     distinct_id: models.CharField = models.CharField(max_length=400)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
