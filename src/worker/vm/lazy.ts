@@ -59,6 +59,14 @@ export class LazyPluginVM {
         })
     }
 
+    async getOnEvent(): Promise<PluginConfigVMReponse['methods']['onEvent'] | null> {
+        return (await this.resolveInternalVm)?.methods.onEvent || null
+    }
+
+    async getOnSnapshot(): Promise<PluginConfigVMReponse['methods']['onSnapshot'] | null> {
+        return (await this.resolveInternalVm)?.methods.onSnapshot || null
+    }
+
     async getProcessEvent(): Promise<PluginConfigVMReponse['methods']['processEvent'] | null> {
         return (await this.resolveInternalVm)?.methods.processEvent || null
     }

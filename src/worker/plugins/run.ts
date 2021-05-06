@@ -3,7 +3,47 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { PluginConfig, PluginsServer, PluginTaskType } from '../../types'
 import { processError } from '../../utils/db/error'
 
-export async function runPlugins(server: PluginsServer, event: PluginEvent): Promise<PluginEvent | null> {
+export async function runOnEvent(server: PluginsServer, event: PluginEvent): Promise<void> {
+    const pluginsToRun = getPluginsForTeam(server, event.team_id)
+
+    await Promise.all(
+        pluginsToRun.map(async (pluginConfig) => {
+            const onEvent = await pluginConfig.vm?.getOnEvent()
+            if (onEvent) {
+                const timer = new Date()
+                try {
+                    await onEvent(event)
+                } catch (error) {
+                    await processError(server, pluginConfig, error, event)
+                    server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.on_event.ERROR`)
+                }
+                server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.on_event`, timer)
+            }
+        })
+    )
+}
+
+export async function runOnSnapshot(server: PluginsServer, event: PluginEvent): Promise<void> {
+    const pluginsToRun = getPluginsForTeam(server, event.team_id)
+
+    await Promise.all(
+        pluginsToRun.map(async (pluginConfig) => {
+            const onSnapshot = await pluginConfig.vm?.getOnSnapshot()
+            if (onSnapshot) {
+                const timer = new Date()
+                try {
+                    await onSnapshot(event)
+                } catch (error) {
+                    await processError(server, pluginConfig, error, event)
+                    server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.on_event.ERROR`)
+                }
+                server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.on_event`, timer)
+            }
+        })
+    )
+}
+
+export async function runProcessEvent(server: PluginsServer, event: PluginEvent): Promise<PluginEvent | null> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
     let returnedEvent: PluginEvent | null = event
 
@@ -42,7 +82,7 @@ export async function runPlugins(server: PluginsServer, event: PluginEvent): Pro
     return returnedEvent
 }
 
-export async function runPluginsOnBatch(server: PluginsServer, batch: PluginEvent[]): Promise<PluginEvent[]> {
+export async function runProcessEventBatch(server: PluginsServer, batch: PluginEvent[]): Promise<PluginEvent[]> {
     const eventsByTeam = new Map<number, PluginEvent[]>()
 
     for (const event of batch) {
