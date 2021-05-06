@@ -9,18 +9,30 @@
     }
 
     .new {
-        background-color: var(--lifecycle-new);
+        .ant-checkbox-checked .ant-checkbox-inner {
+            border-color: var(--lifecycle-new);
+            background-color: var(--lifecycle-new);
+        }
     }
 
     .returning {
-        background-color: var(--lifecycle-returning);
+        .ant-checkbox-checked .ant-checkbox-inner {
+            border-color: var(--lifecycle-returning);
+            background-color: var(--lifecycle-returning);
+        }
     }
 
     .resurrecting {
-        background-color: var(--lifecycle-resurrecting);
+        .ant-checkbox-checked .ant-checkbox-inner {
+            border-color: var(--lifecycle-resurrecting);
+            background-color: var(--lifecycle-resurrecting);
+        }
     }
 
     .dormant {
-        background-color: var(--lifecycle-dormant);
+        .ant-checkbox-checked .ant-checkbox-inner {
+            border-color: var(--lifecycle-dormant);
+            background-color: var(--lifecycle-dormant);
+        }
     }
 }

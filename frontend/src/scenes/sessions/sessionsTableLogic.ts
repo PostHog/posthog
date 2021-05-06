@@ -22,6 +22,7 @@ interface Params {
 export const sessionsTableLogic = kea<
     sessionsTableLogicType<Dayjs, SessionType, SessionRecordingId, PropertyFilter, SessionsPropertyFilter, EventType>
 >({
+    key: (props) => props.personIds || 'global',
     props: {} as {
         personIds?: string[]
     },

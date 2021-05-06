@@ -30,7 +30,7 @@ export function SessionTab(): JSX.Element {
                 setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                 typeKey={'sessions' + ViewType.SESSIONS}
                 hideMathSelector={true}
-                copy="Add action or event"
+                buttonCopy="Add action or event"
                 showOr={true}
             />
             <hr />

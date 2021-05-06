@@ -92,11 +92,11 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
     })
 
     // casting here is not the best
-    if (filters.shown_as === ShownAsValue.STICKINESS) {
+    if (filters.insight === ViewType.STICKINESS) {
         params.stickiness_days = date_from as number
     } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
         params.date_to = date_from as string
-    } else if (filters.shown_as === ShownAsValue.LIFECYCLE) {
+    } else if (filters.insight === ViewType.LIFECYCLE) {
         params.date_from = filters.date_from
         params.date_to = filters.date_to
     } else {
@@ -233,11 +233,13 @@ export const trendsLogic = kea<
                 FilterType
             >,
             {
-                setFilters: (state, { filters, mergeFilters }) =>
-                    cleanFilters({
-                        ...(mergeFilters ? state : {}),
+                setFilters: (state, { filters, mergeFilters }) => {
+                    const newState = state?.insight === ViewType.TRENDS ? state : {}
+                    return cleanFilters({
+                        ...(mergeFilters ? newState : {}),
                         ...filters,
-                    }),
+                    })
+                },
             },
         ],
         people: [
@@ -399,14 +401,14 @@ export const trendsLogic = kea<
         },
         loadPeople: async ({ label, action, date_from, date_to, breakdown_value }, breakpoint) => {
             let people = []
-            if (values.filters.shown_as === ShownAsValue.LIFECYCLE) {
+            if (values.filters.insight === ViewType.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
                     { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                     values.filters
                 )
                 actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
                 people = await api.get(`api/person/lifecycle/?${filterParams}`)
-            } else if (values.filters.shown_as === ShownAsValue.STICKINESS) {
+            } else if (values.filters.insight === ViewType.STICKINESS) {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
                     values.filters
@@ -458,7 +460,7 @@ export const trendsLogic = kea<
             if (!props.dashboardItemId) {
                 insightHistoryLogic.actions.createInsight({
                     ...values.filters,
-                    insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
+                    insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
                 })
             }
 
@@ -509,7 +511,7 @@ export const trendsLogic = kea<
 
     events: ({ actions, props }) => ({
         afterMount: () => {
-            if (props.dashboardItemId) {
+            if (props.dashboardItemId || insightLogic.values.fromDashboardItem) {
                 // loadResults gets called in urlToAction for non-dashboard insights
                 actions.loadResults()
             }
@@ -518,7 +520,7 @@ export const trendsLogic = kea<
 
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
-            if (props.dashboardItemId) {
+            if (props.dashboardItemId || insightLogic.values.fromDashboardItem) {
                 return // don't use the URL if on the dashboard
             }
             return ['/insights', values.filters, router.values.hashParams]
@@ -545,6 +547,7 @@ export const trendsLogic = kea<
                     cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
                 }
 
+                // TODO: Deprecated; should be removed once backend is updated
                 if (searchParams.insight === ViewType.STICKINESS) {
                     cleanSearchParams['shown_as'] = ShownAsValue.STICKINESS
                 }
@@ -556,7 +559,7 @@ export const trendsLogic = kea<
                     cleanSearchParams['session'] = 'avg'
                 }
 
-                if (searchParams.date_from === 'all' || searchParams.shown_as === ShownAsValue.LIFECYCLE) {
+                if (searchParams.date_from === 'all' || searchParams.insight === ViewType.LIFECYCLE) {
                     cleanSearchParams['compare'] = false
                 }
 
@@ -574,6 +577,12 @@ export const trendsLogic = kea<
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
             }
         },
+        '/insights/dashboard_item/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
+            const dashboardItem = await api.get(`api/dashboard_item/${dashboardItemId}`)
+            if (dashboardItem && dashboardItem.filters.insight === ViewType.TRENDS) {
+                actions.setFilters(cleanFilters(dashboardItem.filters), true)
+            }
+        },
     }),
 })
 
@@ -581,7 +590,7 @@ const handleLifecycleDefault = (
     params: Partial<FilterType>,
     callback: (filters: Partial<FilterType>) => void
 ): void => {
-    if (params.shown_as === ShownAsValue.LIFECYCLE) {
+    if (params.insight === ViewType.LIFECYCLE) {
         if (params.events?.length) {
             callback({
                 ...params,

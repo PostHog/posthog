@@ -1148,6 +1148,33 @@
         "bug",
         "code"
       ]
+    },
+    {
+      "login": "thedeveloperr",
+      "name": "Mohit Gupta",
+      "avatar_url": "https://avatars.githubusercontent.com/u/23462580?v=4",
+      "profile": "https://github.com/thedeveloperr",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "gesposito",
+      "name": "Gianluca Esposito",
+      "avatar_url": "https://avatars.githubusercontent.com/u/735227?v=4",
+      "profile": "https://www.esposi.to",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "sankalpdomore",
+      "name": "Sankalp Sinha",
+      "avatar_url": "https://avatars.githubusercontent.com/u/18334593?v=4",
+      "profile": "http://www.sankalpsinha.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

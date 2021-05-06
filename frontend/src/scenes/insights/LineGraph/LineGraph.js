@@ -10,7 +10,7 @@ import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import dayjs from 'dayjs'
-import './Insights.scss'
+import './LineGraph.scss'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -118,9 +118,12 @@ export function LineGraph({
         const borderColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : colorList[index % colorList.length]
+        const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : undefined
 
         return {
             borderColor,
+            hoverBorderColor: hoverColor,
+            hoverBackgroundColor: hoverColor,
             backgroundColor: (type === 'bar' || type === 'doughnut') && borderColor,
             fill: false,
             borderWidth: 1,

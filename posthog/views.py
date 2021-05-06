@@ -211,6 +211,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "is_debug": settings.DEBUG,
             "is_event_property_usage_enabled": settings.ASYNC_EVENT_PROPERTY_USAGE,
             "licensed_users_available": get_licensed_users_available(),
+            "site_url": settings.SITE_URL,
         }
 
     return JsonResponse(response)
