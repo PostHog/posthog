@@ -96,7 +96,7 @@ export function PluginLogs({ teamId, pluginConfigId }: PluginLogsProps): JSX.Ele
                 columns={columns}
                 loading={pluginLogsLoading}
                 size="small"
-                className="ph-no-capture"
+                className="ph-no-capture plugins-scene-resizable-no-ellipsis"
                 rowKey="id"
                 style={{ flexGrow: 1 }}
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}

@@ -64,3 +64,9 @@
         }
     }
 }
+.plugins-scene-resizable-no-ellipsis {
+    table td.ant-table-cell {
+        white-space: normal;
+        text-overflow: unset;
+    }
+}
