@@ -143,6 +143,21 @@ class Plugin(models.Model):
 
     objects: PluginManager = PluginManager()
 
+    def get_default_config(self) -> Dict[str, Any]:
+        config: Dict[str, Any] = {}
+        config_schema = self.config_schema
+        if isinstance(config_schema, dict):
+            for key, config_entry in config_schema.items():
+                default = config_entry.get("default")
+                if default is not None:
+                    config[key] = default
+        elif isinstance(config_schema, list):
+            for config_entry in config_schema:
+                default = config_entry.get("default")
+                if default is not None:
+                    config[config_entry["key"]] = default
+        return config
+
 
 class PluginConfig(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
@@ -287,13 +302,20 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
 def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bool, **kwargs):
     if created and can_configure_plugins(instance.organization):
         for order, preinstalled_plugin in enumerate(Plugin.objects.filter(is_preinstalled=True)):
-            PluginConfig.objects.create(team=instance, plugin=preinstalled_plugin, enabled=True, order=order)
+
+            PluginConfig.objects.create(
+                team=instance,
+                plugin=preinstalled_plugin,
+                enabled=True,
+                order=order,
+                config=preinstalled_plugin.get_default_config(),
+            )
 
 
 @receiver([post_save, post_delete], sender=Plugin)
 def plugin_reload_needed(sender, instance, created=None, **kwargs):
+    # Newly created plugins don't have a config yet, so no need to reload
     if not created:
-        # Newly created plugins don't have a config yet, so no need to reload
         reload_plugins_on_workers()
 
 
