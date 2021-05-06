@@ -9,6 +9,8 @@ import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ENVIRONMENTS } from 'lib/components/PropertyKeyInfo'
+import { ENVIRONMENT_LOCAL_STORAGE_KEY } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 type WarningType =
     | 'welcome'
@@ -28,7 +30,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
         setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
         setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
-        setFilteredEnvironment: (environment: string) => ({ environment }),
+        setFilteredEnvironment: (environment: string, pageload: boolean = false) => ({ environment, pageload }),
     },
     reducers: {
         menuCollapsed: [
@@ -70,7 +72,9 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         filteredEnvironment: [
             ENVIRONMENTS.PRODUCTION,
             {
-                setFilteredEnvironment: (_, payload) => payload.environment,
+                setFilteredEnvironment: (_, payload) => {
+                    return payload.environment
+                },
             },
         ],
     },
@@ -170,9 +174,27 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
                 actions.setHotkeyNavigationEngaged(false)
             }
         },
+        setFilteredEnvironment: (payload) => {
+            const localStorageValue = window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY)
+            const isLocalStorageValueEmpty = localStorageValue === null
+            const shouldWriteToLocalStorage =
+                (payload.pageload === true && isLocalStorageValueEmpty) || payload.pageload === false
+            if (shouldWriteToLocalStorage) {
+                window.localStorage.setItem(ENVIRONMENT_LOCAL_STORAGE_KEY, payload.environment)
+            }
+            const shouldReload = payload.pageload === false && localStorageValue !== payload.environment
+            if (shouldReload) {
+                location.reload()
+            }
+        },
     }),
     events: ({ actions }) => ({
         afterMount: () => {
+            if (featureFlagLogic.values.featureFlags['test-environment-3149']) {
+                const localStorageValue =
+                    window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY) || ENVIRONMENTS.PRODUCTION
+                actions.setFilteredEnvironment(localStorageValue, true)
+            }
             actions.loadLatestVersion()
         },
     }),

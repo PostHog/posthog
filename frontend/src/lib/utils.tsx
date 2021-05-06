@@ -43,10 +43,10 @@ export function toParams(obj: Record<string, any>): string {
         .join('&')
 }
 
-export function fromParams(): Record<string, any> {
-    return !window.location.search
+export function fromParamsGivenUrl(url: string): Record<string, any> {
+    return !url
         ? {}
-        : window.location.search
+        : url
               .slice(1)
               .split('&')
               .reduce((paramsObject, paramString) => {
@@ -54,6 +54,10 @@ export function fromParams(): Record<string, any> {
                   paramsObject[key] = decodeURIComponent(value)
                   return paramsObject
               }, {} as Record<string, any>)
+}
+
+export function fromParams(): Record<string, any> {
+    return fromParamsGivenUrl(window.location.search)
 }
 
 export function percentage(division: number): string {

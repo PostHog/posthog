@@ -1,3 +1,7 @@
+import { fromParamsGivenUrl, toParams } from 'lib/utils'
+import { ENVIRONMENT_LOCAL_STORAGE_KEY } from 'lib/constants'
+import { ENVIRONMENTS } from 'lib/components/PropertyKeyInfo'
+
 export function getCookie(name) {
     var cookieValue = null
     if (document.cookie && document.cookie !== '') {
@@ -24,9 +28,8 @@ async function getJSONOrThrow(response) {
 
 class Api {
     async get(url) {
-        if (url.indexOf('http') !== 0) {
-            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
-        }
+        // TODO: how to put behind a feature flag
+        url = maybeAddEnvironmentProperty(url)
 
         let response
         try {
@@ -103,5 +106,51 @@ class Api {
         return response
     }
 }
+
+function isWhitelisted(url) {
+    const WHITELIST = ['api']
+
+    for (let i = 0; i < WHITELIST.length; i++) {
+        let startsWith = url.indexOf(WHITELIST[i]) === 0
+        let startsWithSlash = '/' + url.indexOf(WHITELIST[i]) === 0
+        if (startsWith || startsWithSlash) {
+            return true
+        }
+    }
+
+    return false
+}
+
+function maybeAddEnvironmentProperty(url) {
+    const localStorageEnvironmentValue = window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY)
+    const shouldAddEnvironmentValue =
+        localStorageEnvironmentValue && isWhitelisted(url) && localStorageEnvironmentValue === ENVIRONMENTS.TEST
+
+    if (shouldAddEnvironmentValue) {
+        let urlObject = url.indexOf('http') === 0 ? new URL(url) : new URL(url, window.location.origin)
+
+        let params = fromParamsGivenUrl(urlObject.search)
+
+        const environmentProperty =
+            localStorageEnvironmentValue === ENVIRONMENTS.PRODUCTION
+                ? { key: '$environment', operator: 'is_not', value: ['test'] }
+                : { key: '$environment', operator: 'exact', value: ['test'] }
+
+        if (params.properties) {
+            let parsedProperties = JSON.parse(params.properties)
+            parsedProperties.push(environmentProperty)
+            params.properties = JSON.stringify(parsedProperties)
+        } else {
+            params.properties = JSON.stringify([environmentProperty])
+        }
+
+        return url.indexOf('http') === 0
+            ? urlObject.origin + urlObject.pathname + '?' + toParams(params)
+            : urlObject.pathname + '?' + toParams(params)
+    } else if (url.indexOf('http') !== 0) {
+        return '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
+    }
+}
+
 let api = new Api()
 export default api
