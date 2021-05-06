@@ -27,7 +27,7 @@ export const personalizationLogic = kea<personalizationLogicType<Personalization
             },
         ],
     },
-    listeners: {
+    listeners: () => ({
         reportPersonalizationSkipped: async () => {
             posthog.capture('personalization skipped')
         },
@@ -50,7 +50,7 @@ export const personalizationLogic = kea<personalizationLogicType<Personalization
                 router.actions.push('/setup')
             }
         },
-    },
+    }),
     events: {
         afterMount: () => {
             const personalization = organizationLogic.values.currentOrganization?.personalization
