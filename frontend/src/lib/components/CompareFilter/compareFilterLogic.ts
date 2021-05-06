@@ -2,11 +2,13 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { InsightType } from '~/types'
+import { compareFilterLogicType } from './compareFilterLogicType'
 
-export const compareFilterLogic = kea({
+export const compareFilterLogic = kea<compareFilterLogicType<InsightType>>({
     actions: () => ({
-        setCompare: (compare) => ({ compare }),
-        setDisabled: (disabled) => ({ disabled }),
+        setCompare: (compare: boolean) => ({ compare }),
+        setDisabled: (disabled: boolean) => ({ disabled }),
         toggleCompare: true,
     }),
     reducers: () => ({
@@ -39,8 +41,11 @@ export const compareFilterLogic = kea({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, { compare, insight, date_from }) => {
-            if (compare != null) {
+        '/insights': (
+            _: any,
+            { compare, insight, date_from }: { compare?: boolean; insight?: InsightType; date_from?: string }
+        ) => {
+            if (compare !== undefined) {
                 actions.setCompare(compare)
             }
             if (insight === ViewType.LIFECYCLE || date_from === 'all') {
