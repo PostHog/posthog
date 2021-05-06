@@ -1,8 +1,8 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
-import { FilterRow } from './FilterRow'
-import '../../../scenes/actions/Actions.scss'
+import { FilterRow } from './components/FilterRow'
+import 'scenes/actions/Actions.scss'
 
 export function PropertyFilters({
     endpoint = null,

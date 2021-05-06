@@ -4,11 +4,14 @@ import { propertyFilterLogic } from '../propertyFilterLogic'
 import { TabbedPropertyFilter } from './TabbedPropertyFilter'
 import { UnifiedPropertyFilter } from './UnifiedPropertyFilter'
 
-interface PropertyFilterProps {
+export interface PropertyFilterInternalProps {
     index: number
     onComplete: CallableFunction
     logic: typeof propertyFilterLogic
     selectProps: Partial<SelectGradientOverflowProps>
+}
+
+export interface PropertyFilterProps extends PropertyFilterInternalProps {
     variant: 'tabs' | 'unified'
 }
 

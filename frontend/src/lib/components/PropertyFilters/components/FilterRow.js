@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
-import { PropertyFilter } from './Filter'
+import { PropertyFilter } from './PropertyFilter'
 import { Button } from 'antd'
 import { useActions } from 'kea'
 import { Popover, Row } from 'antd'
 import { CloseButton } from 'lib/components/CloseButton'
 import { DeleteOutlined } from '@ant-design/icons'
 import PropertyFilterButton from './PropertyFilterButton'
-import '../../../scenes/actions/Actions.scss'
+import 'scenes/actions/Actions.scss'
 
 export const FilterRow = React.memo(function FilterRow({
     item,

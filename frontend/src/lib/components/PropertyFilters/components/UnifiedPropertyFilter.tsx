@@ -6,26 +6,22 @@ import { Button, Col, Row } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 // import { cohortsModel } from '../../../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
-import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
 import { Link } from '../../Link'
 import { DownOutlined } from '@ant-design/icons'
-import { OperatorValueFilterType, OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
+import {
+    OperatorValueFilterType,
+    OperatorValueSelect,
+} from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
-import { propertyFilterLogic } from '../propertyFilterLogic'
-import { PropertyOptionGroup } from '../PropertySelect'
+import { PropertyOptionGroup } from './PropertySelect'
 import { SelectBox, SelectBoxItem } from 'lib/components/SelectBox'
+import { PropertyFilterInternalProps } from './PropertyFilter'
 
 function FilterDropdown({ open, children }: { open: boolean; children: React.ReactNode }): JSX.Element | null {
     return open ? <div>{children}</div> : null
 }
-interface PropertyFilterProps {
-    index: number
-    onComplete: CallableFunction
-    logic: typeof propertyFilterLogic
-    selectProps: Partial<SelectGradientOverflowProps>
-}
 
-export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilterProps): JSX.Element {
+export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilterInternalProps): JSX.Element {
     const { eventProperties, personProperties, filters } = useValues(logic)
     // const { cohorts } = useValues(cohortsModel)
     const { setFilter } = useActions(logic)

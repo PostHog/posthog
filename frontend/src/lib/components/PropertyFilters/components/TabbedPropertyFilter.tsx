@@ -8,12 +8,12 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { SelectGradientOverflow, SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
 import { Link } from '../../Link'
-import { PropertySelect } from '../PropertySelect'
-import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
+import { PropertySelect } from './PropertySelect'
+import { OperatorValueSelect } from './OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
-import { propertyFilterLogic } from '../propertyFilterLogic'
-import { PropertyOptionGroup } from '../PropertySelect'
+import { PropertyOptionGroup } from './PropertySelect'
 import { PropertyOperator, PropertyDefinition, SelectOption } from '~/types'
+import { PropertyFilterInternalProps } from './PropertyFilter'
 
 const { TabPane } = Tabs
 
@@ -181,19 +181,12 @@ function CohortPaneContents({
     )
 }
 
-interface TabbedPropertyFilterProps {
-    index: number
-    onComplete: CallableFunction
-    logic: typeof propertyFilterLogic
-    selectProps: Partial<SelectGradientOverflowProps>
-}
-
 export function TabbedPropertyFilter({
     index,
     onComplete,
     logic,
     selectProps,
-}: TabbedPropertyFilterProps): JSX.Element {
+}: PropertyFilterInternalProps): JSX.Element {
     const { eventProperties, personProperties, filters } = useValues(logic)
     const { setFilter } = useActions(logic)
     const { key, value, operator, type } = filters[index]

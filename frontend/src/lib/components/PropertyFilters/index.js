@@ -1,3 +1,3 @@
-export * from './Filter'
+export * from './components/PropertyFilter'
 export * from './PropertyFilters'
-export * from './PropertyValue'
+export * from './components/PropertyValue'

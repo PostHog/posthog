@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { PropertyOperator } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
 import { isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
-import { PropertyValue } from 'lib/components/PropertyFilters/PropertyValue'
+import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
 
 export type OperatorValueFilterType = string | number | Array<string | number> | null

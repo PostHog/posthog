@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useActions } from 'kea'
 import { RecordingPropertyFilter } from '~/types'
 import { Input, Select } from 'antd'
-import { OperatorSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
+import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
 interface Props {
