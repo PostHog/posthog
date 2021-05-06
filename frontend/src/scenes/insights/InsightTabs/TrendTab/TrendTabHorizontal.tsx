@@ -16,6 +16,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { TrendTabProps } from './TrendTab'
+import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
@@ -30,11 +31,13 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
         { name: 'returning', tooltip: 'Users who consistently use the product.' },
         { name: 'dormant', tooltip: 'Users who are inactive.' },
     ]
+    const screens = useBreakpoint()
+    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
 
     return (
         <>
             <Row gutter={16}>
-                <Col md={16}>
+                <Col md={16} xs={24}>
                     <h3 className="l3" style={{ display: 'flex', alignItems: 'center' }}>
                         Unsaved query{' '}
                         <SaveToDashboard
@@ -62,7 +65,7 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                         />
                     )}
                 </Col>
-                <Col md={8}>
+                <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     {filters.insight === ViewType.LIFECYCLE && (
                         <>
                             <h4 className="secondary">Lifecycle Toggles</h4>
