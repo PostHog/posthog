@@ -172,12 +172,11 @@ export function Insights(): JSX.Element {
             {!dashboardItem && (
                 <Row justify="space-between" align="middle" className="top-bar">
                     <Tabs
-                        size="large"
                         activeKey={activeView}
                         style={{
                             overflow: 'visible',
                         }}
-                        className="top-bar"
+                        className={`top-bar${featureFlags['4050-query-ui-optB'] ? ' horizontal-ui' : ''}`}
                         onChange={(key) => setActiveView(key)}
                         animated={false}
                         tabBarExtraContent={{
@@ -293,7 +292,10 @@ export function Insights(): JSX.Element {
                 ) : (
                     <>
                         <Col xs={24} xl={featureFlags['4050-query-ui-optB'] ? 24 : 7}>
-                            <Card className="" style={{ overflow: 'visible' }}>
+                            <Card
+                                className={featureFlags['4050-query-ui-optB'] ? 'horizontal-ui-card' : ''}
+                                style={{ overflow: 'visible' }}
+                            >
                                 <div>
                                     {/*
                                 These are insight specific filters.

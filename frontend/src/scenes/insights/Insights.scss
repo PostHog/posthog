@@ -9,6 +9,12 @@
         .ant-btn-loading-icon {
             display: none;
         }
+
+        &.horizontal-ui {
+            .ant-tabs-tab {
+                padding: 0; // More compact tabs to save vertical space
+            }
+        }
     }
     hr {
         margin: 1rem 0;
@@ -24,6 +30,14 @@
         .hotkey {
             background-color: rgba($primary, 0.2) !important;
         }
+    }
+
+    .horizontal-ui-card {
+        .ant-card-body {
+            padding: $default_spacing * 0.6 $default_spacing;
+        }
+        margin-bottom: $default_spacing / 2;
+        border: 1px solid $border_light;
     }
 }
 
