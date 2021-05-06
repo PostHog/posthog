@@ -180,10 +180,14 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
     },
     actionToUrl: ({ values }) => ({
         setProperties: () => {
-            return ['/insights', values.propertiesForUrl]
+            if (!insightLogic.values.fromDashboardItem) {
+                return ['/insights', values.propertiesForUrl]
+            }
         },
         setFilter: () => {
-            return ['/insights', values.propertiesForUrl]
+            if (!insightLogic.values.fromDashboardItem) {
+                return ['/insights', values.propertiesForUrl]
+            }
         },
     }),
     urlToAction: ({ actions, values, key }) => ({
@@ -201,6 +205,12 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
                 if (!objectsEqual(searchParams.properties || [], values.properties)) {
                     actions.setProperties(searchParams.properties || [])
                 }
+            }
+        },
+        '/insights/dashboard_item/(:dashboardItemId)': () => {
+            const dashboardItem = insightLogic.values.dashboardItem
+            if (dashboardItem && dashboardItem.filters.insight === ViewType.PATHS) {
+                actions.setFilter(cleanPathParams(dashboardItem.filters))
             }
         },
     }),

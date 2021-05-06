@@ -3,14 +3,14 @@ import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
-import { formatLabel } from '~/lib/utils'
+import { formatLabel, maybeAddCommasToInteger } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import dayjs from 'dayjs'
-import './Insights.scss'
+import './LineGraph.scss'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -269,10 +269,21 @@ export function LineGraph({
                 }
             },
         }
+
         if (type === 'bar') {
             options.scales = {
                 xAxes: [{ stacked: true, ticks: { fontColor: axisLabelColor } }],
-                yAxes: [{ stacked: true, ticks: { fontColor: axisLabelColor } }],
+                yAxes: [
+                    {
+                        stacked: true,
+                        ticks: {
+                            fontColor: axisLabelColor,
+                            callback: (value) => {
+                                return maybeAddCommasToInteger(value)
+                            },
+                        },
+                    },
+                ],
             }
         } else if (type === 'line') {
             options.scales = {
@@ -306,6 +317,9 @@ export function LineGraph({
                                   min: 0,
                                   fontColor: axisLabelColor,
                                   precision: 0,
+                                  callback: (value) => {
+                                      return maybeAddCommasToInteger(value)
+                                  },
                               },
                     },
                 ],
@@ -321,6 +335,9 @@ export function LineGraph({
                             min: 0,
                             fontColor: axisLabelColor,
                             precision: 0,
+                            callback: (value) => {
+                                return maybeAddCommasToInteger(value)
+                            },
                         },
                     },
                 ],
