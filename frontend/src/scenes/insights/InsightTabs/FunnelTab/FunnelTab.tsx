@@ -8,7 +8,7 @@ import { ActionFilter } from '../../ActionFilter/ActionFilter'
 import { Link } from 'lib/components/Link'
 import { Button, Row } from 'antd'
 import { useState } from 'react'
-import SaveModal from '../../SaveModal'
+import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 
@@ -45,7 +45,7 @@ export function FunnelTab(): JSX.Element {
                     setFilters={(filters: Record<string, any>): void => setFilters(filters, false)}
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
-                    copy="Add funnel step"
+                    buttonCopy="Add funnel step"
                     sortable
                 />
                 <hr />

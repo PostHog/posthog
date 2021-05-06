@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { funnelLogic } from './funnelLogic'
 import { Link } from 'lib/components/Link'
 import { percentage, Loading } from 'lib/utils'
-import { EntityTypes } from 'scenes/trends/trendsLogic'
+import { EntityTypes } from '~/types'
 import './FunnelPeople.scss'
 import { Card } from 'antd'
 

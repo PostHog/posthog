@@ -200,3 +200,25 @@ $dashboard-title-size: 32px;
         }
     }
 }
+
+.dashboard-item-header {
+    padding-top: $default_spacing * 2;
+    padding-bottom: $default_spacing;
+
+    .dashboard-item-description {
+        padding-top: $default_spacing;
+        padding-bottom: $default_spacing;
+        padding-left: 9px;
+        background: white;
+
+        .title {
+            display: flex;
+            align-items: center;
+            svg {
+                color: $warning;
+                font-size: 18px;
+                margin-right: 6px;
+            }
+        }
+    }
+}

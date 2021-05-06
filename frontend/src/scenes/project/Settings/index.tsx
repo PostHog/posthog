@@ -95,7 +95,7 @@ export function ProjectSettings(): JSX.Element {
                 following snippet in your&nbsp;website's&nbsp;HTML. Ideally, put it just above the&nbsp;
                 <code>{'<head>'}</code>&nbsp;tag.
                 <br />
-                For more guidance, including on identying users,{' '}
+                For more guidance, including on identifying users,{' '}
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
                 {currentTeamLoading && !currentTeam ? loadingComponent : <JSSnippet />}
                 <p>
@@ -178,8 +178,8 @@ export function ProjectSettings(): JSX.Element {
                     Permitted Domains/URLs
                 </h2>
                 <p>
-                    These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's
-                    also where you'll be able to create Actions and record sessions.
+                    These are the domains and URLs where the <b>Toolbar will automatically launch</b> (if you're logged
+                    in) and where we'll <a href="#session-recording">record sessions</a> (if enabled).
                 </p>
                 <EditAppUrls />
                 <Divider />

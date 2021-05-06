@@ -19,7 +19,9 @@ style files without adding already imported styles. */
     --warning: #{$warning};
     --bg-menu: #{$bg_menu};
     --bg-mid: #{$bg_mid};
+    --bg-charcoal: #{$bg_charcoal};
     --text-default: #{$text_default};
+    --text-light: #{$text_light};
     --muted: #{$text_muted};
     // Used for graph series
     --blue: #{$blue_500};
@@ -31,6 +33,23 @@ style files without adding already imported styles. */
     --cyan: #17a2b8;
     --pink: #e83e8c;
     --white: #f4f6ff;
+    --maroon: #800000;
+    --mint: #aaffc3;
+    --olive: #808000;
+    --navy: #000075;
+    --orange: #f58231;
+    --lime: #bfef45;
+    --apricot: #ffd8b1;
+    --brown: #9a6324;
+    // Lifecycle series
+    --lifecycle-new: #{$lifecycle_new};
+    --lifecycle-returning: #{$lifecycle_returning};
+    --lifecycle-resurrecting: #{$lifecycle_resurrecting};
+    --lifecycle-dormant: #{$lifecycle_dormant};
+    --lifecycle-new-hover: #{darken($lifecycle_new, 20%)};
+    --lifecycle-returning-hover: #{darken($lifecycle_returning, 20%)};
+    --lifecycle-resurrecting-hover: #{darken($lifecycle_resurrecting, 20%)};
+    --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
 }
 
 // Text styles

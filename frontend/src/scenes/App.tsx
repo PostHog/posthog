@@ -57,16 +57,16 @@ export function App(): JSX.Element | null {
                     }
                     return
                 }
-            }
 
-            // If ingestion tutorial not completed, redirect to it
-            if (
-                !user.team?.completed_snippet_onboarding &&
-                !location.pathname.startsWith('/ingestion') &&
-                !location.pathname.startsWith('/personalization')
-            ) {
-                replace('/ingestion')
-                return
+                // If ingestion tutorial not completed, redirect to it
+                if (
+                    !user.team?.completed_snippet_onboarding &&
+                    !location.pathname.startsWith('/ingestion') &&
+                    !location.pathname.startsWith('/personalization')
+                ) {
+                    replace('/ingestion')
+                    return
+                }
             }
         }
     }, [scene, user])

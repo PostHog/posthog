@@ -1,5 +1,5 @@
 import React from 'react'
-import { Popover } from 'antd'
+import { Popover, Typography } from 'antd'
 import { KeyMapping } from '~/types'
 
 export interface KeyMappingInterface {
@@ -443,7 +443,11 @@ export function PropertyKeyInfo({ value, type = 'event' }: PropertyKeyInfoInterf
     if (value in keyMapping[type]) {
         data = keyMapping[type][value]
     } else {
-        return <>{value}</>
+        return (
+            <Typography.Text ellipsis={true} style={{ maxWidth: 400 }} title={value}>
+                {value}
+            </Typography.Text>
+        )
     }
 
     return (

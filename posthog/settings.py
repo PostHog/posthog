@@ -158,7 +158,12 @@ if CLICKHOUSE_SECURE:
     _clickhouse_http_protocol = "https://"
     _clickhouse_http_port = "8443"
 
-CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
+CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
+
+_clickhouse_hosts = get_from_env("CLICKHOUSE_MIGRATION_HOSTS", CLICKHOUSE_HOST).split(",")
+CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS = [
+    f"{_clickhouse_http_protocol}{host}:{_clickhouse_http_port}/" for host in _clickhouse_hosts
+]
 
 IS_HEROKU = get_from_env("IS_HEROKU", False, type_cast=strtobool)
 
@@ -553,15 +558,6 @@ if DEBUG and not TEST:
         )
     )
 
-    # Load debug_toolbar if we can
-    try:
-        import debug_toolbar  # noqa: F401
-    except ImportError:
-        pass
-    else:
-        INSTALLED_APPS.append("debug_toolbar")
-        MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
-
 if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
     print_warning(
         (
@@ -581,10 +577,6 @@ def show_toolbar(request):
         or request.path.startswith("/__debug__")
     )
 
-
-DEBUG_TOOLBAR_CONFIG = {
-    "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
-}
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

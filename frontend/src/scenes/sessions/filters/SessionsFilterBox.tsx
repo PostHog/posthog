@@ -4,8 +4,8 @@ import { SelectBox, SelectBoxItem, SelectedItem } from 'lib/components/SelectBox
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, CohortType } from '~/types'
-import { EntityTypes } from 'scenes/trends/trendsLogic'
-import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterDropdown'
+import { EntityTypes } from '~/types'
+import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterDropdown'
 import { FilterSelector, sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { Link } from 'lib/components/Link'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -26,11 +26,14 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
 
     const groups: Array<SelectBoxItem> = [
         {
-            name: (
-                <>
-                    <AimOutlined /> Actions
-                </>
-            ),
+            name: 'Actions',
+            header: function actionHeader(label) {
+                return (
+                    <>
+                        <AimOutlined /> {label}
+                    </>
+                )
+            },
             dataSource: actions.map((action: ActionType) => ({
                 key: EntityTypes.ACTIONS + action.id,
                 name: action.name,
@@ -44,11 +47,14 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
             getLabel: (item: SelectedItem) => item.action?.name || '',
         },
         {
-            name: (
-                <>
-                    <ContainerOutlined /> Events
-                </>
-            ),
+            name: 'Events',
+            header: function eventHeader(label) {
+                return (
+                    <>
+                        <ContainerOutlined /> {label}
+                    </>
+                )
+            },
             dataSource:
                 eventDefinitions.map((definition) => ({
                     key: EntityTypes.EVENTS + definition.name,
@@ -78,11 +84,14 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
             getLabel: (item: SelectedItem) => item.name,
         },
         {
-            name: (
-                <>
-                    <UsergroupAddOutlined /> Cohorts
-                </>
-            ),
+            name: 'Cohorts',
+            header: function cohortHeader(label) {
+                return (
+                    <>
+                        <UsergroupAddOutlined /> {label}
+                    </>
+                )
+            },
             dataSource: cohorts.map((cohort: CohortType) => ({
                 key: 'cohorts' + cohort.id,
                 name: cohort.name || '',
@@ -119,11 +128,14 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
 
     if (personProperties.length > 0) {
         groups.unshift({
-            name: (
-                <>
-                    <UsergroupAddOutlined /> User properties
-                </>
-            ),
+            name: 'User properties',
+            header: function userHeader(label) {
+                return (
+                    <>
+                        <UsergroupAddOutlined /> {label}
+                    </>
+                )
+            },
             dataSource: personProperties.map(({ name, count }) => ({
                 key: 'person' + name,
                 name: name,
@@ -150,11 +162,14 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
     }
 
     groups.unshift({
-        name: (
-            <>
-                <PlaySquareOutlined /> Recording properties
-            </>
-        ),
+        name: 'Recording properties',
+        header: function userPropertiesHeader(label) {
+            return (
+                <>
+                    <PlaySquareOutlined /> {label}
+                </>
+            )
+        },
         dataSource: [
             { key: 'duration', name: 'Recording duration', value: 'duration' },
             { key: 'unseen', name: 'Unseen recordings', value: 'unseen' },

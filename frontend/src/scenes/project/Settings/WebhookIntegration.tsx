@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { Input, Button } from 'antd'
+import { Input, Button, Col, Row } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { webhookIntegrationLogic } from './webhookIntegrationLogic'
@@ -16,7 +16,7 @@ export function AsyncActionMappingNotice(): JSX.Element {
 
 export function WebhookIntegration(): JSX.Element {
     const [webhook, setWebhook] = useState('')
-    const { testWebhook } = useActions(webhookIntegrationLogic)
+    const { testWebhook, removeWebhook } = useActions(webhookIntegrationLogic)
     const { loading } = useValues(webhookIntegrationLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -45,20 +45,41 @@ export function WebhookIntegration(): JSX.Element {
                 onChange={(e) => setWebhook(e.target.value)}
                 style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
                 type="url"
-                placeholder={'integration disabled – type a URL to enable'}
+                placeholder={
+                    currentTeam?.slack_incoming_webhook ? '' : 'integration disabled – enter URL, then Test & Save'
+                }
                 disabled={loading}
                 onPressEnter={() => testWebhook(webhook)}
             />
-            <Button
-                type="primary"
-                onClick={(e) => {
-                    e.preventDefault()
-                    testWebhook(webhook)
-                }}
-                loading={loading}
-            >
-                {webhook ? 'Test & Save' : 'Save'}
-            </Button>
+            <Row>
+                <Col>
+                    <Button
+                        type="primary"
+                        disabled={!webhook}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            testWebhook(webhook)
+                        }}
+                        loading={loading}
+                    >
+                        Test & Save
+                    </Button>
+                </Col>
+                <Col style={{ marginLeft: 10 }}>
+                    <Button
+                        type="default"
+                        danger
+                        onClick={(e) => {
+                            e.preventDefault()
+                            removeWebhook()
+                            setWebhook('')
+                        }}
+                        disabled={!currentTeam?.slack_incoming_webhook}
+                    >
+                        Clear & Disable
+                    </Button>
+                </Col>
+            </Row>
         </div>
     )
 }

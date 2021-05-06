@@ -121,6 +121,10 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_HOST::"
                 },
                 {
+                    "name": "CLICKHOUSE_MIGRATION_HOSTS",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_MIGRATION_HOSTS::"
+                },
+                {
                     "name": "CLICKHOUSE_PASSWORD",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_PASSWORD::"
                 },
@@ -234,7 +238,10 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-server-newrelic"]
+            "command": ["./bin/docker-server-newrelic"],
+            "linuxParameters": {
+                "initProcessEnabled": true
+            }
         }
     ],
     "requiresCompatibilities": ["FARGATE"],

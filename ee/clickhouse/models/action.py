@@ -41,7 +41,7 @@ def format_action_filter(
             prop_query, prop_params = parse_prop_clauses(
                 Filter(data={"properties": step.properties}).properties,
                 team_id=action.team.pk if filter_by_team else None,
-                prepend="action_props_{}".format(action.pk),
+                prepend="action_props_{}_{}".format(action.pk, step.pk),
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}

@@ -2,13 +2,12 @@ import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Tooltip, Row, Skeleton, Switch } from 'antd'
+import { Tooltip, Row, Skeleton, Checkbox } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
 import { ViewType } from '../../insightLogic'
-import { ShownAsValue } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FilterType } from '~/types'
 import { Formula } from './Formula'
@@ -27,7 +26,12 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const { toggleLifecycle } = useActions(trendsLogic)
-    const lifecycleNames = ['new', 'resurrecting', 'returning', 'dormant']
+    const lifecycles = [
+        { name: 'new', tooltip: 'Users that are new.' },
+        { name: 'resurrecting', tooltip: 'Users who were once active but became dormant, and are now active again.' },
+        { name: 'returning', tooltip: 'Users who consistently use the product.' },
+        { name: 'dormant', tooltip: 'Users who are inactive.' },
+    ]
 
     return (
         <>
@@ -38,18 +42,14 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 <Skeleton active />
             ) : (
                 <ActionFilter
+                    horizontalUI={featureFlags['4050-query-ui-optB']}
                     filters={filters}
                     setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                     typeKey={'trends_' + view}
-                    hideMathSelector={filters.shown_as === ShownAsValue.LIFECYCLE}
-                    copy="Add graph series"
+                    buttonCopy="Add graph series"
                     showLetters={isUsingFormulas}
-                    disabled={
-                        filters.shown_as === ShownAsValue.LIFECYCLE &&
-                        !!(filters.events?.length || filters.actions?.length)
-                    }
-                    singleFilter={filters.shown_as === ShownAsValue.LIFECYCLE}
-                    hidePropertySelector={filters.shown_as === ShownAsValue.LIFECYCLE}
+                    singleFilter={filters.insight === ViewType.LIFECYCLE}
+                    hidePropertySelector={filters.insight === ViewType.LIFECYCLE}
                 />
             )}
 
@@ -61,10 +61,19 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                         <Skeleton active />
                     ) : (
                         <div className="toggles">
-                            {lifecycleNames.map((cycle, idx) => (
+                            {lifecycles.map((lifecycle, idx) => (
                                 <div key={idx}>
-                                    {cycle}{' '}
-                                    <Switch size="small" defaultChecked onChange={() => toggleLifecycle(cycle)} />
+                                    {lifecycle.name}{' '}
+                                    <div>
+                                        <Checkbox
+                                            defaultChecked
+                                            className={lifecycle.name}
+                                            onChange={() => toggleLifecycle(lifecycle.name)}
+                                        />
+                                        <Tooltip title={lifecycle.tooltip}>
+                                            <InfoCircleOutlined className="info-indicator" />
+                                        </Tooltip>
+                                    </div>
                                 </div>
                             ))}
                         </div>

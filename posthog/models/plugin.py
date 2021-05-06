@@ -1,19 +1,31 @@
+import datetime
 import os
-from typing import Any, Dict
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Union, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec, Version
 
+from posthog.ee import is_ee_enabled
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
 from posthog.plugins.utils import download_plugin_archive, get_json_from_archive, load_json_file, parse_url
 from posthog.version import VERSION
+
+from .utils import UUIDModel, sane_repr
+
+try:
+    from ee.clickhouse.client import sync_execute
+except ImportError:
+    pass
 
 
 def raise_if_plugin_installed(url: str, organization_id: str):
@@ -166,6 +178,99 @@ class PluginStorage(models.Model):
     plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
     key: models.CharField = models.CharField(max_length=200)
     value: models.TextField = models.TextField(blank=True, null=True)
+
+
+class PluginLogEntry(UUIDModel):
+    class Meta:
+        indexes = [
+            models.Index(fields=["plugin_config_id", "timestamp"]),
+        ]
+
+    class Source(models.TextChoices):
+        SYSTEM = "SYSTEM", "system"
+        PLUGIN = "PLUGIN", "plugin"
+        CONSOLE = "CONSOLE", "console"
+
+    class Type(models.TextChoices):
+        DEBUG = "DEBUG", "debug"
+        LOG = "LOG", "log"
+        INFO = "INFO", "info"
+        WARN = "WARN", "warn"
+        ERROR = "ERROR", "error"
+
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
+    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
+    timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now)
+    source: models.CharField = models.CharField(max_length=20, choices=Source.choices)
+    type: models.CharField = models.CharField(max_length=20, choices=Type.choices)
+    message: models.TextField = models.TextField(db_index=True)
+    instance_id: models.UUIDField = models.UUIDField()
+
+    __repr__ = sane_repr("plugin_config_id", "timestamp", "source", "type", "message")
+
+
+@dataclass
+class PluginLogEntryRaw:
+    id: UUID
+    team_id: int
+    plugin_id: int
+    plugin_config_id: int
+    timestamp: datetime.datetime
+    source: PluginLogEntry.Source
+    type: PluginLogEntry.Type
+    message: str
+    instance_id: UUID
+
+
+def fetch_plugin_log_entries(
+    *,
+    team_id: Optional[int] = None,
+    plugin_config_id: Optional[int] = None,
+    after: Optional[timezone.datetime] = None,
+    before: Optional[timezone.datetime] = None,
+    search: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[Union[PluginLogEntry, PluginLogEntryRaw]]:
+    if is_ee_enabled():
+        clickhouse_where_parts: List[str] = []
+        clickhouse_kwargs: Dict[str, Any] = {}
+        if team_id is not None:
+            clickhouse_where_parts.append("team_id = %(team_id)s")
+            clickhouse_kwargs["team_id"] = team_id
+        if plugin_config_id is not None:
+            clickhouse_where_parts.append("plugin_config_id = %(plugin_config_id)s")
+            clickhouse_kwargs["plugin_config_id"] = plugin_config_id
+        if after is not None:
+            clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
+            clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
+        if before is not None:
+            clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
+            clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
+        if search:
+            clickhouse_where_parts.append("message ILIKE %(search)s")
+            clickhouse_kwargs["search"] = f"%{search}%"
+        clickhouse_query = f"""
+            SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
+            WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
+        """
+        return [PluginLogEntryRaw(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
+    else:
+        filter_kwargs: Dict[str, Any] = {}
+        if team_id is not None:
+            filter_kwargs["team_id"] = team_id
+        if plugin_config_id is not None:
+            filter_kwargs["plugin_config_id"] = plugin_config_id
+        if after is not None:
+            filter_kwargs["timestamp__gt"] = after
+        if before is not None:
+            filter_kwargs["timestamp__lt"] = before
+        if search:
+            filter_kwargs["message__icontains"] = search
+        query = PluginLogEntry.objects.order_by("-timestamp").filter(**filter_kwargs)
+        if limit:
+            query = query[:limit]
+        return list(query)
 
 
 @receiver(models.signals.post_save, sender=Organization)

@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from collections import Counter
@@ -20,9 +21,12 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
     period_start, period_end = get_previous_week()
     report: Dict[str, Any] = {
         "posthog_version": VERSION,
-        "deployment": os.environ.get("DEPLOYMENT", "unknown"),
+        "deployment": os.getenv("DEPLOYMENT", "unknown"),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
+        "site_url": os.getenv("SITE_URL", "unknown"),
     }
+
+    report["helm"] = get_helm_info_env()
 
     report["users_who_logged_in"] = [
         {"id": user.id, "distinct_id": user.distinct_id}
@@ -125,3 +129,10 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
     with connection.cursor() as cursor:
         cursor.execute(sql.SQL(sql_), params)
         return namedtuplefetchall(cursor)
+
+
+def get_helm_info_env() -> dict:
+    try:
+        return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
+    except:
+        return {}

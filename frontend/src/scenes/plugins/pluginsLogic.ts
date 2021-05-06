@@ -70,6 +70,8 @@ export const pluginsLogic = kea<
         makePluginOrderSaveable: true,
         savePluginOrders: (newOrders: Record<number, number>) => ({ newOrders }),
         cancelRearranging: true,
+        showPluginLogs: (id: number) => ({ id }),
+        hidePluginLogs: true,
     },
 
     loaders: ({ actions, values }) => ({
@@ -376,6 +378,19 @@ export const pluginsLogic = kea<
                 savePluginOrdersSuccess: () => ({}),
             },
         ],
+        showingLogsPluginId: [
+            null as number | null,
+            {
+                showPluginLogs: (_, { id }) => id,
+                hidePluginLogs: () => null,
+            },
+        ],
+        lastShownLogsPluginId: [
+            null as number | null,
+            {
+                showPluginLogs: (_, { id }) => id,
+            },
+        ],
     },
 
     selectors: {
@@ -385,7 +400,7 @@ export const pluginsLogic = kea<
                 const pluginValues = Object.values(plugins)
                 return pluginValues
                     .map((plugin, index) => {
-                        let pluginConfig = { ...pluginConfigs[plugin.id] }
+                        let pluginConfig: PluginConfigType = { ...pluginConfigs[plugin.id] }
                         if (!pluginConfig) {
                             const config: Record<string, any> = {}
                             Object.entries(getConfigSchemaObject(plugin.config_schema)).forEach(
@@ -393,9 +408,13 @@ export const pluginsLogic = kea<
                                     config[key] = def
                                 }
                             )
-
+                            const team = userLogic.values.user?.team
+                            if (!team) {
+                                throw new Error("Can't list installed plugins with no user or team!")
+                            }
                             pluginConfig = {
                                 id: undefined,
+                                team_id: team.id,
                                 plugin: plugin.id,
                                 enabled: false,
                                 config: config,
@@ -488,6 +507,16 @@ export const pluginsLogic = kea<
             (s) => [s.pluginsLoading, s.repositoryLoading, s.pluginConfigsLoading],
             (pluginsLoading, repositoryLoading, pluginConfigsLoading) =>
                 pluginsLoading || repositoryLoading || pluginConfigsLoading,
+        ],
+        showingLogsPlugin: [
+            (s) => [s.showingLogsPluginId, s.installedPlugins],
+            (showingLogsPluginId, installedPlugins) =>
+                showingLogsPluginId ? installedPlugins.find((plugin) => plugin.id === showingLogsPluginId) : null,
+        ],
+        lastShownLogsPlugin: [
+            (s) => [s.lastShownLogsPluginId, s.installedPlugins],
+            (lastShownLogsPluginId, installedPlugins) =>
+                lastShownLogsPluginId ? installedPlugins.find((plugin) => plugin.id === lastShownLogsPluginId) : null,
         ],
     },
 

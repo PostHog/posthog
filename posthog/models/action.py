@@ -75,14 +75,13 @@ class Action(models.Model):
 
     def on_perform(self, event):
         from posthog.api.event import EventSerializer
+        from posthog.api.person import PersonSerializer
 
         event.action = self
+        event.serialized_person = PersonSerializer(event.person).data
+        payload = EventSerializer(event).data
         raw_hook_event.send(
-            sender=None,
-            event_name="action_performed",
-            instance=self,
-            payload=EventSerializer(event).data,
-            user=event.team,
+            sender=None, event_name="action_performed", instance=self, payload=payload, user=event.team,
         )
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)

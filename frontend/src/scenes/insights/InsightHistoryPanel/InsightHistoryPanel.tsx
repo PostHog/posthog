@@ -4,12 +4,11 @@ import { Loading } from 'lib/utils'
 import { useValues, useActions } from 'kea'
 import { insightHistoryLogic } from './insightHistoryLogic'
 import { DashboardItemType } from '~/types'
-import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
+import { DashboardItem, displayHistoryItemLink } from 'scenes/dashboard/DashboardItem'
 import './InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { router } from 'kea-router'
-import { ViewType } from '../insightLogic'
 import relativeTime from 'dayjs/plugin/relativeTime'
 dayjs.extend(relativeTime)
 
@@ -63,11 +62,7 @@ function InsightPane({
                             }}
                             saveDashboardItem={updateInsight}
                             onClick={() => {
-                                const _type: DisplayedType =
-                                    insight.filters.insight === ViewType.RETENTION
-                                        ? 'RetentionContainer'
-                                        : insight.filters.display
-                                router.actions.push(displayMap[_type].link(insight))
+                                router.actions.push(displayHistoryItemLink(insight))
                             }}
                             moveDashboardItem={
                                 insight.saved

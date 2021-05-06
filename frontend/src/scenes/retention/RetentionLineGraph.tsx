@@ -3,12 +3,12 @@ import { retentionTableLogic } from './retentionTableLogic'
 import { LineGraph } from '../insights/LineGraph'
 import { useActions, useValues } from 'kea'
 import { Loading } from '../../lib/utils'
-import { router } from 'kea-router'
 import { LineGraphEmptyState } from '../insights/EmptyStates'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PersonType } from '~/types'
 import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
@@ -29,7 +29,7 @@ export function RetentionLineGraph({
     const people = _people as RetentionTrendPeoplePayload
 
     const { loadPeople, loadMorePeople } = useActions(logic)
-    const [{ fromItem }] = useState(router.values.hashParams)
+    const { dashboardItem } = useValues(insightLogic)
     const [modalVisible, setModalVisible] = useState(false)
     const [day, setDay] = useState(0)
     function closeModal(): void {
@@ -52,7 +52,7 @@ export function RetentionLineGraph({
                 datasets={results}
                 labels={(results[0] && results[0].labels) || []}
                 isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId || fromItem}
+                dashboardItemId={dashboardItemId || dashboardItem?.id}
                 inSharedMode={inSharedMode}
                 percentage={true}
                 onClick={
