@@ -9,7 +9,6 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
 from posthog.constants import RDBMS
 from posthog.models import Action, ActionStep, Element, Event, Organization, Person, Team
 from posthog.queries.sessions.sessions_list import SESSIONS_LIST_DEFAULT_LIMIT
@@ -397,6 +396,8 @@ def factory_test_event_api(event_factory, person_factory, _):
             event_id: Union[str, int] = 12345
 
             if settings.PRIMARY_DB == RDBMS.CLICKHOUSE:
+                from ee.clickhouse.models.event import create_event
+
                 event_id = "01793986-dc4b-0000-93e8-1fb646df3a93"
                 Event(
                     pk=create_event(
