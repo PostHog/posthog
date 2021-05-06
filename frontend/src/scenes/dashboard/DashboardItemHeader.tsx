@@ -52,7 +52,7 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
                                     {isDashboardItemEditMode ? (
                                         <div className="edit-box">
                                             <Input.TextArea
-                                                placeholder="Add a description to your dashboard item"
+                                                placeholder="Add a description to your dashboard item that helps others understand it better."
                                                 value={newDescription}
                                                 onChange={(e) => {
                                                     setNewDescription(e.target.value)
