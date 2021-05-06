@@ -59,7 +59,7 @@ class Command(BaseCommand):
             if len(migrations) == 0:
                 print("Clickhouse migrations up to date!")
         elif options["fake"]:
-            for migration_name in self.get_migrations(database, options["upto"]):
+            for migration_name, _ in self.get_migrations(database, options["upto"]):
                 print(f"Faked migration: {migration_name}")
                 database.insert(
                     [
