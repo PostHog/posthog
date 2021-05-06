@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import './Navigation.scss'
 import { useActions, useValues } from 'kea'
 import { navigationLogic } from './navigationLogic'
-import { IconBuilding, IconExternalLink, IconMenu } from 'lib/components/icons'
+import { IconBuilding, IconMenu } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
@@ -18,8 +18,6 @@ import {
     SettingOutlined,
     UserAddOutlined,
     InfoCircleOutlined,
-    ExperimentOutlined,
-    RocketOutlined,
 } from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -322,46 +320,28 @@ export function TopNavigation(): JSX.Element {
                 {user && (
                     <div>
                         {featureFlags['test-environment-3149'] && (
-                            <Tooltip
-                                title={
-                                    <>
-                                        Toggle to view only test or production data everywhere.{' '}
-                                        <a
-                                            href="https://posthog.com/docs"
-                                            target="_blank"
-                                            rel="noopener"
-                                            style={{ color: 'white', textDecoration: 'underline' }}
-                                        >
-                                            Click here <IconExternalLink />
-                                        </a>{' '}
-                                        to learn more.
-                                    </>
-                                }
-                            >
-                                <div className="global-environment-switch">
-                                    <label
-                                        htmlFor="global-environment-switch"
-                                        className={filteredEnvironment !== ENVIRONMENTS.PRODUCTION ? 'active' : ''}
-                                    >
-                                        Test <ExperimentOutlined />
-                                    </label>
-                                    <Switch
-                                        // @ts-expect-error - below works even if it's not defined as a prop
-                                        id="global-environment-switch"
-                                        value={filteredEnvironment === ENVIRONMENTS.PRODUCTION}
-                                        defaultChecked={filteredEnvironment === ENVIRONMENTS.PRODUCTION}
-                                        onChange={(val) =>
-                                            setFilteredEnvironment(val ? ENVIRONMENTS.PRODUCTION : ENVIRONMENTS.TEST)
-                                        }
-                                    />
-                                    <label
-                                        htmlFor="global-environment-switch"
-                                        className={filteredEnvironment === ENVIRONMENTS.PRODUCTION ? 'active' : ''}
-                                    >
-                                        <RocketOutlined /> Live
-                                    </label>
-                                </div>
-                            </Tooltip>
+                            <div className="global-environment-switch">
+                                <label
+                                    htmlFor="global-environment-switch"
+                                    className={filteredEnvironment === ENVIRONMENTS.TEST ? 'test' : ''}
+                                >
+                                    <Tooltip title="Toggle to view only test or production data everywhere. Click to learn more.">
+                                        <a href="https://posthog.com/docs" target="_blank" rel="noopener">
+                                            <InfoCircleOutlined />
+                                        </a>
+                                    </Tooltip>
+                                    {filteredEnvironment === ENVIRONMENTS.PRODUCTION ? 'Live' : 'Test'}
+                                </label>
+                                <Switch
+                                    // @ts-expect-error - below works even if it's not defined as a prop
+                                    id="global-environment-switch"
+                                    value={filteredEnvironment === ENVIRONMENTS.PRODUCTION}
+                                    defaultChecked={filteredEnvironment === ENVIRONMENTS.PRODUCTION}
+                                    onChange={(val) =>
+                                        setFilteredEnvironment(val ? ENVIRONMENTS.PRODUCTION : ENVIRONMENTS.TEST)
+                                    }
+                                />
+                            </div>
                         )}
                         <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
                             <div>

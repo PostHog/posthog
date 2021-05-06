@@ -290,18 +290,18 @@
         align-items: center;
         label {
             font-weight: bold;
-            color: $text_muted;
-            &:first-of-type {
-                padding-right: 4px;
-                &.active {
-                    color: $warning;
-                }
+            color: $success;
+            padding-right: 4px;
+            a {
+                color: $text_muted;
             }
-            &:last-of-type {
-                padding-left: 4px;
-                &.active {
-                    color: $success;
-                }
+
+            svg {
+                margin-right: 4px;
+            }
+
+            &.test {
+                color: $warning;
             }
         }
         .ant-switch:not(.ant-switch-checked) {
