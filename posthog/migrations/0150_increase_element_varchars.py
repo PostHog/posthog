@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0148_merge_20210506_0823"),
+        ("posthog", "0149_fix_lifecycle_dashboard_items"),
     ]
 
     operations = [
