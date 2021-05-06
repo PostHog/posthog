@@ -6,6 +6,7 @@ describe('Insights', () => {
 
     it('Stickiness graph', () => {
         cy.get('[id="rc-tabs-0-tab-STICKINESS"]').click()
+        cy.get('[data-attr=trend-element-subject-0]').should('exist')
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-1]').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
