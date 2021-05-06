@@ -43,12 +43,14 @@ function CustomTag({ label, onClose, value }: CustomTagProps): JSX.Element {
 
 export type SelectGradientOverflowProps = SelectProps<any> & {
     delayBeforeAutoOpen?: number
+    dropdownMatchSelectWidth?: boolean | number
 }
 
 export function SelectGradientOverflow({
     autoFocus = false,
     defaultOpen = false,
     delayBeforeAutoOpen,
+    dropdownMatchSelectWidth = true,
     ...props
 }: SelectGradientOverflowProps): JSX.Element {
     const selectRef: React.RefObject<RefSelectProps> | null = useRef(null)
@@ -118,6 +120,7 @@ export function SelectGradientOverflow({
                         updateScrollGradient={updateScrollGradient}
                     />
                 )}
+                dropdownMatchSelectWidth={dropdownMatchSelectWidth}
             >
                 {props.children}
             </Select>

@@ -62,7 +62,17 @@ export function UnifiedPropertyFilter({ index, onComplete, logic, selectProps }:
     return (
         <>
             <Row gutter={8} className="full-width" wrap={false}>
-                <Col flex={1} style={{ minWidth: '11rem' }}>
+                <Col
+                    style={{
+                        height: '32px', // matches antd Select height
+                        flexShrink: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                    }}
+                >
+                    where
+                </Col>
+                <Col style={{ minWidth: '6em' }}>
                     <PropertySelect
                         value={
                             type === 'cohort'
@@ -81,9 +91,8 @@ export function UnifiedPropertyFilter({ index, onComplete, logic, selectProps }:
                             )
                         }
                         optionGroups={optionGroups}
-                        autoOpenIfEmpty
-                        delayBeforeAutoOpen={0}
                         placeholder="Property key"
+                        dropdownMatchSelectWidth={250}
                     />
                 </Col>
 
@@ -103,11 +112,23 @@ export function UnifiedPropertyFilter({ index, onComplete, logic, selectProps }:
                                 onComplete()
                             }
                         }}
-                        columnOptions={{
-                            flex: 1,
-                            style: {
-                                maxWidth: '50vw',
+                        columnOptions={[
+                            {
+                                style: {
+                                    minWidth: '6em',
+                                },
                             },
+                            {
+                                style: {
+                                    flexShrink: 1,
+                                    maxWidth: '50vw',
+                                    minWidth: '11em',
+                                },
+                            },
+                        ]}
+                        operatorSelectProps={{
+                            dropdownMatchSelectWidth: 200,
+                            style: { maxWidth: '100%' },
                         }}
                     />
                 )}

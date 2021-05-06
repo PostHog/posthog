@@ -12,6 +12,7 @@ interface Props {
     placeholder: string
     autoOpenIfEmpty?: boolean
     delayBeforeAutoOpen?: number
+    dropdownMatchSelectWidth?: boolean | number
 }
 
 export interface PropertyOptionGroup {
@@ -55,6 +56,7 @@ export function PropertySelect({
     placeholder,
     autoOpenIfEmpty,
     delayBeforeAutoOpen,
+    dropdownMatchSelectWidth = true,
 }: Props): JSX.Element {
     const [search, setSearch] = useState(false as string | false)
     return (
@@ -78,6 +80,7 @@ export function PropertySelect({
                 onChange(type, val.replace(/^(event_|person_|element_)/gi, ''))
             }}
             style={{ width: '100%' }}
+            dropdownMatchSelectWidth={dropdownMatchSelectWidth}
         >
             {optionGroups.map(
                 (group) =>

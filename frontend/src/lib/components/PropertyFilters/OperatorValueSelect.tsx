@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { PropertyOperator } from '~/types'
-import { Col, Select } from 'antd'
+import { Col, Select, SelectProps } from 'antd'
 import { isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
 import { PropertyValue } from 'lib/components/PropertyFilters/PropertyValue'
 import { ColProps } from 'antd/lib/col'
@@ -12,11 +12,12 @@ interface OperatorValueSelectProps {
     propkey: string
     operator: PropertyOperator | undefined
     value: string | number | Array<string | number> | null
-    columnOptions?: ColProps
+    columnOptions?: ColProps | [ColProps, ColProps]
     onChange: (operator: PropertyOperator, value: OperatorValueFilterType) => void
+    operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
 }
 
-interface OperatorSelectProps {
+interface OperatorSelectProps extends SelectProps<any> {
     operator: PropertyOperator
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
@@ -29,12 +30,13 @@ export function OperatorValueSelect({
     value,
     columnOptions,
     onChange,
+    operatorSelectProps,
 }: OperatorValueSelectProps): JSX.Element {
     const [currentOperator, setCurrentOperator] = useState(operator)
 
     return (
         <>
-            <Col {...columnOptions}>
+            <Col {...(Array.isArray(columnOptions) ? columnOptions[0] : columnOptions)}>
                 <OperatorSelect
                     operator={currentOperator || 'exact'}
                     operators={Object.keys(operatorMap) as Array<PropertyOperator>}
@@ -54,10 +56,11 @@ export function OperatorValueSelect({
                             onChange(newOperator, value)
                         }
                     }}
+                    {...operatorSelectProps}
                 />
             </Col>
             {!isOperatorFlag(currentOperator || 'exact') && (
-                <Col {...columnOptions}>
+                <Col {...(Array.isArray(columnOptions) ? columnOptions[1] : columnOptions)}>
                     <PropertyValue
                         type={type}
                         key={propkey}
@@ -79,7 +82,7 @@ type CustomOptionsType = {
     label: string
 }
 
-export function OperatorSelect({ operator, operators, onChange }: OperatorSelectProps): JSX.Element {
+export function OperatorSelect({ operator, operators, onChange, ...props }: OperatorSelectProps): JSX.Element {
     return (
         <Select
             style={{ width: '100%' }}
@@ -94,6 +97,7 @@ export function OperatorSelect({ operator, operators, onChange }: OperatorSelect
                 const newOperator = op as typeof op & CustomOptionsType
                 onChange(newOperator.value)
             }}
+            {...props}
         >
             {operators.map((op) => (
                 <Select.Option key={op} value={op || 'exact'}>
