@@ -5,6 +5,7 @@
         display: flex;
         align-items: center;
         .step-number {
+            flex-shrink: 0;
             border-radius: 50%;
             width: 28px;
             height: 28px;
@@ -37,24 +38,34 @@
         }
     }
 
-    .step-list {
-        display: flex;
-        justify-content: center;
-        padding: $default_spacing * 2 0;
+    .steps-space {
+        width: 100%;
+        .ant-space-item {
+            padding: $default_spacing * 2 0;
+            &:last-child {
+                padding: 0;
+            }
+        }
+        .ant-row {
+            justify-content: center;
+            gap: $default_spacing * 2;
+        }
     }
 
     .onboarding-step {
         display: flex;
         flex-direction: column;
         align-items: center;
-        margin-left: $default_spacing * 2.5;
-        cursor: pointer;
 
-        &:first-of-type {
-            margin-left: 0;
+        .onboarding-step-contents {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
         }
 
         .title {
+            text-align: center;
             font-weight: bold;
         }
 

@@ -441,6 +441,7 @@ export interface PluginType {
     is_global: boolean
     organization_id: string
     organization_name: string
+    is_preinstalled: boolean
 }
 
 export interface PluginConfigType {
