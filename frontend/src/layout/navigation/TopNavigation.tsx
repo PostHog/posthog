@@ -326,7 +326,12 @@ export function TopNavigation(): JSX.Element {
                                 title={
                                     <>
                                         Toggle to view only test or production data everywhere.{' '}
-                                        <a href="https://posthog.com/docs" target="_blank" rel="noopener">
+                                        <a
+                                            href="https://posthog.com/docs"
+                                            target="_blank"
+                                            rel="noopener"
+                                            style={{ color: 'white', textDecoration: 'underline' }}
+                                        >
                                             Click here <IconExternalLink />
                                         </a>{' '}
                                         to learn more.
