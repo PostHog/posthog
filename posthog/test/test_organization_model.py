@@ -1,3 +1,4 @@
+from unittest import mock
 from unittest.mock import Mock, patch
 
 import pytest
@@ -8,6 +9,9 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.models import Organization, OrganizationInvite, Plugin
+from posthog.plugins.test.mock import mocked_plugin_requests_get
+from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
+from posthog.settings import PLUGINS_PREINSTALLED_URLS
 from posthog.test.base import BaseTest
 
 
@@ -27,26 +31,35 @@ class TestOrganization(BaseTest):
         self.assertEqual(self.organization.invites.count(), 2)
         self.assertEqual(self.organization.active_invites.count(), 1)
 
-    def test_plugins_are_preinstalled_on_self_hosted(self):
-        with self.settings(TEST=False, MULTI_TENANCY=False):
+    @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
+    def test_plugins_are_preinstalled_on_self_hosted(self, mock_get):
+        with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
             new_org, _, _ = Organization.objects.bootstrap(
                 self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
             )
 
         self.assertEqual(
-            Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(),
-            len(settings.PLUGINS_PREINSTALLED_URLS),
+            Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 1,
+        )
+        self.assertEqual(
+            Plugin.objects.filter(organization=new_org, is_preinstalled=True).get().name, "helloworldplugin",
+        )
+        self.assertEqual(mock_get.call_count, 2)
+        mock_get.assert_called_with(
+            f"https://github.com/PostHog/helloworldplugin/archive/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}.zip", headers={}
         )
 
-    def test_plugins_are_not_preinstalled_on_cloud(self):
-        with self.settings(TEST=False, MULTI_TENANCY=True):
+    @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
+    def test_plugins_are_not_preinstalled_on_cloud(self, mock_get):
+        with self.settings(
+            MULTI_TENANCY=True, PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]
+        ):
             new_org, _, _ = Organization.objects.bootstrap(
                 self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
             )
 
-        self.assertEqual(
-            Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 0,
-        )
+        self.assertEqual(Plugin.objects.filter(organization=new_org, is_preinstalled=True).count(), 0)
+        self.assertEqual(mock_get.call_count, 0)
 
     @pytest.mark.ee
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})

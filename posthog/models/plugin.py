@@ -290,8 +290,7 @@ def fetch_plugin_log_entries(
 
 @receiver(models.signals.post_save, sender=Organization)
 def preinstall_plugins_for_new_organization(sender, instance: Organization, created: bool, **kwargs):
-    if created and not settings.MULTI_TENANCY and not settings.TEST and can_install_plugins(instance):
-        # This in disabled in tests to avoid hitting GitHub API limits
+    if created and not settings.MULTI_TENANCY and can_install_plugins(instance):
         for plugin_url in settings.PLUGINS_PREINSTALLED_URLS:
             try:
                 Plugin.objects.install(
