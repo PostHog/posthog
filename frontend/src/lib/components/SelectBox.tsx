@@ -53,11 +53,15 @@ export function SelectBox({
     selectedItemKey,
     onSelect,
     onDismiss,
+    inputPlaceholder,
+    disablePopover = false,
 }: {
     items: SelectBoxItem[]
     selectedItemKey?: string
     onSelect: (type: any, id: string | number, name: string) => void
     onDismiss: (event: MouseEvent) => void
+    inputPlaceholder?: string
+    disablePopover?: boolean // Disable PropertyKeyInfo popover
 }): JSX.Element {
     const dropdownRef = useRef<HTMLDivElement>(null)
     const dropdownLogic = selectBoxLogic({ updateFilter: onSelect, items })
@@ -96,7 +100,7 @@ export function SelectBox({
             <Row style={{ height: '100%' }}>
                 <Col sm={14} style={{ borderRight: '1px solid rgba(0, 0, 0, 0.1)', maxHeight: '100%' }}>
                     <Input
-                        placeholder="Search events"
+                        placeholder={inputPlaceholder || 'Search events'}
                         autoFocus
                         onChange={(e) => {
                             setSearch(e.target.value)
@@ -107,6 +111,7 @@ export function SelectBox({
                         <SelectUnit
                             items={Object.assign({}, ...data.map((item) => ({ [item.name]: item })))}
                             dropdownLogic={dropdownLogic}
+                            disablePopover={disablePopover}
                         />
                     </div>
                 </Col>
@@ -121,9 +126,11 @@ export function SelectBox({
 export function SelectUnit({
     dropdownLogic,
     items,
+    disablePopover = false,
 }: {
     dropdownLogic: selectBoxLogicType<SelectedItem, SelectBoxItem> & BuiltLogic
     items: Record<string, SelectBoxItem>
+    disablePopover?: boolean // Disable PropertyKeyInfo popover
 }): JSX.Element {
     const { setSelectedItem, clickSelectedItem } = useActions(dropdownLogic)
     const { selectedItem, search, blockMouseOver } = useValues(dropdownLogic)
@@ -232,7 +239,7 @@ export function SelectUnit({
                         !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
                     }
                 >
-                    <PropertyKeyInfo value={item.name} />
+                    <PropertyKeyInfo value={item.name} disablePopover={disablePopover} />
                 </List.Item>
             )
         }

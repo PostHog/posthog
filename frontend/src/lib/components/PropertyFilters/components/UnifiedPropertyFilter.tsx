@@ -3,7 +3,7 @@ Contains the **new** property filter (see #4050) component where all filters are
 */
 import React, { useRef, useState } from 'react'
 import { Button, Col, Row } from 'antd'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 // import { cohortsModel } from '../../../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { Link } from '../../Link'
@@ -14,15 +14,37 @@ import {
 } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { PropertyOptionGroup } from './PropertySelect'
-import { SelectBox, SelectBoxItem } from 'lib/components/SelectBox'
+import { SelectBox, SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
 import { PropertyFilterInternalProps } from './PropertyFilter'
 
 function FilterDropdown({ open, children }: { open: boolean; children: React.ReactNode }): JSX.Element | null {
     return open ? <div>{children}</div> : null
 }
 
+function EventPropertiesInfo({ item }: { item: SelectedItem }): JSX.Element {
+    const info = keyMapping.event[item.name]
+    return (
+        <>
+            Event properties
+            <br />
+            <h3>
+                <PropertyKeyInfo value={item.name} disablePopover={true} />
+            </h3>
+            {info?.description && <p>{info.description}</p>}
+            {info?.examples?.length && (
+                <>
+                    <i>Example: </i>
+                    {info.examples.join(', ')}
+                </>
+            )}
+        </>
+    )
+}
+
 export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilterInternalProps): JSX.Element {
     const { eventProperties, personProperties, filters } = useValues(logic)
+    // TODO: PersonPropertiesInfo (which will require making new entries in `keyMapping`)
+
     // const { cohorts } = useValues(cohortsModel)
     const { setFilter } = useActions(logic)
     const { key, value, operator, type } = filters[index]
@@ -82,25 +104,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                 value,
                 is_numerical,
             })),
-            renderInfo: function eventPropertiesRenderInfo({ item }) {
-                return (
-                    <>
-                        Event properties
-                        <br />
-                        <h3>{item.name}</h3>
-                        {(item?.volume_30_day ?? 0 > 0) && (
-                            <>
-                                Seen <strong>{item.volume_30_day}</strong> times.{' '}
-                            </>
-                        )}
-                        {(item?.query_usage_30_day ?? 0 > 0) && (
-                            <>
-                                Used in <strong>{item.query_usage_30_day}</strong> queries.
-                            </>
-                        )}
-                    </>
-                )
-            },
+            renderInfo: EventPropertiesInfo,
             type: 'event',
             getValue: (item) => item.name || '',
             getLabel: (item) => item.name || '',
@@ -186,6 +190,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </Button>
                     <FilterDropdown open={open}>
                         <SelectBox
+                            disablePopover
                             selectedItemKey={undefined}
                             onDismiss={(e: MouseEvent) => {
                                 if (e.target && selectBoxToggleRef?.current?.contains(e.target as Node)) {
@@ -198,6 +203,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                                 setOpen(false)
                             }}
                             items={selectBoxItems}
+                            inputPlaceholder="Search event and user properties"
                         />
                     </FilterDropdown>
                 </Col>
