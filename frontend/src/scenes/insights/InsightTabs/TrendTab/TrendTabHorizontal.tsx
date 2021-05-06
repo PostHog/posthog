@@ -58,7 +58,6 @@ export function TrendTabHorizontal({ view }: TrendTabProps): JSX.Element {
                 <Col md={8}>
                     {filters.insight === ViewType.LIFECYCLE && (
                         <>
-                            <hr />
                             <h4 className="secondary">Lifecycle Toggles</h4>
                             {filtersLoading ? (
                                 <Skeleton active />
