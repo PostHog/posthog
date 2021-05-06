@@ -14,12 +14,13 @@ import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
+import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 
 interface TrendTabProps {
     view: string
 }
 
-export function TrendTabHorizontal({ view }: TrendTabProps): JSX.Element {
+export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
@@ -38,7 +39,16 @@ export function TrendTabHorizontal({ view }: TrendTabProps): JSX.Element {
             <Row gutter={16}>
                 <Col md={16}>
                     <h3 className="l3" style={{ display: 'flex', alignItems: 'center' }}>
-                        Unsaved query <Button type="link" size="small" icon={<SaveOutlined />} />
+                        Unsaved query{' '}
+                        <SaveToDashboard
+                            displayComponent={<Button type="link" size="small" icon={<SaveOutlined />} />}
+                            item={{
+                                entity: {
+                                    filters: filters,
+                                    annotations: annotationsToCreate,
+                                },
+                            }}
+                        />
                     </h3>
                     {filtersLoading ? (
                         <Skeleton active />

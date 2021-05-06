@@ -236,9 +236,24 @@ export function Insights(): JSX.Element {
                                 */}
                                     {
                                         {
-                                            [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
-                                            [`${ViewType.STICKINESS}`]: <TrendTab view={ViewType.STICKINESS} />,
-                                            [`${ViewType.LIFECYCLE}`]: <TrendTab view={ViewType.LIFECYCLE} />,
+                                            [`${ViewType.TRENDS}`]: (
+                                                <TrendTab
+                                                    view={ViewType.TRENDS}
+                                                    annotationsToCreate={annotationsToCreate}
+                                                />
+                                            ),
+                                            [`${ViewType.STICKINESS}`]: (
+                                                <TrendTab
+                                                    view={ViewType.STICKINESS}
+                                                    annotationsToCreate={annotationsToCreate}
+                                                />
+                                            ),
+                                            [`${ViewType.LIFECYCLE}`]: (
+                                                <TrendTab
+                                                    view={ViewType.LIFECYCLE}
+                                                    annotationsToCreate={annotationsToCreate}
+                                                />
+                                            ),
                                             [`${ViewType.SESSIONS}`]: <SessionTab />,
                                             [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                             [`${ViewType.RETENTION}`]: <RetentionTab />,

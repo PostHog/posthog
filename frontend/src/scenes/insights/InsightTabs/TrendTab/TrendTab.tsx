@@ -18,6 +18,7 @@ import { TrendTabHorizontal } from './TrendTabHorizontal'
 
 interface TrendTabProps {
     view: string
+    annotationsToCreate: any[] // TODO: Type properly
 }
 
 export function TrendTab(props: TrendTabProps): JSX.Element {
