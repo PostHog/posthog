@@ -8,6 +8,7 @@ import { MATHS } from 'lib/constants'
 import { cohortsModel } from '~/models'
 import { CohortType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
+import { maybeAddCommasToInteger } from 'lib/utils'
 
 function formatLabel(item: IndexedTrendResult): string {
     const name = item.action?.name || item.label
@@ -87,7 +88,7 @@ export function TrendLegend(): JSX.Element | null {
         const valueColumns = indexedResults[0].data.map(({}, index: number) => ({
             title: indexedResults[0].labels[index],
             render: function RenderPeriod({}, item: IndexedTrendResult) {
-                return item.data[index]
+                return maybeAddCommasToInteger(item.data[index])
             },
         }))
 
