@@ -4,16 +4,15 @@ Contains the **new** property filter (see #4050) component where all filters are
 import React, { useRef, useState } from 'react'
 import { Button, Col, Row } from 'antd'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-// import { cohortsModel } from '../../../../models/cohortsModel'
+import { cohortsModel } from '~/models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { Link } from '../../Link'
-import { DownOutlined } from '@ant-design/icons'
+import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import {
     OperatorValueFilterType,
     OperatorValueSelect,
 } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
-import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
-import { PropertyOptionGroup } from './PropertySelect'
+import { humanFriendlyDetailedTime, isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { SelectBox, SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
 import { PropertyFilterInternalProps } from './PropertyFilter'
 
@@ -41,11 +40,42 @@ function EventPropertiesInfo({ item }: { item: SelectedItem }): JSX.Element {
     )
 }
 
+function CohortPropertiesInfo({ item }: { item: SelectedItem }): JSX.Element {
+    return (
+        <>
+            Cohorts
+            <br />
+            <h3>{item.name}</h3>
+            {item.cohort && (
+                <p>
+                    {item.cohort?.is_static ? (
+                        <>
+                            <InfoCircleOutlined /> This is a static cohort.
+                        </>
+                    ) : (
+                        <>
+                            <InfoCircleOutlined /> This is a dynamically updated cohort.
+                        </>
+                    )}
+                    <br />
+                    {item.cohort?.created_at && (
+                        <>
+                            <i>Created: </i>
+                            {humanFriendlyDetailedTime(item.cohort?.created_at)}
+                            <br />
+                        </>
+                    )}
+                </p>
+            )}
+        </>
+    )
+}
+
 export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilterInternalProps): JSX.Element {
     const { eventProperties, personProperties, filters } = useValues(logic)
     // TODO: PersonPropertiesInfo (which will require making new entries in `keyMapping`)
 
-    // const { cohorts } = useValues(cohortsModel)
+    const { cohorts } = useValues(cohortsModel)
     const { setFilter } = useActions(logic)
     const { key, value, operator, type } = filters[index]
     const [open, setOpen] = useState(false)
@@ -60,30 +90,6 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
         newType: string
     ): void => {
         setFilter(index, newKey, newValue, newOperator, newType)
-    }
-
-    const optionGroups = [
-        {
-            type: 'event',
-            label: 'Event properties',
-            options: eventProperties,
-        },
-        {
-            type: 'person',
-            label: 'User properties',
-            options: personProperties,
-        },
-    ] as PropertyOptionGroup[]
-
-    if (eventProperties.length > 0) {
-        optionGroups.push({
-            type: 'element',
-            label: 'Elements',
-            options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
-                value: option,
-                label: option,
-            })),
-        })
     }
 
     type PropertiesType = {
@@ -140,6 +146,24 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                 )
             },
             type: 'person',
+            getValue: (item) => item.name || '',
+            getLabel: (item) => item.name || '',
+        },
+        {
+            name: 'Cohorts',
+            header: function cohortPropertiesHeader(label: string) {
+                return <>{label}</>
+            },
+            dataSource: cohorts
+                ?.filter(({ deleted }) => !deleted)
+                .map((cohort) => ({
+                    name: cohort.name,
+                    key: `cohort_${cohort.id}`,
+                    value: cohort.name,
+                    cohort,
+                })),
+            renderInfo: CohortPropertiesInfo,
+            type: 'cohort',
             getValue: (item) => item.name || '',
             getLabel: (item) => item.name || '',
         },
@@ -245,40 +269,6 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     />
                 )}
             </Row>
-            {/* <SelectGradientOverflow
-                style={{ width: '100%' }}
-                showSearch
-                optionFilterProp="children"
-                labelInValue
-                placeholder="Cohort name"
-                value={
-                    displayOperatorAndValue
-                        ? { value: '' }
-                        : {
-                              value: value,
-                              label: cohorts?.find((cohort) => cohort.id === value)?.name || value,
-                          }
-                }
-                onChange={(_, newFilter) => {
-                    onComplete()
-                    const { value: newValue, type: newType } = newFilter as { value: string; type: string }
-                    setThisFilter('id', newValue, undefined, newType)
-                }}
-                data-attr="cohort-filter-select"
-                {...selectProps}
-            >
-                {cohorts.map((item, idx) => (
-                    <Select.Option
-                        className="ph-no-capture"
-                        key={'cohort-filter-' + idx}
-                        value={item.id}
-                        type="cohort"
-                        data-attr={'cohort-filter-' + idx}
-                    >
-                        {item.name}
-                    </Select.Option>
-                ))}
-            </SelectGradientOverflow> */}
             {type === 'cohort' && value ? (
                 <Link to={`/cohorts/${value}`} target="_blank">
                     <Col style={{ marginLeft: 10, marginTop: 5 }}> View </Col>
