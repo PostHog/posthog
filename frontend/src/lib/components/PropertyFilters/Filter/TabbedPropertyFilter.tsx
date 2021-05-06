@@ -4,7 +4,7 @@ Contains the property filter component where filtering by properties or cohorts 
 import React, { useState } from 'react'
 import { Col, Row, Select, Tabs } from 'antd'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { cohortsModel } from '../../../../models/cohortsModel'
+import { cohortsModel } from '~/models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { SelectGradientOverflow, SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
 import { Link } from '../../Link'
@@ -13,15 +13,15 @@ import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValu
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { propertyFilterLogic } from '../propertyFilterLogic'
 import { PropertyOptionGroup } from '../PropertySelect'
-import { PropertyOperator, PropertyDefinition } from '~/types'
+import { PropertyOperator, PropertyDefinition, SelectOption } from '~/types'
 
 const { TabPane } = Tabs
 
 interface PropertyPaneProps {
     onComplete: CallableFunction
-    setThisFilter: any
+    setThisFilter: CallableFunction // TODO type this
     eventProperties: PropertyDefinition[]
-    personProperties: Array<{ value: string; label: string }>
+    personProperties: Array<SelectOption>
     propkey: string
     value: string
     operator: PropertyOperator
@@ -123,8 +123,8 @@ function PropertyPaneContents({
 }
 
 interface CohortPaneProps {
-    onComplete: any
-    setThisFilter: any
+    onComplete: CallableFunction
+    setThisFilter: CallableFunction // TODO: type this
     value: string
     displayOperatorAndValue?: boolean
     selectProps?: SelectGradientOverflowProps
