@@ -15,10 +15,7 @@ import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
-
-interface TrendTabProps {
-    view: string
-}
+import { TrendTabProps } from './TrendTab'
 
 export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))

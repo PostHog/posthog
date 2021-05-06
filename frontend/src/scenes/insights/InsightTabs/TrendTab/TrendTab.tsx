@@ -16,7 +16,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
 import { TrendTabHorizontal } from './TrendTabHorizontal'
 
-interface TrendTabProps {
+export interface TrendTabProps {
     view: string
     annotationsToCreate: any[] // TODO: Type properly
 }

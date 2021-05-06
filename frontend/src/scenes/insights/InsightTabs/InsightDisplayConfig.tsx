@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 import { DisplayType, FilterType } from '~/types'
 import { ViewType } from '../insightLogic'
+import { CalendarOutlined } from '@ant-design/icons'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -157,7 +158,18 @@ function HorizontalDefaultInsightDisplayConfig({
 
                 {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
                 {showDateFilter[activeView] && (
-                    <DateFilter defaultValue="Last 7 days" disabled={dateFilterDisabled} bordered={false} />
+                    <>
+                        <DateFilter
+                            defaultValue="Last 7 days"
+                            disabled={dateFilterDisabled}
+                            bordered={false}
+                            makeLabel={(key) => (
+                                <>
+                                    <CalendarOutlined /> {key}
+                                </>
+                            )}
+                        />
+                    </>
                 )}
             </div>
         </div>
