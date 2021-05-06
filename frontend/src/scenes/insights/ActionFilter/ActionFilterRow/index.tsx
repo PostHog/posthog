@@ -63,7 +63,7 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsLogic)
 
-    const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
+    const visible = horizontalUI || (typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false)
 
     let entity, name, value
     const { math, math_property: mathProperty } = filter
@@ -221,7 +221,7 @@ export function ActionFilterRow({
                     />
                 </Row>
             )}
-            {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) && (
+            {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) && !horizontalUI && (
                 <div style={{ paddingTop: 6 }}>
                     <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
                     <Button

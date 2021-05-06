@@ -70,6 +70,18 @@ export function UnifiedPropertyFilter({ index, onComplete, logic, selectProps }:
                         alignItems: 'center',
                     }}
                 >
+                    <span
+                        style={{
+                            color: '#C4C4C4',
+                            fontSize: 18,
+                            paddingLeft: 6,
+                            paddingRight: 8,
+                            position: 'relative',
+                            top: -4,
+                        }}
+                    >
+                        &#8627;
+                    </span>
                     where
                 </Col>
                 <Col style={{ minWidth: '6em' }}>
