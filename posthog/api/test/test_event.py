@@ -1,4 +1,6 @@
 import json
+import uuid
+from typing import Union
 from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
@@ -392,13 +394,17 @@ def factory_test_event_api(event_factory, person_factory, _):
             )
 
         def test_get_event_by_id(self):
-            event_id = 12345
+            event_id: Union[str, int] = 12345
 
             if settings.PRIMARY_DB == RDBMS.CLICKHOUSE:
                 event_id = "01793986-dc4b-0000-93e8-1fb646df3a93"
                 Event(
                     pk=create_event(
-                        team=self.team, event="event", distinct_id="1", timestamp=timezone.now(), event_uuid=event_id
+                        team=self.team,
+                        event="event",
+                        distinct_id="1",
+                        timestamp=timezone.now(),
+                        event_uuid=uuid.UUID(event_id),
                     )
                 )
             else:
