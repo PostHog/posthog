@@ -7,7 +7,6 @@
     .header-container {
         display: flex;
         justify-content: space-between;
-        align-items: center;
         padding-top: $default_spacing;
         padding-bottom: $default_spacing;
         padding-left: 9px;
@@ -15,10 +14,17 @@
 
         .title-description {
             flex-direction: column;
+            width: 100%;
             svg {
                 color: $warning;
                 font-size: 18px;
                 margin-right: 6px;
+            }
+        }
+
+        .save-btn {
+            svg {
+                color: white;
             }
         }
     }
@@ -26,6 +32,10 @@
         .description-box {
             padding-left: $default_spacing * 2;
             padding-top: 6px;
+        }
+
+        .edit-box {
+            padding-top: $default_spacing;
         }
     }
 }

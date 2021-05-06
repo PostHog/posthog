@@ -30,63 +30,67 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
             <Link to={`/dashboard/${dashboardId}`}>
                 <ArrowLeftOutlined /> To {dashboard?.name} dashboard
             </Link>
+
             <div style={{ marginTop: -16 }}>
                 <PageHeader title={dashboardItem?.name} />
+
                 <div className="header-container text-default">
                     <div className="title-description">
-                        <div style={{display: 'flex'}}>
+                        <div style={{ display: 'flex' }}>
                             {isDashboardItemEditMode ? <EditOutlined /> : <IconDashboard />}
                             <span style={{ paddingLeft: 6 }}>
-                                {isDashboardItemEditMode ? 'Editing graph' : 'Viewing graph'} <b>{dashboardItem?.name}</b> from{' '}
+                                {isDashboardItemEditMode ? 'Editing graph' : 'Viewing graph'}{' '}
+                                <b>{dashboardItem?.name}</b> from{' '}
                                 <Link to={`/dashboard/${dashboardId}`}>{dashboard?.name}</Link> dashboard.
                             </span>
                         </div>
 
-                        {true && (
-                        <>
-                            <div className="description">
-                                {isDashboardItemEditMode ? (
-                                    <div className="edit-box">
-                                        <Input.TextArea
-                                            placeholder="Add a description to your dashboard item"
-                                            value={newDescription}
-                                            onChange={(e) => {
-                                                setNewDescription(e.target.value)
-                                            }}
-                                        />
-                                        <Button
-                                            icon={<SaveOutlined />}
-                                            onClick={() => updateDashboardItem(dashboardItem.id, {description: newDescription})}
-                                            type="primary"
-                                            data-attr="dashboard-item-description-submit"
-                                            htmlType="submit"
-                                        >
-                                            Save changes
-                                        </Button>
-                                    </div>
-
-                                ) : (
-                                    <div
-                                        className="description-box text-small text-muted"
-                                    >
-                                        {dashboardItem.description ? (
-                                            <span>{dashboardItem.description}</span>
-                                        ) : (
-                                            <span className="add-description">Add a description...</span>
-                                        )}
+                        {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                            <>
+                                <div className="description">
+                                    {isDashboardItemEditMode ? (
+                                        <div className="edit-box">
+                                            <Input.TextArea
+                                                placeholder="Add a description to your dashboard item"
+                                                value={newDescription}
+                                                onChange={(e) => {
+                                                    setNewDescription(e.target.value)
+                                                }}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="description-box text-small text-muted">
+                                            {dashboardItem.description ? (
+                                                <span>{dashboardItem.description}</span>
+                                            ) : (
+                                                <span className="add-description">Add a description...</span>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
-                                )}
-                            </div>
-                        </>
-                    )}
+                            </>
+                        )}
                     </div>
-                    <Button
-                        style={{ marginRight: 16 }}
-                        onClick={() => setDashboardItemMode(DashboardItemMode.Edit)}
-                    >
-                        <EditOutlined />
-                        Edit name or description
-                    </Button>
+
+                    {isDashboardItemEditMode ? (
+                        <Button
+                            style={{ marginRight: 16 }}
+                            icon={<SaveOutlined />}
+                            onClick={() => updateDashboardItem(dashboardItem.id, { description: newDescription })}
+                            type="primary"
+                            data-attr="dashboard-item-description-submit"
+                        >
+                            Save changes
+                        </Button>
+                    ) : (
+                        <Button
+                            style={{ marginRight: 16 }}
+                            onClick={() => setDashboardItemMode(DashboardItemMode.Edit)}
+                        >
+                            <EditOutlined />
+                            Edit name or description
+                        </Button>
+                    )}
                 </div>
             </div>
         </div>

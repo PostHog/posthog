@@ -7,6 +7,7 @@ import { DashboardItemMode, DashboardItemType } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { dashboardItemsModelType } from '~/models/dashboardItemsModelType'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType>>({
     actions: () => ({
@@ -50,6 +51,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
             }
             const response = await api.update(`api/dashboard_item/${id}`, payload)
             actions.setDashboardItemMode(null)
+            insightLogic.actions.setDashboardItem(response)
             return response
         },
         duplicateDashboardItem: async ({ item, dashboardId, move }) => {
