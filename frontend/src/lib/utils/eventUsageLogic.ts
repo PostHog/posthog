@@ -187,7 +187,7 @@ export const eventUsageLogic = kea<
                 }
             })
 
-            // The total # of filters applied on events
+            // The total # of filters applied on events and actions.
             properties.total_event_action_filters_count = totalEventActionFilters
 
             // Custom properties for each insight
