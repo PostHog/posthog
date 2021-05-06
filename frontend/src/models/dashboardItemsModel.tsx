@@ -49,6 +49,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
                 return
             }
             const response = await api.update(`api/dashboard_item/${id}`, payload)
+            actions.setDashboardItemMode(null)
             return response
         },
         duplicateDashboardItem: async ({ item, dashboardId, move }) => {

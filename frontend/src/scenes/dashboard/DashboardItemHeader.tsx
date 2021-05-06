@@ -5,12 +5,12 @@ import { ArrowLeftOutlined, EditOutlined, SaveOutlined } from '@ant-design/icons
 import { IconDashboard } from 'lib/components/icons'
 import { useActions, useValues } from 'kea'
 import { dashboardLogic } from './dashboardLogic'
-import './Dashboard.scss'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { Button, Input } from 'antd'
 import { DashboardItemMode } from '../../types'
+import './DashboardItem.scss'
 
 interface Props {
     dashboardId: number
@@ -22,8 +22,8 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
     const { dashboardItemMode } = useValues(dashboardItemsModel)
     const { setDashboardItemMode, updateDashboardItem } = useActions(dashboardItemsModel)
     const [newDescription, setNewDescription] = useState(dashboardItem.description) // Used to update the input immediately, debouncing API calls
-
     const { user } = useValues(userLogic)
+    const isDashboardItemEditMode = dashboardItemMode === DashboardItemMode.Edit
 
     return (
         <div className="dashboard-item-header">
@@ -33,18 +33,20 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
             <div style={{ marginTop: -16 }}>
                 <PageHeader title={dashboardItem?.name} />
                 <div className="header-container text-default">
-                    <div className="title">
-                        <IconDashboard />
-                        <span style={{ paddingLeft: 6 }}>
-                            Viewing graph <b>{dashboardItem?.name}</b> from{' '}
-                            <Link to={`/dashboard/${dashboardId}`}>{dashboard?.name}</Link> dashboard.
-                        </span>
-                    </div>
-                    {true && (
+                    <div className="title-description">
+                        <div style={{display: 'flex'}}>
+                            {isDashboardItemEditMode ? <EditOutlined /> : <IconDashboard />}
+                            <span style={{ paddingLeft: 6 }}>
+                                {isDashboardItemEditMode ? 'Editing graph' : 'Viewing graph'} <b>{dashboardItem?.name}</b> from{' '}
+                                <Link to={`/dashboard/${dashboardId}`}>{dashboard?.name}</Link> dashboard.
+                            </span>
+                        </div>
+
+                        {true && (
                         <>
                             <div className="description">
-                                {dashboardItemMode === DashboardItemMode.Edit ? (
-                                    <>
+                                {isDashboardItemEditMode ? (
+                                    <div className="edit-box">
                                         <Input.TextArea
                                             placeholder="Add a description to your dashboard item"
                                             value={newDescription}
@@ -61,26 +63,30 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
                                         >
                                             Save changes
                                         </Button>
-                                    </>
+                                    </div>
 
                                 ) : (
                                     <div
-                                        className="edit-box"
-                                        onClick={() =>
-                                            setDashboardItemMode(DashboardItemMode.Edit)
-                                        }
+                                        className="description-box text-small text-muted"
                                     >
-                                    {dashboardItem.description ? (
-                                        <span>{dashboardItem.description}</span>
-                                    ) : (
-                                        <span className="add-description">Add a description...</span>
-                                    )}
-                                    <EditOutlined />
+                                        {dashboardItem.description ? (
+                                            <span>{dashboardItem.description}</span>
+                                        ) : (
+                                            <span className="add-description">Add a description...</span>
+                                        )}
                                 </div>
                                 )}
                             </div>
                         </>
                     )}
+                    </div>
+                    <Button
+                        style={{ marginRight: 16 }}
+                        onClick={() => setDashboardItemMode(DashboardItemMode.Edit)}
+                    >
+                        <EditOutlined />
+                        Edit name or description
+                    </Button>
                 </div>
             </div>
         </div>
