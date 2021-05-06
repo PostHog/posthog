@@ -26,6 +26,47 @@ from posthog.plugins.access import can_globally_manage_plugins
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
 
 
+def _update_plugin_attachments(request: request.Request, plugin_config: PluginConfig):
+    for key, file in request.FILES.items():
+        match = re.match(r"^add_attachment\[([^]]+)\]$", key)
+        if match:
+            _update_plugin_attachment(plugin_config, match.group(1), file)
+    for key, file in request.POST.items():
+        match = re.match(r"^remove_attachment\[([^]]+)\]$", key)
+        if match:
+            _update_plugin_attachment(plugin_config, match.group(1), None)
+
+
+def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optional[UploadedFile]):
+    try:
+        plugin_attachment = PluginAttachment.objects.get(team=plugin_config.team, plugin_config=plugin_config, key=key)
+        if file:
+            plugin_attachment.content_type = file.content_type
+            plugin_attachment.file_name = file.name
+            plugin_attachment.file_size = file.size
+            plugin_attachment.contents = file.file.read()
+            plugin_attachment.save()
+        else:
+            plugin_attachment.delete()
+    except ObjectDoesNotExist:
+        if file:
+            PluginAttachment.objects.create(
+                team=plugin_config.team,
+                plugin_config=plugin_config,
+                key=key,
+                content_type=str(file.content_type),
+                file_name=file.name,
+                file_size=file.size,
+                contents=file.file.read(),
+            )
+
+
+# sending files via a multipart form puts the config JSON in a un-serialized format
+def _fix_formdata_config_json(request: request.Request, validated_data: dict):
+    if not validated_data.get("config", None) and request.POST.get("config", None):
+        validated_data["config"] = json.loads(request.POST["config"])
+
+
 class PluginsAccessLevelPermission(BasePermission):
     message = "Your organization's plugin access level is insufficient."
 
@@ -218,13 +259,13 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         if not can_configure_plugins(Team.objects.get(id=self.context["team_id"]).organization_id):
             raise ValidationError("Plugin configuration is not available for the current organization!")
         validated_data["team"] = Team.objects.get(id=self.context["team_id"])
-        self._fix_formdata_config_json(validated_data)
+        _fix_formdata_config_json(self.context["request"], validated_data)
         plugin_config = super().create(validated_data)
-        self._update_plugin_attachments(plugin_config)
+        _update_plugin_attachments(self.context["request"], plugin_config)
         return plugin_config
 
     def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
-        self._fix_formdata_config_json(validated_data)
+        _fix_formdata_config_json(self.context["request"], validated_data)
         validated_data.pop("plugin", None)
 
         # Keep old value for secret fields if no new value in the request
@@ -236,51 +277,8 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                     validated_data["config"][key] = plugin_config.config.get(key)
 
         response = super().update(plugin_config, validated_data)
-        self._update_plugin_attachments(plugin_config)
+        _update_plugin_attachments(self.context["request"], plugin_config)
         return response
-
-    # sending files via a multipart form puts the config JSON in a un-serialized format
-    def _fix_formdata_config_json(self, validated_data: dict):
-        request = self.context["request"]
-        if not validated_data.get("config", None) and request.POST.get("config", None):
-            validated_data["config"] = json.loads(request.POST["config"])
-
-    def _update_plugin_attachments(self, plugin_config: PluginConfig):
-        request = self.context["request"]
-        for key, file in request.FILES.items():
-            match = re.match(r"^add_attachment\[([^]]+)\]$", key)
-            if match:
-                self._update_plugin_attachment(plugin_config, match.group(1), file)
-        for key, file in request.POST.items():
-            match = re.match(r"^remove_attachment\[([^]]+)\]$", key)
-            if match:
-                self._update_plugin_attachment(plugin_config, match.group(1), None)
-
-    @staticmethod
-    def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optional[UploadedFile]):
-        try:
-            plugin_attachment = PluginAttachment.objects.get(
-                team=plugin_config.team, plugin_config=plugin_config, key=key
-            )
-            if file:
-                plugin_attachment.content_type = file.content_type
-                plugin_attachment.file_name = file.name
-                plugin_attachment.file_size = file.size
-                plugin_attachment.contents = file.file.read()
-                plugin_attachment.save()
-            else:
-                plugin_attachment.delete()
-        except ObjectDoesNotExist:
-            if file:
-                PluginAttachment.objects.create(
-                    team=plugin_config.team,
-                    plugin_config=plugin_config,
-                    key=key,
-                    content_type=str(file.content_type),
-                    file_name=file.name,
-                    file_size=file.size,
-                    contents=file.file.read(),
-                )
 
 
 class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
