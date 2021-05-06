@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { EnqueuedJob, PluginsServer, PluginTaskType } from '../types'
 import { ingestEvent } from './ingestion/ingest-event'
-import { runPlugins, runPluginsOnBatch, runPluginTask } from './plugins/run'
+import { runOnEvent, runOnSnapshot, runPluginTask, runProcessEvent, runProcessEventBatch } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 
@@ -12,11 +12,17 @@ export const workerTasks: Record<string, TaskRunner> = {
     hello: (server, args) => {
         return `hello ${args}!`
     },
+    onEvent: (server, args: { event: PluginEvent }) => {
+        return runOnEvent(server, args.event)
+    },
+    onSnapshot: (server, args: { event: PluginEvent }) => {
+        return runOnSnapshot(server, args.event)
+    },
     processEvent: (server, args: { event: PluginEvent }) => {
-        return runPlugins(server, args.event)
+        return runProcessEvent(server, args.event)
     },
     processEventBatch: (server, args: { batch: PluginEvent[] }) => {
-        return runPluginsOnBatch(server, args.batch)
+        return runProcessEventBatch(server, args.batch)
     },
     runJob: (server, { job }: { job: EnqueuedJob }) => {
         return runPluginTask(server, job.type, PluginTaskType.Job, job.pluginConfigId, job.payload)

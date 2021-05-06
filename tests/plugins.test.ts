@@ -5,7 +5,7 @@ import { LogLevel, PluginsServer, PluginTaskType } from '../src/types'
 import { clearError, processError } from '../src/utils/db/error'
 import { createServer } from '../src/utils/db/server'
 import { loadPlugin } from '../src/worker/plugins/loadPlugin'
-import { runPlugins } from '../src/worker/plugins/run'
+import { runProcessEvent } from '../src/worker/plugins/run'
 import { loadSchedule, setupPlugins } from '../src/worker/plugins/setup'
 import {
     commonOrganizationId,
@@ -35,7 +35,7 @@ afterEach(async () => {
     await closeServer()
 })
 
-test('setupPlugins and runPlugins', async () => {
+test('setupPlugins and runProcessEvent', async () => {
     getPluginRows.mockReturnValueOnce([plugin60])
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
@@ -70,6 +70,8 @@ test('setupPlugins and runPlugins', async () => {
     expect(pluginConfig.vm).toBeDefined()
     const vm = await pluginConfig.vm!.resolveInternalVm
     expect(Object.keys(vm!.methods).sort()).toEqual([
+        'onEvent',
+        'onSnapshot',
         'processEvent',
         'processEventBatch',
         'setupPlugin',
@@ -86,7 +88,7 @@ test('setupPlugins and runPlugins', async () => {
 
     event.properties!['processed'] = false
 
-    const returnedEvent = await runPlugins(mockServer, event)
+    const returnedEvent = await runProcessEvent(mockServer, event)
     expect(event.properties!['processed']).toEqual(true)
     expect(returnedEvent!.properties!['processed']).toEqual(true)
 })
@@ -99,7 +101,7 @@ test('plugin returns null', async () => {
     await setupPlugins(mockServer)
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runPlugins(mockServer, event)
+    const returnedEvent = await runProcessEvent(mockServer, event)
 
     expect(returnedEvent).toEqual(null)
 })
@@ -117,7 +119,7 @@ test('plugin meta has what it should have', async () => {
     await setupPlugins(mockServer)
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runPlugins(mockServer, event)
+    const returnedEvent = await runProcessEvent(mockServer, event)
 
     expect(Object.keys(returnedEvent!.properties!).sort()).toEqual([
         '$plugins_failed',
@@ -157,7 +159,7 @@ test('archive plugin with broken index.js does not do much', async () => {
     expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runPlugins(mockServer, { ...event })
+    const returnedEvent = await runProcessEvent(mockServer, { ...event })
     expect(returnedEvent).toEqual(event)
 
     expect(processError).toHaveBeenCalledWith(mockServer, pluginConfig, expect.any(SyntaxError))
@@ -182,7 +184,7 @@ test('local plugin with broken index.js does not do much', async () => {
     expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runPlugins(mockServer, { ...event })
+    const returnedEvent = await runProcessEvent(mockServer, { ...event })
     expect(returnedEvent).toEqual(event)
 
     expect(processError).toHaveBeenCalledWith(mockServer, pluginConfig, expect.any(SyntaxError))
@@ -213,7 +215,7 @@ test('plugin throwing error does not prevent ingestion and failure is noted in e
     expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runPlugins(mockServer, { ...event })
+    const returnedEvent = await runProcessEvent(mockServer, { ...event })
 
     const expectedReturnEvent = {
         ...event,
@@ -246,7 +248,7 @@ test('events have property $plugins_succeeded set to the plugins that succeeded'
     expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runPlugins(mockServer, { ...event })
+    const returnedEvent = await runProcessEvent(mockServer, { ...event })
 
     const expectedReturnEvent = {
         ...event,
@@ -386,10 +388,10 @@ test('plugin config order', async () => {
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
 
-    const returnedEvent1 = await runPlugins(mockServer, { ...event, properties: { ...event.properties } })
+    const returnedEvent1 = await runProcessEvent(mockServer, { ...event, properties: { ...event.properties } })
     expect(returnedEvent1!.properties!.plugins).toEqual([61, 60, 62])
 
-    const returnedEvent2 = await runPlugins(mockServer, { ...event, properties: { ...event.properties } })
+    const returnedEvent2 = await runProcessEvent(mockServer, { ...event, properties: { ...event.properties } })
     expect(returnedEvent2!.properties!.plugins).toEqual([61, 60, 62])
 })
 

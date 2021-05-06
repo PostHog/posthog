@@ -152,6 +152,8 @@ export async function createPluginConfigVM(
             const __methods = {
                 setupPlugin: __asyncFunctionGuard(__bindMeta('setupPlugin')),
                 teardownPlugin: __asyncFunctionGuard(__bindMeta('teardownPlugin')),
+                onEvent: __asyncFunctionGuard(__bindMeta('onEvent')),
+                onSnapshot: __asyncFunctionGuard(__bindMeta('onSnapshot')),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent')),
                 processEventBatch: __asyncFunctionGuard(__bindMeta('processEventBatch')),
             };

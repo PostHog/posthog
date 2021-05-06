@@ -4,7 +4,7 @@ import { LogLevel, PluginsServer } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
 import { createServer } from '../../src/utils/db/server'
 import { delay } from '../../src/utils/utils'
-import { runPlugins } from '../../src/worker/plugins/run'
+import { runProcessEvent } from '../../src/worker/plugins/run'
 
 jest.setTimeout(60000) // 60 sec timeout
 
@@ -62,8 +62,8 @@ test('pause and resume queue', async () => {
     expect(await redis.llen(server.PLUGINS_CELERY_QUEUE)).toBe(6)
     const piscina = setupPiscina(2, 2)
     const queue = await startQueue(server, piscina, {
-        processEvent: (event) => runPlugins(server, event),
-        processEventBatch: (events) => Promise.all(events.map((event) => runPlugins(server, event))),
+        processEvent: (event) => runProcessEvent(server, event),
+        processEventBatch: (events) => Promise.all(events.map((event) => runProcessEvent(server, event))),
         ingestEvent: () => Promise.resolve({ success: true }),
     })
     await advanceOneTick()

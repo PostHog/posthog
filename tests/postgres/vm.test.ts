@@ -39,6 +39,8 @@ test('empty plugins', async () => {
 
     expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm'])
     expect(Object.keys(vm.methods).sort()).toEqual([
+        'onEvent',
+        'onSnapshot',
         'processEvent',
         'processEventBatch',
         'setupPlugin',
@@ -871,4 +873,36 @@ test('posthog.capture accepts user-defined distinct id', async () => {
         mockSendTask.mock.calls[0][1][5],
         mockSendTask.mock.calls[0][1][6],
     ])
+})
+
+test('onEvent', async () => {
+    const indexJs = `
+        async function onEvent (event, meta) {
+            await fetch('https://google.com/results.json?query=' + event.event)
+        }
+    `
+    await resetTestDatabase(indexJs)
+    const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'onEvent',
+    }
+    await vm.methods.onEvent(event)
+    expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent')
+})
+
+test('onSnapshot', async () => {
+    const indexJs = `
+        async function onSnapshot (event, meta) {
+            await fetch('https://google.com/results.json?query=' + event.event)
+        }
+    `
+    await resetTestDatabase(indexJs)
+    const vm = await createPluginConfigVM(mockServer, pluginConfig39, indexJs)
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: '$snapshot',
+    }
+    await vm.methods.onSnapshot(event)
+    expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=$snapshot')
 })
