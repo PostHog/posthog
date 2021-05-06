@@ -58,7 +58,7 @@
                 },
                 {
                     "name": "JOB_QUEUES",
-                    "value": ""
+                    "value": "graphile"
                 },
                 {
                     "name": "CRASH_IF_NO_PERSISTENT_JOB_QUEUE",
