@@ -1,16 +1,21 @@
-import React from 'react'
-import { Col, Row, Select } from 'antd'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { cohortsModel } from '../../../../models/cohortsModel'
+import React, { useState } from 'react'
+import { Button, Col, Row } from 'antd'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+// import { cohortsModel } from '../../../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
-import { SelectGradientOverflow, SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
+import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
 import { Link } from '../../Link'
-import { PropertySelect } from '../PropertySelect'
+import { InfoCircleOutlined, DownOutlined } from '@ant-design/icons'
+import { Tooltip } from 'antd'
 import { OperatorValueFilterType, OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { propertyFilterLogic } from '../propertyFilterLogic'
 import { PropertyOptionGroup } from '../PropertySelect'
+import { SelectBox } from 'lib/components/SelectBox'
 
+function FilterDropdown({ open, children }: { open: boolean; children: React.ReactNode }): JSX.Element | null {
+    return open ? <div>{children}</div> : null
+}
 interface PropertyFilterProps {
     index: number
     onComplete: CallableFunction
@@ -18,11 +23,12 @@ interface PropertyFilterProps {
     selectProps: Partial<SelectGradientOverflowProps>
 }
 
-export function UnifiedPropertyFilter({ index, onComplete, logic, selectProps }: PropertyFilterProps): JSX.Element {
+export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilterProps): JSX.Element {
     const { eventProperties, personProperties, filters } = useValues(logic)
-    const { cohorts } = useValues(cohortsModel)
+    // const { cohorts } = useValues(cohortsModel)
     const { setFilter } = useActions(logic)
     const { key, value, operator, type } = filters[index]
+    const [open, setOpen] = useState(false)
 
     const displayOperatorAndValue = key && type !== 'cohort'
 
@@ -48,6 +54,8 @@ export function UnifiedPropertyFilter({ index, onComplete, logic, selectProps }:
         },
     ] as PropertyOptionGroup[]
 
+    console.log(optionGroups[0])
+
     if (eventProperties.length > 0) {
         optionGroups.push({
             type: 'element',
@@ -59,9 +67,13 @@ export function UnifiedPropertyFilter({ index, onComplete, logic, selectProps }:
         })
     }
 
+    const onClick = (): void => {
+        setOpen(!open)
+    }
+
     return (
         <>
-            <Row gutter={8} className="full-width" wrap={false}>
+            <Row gutter={8} wrap={false}>
                 <Col
                     style={{
                         height: '32px', // matches antd Select height
@@ -85,7 +97,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic, selectProps }:
                     where
                 </Col>
                 <Col style={{ minWidth: '6em' }}>
-                    <PropertySelect
+                    {/* <PropertySelect
                         value={
                             type === 'cohort'
                                 ? null
@@ -105,7 +117,62 @@ export function UnifiedPropertyFilter({ index, onComplete, logic, selectProps }:
                         optionGroups={optionGroups}
                         placeholder="Property key"
                         dropdownMatchSelectWidth={250}
-                    />
+                    /> */}
+                    <Button onClick={onClick} style={{ display: 'flex', alignItems: 'center' }}>
+                        <span className="text-overflow" style={{ maxWidth: '100%' }}>
+                            <PropertyKeyInfo value={key || 'Select property'} />
+                        </span>
+                        <DownOutlined style={{ fontSize: 10 }} />
+                    </Button>
+                    <FilterDropdown open={open}>
+                        <SelectBox
+                            selectedItemKey={undefined}
+                            onDismiss={() => setOpen(false)}
+                            onSelect={(itemType, id, name) => {
+                                console.log(itemType, id, name)
+                                setThisFilter(name, undefined, operator, itemType)
+                                setOpen(false)
+                            }}
+                            items={[
+                                {
+                                    name: 'Event properties',
+                                    header: function eventPropertiesHeader(label: string) {
+                                        return (
+                                            <>
+                                                {label}{' '}
+                                                <Tooltip title="We'll suggest events you (or your team) have used frequently in other queries">
+                                                    <InfoCircleOutlined />
+                                                </Tooltip>
+                                            </>
+                                        )
+                                    },
+                                    dataSource: eventProperties,
+                                    renderInfo: function eventPropertiesRenderInfo({ item }) {
+                                        return (
+                                            <>
+                                                Event properties
+                                                <br />
+                                                <h3>{item.name}</h3>
+                                                {(item?.volume_30_day ?? 0 > 0) && (
+                                                    <>
+                                                        Seen <strong>{item.volume_30_day}</strong> times.{' '}
+                                                    </>
+                                                )}
+                                                {(item?.query_usage_30_day ?? 0 > 0) && (
+                                                    <>
+                                                        Used in <strong>{item.query_usage_30_day}</strong> queries.
+                                                    </>
+                                                )}
+                                            </>
+                                        )
+                                    },
+                                    type: 'eventProperty',
+                                    getValue: (item) => item.name || '',
+                                    getLabel: (item) => item.name || '',
+                                },
+                            ]}
+                        />
+                    </FilterDropdown>
                 </Col>
 
                 {displayOperatorAndValue && (
@@ -145,7 +212,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic, selectProps }:
                     />
                 )}
             </Row>
-            <SelectGradientOverflow
+            {/* <SelectGradientOverflow
                 style={{ width: '100%' }}
                 showSearch
                 optionFilterProp="children"
@@ -178,7 +245,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic, selectProps }:
                         {item.name}
                     </Select.Option>
                 ))}
-            </SelectGradientOverflow>
+            </SelectGradientOverflow> */}
             {type === 'cohort' && value ? (
                 <Link to={`/cohorts/${value}`} target="_blank">
                     <Col style={{ marginLeft: 10, marginTop: 5 }}> View </Col>
