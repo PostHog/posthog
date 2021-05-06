@@ -5,7 +5,7 @@ import { useValues, useActions } from 'kea'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { disableHourFor, disableMinuteFor } from 'lib/utils'
 
-let intervalMapping = {
+const intervalMapping = {
     minute: 'Minute',
     hour: 'Hourly',
     day: 'Daily',
@@ -13,8 +13,13 @@ let intervalMapping = {
     month: 'Monthly',
 }
 
-export function IntervalFilter({ view, disabled = false }) {
-    const { interval } = useValues(intervalFilterLogic)
+interface InvertalFilterProps {
+    view: ViewType
+    disabled?: boolean
+}
+
+export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Element {
+    const interval: 'minute' | 'hour' | 'day' | 'week' | 'month' = useValues(intervalFilterLogic).interval
     const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic)
     return (
         <Select
@@ -44,8 +49,8 @@ export function IntervalFilter({ view, disabled = false }) {
                         break
                 }
 
-                const minute_disabled = key === 'minute' && disableMinuteFor[newDateFrom]
-                const hour_disabled = key === 'hour' && disableHourFor[newDateFrom]
+                const minute_disabled = key === 'minute' && newDateFrom && disableMinuteFor[newDateFrom]
+                const hour_disabled = key === 'hour' && newDateFrom && disableHourFor[newDateFrom]
                 if (minute_disabled || hour_disabled) {
                     return false
                 }
@@ -58,17 +63,15 @@ export function IntervalFilter({ view, disabled = false }) {
             }}
             data-attr="interval-filter"
         >
-            {Object.entries(intervalMapping).map(([key, value]) => {
-                return (
-                    <Select.Option
-                        key={key}
-                        value={key}
-                        disabled={(key === 'minute' || key === 'hour') && view === ViewType.SESSIONS}
-                    >
-                        {value}
-                    </Select.Option>
-                )
-            })}
+            {Object.entries(intervalMapping).map(([key, value]) => (
+                <Select.Option
+                    key={key}
+                    value={key}
+                    disabled={(key === 'minute' || key === 'hour') && view === ViewType.SESSIONS}
+                >
+                    {value}
+                </Select.Option>
+            ))}
         </Select>
     )
 }

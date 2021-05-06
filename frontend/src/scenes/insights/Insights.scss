@@ -25,6 +25,46 @@
             background-color: rgba($primary, 0.2) !important;
         }
     }
+
+    .insight-controls {
+        overflow: visible;
+    }
+
+    .insights-graph-container {
+        .ant-card-head {
+            background-color: rgba(0, 0, 0, 0.03);
+        }
+    }
+
+    &.horizontal-ui {
+        .top-bar {
+            .ant-tabs-tab {
+                padding: 0; // More compact tabs to save vertical space
+            }
+        }
+
+        .insight-controls {
+            margin-bottom: $default_spacing / 2;
+            border: 1px solid $border_light;
+            .ant-card-body {
+                padding: $default_spacing * 0.8 $default_spacing;
+            }
+        }
+
+        .insights-graph-container {
+            .ant-card-head {
+                min-height: unset;
+                @extend .mixin-elevated;
+                background-color: rgba(0, 0, 0, 0.02);
+                border: 1px solid $border_light;
+                padding-right: $default_spacing / 4;
+
+                .ant-card-head-title {
+                    padding: $default_spacing / 2 0;
+                }
+            }
+        }
+    }
 }
 
 .insight-empty-state {
