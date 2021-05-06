@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0146_eventproperty_sync"),
+        ("posthog", "0148_merge_20210506_0823"),
     ]
 
     operations = [
