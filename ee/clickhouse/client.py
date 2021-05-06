@@ -126,6 +126,8 @@ else:
     def sync_execute(query, args=None, settings=None):
         with ch_pool.get_client() as client:
             start_time = time()
+            settings = settings or {}
+            settings["max_threads"] = 48  # :TODO: Nuke this, update configuration
             try:
                 result = client.execute(query, args, settings=settings)
             finally:
