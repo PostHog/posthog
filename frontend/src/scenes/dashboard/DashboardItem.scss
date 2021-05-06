@@ -1,0 +1,31 @@
+@import '~/vars';
+
+.dashboard-item-header {
+    padding-top: $default_spacing * 2;
+    padding-bottom: 12px;
+
+    .header-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-top: $default_spacing;
+        padding-bottom: $default_spacing;
+        padding-left: 9px;
+        background: white;
+
+        .title-description {
+            flex-direction: column;
+            svg {
+                color: $warning;
+                font-size: 18px;
+                margin-right: 6px;
+            }
+        }
+    }
+    .description {
+        .description-box {
+            padding-left: $default_spacing * 2;
+            padding-top: 6px;
+        }
+    }
+}
