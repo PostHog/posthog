@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { PropertyFilter } from './PropertyFilter'
+import { PropertyFilter } from './Filter'
 import { Button } from 'antd'
 import { useActions } from 'kea'
 import { Popover, Row } from 'antd'
@@ -49,7 +49,7 @@ export const FilterRow = React.memo(function FilterRow({
             }}
         >
             {disablePopover ? (
-                <PropertyFilter {...propertyFilterCommonProps} />
+                <PropertyFilter {...propertyFilterCommonProps} variant="unified" />
             ) : (
                 <Popover
                     trigger="click"
@@ -58,7 +58,7 @@ export const FilterRow = React.memo(function FilterRow({
                     defaultVisible={false}
                     visible={open}
                     placement={popoverPlacement || 'bottomLeft'}
-                    content={<PropertyFilter {...propertyFilterCommonProps} />}
+                    content={<PropertyFilter {...propertyFilterCommonProps} variant="tabs" />}
                 >
                     {key ? (
                         <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />

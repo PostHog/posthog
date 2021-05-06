@@ -1,24 +1,24 @@
 import React, { useState } from 'react'
 import { Col, Row, Select, Tabs } from 'antd'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { cohortsModel } from '../../../models/cohortsModel'
+import { cohortsModel } from '../../../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { SelectGradientOverflow, SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
-import { Link } from '../Link'
-import { PropertySelect } from './PropertySelect'
+import { Link } from '../../Link'
+import { PropertySelect } from '../PropertySelect'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
-import { propertyFilterLogic } from './propertyFilterLogic'
-import { PropertyOptionGroup } from './PropertySelect'
-import { PropertyOperator } from '~/types'
+import { propertyFilterLogic } from '../propertyFilterLogic'
+import { PropertyOptionGroup } from '../PropertySelect'
+import { PropertyOperator, PropertyDefinition } from '~/types'
 
 const { TabPane } = Tabs
 
 interface PropertyPaneProps {
     onComplete: CallableFunction
     setThisFilter: any
-    eventProperties: any // TODO
-    personProperties: any //TODO
+    eventProperties: PropertyDefinition[]
+    personProperties: Array<{ value: string; label: string }>
     propkey: string
     value: string
     operator: PropertyOperator
@@ -185,7 +185,7 @@ interface PropertyFilterProps {
     selectProps: Partial<SelectGradientOverflowProps>
 }
 
-export function PropertyFilter({ index, onComplete, logic, selectProps }: PropertyFilterProps): JSX.Element {
+export function TabbedPropertyFilter({ index, onComplete, logic, selectProps }: PropertyFilterProps): JSX.Element {
     const { eventProperties, personProperties, filters } = useValues(logic)
     const { setFilter } = useActions(logic)
     const { key, value, operator, type } = filters[index]

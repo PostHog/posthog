@@ -5,13 +5,15 @@ import { isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
 import { PropertyValue } from 'lib/components/PropertyFilters/PropertyValue'
 import { ColProps } from 'antd/lib/col'
 
+export type OperatorValueFilterType = string | number | Array<string | number> | null
+
 interface OperatorValueSelectProps {
     type: string
     propkey: string
     operator: PropertyOperator | undefined
     value: string | number | Array<string | number> | null
     columnOptions?: ColProps
-    onChange: (operator: PropertyOperator, value: string | number | Array<string | number> | null) => void
+    onChange: (operator: PropertyOperator, value: OperatorValueFilterType) => void
 }
 
 interface OperatorSelectProps {
