@@ -14,8 +14,9 @@ import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
 import { PluginsServer, PluginsServerConfig } from '../../types'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
+import { killProcess } from '../kill'
 import { status } from '../status'
-import { createPostgresPool, createRedis, UUIDT } from '../utils'
+import { createPostgresPool, createRedis, logOrThrowJobQueueError, UUIDT } from '../utils'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 
@@ -168,7 +169,16 @@ export async function createServer(
     // :TODO: This is only used on worker threads, not main
     server.eventsProcessor = new EventsProcessor(server as PluginsServer)
     server.jobQueueManager = new JobQueueManager(server as PluginsServer)
-    await server.jobQueueManager.connectProducer()
+
+    try {
+        await server.jobQueueManager.connectProducer()
+    } catch (error) {
+        try {
+            logOrThrowJobQueueError(server as PluginsServer, error, `Can not start job queue producer!`)
+        } catch {
+            killProcess()
+        }
+    }
 
     const closeServer = async () => {
         server.mmdbUpdateJob?.cancel()

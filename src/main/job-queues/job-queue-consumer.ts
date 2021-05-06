@@ -1,8 +1,11 @@
 import Piscina from '@posthog/piscina'
+import * as Sentry from '@sentry/node'
 
 import { JobQueueConsumerControl, OnJobCallback, PluginsServer } from '../../types'
+import { killProcess } from '../../utils/kill'
 import { startRedlock } from '../../utils/redlock'
 import { status } from '../../utils/status'
+import { logOrThrowJobQueueError } from '../../utils/utils'
 import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
 
 export const LOCKED_RESOURCE = 'plugin-server:locks:job-queue-consumer'
@@ -22,7 +25,15 @@ export async function startJobQueueConsumer(server: PluginsServer, piscina: Pisc
         resource: LOCKED_RESOURCE,
         onLock: async () => {
             status.info('🔄', 'Job queue consumer lock aquired')
-            await server.jobQueueManager.startConsumer(onJob)
+            try {
+                await server.jobQueueManager.startConsumer(onJob)
+            } catch (error) {
+                try {
+                    logOrThrowJobQueueError(server, error, `Can not start job queue consumer!`)
+                } catch {
+                    killProcess()
+                }
+            }
         },
         onUnlock: async () => {
             status.info('🔄', 'Stopping job queue consumer')

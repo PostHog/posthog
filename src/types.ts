@@ -73,6 +73,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     PLUGIN_SERVER_IDLE: boolean
     JOB_QUEUES: string
     JOB_QUEUE_GRAPHILE_URL: string
+    CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
     ENABLE_PERSISTENT_CONSOLE: boolean
     STALENESS_RESTART_SECONDS: number
 }
