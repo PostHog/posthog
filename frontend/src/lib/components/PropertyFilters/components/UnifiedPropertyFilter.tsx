@@ -1,7 +1,7 @@
 /*
 Contains the **new** property filter (see #4050) component where all filters are unified in a single view
 */
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { Button, Col, Row } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 // import { cohortsModel } from '../../../../models/cohortsModel'
@@ -27,6 +27,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
     const { setFilter } = useActions(logic)
     const { key, value, operator, type } = filters[index]
     const [open, setOpen] = useState(false)
+    const selectBoxToggleRef = useRef<HTMLElement>(null)
 
     const displayOperatorAndValue = key && type !== 'cohort'
 
@@ -77,7 +78,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
             },
             dataSource: eventProperties?.map(({ value, label, is_numerical }: PropertiesType) => ({
                 name: label,
-                key: value,
+                key: `event_${value}`,
                 value,
                 is_numerical,
             })),
@@ -111,7 +112,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
             },
             dataSource: personProperties?.map(({ value, label, is_numerical }: PropertiesType) => ({
                 name: label,
-                key: value,
+                key: `person_${value}`,
                 value,
                 is_numerical,
             })),
@@ -140,7 +141,8 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
         },
     ]
 
-    const onClick = (): void => {
+    const onClick = (e: React.SyntheticEvent): void => {
+        e.preventDefault()
         setOpen(!open)
     }
 
@@ -172,7 +174,11 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </span>
                 </Col>
                 <Col style={{ minWidth: '6em' }}>
-                    <Button onClick={onClick} style={{ display: 'flex', alignItems: 'center' }}>
+                    <Button
+                        onClick={onClick}
+                        style={{ display: 'flex', alignItems: 'center' }}
+                        ref={selectBoxToggleRef}
+                    >
                         <span className="text-overflow" style={{ maxWidth: '100%' }}>
                             <PropertyKeyInfo value={key || 'Select property'} />
                         </span>
@@ -181,7 +187,12 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     <FilterDropdown open={open}>
                         <SelectBox
                             selectedItemKey={undefined}
-                            onDismiss={() => setOpen(false)}
+                            onDismiss={(e: MouseEvent) => {
+                                if (e.target && selectBoxToggleRef?.current?.contains(e.target as Node)) {
+                                    return
+                                }
+                                setOpen(false)
+                            }}
                             onSelect={(itemType, id, name) => {
                                 setThisFilter(name, undefined, operator, itemType)
                                 setOpen(false)
