@@ -63,10 +63,6 @@
                 {
                     "name": "CRASH_IF_NO_PERSISTENT_JOB_QUEUE",
                     "value": "0"
-                },
-                {
-                    "name": "ENABLE_PERSISTENT_CONSOLE",
-                    "value": "1"
                 }
             ],
             "secrets": [
