@@ -221,6 +221,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Set',
             description: '',
         },
+        $set_once: {
+            label: 'Set Once',
+            description: '',
+        },
         $capture_failed_request: {
             label: 'Capture Failed Request',
             description: '',
@@ -333,57 +337,73 @@ export const keyMapping: KeyMappingInterface = {
         $geoip_city_name: {
             label: 'City Name',
             description: `Name of the city matched to this event's IP address.`,
-            examples: ['Sydney', 'Chennai'],
+            examples: ['Sydney', 'Chennai', 'Brooklyn'],
         },
         $geoip_country_name: {
             label: 'Country Name',
             description: `Name of the country matched to this event's IP address.`,
-            examples: ['Australia', 'India'],
+            examples: ['Australia', 'India', 'United States'],
         },
         $geoip_country_code: {
             label: 'Country Code',
             description: `Code of the country matched to this event's IP address.`,
-            examples: ['AU', 'IN'],
+            examples: ['AU', 'IN', 'US'],
         },
         $geoip_continent_name: {
             label: 'Continent Name',
             description: `Name of the continent matched to this event's IP address.`,
-            examples: ['Oceania', 'Asia'],
+            examples: ['Oceania', 'Asia', 'North America'],
         },
         $geoip_continent_code: {
             label: 'Continent Code',
             description: `Code of the continent matched to this event's IP address.`,
-            examples: ['OC', 'AS'],
+            examples: ['OC', 'AS', ' NA'],
         },
         $geoip_postal_code: {
             label: 'Postal Code',
             description: `Approximated postal code matched to this event's IP address.`,
-            examples: ['2000', '600004'],
+            examples: ['2000', '600004', '11211'],
         },
         $geoip_latitude: {
             label: 'Latitude',
             description: `Approximated latitude matched to this event's IP address.`,
-            examples: ['-33.8591', '13.1337'],
+            examples: ['-33.8591', '13.1337', '40.7'],
         },
         $geoip_longitude: {
             label: 'Longitude',
             description: `Approximated longitude matched to this event's IP address.`,
-            examples: ['151.2', '80.8008'],
+            examples: ['151.2', '80.8008', '-73.9'],
         },
         $geoip_time_zone: {
             label: 'Timezone',
             description: `Timezone matched to this event's IP address.`,
-            examples: ['Australia/Sydney', 'Asia/Kolkata'],
+            examples: ['Australia/Sydney', 'Asia/Kolkata', 'America/New_York'],
         },
         $geoip_subdivision_1_name: {
-            label: 'Subdivision Name',
+            label: 'Subdivision 1 Name',
             description: `Name of the subdivision matched to this event's IP address.`,
-            examples: ['New South Wales', 'Tamil Nadu'],
+            examples: ['New South Wales', 'Tamil Nadu', 'New York'],
         },
         $geoip_subdivision_1_code: {
-            label: 'Subdivision Code',
+            label: 'Subdivision 1 Code',
             description: `Code of the subdivision matched to this event's IP address.`,
-            examples: ['NSW', 'TN'],
+            examples: ['NSW', 'TN', 'NY'],
+        },
+        $geoip_subdivision_2_name: {
+            label: 'Subdivision 2 Name',
+            description: `Name of the second subdivision matched to this event's IP address.`,
+        },
+        $geoip_subdivision_2_code: {
+            label: 'Subdivision 2 Code',
+            description: `Code of the second subdivision matched to this event's IP address.`,
+        },
+        $geoip_subdivision_3_name: {
+            label: 'Subdivision 3 Name',
+            description: `Name of the third subdivision matched to this event's IP address.`,
+        },
+        $geoip_subdivision_3_code: {
+            label: 'Subdivision 3 Code',
+            description: `Code of the third subdivision matched to this event's IP address.`,
         },
     },
     element: {
@@ -446,7 +466,13 @@ export function PropertyKeyInfo({
 }: PropertyKeyInfoInterface): JSX.Element {
     let data = null
     if (value in keyMapping[type]) {
-        data = keyMapping[type][value]
+        data = { ...keyMapping[type][value] }
+    } else if (value.startsWith('$initial_') && value.replace(/^\$initial_/, '$') in keyMapping[type]) {
+        data = { ...keyMapping[type][value.replace(/^\$initial_/, '$')] }
+        if (data.description) {
+            data.label = `Initial ${data.label}`
+            data.description = `${data.description} Data from the first time this user was seen.`
+        }
     } else {
         return (
             <Typography.Text ellipsis={true} style={{ maxWidth: 400 }} title={value}>
