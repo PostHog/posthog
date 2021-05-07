@@ -110,21 +110,17 @@ describe('e2e clickhouse ingestion', () => {
     })
 
     test('console logging is persistent', async () => {
-        if (!server.ENABLE_PERSISTENT_CONSOLE) {
-            // TODO: remove this return
-            return
-        }
-        expect((await server.db.fetchEvents()).length).toBe(0)
+        const logCount = (await server.db.fetchPluginLogEntries()).length
+        const getLogsSinceStart = async () => (await server.db.fetchPluginLogEntries()).slice(logCount)
 
         posthog.capture('custom event', { name: 'hehe', uuid: new UUIDT().toString() })
 
         await server.kafkaProducer?.flush()
-        await delayUntilEventIngested(() => server.db.fetchPluginLogEntries())
+        await delayUntilEventIngested(() => server.db.fetchEvents())
 
-        const pluginLogEntries = await server.db.fetchPluginLogEntries()
-
-        expect(pluginLogEntries.length).toBe(1)
-        expect(pluginLogEntries[0].type).toEqual('INFO')
-        expect(pluginLogEntries[0].message).toEqual('amogus')
+        const pluginLogEntries = await getLogsSinceStart()
+        expect(
+            pluginLogEntries.filter(({ message, type }) => message.includes('amogus') && type === 'INFO').length
+        ).toEqual(1)
     })
 })

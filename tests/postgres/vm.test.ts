@@ -585,10 +585,6 @@ test('meta.cache incr', async () => {
 })
 
 test('console.log', async () => {
-    if (!mockServer.ENABLE_PERSISTENT_CONSOLE) {
-        // TODO: remove this return
-        return
-    }
     jest.spyOn(mockServer.db, 'createPluginLogEntry')
 
     const indexJs = `

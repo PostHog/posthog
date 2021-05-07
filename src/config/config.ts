@@ -62,7 +62,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         JOB_QUEUES: '',
         JOB_QUEUE_GRAPHILE_URL: '',
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
-        ENABLE_PERSISTENT_CONSOLE: false, // TODO: remove when persistent console ships in main repo
         STALENESS_RESTART_SECONDS: 0,
     }
 }

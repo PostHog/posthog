@@ -13,32 +13,26 @@ export async function teardownPlugins(server: PluginsServer, pluginConfig?: Plug
                     (async () => {
                         try {
                             await teardownPlugin()
-
-                            if (server.ENABLE_PERSISTENT_CONSOLE) {
-                                await server.db.createPluginLogEntry(
-                                    pluginConfig,
-                                    PluginLogEntrySource.System,
-                                    PluginLogEntryType.Info,
-                                    `Plugin unloaded (instance ID ${server.instanceId}).`,
-                                    server.instanceId
-                                )
-                            }
+                            await server.db.createPluginLogEntry(
+                                pluginConfig,
+                                PluginLogEntrySource.System,
+                                PluginLogEntryType.Info,
+                                `Plugin unloaded (instance ID ${server.instanceId}).`,
+                                server.instanceId
+                            )
                         } catch (error) {
                             await processError(server, pluginConfig, error)
-
-                            if (server.ENABLE_PERSISTENT_CONSOLE) {
-                                await server.db.createPluginLogEntry(
-                                    pluginConfig,
-                                    PluginLogEntrySource.System,
-                                    PluginLogEntryType.Error,
-                                    `Plugin failed to unload (instance ID ${server.instanceId}).`,
-                                    server.instanceId
-                                )
-                            }
+                            await server.db.createPluginLogEntry(
+                                pluginConfig,
+                                PluginLogEntrySource.System,
+                                PluginLogEntryType.Error,
+                                `Plugin failed to unload (instance ID ${server.instanceId}).`,
+                                server.instanceId
+                            )
                         }
                     })()
                 )
-            } else if (server.ENABLE_PERSISTENT_CONSOLE) {
+            } else {
                 await server.db.createPluginLogEntry(
                     pluginConfig,
                     PluginLogEntrySource.System,
