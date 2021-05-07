@@ -11,6 +11,8 @@ from rest_framework import authentication, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
+from rest_framework_csv import renderers as csvrenderers
 from rest_hooks.signals import raw_hook_event
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -176,6 +178,7 @@ def get_actions(queryset: QuerySet, params: dict, team_id: int) -> QuerySet:
 
 
 class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
     authentication_classes = [
@@ -288,6 +291,11 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         current_url = request.get_full_path()
         next_url = paginated_result(serialized_people, request, filter.offset)
+
+        if request.accepted_renderer.format == "csv":
+            csvrenderers.CSVRenderer.header = ["Email", "ID"]
+            content = [{"Email": person["name"], "ID": person["uuid"]} for person in serialized_people]
+            return content
 
         return {
             "results": [{"people": serialized_people, "count": len(serialized_people)}],

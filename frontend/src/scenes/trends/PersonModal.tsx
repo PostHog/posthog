@@ -2,12 +2,14 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { ExportOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { Link } from 'lib/components/Link'
 import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { toParams } from 'lib/utils'
 
 interface Props {
     visible: boolean
@@ -46,10 +48,26 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                         Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
                         {featureFlags['save-cohort-on-modal'] &&
                             (view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
-                                <Button type="primary" onClick={onSaveCohort}>
-                                    Save cohort
-                                </Button>
+                                <div>
+                                    <Button type="primary" onClick={onSaveCohort}>
+                                        Save cohort
+                                    </Button>
+                                </div>
                             )}
+                        <Button
+                            icon={<ExportOutlined />}
+                            href={`/api/action/people.csv?/?${toParams({
+                                ...(filters || {}),
+                                entity_id: people.action.id,
+                                entity_type: people.action.type,
+                                date_from: people.day,
+                                date_to: people.day,
+                                label: people.label,
+                            })}`}
+                            style={{ marginBottom: '1rem' }}
+                        >
+                            Export
+                        </Button>
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
