@@ -31,8 +31,6 @@ TEAM_EVENT_ACTION_QUERY_CACHE: Dict[int, Dict[str, tuple]] = defaultdict(dict)
 # TEAM_EVENT_ACTION_QUERY_CACHE looks like team_id -> event ex('$pageview') -> query
 TEAM_ACTION_QUERY_CACHE: Dict[int, str] = {}
 DEFAULT_EARLIEST_TIME_DELTA = relativedelta(weeks=1)
-ENVIRONMENT_TEST = "test"
-ENVIRONMENT_PRODUCTION = "production"
 
 
 class SelectorPart(object):

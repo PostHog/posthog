@@ -12,8 +12,8 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.constants import ENVIRONMENT_TEST
 from posthog.models import PersonalAPIKey
-from posthog.models.event import ENVIRONMENT_TEST
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import BaseTest
 

@@ -13,11 +13,11 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 
 from posthog.celery import app as celery_app
+from posthog.constants import ENVIRONMENT_TEST
 from posthog.ee import is_ee_enabled
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team, User
-from posthog.models.event import ENVIRONMENT_TEST
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
