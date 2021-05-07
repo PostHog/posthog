@@ -234,7 +234,6 @@ export const trendsLogic = kea<
             >,
             {
                 setFilters: (state, { filters, mergeFilters }) => {
-                    console.log(state, filters, mergeFilters)
                     const newState = state?.insight && TRENDS_BASED_INSIGHTS.includes(state.insight) ? state : {}
                     return cleanFilters({
                         ...(mergeFilters ? newState : {}),
