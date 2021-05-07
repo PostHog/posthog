@@ -143,6 +143,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 }
                 return <TZLabel time={event.timestamp} showSeconds />
             },
+            ellipsis: true,
         },
         {
             title: 'Usage',
