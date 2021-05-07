@@ -4,7 +4,6 @@ import re
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple, Union
 
-import celery
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db import connection, models, transaction

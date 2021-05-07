@@ -2,7 +2,7 @@ import secrets
 import uuid
 from collections import defaultdict, namedtuple
 from time import time
-from typing import Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from django.db import models
 
@@ -49,6 +49,16 @@ class UUIDT(uuid.UUID):
         cls.current_series_per_ms[unix_time_ms] += 1
         cls.current_series_per_ms[unix_time_ms] %= 65_536
         return series
+
+    @classmethod
+    def is_valid_uuid(cls, candidate: Any) -> bool:
+        if type(candidate) != str:
+            return False
+        hex = candidate.replace("urn:", "").replace("uuid:", "")
+        hex = hex.strip("{}").replace("-", "")
+        if len(hex) != 32:
+            return False
+        return 0 <= int(hex, 16) < 1 << 128
 
 
 class UUIDModel(models.Model):
