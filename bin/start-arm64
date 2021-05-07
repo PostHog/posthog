@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+docker compose -f docker-compose.arm64.yml \
+  up \
+  postgres \
+  redis \
+  plugins \
+  clickhouse \
+  zookeeper \
+  kafka
