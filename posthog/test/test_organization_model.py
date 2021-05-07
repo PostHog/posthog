@@ -33,7 +33,9 @@ class TestOrganization(BaseTest):
 
     @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
     def test_plugins_are_preinstalled_on_self_hosted(self, mock_get):
-        with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
+        with self.settings(
+            MULTI_TENANCY=False, PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]
+        ):
             new_org, _, _ = Organization.objects.bootstrap(
                 self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
             )
