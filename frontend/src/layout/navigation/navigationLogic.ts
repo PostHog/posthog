@@ -29,7 +29,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
         setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
         setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
-        setFilteredEnvironment: (environment: string, pageload: boolean = false) => ({ environment, pageload }),
+        setFilteredEnvironment: (environment: string, pageLoad: boolean = false) => ({ environment, pageLoad }),
     },
     reducers: {
         menuCollapsed: [
@@ -71,9 +71,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         filteredEnvironment: [
             Environments.PRODUCTION,
             {
-                setFilteredEnvironment: (_, payload) => {
-                    return payload.environment
-                },
+                setFilteredEnvironment: (_, { environment }) => environment,
             },
         ],
     },
@@ -173,15 +171,14 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
                 actions.setHotkeyNavigationEngaged(false)
             }
         },
-        setFilteredEnvironment: (payload) => {
+        setFilteredEnvironment: ({ pageLoad, environment }) => {
             const localStorageValue = window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY)
             const isLocalStorageValueEmpty = localStorageValue === null
-            const shouldWriteToLocalStorage =
-                (payload.pageload === true && isLocalStorageValueEmpty) || payload.pageload === false
+            const shouldWriteToLocalStorage = (pageLoad === true && isLocalStorageValueEmpty) || pageLoad === false
             if (shouldWriteToLocalStorage) {
-                window.localStorage.setItem(ENVIRONMENT_LOCAL_STORAGE_KEY, payload.environment)
+                window.localStorage.setItem(ENVIRONMENT_LOCAL_STORAGE_KEY, environment)
             }
-            const shouldReload = payload.pageload === false && localStorageValue !== payload.environment
+            const shouldReload = pageLoad === false && localStorageValue !== environment
             if (shouldReload) {
                 location.reload()
             }
