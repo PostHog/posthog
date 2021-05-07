@@ -364,6 +364,41 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["data"], [2, 1, 1, 0, 0, 0, 0, 0])
             self.assertEqual(response[1]["data"], [3, 0, 0, 0, 0, 0, 0, 0])
 
+        def test_filter_test_accounts(self):
+            self._create_multiple_people()
+            p1 = person_factory(team_id=self.team.id, distinct_ids=["ph"], properties={"email": "test@posthog.com"})
+            event_factory(
+                team=self.team,
+                event="watched movie",
+                distinct_id="ph",
+                timestamp=datetime.fromisoformat("2020-01-01T12:00:00.000000").replace(tzinfo=timezone.utc).isoformat(),
+                properties={"$browser": "Chrome"},
+            )
+
+            with freeze_time("2020-01-08T13:01:01Z"):
+                filter = StickinessFilter(
+                    data={
+                        "shown_as": "Stickiness",
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-08",
+                        "events": [{"id": "watched movie"}],
+                        "filter_test_accounts": "true",
+                    },
+                    team=self.team,
+                    get_earliest_timestamp=get_earliest_timestamp,
+                )
+                response = stickiness().run(filter, self.team)
+
+            self.assertEqual(response[0]["count"], 4)
+            self.assertEqual(response[0]["labels"][0], "1 day")
+            self.assertEqual(response[0]["data"][0], 2)
+            self.assertEqual(response[0]["labels"][1], "2 days")
+            self.assertEqual(response[0]["data"][1], 1)
+            self.assertEqual(response[0]["labels"][2], "3 days")
+            self.assertEqual(response[0]["data"][2], 1)
+            self.assertEqual(response[0]["labels"][6], "7 days")
+            self.assertEqual(response[0]["data"][6], 0)
+
     return TestStickiness
 
 
