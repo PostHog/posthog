@@ -48,7 +48,7 @@ import { TZIndicator } from 'lib/components/TimezoneAware'
 import { DashboardItemType, DisplayType, FilterType, HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardItemHeader } from 'scenes/dashboard/DashboardItemHeader'
+import { DashboardInsightHeader } from 'scenes/dashboard/DashboardInsightHeader'
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -490,7 +490,7 @@ interface HeaderProps {
 }
 function Header({ dashboardItem }: HeaderProps): JSX.Element {
     if (dashboardItem?.id) {
-        return <DashboardItemHeader dashboardId={dashboardItem.dashboard} />
+        return <DashboardInsightHeader dashboardId={dashboardItem.dashboard} />
     }
     return <PageHeader title="Insights" />
 }

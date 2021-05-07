@@ -13,7 +13,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
     actions: () => ({
         renameDashboardItem: (item: DashboardItemType) => ({ item }),
         renameDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
-        updateDashboardItem: (id: number, payload: any) => ({ id, ...payload }),
+        updateDashboardItem: (id: number, payload: Partial<DashboardItemType>) => ({ id, ...payload }),
         duplicateDashboardItem: (item: DashboardItemType, dashboardId?: number, move: boolean = false) => ({
             item,
             dashboardId,
@@ -25,7 +25,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
     }),
     reducers: () => ({
         dashboardItemMode: [
-            null,
+            null as DashboardItemMode | null,
             {
                 setDashboardItemMode: (_, { mode }) => mode,
             },
