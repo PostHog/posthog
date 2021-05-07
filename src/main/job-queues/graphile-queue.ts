@@ -2,12 +2,12 @@ import * as Sentry from '@sentry/node'
 import { makeWorkerUtils, run, Runner, WorkerUtils, WorkerUtilsOptions } from 'graphile-worker'
 import { Pool } from 'pg'
 
-import { EnqueuedJob, JobQueue, OnJobCallback, PluginsServer } from '../../types'
+import { EnqueuedJob, JobQueue, OnJobCallback, PluginsServerConfig } from '../../types'
 import { status } from '../../utils/status'
 import { createPostgresPool } from '../../utils/utils'
 
 export class GraphileQueue implements JobQueue {
-    pluginsServer: PluginsServer
+    serverConfig: PluginsServerConfig
     started: boolean
     paused: boolean
     onJob: OnJobCallback | null
@@ -16,8 +16,8 @@ export class GraphileQueue implements JobQueue {
     producerPool: Pool | null
     workerUtilsPromise: Promise<WorkerUtils> | null
 
-    constructor(pluginsServer: PluginsServer) {
-        this.pluginsServer = pluginsServer
+    constructor(serverConfig: PluginsServerConfig) {
+        this.serverConfig = serverConfig
         this.started = false
         this.paused = false
         this.onJob = null
@@ -29,9 +29,12 @@ export class GraphileQueue implements JobQueue {
 
     // producer
 
-    async connectProducer(): Promise<void> {
-        this.producerPool = await this.createPool()
+    public async migrate(): Promise<void> {
         await (await this.getWorkerUtils()).migrate()
+    }
+
+    async connectProducer(): Promise<void> {
+        await this.migrate()
     }
 
     async enqueue(retry: EnqueuedJob): Promise<void> {
@@ -43,8 +46,14 @@ export class GraphileQueue implements JobQueue {
     }
 
     private async getWorkerUtils(): Promise<WorkerUtils> {
+        if (!this.producerPool) {
+            this.producerPool = await this.createPool()
+        }
         if (!this.workerUtilsPromise) {
-            this.workerUtilsPromise = makeWorkerUtils({ pgPool: this.producerPool as any })
+            this.workerUtilsPromise = makeWorkerUtils({
+                pgPool: this.producerPool as any,
+                schema: this.serverConfig.JOB_QUEUE_GRAPHILE_SCHEMA,
+            })
         }
         return await this.workerUtilsPromise
     }
@@ -90,6 +99,7 @@ export class GraphileQueue implements JobQueue {
                 this.runner = await run({
                     // graphile's types refer to a local node_modules version of Pool
                     pgPool: (this.consumerPool as Pool) as any,
+                    schema: this.serverConfig.JOB_QUEUE_GRAPHILE_SCHEMA,
                     concurrency: 1,
                     // Install signal handlers for graceful shutdown on SIGINT, SIGTERM, etc
                     noHandleSignals: false,
@@ -122,9 +132,9 @@ export class GraphileQueue implements JobQueue {
     async createPool(): Promise<Pool> {
         return await new Promise(async (resolve, reject) => {
             let resolved = false
-            const configOrDatabaseUrl = this.pluginsServer.JOB_QUEUE_GRAPHILE_URL
-                ? this.pluginsServer.JOB_QUEUE_GRAPHILE_URL
-                : this.pluginsServer
+            const configOrDatabaseUrl = this.serverConfig.JOB_QUEUE_GRAPHILE_URL
+                ? this.serverConfig.JOB_QUEUE_GRAPHILE_URL
+                : this.serverConfig
             const onError = (error: Error) => {
                 if (resolved) {
                     this.onConnectionError(error)
