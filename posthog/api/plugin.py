@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional, Set, cast
 
 import requests
 from dateutil.relativedelta import relativedelta
@@ -63,7 +63,7 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
 
 # sending files via a multipart form puts the config JSON in a un-serialized format
 def _fix_formdata_config_json(request: request.Request, validated_data: dict):
-    if not validated_data.get("config", None) and request.POST.get("config", None):
+    if not validated_data.get("config", None) and cast(dict, request.POST).get("config", None):
         validated_data["config"] = json.loads(request.POST["config"])
 
 
