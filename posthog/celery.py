@@ -71,6 +71,9 @@ def setup_periodic_tasks(sender, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
+    # delete old plugin logs every 4 hours
+    sender.add_periodic_task(crontab(minute=0, hour="*/4"), delete_old_plugin_logs.s())
+
     sender.add_periodic_task(
         UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
     )
@@ -79,6 +82,7 @@ def setup_periodic_tasks(sender, **kwargs):
         sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
         sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
+        sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
     else:
         sender.add_periodic_task(
             ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
@@ -167,6 +171,27 @@ def clickhouse_part_count():
         for (table, parts) in rows:
             g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
             g.send("clickhouse_{table}_table_parts_count".format(table=table), parts)
+    else:
+        pass
+
+
+@app.task(ignore_result=True)
+def clickhouse_mutation_count():
+    if is_ee_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse.client import sync_execute
+
+        QUERY = """
+            SELECT
+                table,
+                count(1) AS freq
+            FROM system.mutations
+            GROUP BY table
+            ORDER BY freq DESC 
+        """
+        rows = sync_execute(QUERY)
+        for (table, muts) in rows:
+            g = statsd.Gauge("%s_posthog_celery" % (settings.STATSD_PREFIX,))
+            g.send("clickhouse_{table}_table_mutations_count".format(table=table), muts)
     else:
         pass
 
@@ -269,3 +294,10 @@ def calculate_billing_daily_usage():
         pass
     else:
         compute_daily_usage_for_organizations()
+
+
+@app.task(ignore_result=True)
+def delete_old_plugin_logs():
+    from posthog.tasks.delete_old_plugin_logs import delete_old_plugin_logs
+
+    delete_old_plugin_logs()

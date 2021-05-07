@@ -7,7 +7,8 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FilterType } from '~/types'
+import { DashboardItemType, FilterType } from '~/types'
+import api from 'lib/api'
 
 export enum ViewType {
     TRENDS = 'TRENDS',
@@ -18,6 +19,8 @@ export enum ViewType {
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
 }
+
+export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 
 /*
 InsightLogic maintains state for changing between insight features
@@ -45,6 +48,7 @@ export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type) => ({ type }),
+        setDashboardItem: (dashboardItem: DashboardItemType) => ({ dashboardItem }), // Used for identifying when an insight is a dashboard item (and add relevant UI indicators)
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: true,
@@ -60,6 +64,7 @@ export const insightLogic = kea<insightLogicType>({
         setTimeout: (timeout) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
+        setIsFromDashboardItem: (isFromDashboardItem: boolean) => ({ isFromDashboardItem }),
     }),
 
     reducers: {
@@ -133,6 +138,18 @@ export const insightLogic = kea<insightLogicType>({
                 setNotFirstLoad: () => false,
             },
         ],
+        dashboardItem: [
+            null as DashboardItemType | null,
+            {
+                setDashboardItem: (_, { dashboardItem }) => dashboardItem,
+            },
+        ],
+    },
+    selectors: {
+        fromDashboardItem: [
+            (selectors) => [selectors.dashboardItem],
+            (dashboardItem: DashboardItemType) => !!dashboardItem,
+        ],
     },
     listeners: ({ actions, values }) => ({
         setAllFilters: (filters) => {
@@ -198,9 +215,17 @@ export const insightLogic = kea<insightLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/insights': (_: any, searchParams: Record<string, any>) => {
-            if (searchParams.insight && searchParams.insight !== values.activeView) {
+            if ((searchParams.insight && searchParams.insight !== values.activeView) || values.dashboardItem) {
                 actions.updateActiveView(searchParams.insight)
             }
+            actions.setDashboardItem(null)
+            actions.setIsFromDashboardItem(false)
+        },
+        '/insights/dashboard_item/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
+            const dashboardItem = await api.get(`api/dashboard_item/${dashboardItemId}`)
+            actions.setDashboardItem(dashboardItem)
+            actions.updateActiveView(dashboardItem.filters.insight)
+            actions.setIsFromDashboardItem(true)
         },
     }),
     events: ({ values }) => ({

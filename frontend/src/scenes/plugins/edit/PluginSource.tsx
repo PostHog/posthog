@@ -77,7 +77,7 @@ export function PluginSource(): JSX.Element {
             forceRender={true}
             visible={editingSource}
             onClose={() => setEditingSource(false)}
-            width={'min(90vw, 820px)'}
+            width={'min(90vw, 64rem)'}
             title={`Coding Plugin: ${editingPlugin?.name}`}
             placement="left"
             footer={

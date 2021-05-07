@@ -55,7 +55,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
             key: 'event',
             span: 4,
-            render: function render(item) {
+            render: function render(item: EventFormattedType) {
                 if (!item.event) {
                     return {
                         children: item.date_break
@@ -80,7 +80,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             key: 'person',
             ellipsis: true,
             span: 4,
-            render: function renderPerson({ event }) {
+            render: function renderPerson({ event }: EventFormattedType) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
@@ -97,7 +97,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             title: 'URL / Screen',
             key: 'url',
             span: 4,
-            render: function renderURL({ event }) {
+            render: function renderURL({ event }: EventFormattedType) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
@@ -121,7 +121,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             title: 'Source',
             key: 'source',
             span: 2,
-            render: function renderSource({ event }) {
+            render: function renderSource({ event }: EventFormattedType) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
@@ -137,7 +137,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             title: 'When',
             key: 'when',
             span: 3,
-            render: function renderWhen({ event }) {
+            render: function renderWhen({ event }: EventFormattedType) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }
@@ -148,7 +148,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             title: 'Usage',
             key: 'usage',
             span: 2,
-            render: function renderWhen({ event }) {
+            render: function renderWhen({ event }: EventFormattedType) {
                 if (!event) {
                     return { props: { colSpan: 0 } }
                 }

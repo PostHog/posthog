@@ -163,6 +163,21 @@ export const eventUsageLogic = kea<
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
 
+            let totalEventActionFilters = 0
+            filters.events?.forEach((event) => {
+                if (event.properties?.length) {
+                    totalEventActionFilters += event.properties.length
+                }
+            })
+            filters.actions?.forEach((action) => {
+                if (action.properties?.length) {
+                    totalEventActionFilters += action.properties.length
+                }
+            })
+
+            // The total # of filters applied on events and actions.
+            properties.total_event_action_filters_count = totalEventActionFilters
+
             // Custom properties for each insight
             if (insight === 'TRENDS') {
                 properties.breakdown_type = filters.breakdown_type

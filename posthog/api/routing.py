@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional, cast
 
 from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework_extensions.mixins import NestedViewSetMixin
@@ -26,6 +26,8 @@ class StructuredViewSetMixin(NestedViewSetMixin):
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
     filter_rewrite_rules: Dict[str, str] = {}
 
+    _parents_query_dict: Optional[Dict[str, Any]]
+
     @property
     def team_id(self) -> int:
         if self.legacy_team_compatibility:
@@ -40,15 +42,18 @@ class StructuredViewSetMixin(NestedViewSetMixin):
             team = self.request.user.team
             assert team is not None
             return team
-        return Team.objects.get(id=self.get_parents_query_dict()["team_id"])
+        return Team.objects.get(id=self.team_id)
 
     @property
     def organization_id(self) -> str:
-        return self.get_parents_query_dict()["organization_id"]
+        try:
+            return self.get_parents_query_dict()["organization_id"]
+        except KeyError:
+            return str(self.team.organization_id)
 
     @property
     def organization(self) -> Organization:
-        return Organization.objects.get(id=self.get_parents_query_dict()["organization_id"])
+        return Organization.objects.get(id=self.organization_id)
 
     def filter_queryset_by_parents_lookups(self, queryset):
         parents_query_dict = self.get_parents_query_dict()
@@ -64,6 +69,8 @@ class StructuredViewSetMixin(NestedViewSetMixin):
             return queryset
 
     def get_parents_query_dict(self) -> Dict[str, Any]:
+        if getattr(self, "_parents_query_dict", None) is not None:
+            return cast(Dict[str, Any], self._parents_query_dict)
         if self.legacy_team_compatibility:
             if not self.request.user.is_authenticated:
                 raise AuthenticationFailed()
@@ -96,6 +103,7 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                     except ValueError:
                         raise NotFound()
                 result[query_lookup] = query_value
+        self._parents_query_dict = result
         return result
 
     def get_serializer_context(self) -> Dict[str, Any]:

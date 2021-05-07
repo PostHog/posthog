@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { AutoComplete, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
-import api from '../../api'
+import api from 'lib/api'
 import { isMobile, isOperatorFlag, isOperatorMulti, isOperatorRegex, isValidRegex } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 

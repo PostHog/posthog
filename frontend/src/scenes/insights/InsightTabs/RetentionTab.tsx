@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { ActionFilterDropdown } from '../ActionFilter/ActionFilterDropdown'
+import { ActionFilterDropdown } from '../ActionFilter/ActionFilterRow/ActionFilterDropdown'
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 
 import { DownOutlined, InfoCircleOutlined, ExportOutlined } from '@ant-design/icons'

@@ -14,7 +14,7 @@ import {
     ACTION_TYPE,
     ShownAsValue,
 } from 'lib/constants'
-import { ViewType, insightLogic, defaultFilterTestAccounts } from '../insights/insightLogic'
+import { ViewType, insightLogic, defaultFilterTestAccounts, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
 import { ActionFilter, ActionType, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes } from '~/types'
@@ -233,11 +233,13 @@ export const trendsLogic = kea<
                 FilterType
             >,
             {
-                setFilters: (state, { filters, mergeFilters }) =>
-                    cleanFilters({
-                        ...(mergeFilters ? state : {}),
+                setFilters: (state, { filters, mergeFilters }) => {
+                    const newState = state?.insight && TRENDS_BASED_INSIGHTS.includes(state.insight) ? state : {}
+                    return cleanFilters({
+                        ...(mergeFilters ? newState : {}),
                         ...filters,
-                    }),
+                    })
+                },
             },
         ],
         people: [
@@ -458,7 +460,7 @@ export const trendsLogic = kea<
             if (!props.dashboardItemId) {
                 insightHistoryLogic.actions.createInsight({
                     ...values.filters,
-                    insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
+                    insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
                 })
             }
 
@@ -509,7 +511,7 @@ export const trendsLogic = kea<
 
     events: ({ actions, props }) => ({
         afterMount: () => {
-            if (props.dashboardItemId) {
+            if (props.dashboardItemId || insightLogic.values.fromDashboardItem) {
                 // loadResults gets called in urlToAction for non-dashboard insights
                 actions.loadResults()
             }
@@ -518,7 +520,7 @@ export const trendsLogic = kea<
 
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
-            if (props.dashboardItemId) {
+            if (props.dashboardItemId || insightLogic.values.fromDashboardItem) {
                 return // don't use the URL if on the dashboard
             }
             return ['/insights', values.filters, router.values.hashParams]
@@ -573,6 +575,12 @@ export const trendsLogic = kea<
                 }
 
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
+            }
+        },
+        '/insights/dashboard_item/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
+            const dashboardItem = await api.get(`api/dashboard_item/${dashboardItemId}`)
+            if (dashboardItem && dashboardItem.filters.insight === ViewType.TRENDS) {
+                actions.setFilters(cleanFilters(dashboardItem.filters), true)
             }
         },
     }),
