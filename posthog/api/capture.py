@@ -13,6 +13,7 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 
 from posthog.celery import app as celery_app
+from posthog.constants import ENVIRONMENT_TEST
 from posthog.ee import is_ee_enabled
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
@@ -166,6 +167,10 @@ def get_event(request):
             ),
         )
 
+    # Support test_[apiKey] for users with multiple environments
+    is_test_environment = token.startswith("test_")
+    token = token[5:] if is_test_environment else token
+
     team = Team.objects.get_team_from_token(token)
 
     if team is None:
@@ -235,6 +240,10 @@ def get_event(request):
 
         if not event.get("properties"):
             event["properties"] = {}
+
+        # Support test_[apiKey] for users with multiple environments
+        if event["properties"].get("$environment") is None and is_test_environment:
+            event["properties"]["$environment"] = ENVIRONMENT_TEST
 
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
