@@ -1,11 +1,11 @@
 from typing import Any, Dict, Sequence, cast
 
 import requests
-import statsd
 from celery import Task
 from django.conf import settings
 from django.db.utils import DataError
 from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from ee.clickhouse.models.element import chain_to_elements
 from posthog.celery import app
@@ -18,8 +18,7 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
     if not site_url:
         site_url = settings.SITE_URL
 
-    timer = statsd.Timer("%s_posthog_cloud" % (settings.STATSD_PREFIX,))
-    timer.start()
+    timer = statsd.timer("posthog_cloud_hooks_processed_for_event").start()
 
     team = Team.objects.select_related("organization").get(pk=team_id)
 
@@ -73,10 +72,10 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
                     message = {
                         "text": message_markdown,
                     }
-                statsd.Counter("%s_posthog_cloud_hooks_web_fired" % (settings.STATSD_PREFIX)).increment()
+                statsd.incr("posthog_cloud_hooks_web_fired")
                 requests.post(team.slack_incoming_webhook, verify=False, json=message)
     except:
         raise
     finally:
-        timer.stop("hooks_processed_for_event")
+        timer.stop()
         ephemeral_postgres_event.delete()
