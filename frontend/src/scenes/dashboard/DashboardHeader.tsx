@@ -234,7 +234,7 @@ export function DashboardHeader(): JSX.Element {
                     </>
                 )}
             </div>
-            {true && (
+            {user?.organization?.available_features?.includes('dashboard_collaboration') && (
                 <>
                     <div className="mb" data-attr="dashboard-tags">
                         <ObjectTags
