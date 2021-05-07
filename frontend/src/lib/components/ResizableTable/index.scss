@@ -15,17 +15,10 @@
             width: 150px;
         }
     }
-}
 
-.ant-table table {
-    border-collapse: collapse;
-    table-layout: fixed;
-
-    td {
-        overflow: hidden;
-        white-space: nowrap;
-        text-overflow: ellipsis;
-        word-break: keep-all;
+    .ant-table table {
+        border-collapse: collapse;
+        table-layout: fixed;
     }
 }
 
