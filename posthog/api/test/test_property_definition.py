@@ -48,6 +48,28 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 response_item["volume_30_day"], PropertyDefinition.objects.get(id=response_item["id"]).volume_30_day,
             )
 
+        volume_usage_cursor = 9999999999
+        for response_item in response.json()["results"]:
+            # We test that queries are ordered based on highest usage
+            # Normally we return objects with higher query usage first, then with higher event volume
+            # As all test objects have query_usage_30_day=0, we test with volume_usage_cursor
+            self.assertGreaterEqual(volume_usage_cursor, response_item["volume_30_day"])
+            volume_usage_cursor = response_item["volume_30_day"]
+
+    def test_filter_numerical_property_definitions(self):
+
+        response = self.client.get("/api/projects/@current/property_definitions/?is_numerical=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 3)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["purchase", "purchase_value", "app_rating"])
+
+        response = self.client.get("/api/projects/@current/property_definitions/?is_numerical=0")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 4)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["$current_url", "is_first_movie", "plan", "first_visit"])
+
     def test_pagination_of_property_definitions(self):
         self.demo_team.event_properties = self.demo_team.event_properties + [f"z_property_{i}" for i in range(1, 301)]
         self.demo_team.save()
