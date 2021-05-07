@@ -186,6 +186,8 @@ def save_query(sql: str, params: Dict, execution_time: float) -> None:
     """
     Save query for debugging purposes
     """
+    if _request_information is None:
+        return
 
     try:
         key = "save_query_{}".format(_request_information["user_id"])
