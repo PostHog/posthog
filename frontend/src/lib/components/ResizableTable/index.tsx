@@ -83,7 +83,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
     function updateColumnWidth(index: number, width: number): void {
         const col = scrollWrapperRef.current?.querySelector(
             // nth-child is 1-indexed. first column is fixed. last column width must be uncontrolled.
-            `.ant-table-content colgroup col:nth-child(${index + 2}):not(:last-child)`
+            `.ant-table-content colgroup col:nth-child(${index + 1 + Number(!!props.expandable)}):not(:last-child)`
         )
         col?.setAttribute('style', `width: ${width}px;`)
     }
@@ -141,7 +141,10 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                         ? column
                         : {
                               ...column,
-                              width: Math.max((columnWidths[index + 1] ?? 0) * resizeRatio, minColumnWidth),
+                              width: Math.max(
+                                  (columnWidths[index + Number(!!props.expandable)] ?? 0) * resizeRatio,
+                                  minColumnWidth
+                              ),
                           }
                 )
                 nextColumns.slice(0, lastIndex).forEach((col, index) => {
@@ -208,6 +211,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                         handleResize={handleColumnResize}
                         layoutEffect={updateTableWidth}
                         minColumnWidth={minColumnWidth}
+                        expandable={!!props.expandable}
                     />
                 )}
                 <Table
