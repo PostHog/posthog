@@ -69,7 +69,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             },
         ],
         filteredEnvironment: [
-            Environments.PRODUCTION,
+            Environments.PRODUCTION.toString(),
             {
                 setFilteredEnvironment: (_, { environment }) => environment,
             },
