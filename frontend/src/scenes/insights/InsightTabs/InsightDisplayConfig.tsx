@@ -140,8 +140,10 @@ function HorizontalDefaultInsightDisplayConfig({
     const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
 
     return (
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-            <TZIndicator style={{ float: 'left' }} />
+        <div className="display-config-inner">
+            <span className="hide-lte-md">
+                <TZIndicator style={{ float: 'left' }} />
+            </span>
             <div style={{ width: '100%', textAlign: 'right' }}>
                 {showComparePrevious[activeView] && <CompareFilter />}
                 {showChartFilter(activeView, featureFlags) && (
