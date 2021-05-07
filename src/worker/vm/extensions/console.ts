@@ -22,10 +22,6 @@ export function createConsole(server: PluginsServer, pluginConfig: PluginConfig)
             status.info('👉', `${type} in ${pluginDigest(pluginConfig.plugin!, pluginConfig.team_id)}:`, ...args)
         }
 
-        if (!server.ENABLE_PERSISTENT_CONSOLE) {
-            return
-        }
-
         await server.db.createPluginLogEntry(
             pluginConfig,
             PluginLogEntrySource.Console,

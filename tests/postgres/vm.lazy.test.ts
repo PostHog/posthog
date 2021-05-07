@@ -1,6 +1,6 @@
 import { mocked } from 'ts-jest/utils'
 
-import { PluginTaskType } from '../../src/types'
+import { PluginLogEntrySource, PluginLogEntryType, PluginTaskType } from '../../src/types'
 import { clearError, processError } from '../../src/utils/db/error'
 import { status } from '../../src/utils/status'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
@@ -12,8 +12,12 @@ jest.mock('../../src/utils/status')
 
 describe('LazyPluginVM', () => {
     const createVM = () => new LazyPluginVM()
-    const initializeVm = (vm: LazyPluginVM) =>
-        vm.initialize!('mockServer' as any, 'mockConfig' as any, '', 'some plugin')
+    const mockServer: any = {
+        db: {
+            createPluginLogEntry: jest.fn(),
+        },
+    }
+    const initializeVm = (vm: LazyPluginVM) => vm.initialize!(mockServer, 'mockConfig' as any, '', 'some plugin')
 
     describe('VM creation succeeds', () => {
         const mockVM = {
@@ -49,7 +53,14 @@ describe('LazyPluginVM', () => {
             await vm.resolveInternalVm
 
             expect(status.info).toHaveBeenCalledWith('🔌', 'Loaded some plugin')
-            expect(clearError).toHaveBeenCalledWith('mockServer', 'mockConfig')
+            expect(clearError).toHaveBeenCalledWith(mockServer, 'mockConfig')
+            expect(mockServer.db.createPluginLogEntry).toHaveBeenCalledWith(
+                'mockConfig',
+                PluginLogEntrySource.System,
+                PluginLogEntryType.Info,
+                expect.stringContaining('Plugin loaded'),
+                undefined
+            )
         })
     })
 
@@ -78,7 +89,14 @@ describe('LazyPluginVM', () => {
             } catch {}
 
             expect(status.warn).toHaveBeenCalledWith('⚠️', 'Failed to load some plugin')
-            expect(processError).toHaveBeenCalledWith('mockServer', 'mockConfig', error)
+            expect(processError).toHaveBeenCalledWith(mockServer, 'mockConfig', error)
+            expect(mockServer.db.createPluginLogEntry).toHaveBeenCalledWith(
+                'mockConfig',
+                PluginLogEntrySource.System,
+                PluginLogEntryType.Error,
+                expect.stringContaining('Plugin failed to load'),
+                undefined
+            )
         })
     })
 })
