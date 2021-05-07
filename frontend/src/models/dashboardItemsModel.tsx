@@ -52,7 +52,6 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
             const response = await api.update(`api/dashboard_item/${id}`, payload)
             actions.setDashboardItemMode(null)
             insightLogic.actions.setDashboardItem(response)
-            return response
         },
         duplicateDashboardItem: async ({ item, dashboardId, move }) => {
             if (!item) {

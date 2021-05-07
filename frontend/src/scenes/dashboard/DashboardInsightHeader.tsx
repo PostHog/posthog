@@ -69,7 +69,7 @@ export function DashboardInsightHeader({ dashboardId }: Props): JSX.Element {
                                         {dashboardItem.description ? (
                                             <span>{dashboardItem.description}</span>
                                         ) : (
-                                            <span className="add-description">
+                                            <span className="text-small text-muted">
                                                 Add a description for this dashboard insight...
                                             </span>
                                         )}
