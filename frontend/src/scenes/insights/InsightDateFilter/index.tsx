@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { insightDateFilterLogic } from './insightDateFilterLogic'
-import { DateFilterProps, DateFilter as DateFilterComponent } from 'lib/components/DateFilter/DateFilter'
+import { DateFilterProps, DateFilter } from 'lib/components/DateFilter/DateFilter'
 import './index.scss'
 
 export function InsightDateFilter(props: DateFilterProps): JSX.Element {
@@ -13,7 +13,7 @@ export function InsightDateFilter(props: DateFilterProps): JSX.Element {
 
     return (
         <span className={highlightDateChange ? 'insights-date-filter highlighted' : ''}>
-            <DateFilterComponent
+            <DateFilter
                 {...props}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
