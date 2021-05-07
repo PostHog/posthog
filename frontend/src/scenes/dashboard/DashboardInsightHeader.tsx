@@ -37,7 +37,7 @@ export function DashboardInsightHeader({ dashboardId }: Props): JSX.Element {
 
                 <div className="header-container text-default">
                     <div className="title-description">
-                        <div style={{ display: 'flex', marginBottom: 8 }}>
+                        <div style={{ display: 'flex' }}>
                             {isDashboardItemEditMode ? <EditOutlined /> : <IconDashboard />}
                             <span style={{ paddingLeft: 6 }}>
                                 {isDashboardItemEditMode ? 'Editing graph' : 'Viewing graph'}{' '}
@@ -85,7 +85,7 @@ export function DashboardInsightHeader({ dashboardId }: Props): JSX.Element {
                             icon={<SaveOutlined />}
                             onClick={() => updateDashboardItem(dashboardItem.id, { description: newDescription })}
                             type="primary"
-                            data-attr="dashboard-item-description-submit"
+                            data-attr="dashboard-insight-description-submit"
                         >
                             Save changes
                         </Button>

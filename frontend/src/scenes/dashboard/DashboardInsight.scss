@@ -7,9 +7,6 @@
     .header-container {
         display: flex;
         justify-content: space-between;
-        // padding-top: $default_spacing;
-        // padding-bottom: $default_spacing;
-        // padding-left: $default_spacing;
         padding: $default_spacing;
         background: white;
 
@@ -31,6 +28,7 @@
     }
 
     .dashboard-item-description {
+        margin-top: 8px;
         .ant-card-body {
             padding: 0;
         }
