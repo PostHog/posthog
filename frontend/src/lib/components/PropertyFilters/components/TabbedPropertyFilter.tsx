@@ -1,15 +1,34 @@
+/*
+Contains the property filter component where filtering by properties or cohorts are separated in tabs.
+*/
 import React, { useState } from 'react'
 import { Col, Row, Select, Tabs } from 'antd'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { cohortsModel } from '../../../models/cohortsModel'
+import { cohortsModel } from '~/models/cohortsModel'
 import { useValues, useActions } from 'kea'
-import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { Link } from '../Link'
+import { SelectGradientOverflow, SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
+import { Link } from '../../Link'
 import { PropertySelect } from './PropertySelect'
-import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
+import { OperatorValueSelect } from './OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
+import { PropertyOptionGroup } from './PropertySelect'
+import { PropertyOperator, PropertyDefinition, SelectOption } from '~/types'
+import { PropertyFilterInternalProps } from './PropertyFilter'
 
 const { TabPane } = Tabs
+
+interface PropertyPaneProps {
+    onComplete: CallableFunction
+    setThisFilter: CallableFunction // TODO type this
+    eventProperties: PropertyDefinition[]
+    personProperties: Array<SelectOption>
+    propkey: string
+    value: string
+    operator: PropertyOperator
+    type: string
+    displayOperatorAndValue?: boolean
+    selectProps: Partial<SelectGradientOverflowProps>
+}
 
 function PropertyPaneContents({
     onComplete,
@@ -22,7 +41,7 @@ function PropertyPaneContents({
     type,
     displayOperatorAndValue,
     selectProps: { delayBeforeAutoOpen = 0 },
-}) {
+}: PropertyPaneProps): JSX.Element {
     const optionGroups = [
         {
             type: 'event',
@@ -34,7 +53,7 @@ function PropertyPaneContents({
             label: 'User properties',
             options: personProperties,
         },
-    ]
+    ] as PropertyOptionGroup[]
 
     if (eventProperties.length > 0) {
         optionGroups.push({
@@ -103,7 +122,21 @@ function PropertyPaneContents({
     )
 }
 
-function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorAndValue, selectProps }) {
+interface CohortPaneProps {
+    onComplete: CallableFunction
+    setThisFilter: CallableFunction // TODO: type this
+    value: string
+    displayOperatorAndValue?: boolean
+    selectProps?: SelectGradientOverflowProps
+}
+
+function CohortPaneContents({
+    onComplete,
+    setThisFilter,
+    value,
+    displayOperatorAndValue,
+    selectProps,
+}: CohortPaneProps): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
 
     return (
@@ -125,10 +158,11 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
                     }
                     onChange={(_, newFilter) => {
                         onComplete()
-                        setThisFilter('id', newFilter.value, undefined, newFilter.type)
+                        const { value: filterValue, type } = newFilter as { value: string; type: string }
+                        setThisFilter('id', filterValue, undefined, type)
                     }}
                     data-attr="cohort-filter-select"
-                    selectProps={selectProps}
+                    {...selectProps}
                 >
                     {cohorts.map((item, index) => (
                         <Select.Option
@@ -147,16 +181,22 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
     )
 }
 
-export function PropertyFilter({ index, onComplete, logic, selectProps }) {
+export function TabbedPropertyFilter({
+    index,
+    onComplete,
+    logic,
+    selectProps,
+}: PropertyFilterInternalProps): JSX.Element {
     const { eventProperties, personProperties, filters } = useValues(logic)
     const { setFilter } = useActions(logic)
-    let { key, value, operator, type } = filters[index]
+    const { key, value, operator, type } = filters[index]
     const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
 
     const displayOperatorAndValue = key && type !== 'cohort'
 
-    const setThisFilter = (newKey, newValue, newOperator, newType) =>
+    const setThisFilter = (newKey: string, newValue: string, newOperator: string, newType: string): void => {
         setFilter(index, newKey, newValue, newOperator, newType)
+    }
 
     return (
         <Tabs

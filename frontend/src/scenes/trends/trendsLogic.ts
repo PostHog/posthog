@@ -14,7 +14,7 @@ import {
     ACTION_TYPE,
     ShownAsValue,
 } from 'lib/constants'
-import { ViewType, insightLogic, defaultFilterTestAccounts } from '../insights/insightLogic'
+import { ViewType, insightLogic, defaultFilterTestAccounts, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
 import { ActionFilter, ActionType, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes } from '~/types'
@@ -234,7 +234,7 @@ export const trendsLogic = kea<
             >,
             {
                 setFilters: (state, { filters, mergeFilters }) => {
-                    const newState = state?.insight === ViewType.TRENDS ? state : {}
+                    const newState = state?.insight && TRENDS_BASED_INSIGHTS.includes(state.insight) ? state : {}
                     return cleanFilters({
                         ...(mergeFilters ? newState : {}),
                         ...filters,

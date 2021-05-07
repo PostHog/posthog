@@ -74,6 +74,9 @@ if DEBUG:
 else:
     JS_URL = os.getenv("JS_URL", "")
 
+PLUGINS_PREINSTALLED_URLS: List[str] = os.getenv(
+    "PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip"
+).split(",") if not TEST else []
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 

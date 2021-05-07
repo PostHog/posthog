@@ -4,7 +4,7 @@ import { formatPropertyLabel } from 'lib/utils'
 import React from 'react'
 import { cohortsModel } from '~/models'
 import { PropertyFilter } from '~/types'
-import { keyMapping } from '../PropertyKeyInfo'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 
 export interface Props {
     item: PropertyFilter
