@@ -15,6 +15,7 @@ interface VirtualTableHeaderProps<RecordType> {
     handleResize: (index: number) => ResizeHandler
     layoutEffect?: CallableFunction
     minColumnWidth: number
+    expandable?: boolean
 }
 
 function ResizableTitle({
@@ -66,13 +67,14 @@ function VirtualTableHeader<RecordType>({
     handleResize,
     layoutEffect,
     minColumnWidth,
+    expandable,
 }: VirtualTableHeaderProps<RecordType>): JSX.Element {
     const maxColumnWidth = minColumnWidth * 12
     const height = 60
     useLayoutEffect(() => (typeof layoutEffect === 'function' ? layoutEffect() : undefined))
     return (
         <div className="resizable-virtual-table-header">
-            <div className="left-spacer" style={{ width: ANTD_EXPAND_BUTTON_WIDTH }} />
+            {expandable && <div className="left-spacer" style={{ width: ANTD_EXPAND_BUTTON_WIDTH }} />}
             {columns.map(({ title, width }, index) => (
                 <ResizableTitle
                     key={index}
