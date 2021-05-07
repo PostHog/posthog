@@ -71,7 +71,7 @@ class Organization(UUIDModel):
         choices=PluginsAccessLevel.choices,
     )
 
-    objects = OrganizationManager()
+    objects: OrganizationManager = OrganizationManager()
 
     def __str__(self):
         return self.name

@@ -456,9 +456,14 @@ export const keyMapping: KeyMappingInterface = {
 interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
+    disablePopover?: boolean
 }
 
-export function PropertyKeyInfo({ value, type = 'event' }: PropertyKeyInfoInterface): JSX.Element {
+export function PropertyKeyInfo({
+    value,
+    type = 'event',
+    disablePopover = false,
+}: PropertyKeyInfoInterface): JSX.Element {
     let data = null
     if (value in keyMapping[type]) {
         data = { ...keyMapping[type][value] }
@@ -475,8 +480,16 @@ export function PropertyKeyInfo({ value, type = 'event' }: PropertyKeyInfoInterf
             </Typography.Text>
         )
     }
+    const innerContent = (
+        <div className="property-key-info">
+            <span className="property-key-info-logo" />
+            {data.label}
+        </div>
+    )
 
-    return (
+    return disablePopover ? (
+        innerContent
+    ) : (
         <Popover
             overlayStyle={{ maxWidth: 500 }}
             placement="right"
@@ -506,10 +519,7 @@ export function PropertyKeyInfo({ value, type = 'event' }: PropertyKeyInfoInterf
                 </span>
             }
         >
-            <div className="property-key-info">
-                <span className="property-key-info-logo" />
-                {data.label}
-            </div>
+            {innerContent}
         </Popover>
     )
 }
