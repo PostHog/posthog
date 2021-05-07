@@ -59,8 +59,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         DISTINCT_ID_LRU_SIZE: 10000,
         INTERNAL_MMDB_SERVER_PORT: 0,
         PLUGIN_SERVER_IDLE: false,
-        JOB_QUEUES: '',
+        JOB_QUEUES: 'graphile',
         JOB_QUEUE_GRAPHILE_URL: '',
+        JOB_QUEUE_GRAPHILE_SCHEMA: 'graphile_worker',
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         STALENESS_RESTART_SECONDS: 0,
     }
@@ -106,6 +107,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         PLUGIN_SERVER_IDLE: 'whether to disengage the plugin server, e.g. for development',
         JOB_QUEUES: 'retry queue engine and fallback queues',
         JOB_QUEUE_GRAPHILE_URL: 'use a different postgres connection in the graphile retry queue',
+        JOB_QUEUE_GRAPHILE_SCHEMA: 'the postgres schema that the graphile job queue uses',
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE:
             'refuse to start unless there is a properly configured persistent job queue (e.g. graphile)',
         STALENESS_RESTART_SECONDS: 'trigger a restart if no event ingested for this duration',

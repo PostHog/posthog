@@ -45,6 +45,7 @@ export const plugin60: Plugin = {
     from_json: false,
     from_web: false,
     is_global: false,
+    is_preinstalled: false,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
 }
