@@ -1,8 +1,11 @@
 import random
+from unittest import mock
+
+from django.conf import settings
 
 from posthog.demo import create_demo_team
-from posthog.models import EventDefinition, Organization, Team, User
-from posthog.models.property_definition import PropertyDefinition
+from posthog.models import EventDefinition, Organization, PluginConfig, PropertyDefinition, Team, User
+from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
 from .base import BaseTest
@@ -157,3 +160,16 @@ class TestTeam(BaseTest):
             self.assertEqual(instance.volume_30_day, item["volume_30_day"])
             self.assertEqual(instance.query_usage_30_day, item["query_usage_30_day"])
             self.assertEqual(instance.is_numerical, item["is_numerical"])
+
+    @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
+    def test_preinstalled_are_autoenabled(self, mock_get):
+        with self.settings(
+            MULTI_TENANCY=False, PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]
+        ):
+            _, _, new_team = Organization.objects.bootstrap(
+                self.user, plugins_access_level=Organization.PluginsAccessLevel.INSTALL
+            )
+
+        self.assertEqual(PluginConfig.objects.filter(team=new_team, enabled=True).count(), 1)
+        self.assertEqual(PluginConfig.objects.filter(team=new_team, enabled=True).get().plugin.name, "helloworldplugin")
+        self.assertEqual(mock_get.call_count, 2)
