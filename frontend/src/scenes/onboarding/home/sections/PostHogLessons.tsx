@@ -84,13 +84,13 @@ function Tutorials(): JSX.Element {
     const settings = {
         dots: true,
         slidesToShow: 4,
-        slidesToScroll: 2,
+        slidesToScroll: 3,
         arrows: true,
         nextArrow: <CarouselArrow direction="next" />,
         prevArrow: <CarouselArrow direction="prev" />,
         autoplay: true,
         vertical: false,
-        autoplaySpeed: 7500,
+        autoplaySpeed: 5500,
         centerMode: true,
         centerPadding: '10px',
         responsive: [
