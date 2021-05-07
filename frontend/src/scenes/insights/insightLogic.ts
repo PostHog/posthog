@@ -219,7 +219,7 @@ export const insightLogic = kea<insightLogicType>({
             actions.setDashboardItem(null)
             actions.setIsFromDashboardItem(false)
         },
-        '/insights/dashboard_item/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
+        '/insights/dashboard_insight/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
             const dashboardItem = await api.get(`api/dashboard_item/${dashboardItemId}`)
             actions.setDashboardItem(dashboardItem)
             actions.updateActiveView(dashboardItem.filters.insight)

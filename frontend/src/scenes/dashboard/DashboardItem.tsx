@@ -75,7 +75,7 @@ const displayMapItem = (className: string, element: any, icon: any, viewText: st
 }
 
 const displayMapItemLink = ({ id }: DashboardItemType): string => {
-    return `/insights/dashboard_item/${id}`
+    return `/insights/dashboard_insight/${id}`
 }
 
 export const displayHistoryItemLink = ({ id, dashboard, filters }: DashboardItemType): string => {

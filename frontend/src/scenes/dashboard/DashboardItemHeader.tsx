@@ -47,12 +47,12 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
                         </div>
 
                         {hasDashboardCollab && (
-                            <>
-                                <div className="description">
+                            <Card className="dashboard-item-description" bordered={!(dashboardItemMode === DashboardItemMode.Edit)}>
+                                <div className="description" onClick={() => setDashboardItemMode(DashboardItemMode.Edit)}>
                                     {isDashboardItemEditMode ? (
                                         <div className="edit-box">
                                             <Input.TextArea
-                                                placeholder="Add a description to your dashboard item that helps others understand it better."
+                                                placeholder="Add a description to your dashboard insight that helps others understand it better."
                                                 value={newDescription}
                                                 onChange={(e) => {
                                                     setNewDescription(e.target.value)
@@ -64,12 +64,13 @@ export function DashboardItemHeader({ dashboardId }: Props): JSX.Element {
                                             {dashboardItem.description ? (
                                                 <span>{dashboardItem.description}</span>
                                             ) : (
-                                                <span className="add-description">Add a description...</span>
+                                                <span className="add-description">Add a description for this dashboard insight...</span>
                                             )}
                                         </div>
                                     )}
                                 </div>
-                            </>
+                                <EditOutlined />
+                            </Card>
                         )}
                     </div>
 
