@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import json
 from time import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import sqlparse
 from aioch import Client
@@ -33,7 +33,7 @@ from posthog.utils import get_safe_cache
 
 CACHE_TTL = 60  # seconds
 
-_save_query_user_id = False
+_request_information: Optional[Dict] = None
 
 if PRIMARY_DB != RDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
@@ -120,17 +120,17 @@ else:
     def sync_execute(query, args=None, settings=None):
         with ch_pool.get_client() as client:
             start_time = time()
-            settings = settings or {}
-            settings["max_threads"] = 48  # :TODO: Nuke this, update configuration
+            tags = {}
             try:
-                result = client.execute(query, args, settings=settings)
+                sql, tags = _annotate_tagged_query(query, args)
+                result = client.execute(sql, args, settings=settings)
             finally:
                 execution_time = time() - start_time
-                statsd.gauge("clickhouse_sync_execution_time", execution_time * 1000.0)
+                statsd.gauge("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
                 if app_settings.SHELL_PLUS_PRINT_SQL:
                     print(format_sql(query, args))
                     print("Execution time: %.6fs" % (execution_time,))
-                if _save_query_user_id:
+                if _request_information is not None and _request_information.get("save", False):
                     save_query(query, args, execution_time)
         return result
 
@@ -149,6 +149,17 @@ def _serialize(result: Any) -> bytes:
 def _key_hash(query: str, args: Any) -> bytes:
     key = hashlib.md5(query.encode("utf-8") + json.dumps(args).encode("utf-8")).digest()
     return key
+
+
+def _annotate_tagged_query(query, args):
+    tags = {"kind": (_request_information or {}).get("kind"), "id": (_request_information or {}).get("id")}
+    if isinstance(args, dict) and "team_id" in args:
+        tags["team_id"] = args["team_id"]
+    # Annotate the query with information on the request/task
+    if _request_information is not None:
+        query = f"/* {_request_information['kind']}:{_request_information['id'].replace('/', '_')} */ {query}"
+
+    return query, tags
 
 
 def format_sql(sql, params, colorize=True):
@@ -177,7 +188,7 @@ def save_query(sql: str, params: Dict, execution_time: float) -> None:
     """
 
     try:
-        key = "save_query_{}".format(_save_query_user_id)
+        key = "save_query_{}".format(_request_information["user_id"])
         queries = json.loads(get_safe_cache(key) or "[]")
 
         queries.insert(

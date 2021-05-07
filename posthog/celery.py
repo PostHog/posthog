@@ -3,6 +3,7 @@ import time
 
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import task_postrun, task_prerun
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
@@ -95,6 +96,23 @@ def setup_periodic_tasks(sender, **kwargs):
             calculate_event_property_usage.s(),
             name="calculate event property usage",
         )
+
+
+# Set up clickhouse query instrumentation
+@task_prerun.connect
+def set_up_instrumentation(task_id, task, **kwargs):
+    if is_ee_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse import client
+
+        client._request_information = {"kind": "celery", "id": task.name}
+
+
+@task_postrun.connect
+def teardown_instrumentation(task_id, task, **kwargs):
+    if is_ee_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse import client
+
+        client._request_information = None
 
 
 @app.task(ignore_result=True)
