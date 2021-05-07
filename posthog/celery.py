@@ -146,7 +146,7 @@ def clickhouse_lag():
                 )
                 query = QUERY.format(table=table)
                 lag = sync_execute(query)[0][2]
-                statsd.gauge(f"posthog_celery_clickhouse_{table}_table_lag_seconds", lag)
+                statsd.gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
             except:
                 pass
     else:
@@ -165,7 +165,7 @@ def clickhouse_row_count():
                 QUERY = """select count(1) freq from {table};"""
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
-                statsd.gauge(f"posthog_celery_clickhouse_{table}_table_row_count", rows)
+                statsd.gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
             except:
                 pass
     else:
@@ -187,7 +187,7 @@ def clickhouse_part_count():
         """
         rows = sync_execute(QUERY)
         for (table, parts) in rows:
-            statsd.gauge(f"posthog_celery_clickhouse_{table}_table_parts_count", parts)
+            statsd.gauge(f"posthog_celery_clickhouse_table_parts_count", parts, tags={"table": table})
     else:
         pass
 
@@ -209,7 +209,7 @@ def clickhouse_mutation_count():
         """
         rows = sync_execute(QUERY)
         for (table, muts) in rows:
-            statsd.gauge(f"posthog_celery_clickhouse_{table}_table_mutations_count", muts)
+            statsd.gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
     else:
         pass
 
