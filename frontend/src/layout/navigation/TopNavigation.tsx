@@ -34,7 +34,7 @@ import MD5 from 'crypto-js/md5'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Environments } from 'lib/components/PropertyKeyInfo'
+import { Environments } from 'lib/constants'
 
 export interface ProfilePictureProps {
     name?: string
@@ -330,7 +330,7 @@ export function TopNavigation(): JSX.Element {
                                             <InfoCircleOutlined />
                                         </a>
                                     </Tooltip>
-                                    {filteredEnvironment === Environments.PRODUCTION ? 'Live' : 'Test'}
+                                    {filteredEnvironment === Environments.PRODUCTION ? 'Production' : 'Test'}
                                 </label>
                                 <Switch
                                     // @ts-expect-error - below works even if it's not defined as a prop

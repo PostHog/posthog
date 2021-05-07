@@ -1,6 +1,5 @@
 import { fromParamsGivenUrl, toParams } from 'lib/utils'
-import { ENVIRONMENT_LOCAL_STORAGE_KEY } from 'lib/constants'
-import { Environments } from 'lib/components/PropertyKeyInfo'
+import { Environments, ENVIRONMENT_LOCAL_STORAGE_KEY } from 'lib/constants'
 
 export function getCookie(name) {
     var cookieValue = null

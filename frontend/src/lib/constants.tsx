@@ -230,3 +230,8 @@ export const FEATURE_FLAGS: Record<string, string> = {
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
+
+export enum Environments {
+    PRODUCTION = 'production',
+    TEST = 'test',
+}

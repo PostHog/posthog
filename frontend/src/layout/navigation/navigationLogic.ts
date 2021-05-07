@@ -8,8 +8,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { Environments } from 'lib/components/PropertyKeyInfo'
-import { ENVIRONMENT_LOCAL_STORAGE_KEY } from 'lib/constants'
+import { Environments, ENVIRONMENT_LOCAL_STORAGE_KEY } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 type WarningType =

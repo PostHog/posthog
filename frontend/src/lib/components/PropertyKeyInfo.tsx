@@ -439,11 +439,6 @@ export const keyMapping: KeyMappingInterface = {
     },
 }
 
-export enum Environments {
-    PRODUCTION = 'production',
-    TEST = 'test',
-}
-
 interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
