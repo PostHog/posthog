@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { TZIndicator } from 'lib/components/TimezoneAware'
@@ -11,6 +10,7 @@ import React from 'react'
 import { DisplayType, FilterType } from '~/types'
 import { ViewType } from '../insightLogic'
 import { CalendarOutlined } from '@ant-design/icons'
+import { InsightDateFilter } from '../InsightDateFilter'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -114,7 +114,7 @@ function DefaultInsightDisplayConfig({
                 )}
 
                 {showDateFilter[activeView] && (
-                    <DateFilter defaultValue="Last 7 days" disabled={dateFilterDisabled} bordered={false} />
+                    <InsightDateFilter defaultValue="Last 7 days" disabled={dateFilterDisabled} bordered={false} />
                 )}
 
                 {showComparePrevious[activeView] && <CompareFilter />}
@@ -161,7 +161,7 @@ function HorizontalDefaultInsightDisplayConfig({
                 {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
                 {showDateFilter[activeView] && (
                     <>
-                        <DateFilter
+                        <InsightDateFilter
                             defaultValue="Last 7 days"
                             disabled={dateFilterDisabled}
                             bordered={false}

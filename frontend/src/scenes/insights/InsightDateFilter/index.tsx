@@ -1,19 +1,19 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { dateFilterLogic } from './dateFilterLogic'
-import { DateFilterProps, DateFilter as DateFilterComponent } from 'lib/components/DateFilter/DateFilter'
+import { insightDateFilterLogic } from './insightDateFilterLogic'
+import { DateFilterProps, DateFilter } from 'lib/components/DateFilter/DateFilter'
 import './index.scss'
 
-export function DateFilter(props: DateFilterProps): JSX.Element {
+export function InsightDateFilter(props: DateFilterProps): JSX.Element {
     const {
         dates: { dateFrom, dateTo },
         highlightDateChange,
-    } = useValues(dateFilterLogic)
-    const { setDates } = useActions(dateFilterLogic)
+    } = useValues(insightDateFilterLogic)
+    const { setDates } = useActions(insightDateFilterLogic)
 
     return (
         <span className={highlightDateChange ? 'insights-date-filter highlighted' : ''}>
-            <DateFilterComponent
+            <DateFilter
                 {...props}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
