@@ -439,9 +439,9 @@ export const keyMapping: KeyMappingInterface = {
     },
 }
 
-export const ENVIRONMENTS = {
-    PRODUCTION: 'production',
-    TEST: 'test',
+export enum Environments {
+    PRODUCTION = 'production',
+    TEST = 'test',
 }
 
 interface PropertyKeyInfoInterface {

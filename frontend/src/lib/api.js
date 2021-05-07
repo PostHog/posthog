@@ -1,6 +1,6 @@
 import { fromParamsGivenUrl, toParams } from 'lib/utils'
 import { ENVIRONMENT_LOCAL_STORAGE_KEY } from 'lib/constants'
-import { ENVIRONMENTS } from 'lib/components/PropertyKeyInfo'
+import { Environments } from 'lib/components/PropertyKeyInfo'
 
 export function getCookie(name) {
     var cookieValue = null
@@ -124,7 +124,7 @@ function isWhitelisted(url) {
 function maybeAddEnvironmentProperty(url) {
     const localStorageEnvironmentValue = window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY)
     const shouldAddEnvironmentValue =
-        localStorageEnvironmentValue && isWhitelisted(url) && localStorageEnvironmentValue === ENVIRONMENTS.TEST
+        localStorageEnvironmentValue && isWhitelisted(url) && localStorageEnvironmentValue === Environments.TEST
 
     if (shouldAddEnvironmentValue) {
         let urlObject = url.indexOf('http') === 0 ? new URL(url) : new URL(url, window.location.origin)
@@ -132,7 +132,7 @@ function maybeAddEnvironmentProperty(url) {
         let params = fromParamsGivenUrl(urlObject.search)
 
         const environmentProperty =
-            localStorageEnvironmentValue === ENVIRONMENTS.PRODUCTION
+            localStorageEnvironmentValue === Environments.PRODUCTION
                 ? { key: '$environment', operator: 'is_not', value: ['test'] }
                 : { key: '$environment', operator: 'exact', value: ['test'] }
 

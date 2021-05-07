@@ -34,7 +34,7 @@ import MD5 from 'crypto-js/md5'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ENVIRONMENTS } from 'lib/components/PropertyKeyInfo'
+import { Environments } from 'lib/components/PropertyKeyInfo'
 
 export interface ProfilePictureProps {
     name?: string
@@ -323,22 +323,22 @@ export function TopNavigation(): JSX.Element {
                             <div className="global-environment-switch">
                                 <label
                                     htmlFor="global-environment-switch"
-                                    className={filteredEnvironment === ENVIRONMENTS.TEST ? 'test' : ''}
+                                    className={filteredEnvironment === Environments.TEST ? 'test' : ''}
                                 >
                                     <Tooltip title="Toggle to view only test or production data everywhere. Click to learn more.">
                                         <a href="https://posthog.com/docs" target="_blank" rel="noopener">
                                             <InfoCircleOutlined />
                                         </a>
                                     </Tooltip>
-                                    {filteredEnvironment === ENVIRONMENTS.PRODUCTION ? 'Live' : 'Test'}
+                                    {filteredEnvironment === Environments.PRODUCTION ? 'Live' : 'Test'}
                                 </label>
                                 <Switch
                                     // @ts-expect-error - below works even if it's not defined as a prop
                                     id="global-environment-switch"
-                                    value={filteredEnvironment === ENVIRONMENTS.PRODUCTION}
-                                    defaultChecked={filteredEnvironment === ENVIRONMENTS.PRODUCTION}
+                                    value={filteredEnvironment === Environments.PRODUCTION}
+                                    defaultChecked={filteredEnvironment === Environments.PRODUCTION}
                                     onChange={(val) =>
-                                        setFilteredEnvironment(val ? ENVIRONMENTS.PRODUCTION : ENVIRONMENTS.TEST)
+                                        setFilteredEnvironment(val ? Environments.PRODUCTION : Environments.TEST)
                                     }
                                 />
                             </div>

@@ -8,7 +8,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { ENVIRONMENTS } from 'lib/components/PropertyKeyInfo'
+import { Environments } from 'lib/components/PropertyKeyInfo'
 import { ENVIRONMENT_LOCAL_STORAGE_KEY } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -70,7 +70,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             },
         ],
         filteredEnvironment: [
-            ENVIRONMENTS.PRODUCTION,
+            Environments.PRODUCTION,
             {
                 setFilteredEnvironment: (_, payload) => {
                     return payload.environment
@@ -192,7 +192,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         afterMount: () => {
             if (featureFlagLogic.values.featureFlags['test-environment-3149']) {
                 const localStorageValue =
-                    window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY) || ENVIRONMENTS.PRODUCTION
+                    window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY) || Environments.PRODUCTION
                 actions.setFilteredEnvironment(localStorageValue, true)
             }
             actions.loadLatestVersion()
