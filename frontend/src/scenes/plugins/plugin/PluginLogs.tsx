@@ -69,7 +69,7 @@ export function PluginLogs({ teamId, pluginConfigId }: PluginLogsProps): JSX.Ele
     const { revealBackground, loadPluginLogsMore, loadPluginLogsSearch } = useActions(logic)
 
     return (
-        <Space direction="vertical" style={{ flexGrow: 1 }} className="ph-no-capture">
+        <Space direction="vertical" style={{ flexGrow: 1 }} className="ph-no-capture plugin-logs">
             <Row>
                 <Search
                     loading={pluginLogsLoading}
