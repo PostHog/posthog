@@ -20,7 +20,7 @@ export function Dashboards(): JSX.Element {
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
     const { setNewDashboardDrawer } = useActions(dashboardsLogic)
     const { dashboards, newDashboardDrawer, dashboardTags } = useValues(dashboardsLogic)
-    const { user } = useValues(userLogic)
+    const { isDashboardCollab } = useValues(userLogic)
     const [displayedColumns, setDisplayedColumns] = useState([] as ColumnType<DashboardType>[])
 
     const columns: ColumnType<DashboardType>[] = [
@@ -98,7 +98,7 @@ export function Dashboards(): JSX.Element {
     ]
 
     useEffect(() => {
-        if (!user?.organization?.available_features.includes('dashboard_collaboration')) {
+        if (!isDashboardCollab) {
             setDisplayedColumns(
                 columns.filter((col) => !col.dataIndex || !['description', 'tags'].includes(col.dataIndex.toString()))
             )

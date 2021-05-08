@@ -22,9 +22,8 @@ export function DashboardInsightHeader({ dashboardId }: Props): JSX.Element {
     const { dashboardItemMode } = useValues(dashboardItemsModel)
     const { setDashboardItemMode, updateDashboardItem } = useActions(dashboardItemsModel)
     const [newDescription, setNewDescription] = useState(dashboardItem.description) // Used to update the input immediately, debouncing API calls
-    const { user } = useValues(userLogic)
+    const { isDashboardCollab } = useValues(userLogic)
     const isDashboardItemEditMode = dashboardItemMode === DashboardItemMode.Edit
-    const hasDashboardCollab = user?.organization?.available_features?.includes('dashboard_collaboration')
 
     return (
         <div className="dashboard-insight-header">
@@ -48,7 +47,7 @@ export function DashboardInsightHeader({ dashboardId }: Props): JSX.Element {
                             </span>
                         </div>
 
-                        {hasDashboardCollab && (
+                        {isDashboardCollab && (
                             <Card className="dashboard-insight-description" bordered={false}>
                                 {isDashboardItemEditMode ? (
                                     <div className="edit-box">
@@ -80,7 +79,7 @@ export function DashboardInsightHeader({ dashboardId }: Props): JSX.Element {
                             </Card>
                         )}
                     </div>
-                    {hasDashboardCollab && isDashboardItemEditMode && (
+                    {isDashboardCollab && isDashboardItemEditMode && (
                         <Button
                             style={{ marginLeft: 8, alignSelf: 'flex-end' }}
                             onClick={() =>

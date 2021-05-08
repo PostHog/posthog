@@ -34,7 +34,7 @@ export function DashboardHeader(): JSX.Element {
     const { dashboardTags } = useValues(dashboardsLogic)
     const { dashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
-    const { user } = useValues(userLogic)
+    const { isDashboardCollab } = useValues(userLogic)
     const [newName, setNewName] = useState(dashboard.name) // Used to update the input immediately, debouncing API calls
     const [newDescription, setNewDescription] = useState(dashboard.description) // Used to update the input immediately, debouncing API calls
 
@@ -234,7 +234,7 @@ export function DashboardHeader(): JSX.Element {
                     </>
                 )}
             </div>
-            {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+            {isDashboardCollab && (
                 <>
                     <div className="mb" data-attr="dashboard-tags">
                         <ObjectTags
