@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Link } from 'lib/components/Link'
 import { PageHeader } from 'lib/components/PageHeader'
-import { ArrowLeftOutlined, EditOutlined, SaveOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons'
 import { IconDashboard } from 'lib/components/icons'
 import { useActions, useValues } from 'kea'
 import { dashboardLogic } from './dashboardLogic'
@@ -27,7 +27,7 @@ export function DashboardInsightHeader({ dashboardId }: Props): JSX.Element {
     const hasDashboardCollab = user?.organization?.available_features?.includes('dashboard_collaboration')
 
     return (
-        <div className="dashboard-item-header">
+        <div className="dashboard-insight-header">
             <Link to={`/dashboard/${dashboardId}`}>
                 <ArrowLeftOutlined /> To {dashboard?.name} dashboard
             </Link>
@@ -37,8 +37,10 @@ export function DashboardInsightHeader({ dashboardId }: Props): JSX.Element {
 
                 <div className="header-container text-default">
                     <div className="title-description">
-                        <div style={{ display: 'flex' }}>
-                            {isDashboardItemEditMode ? <EditOutlined /> : <IconDashboard />}
+                        <div className="status" style={{ display: 'flex' }}>
+                            <div className="status-svg">
+                                {isDashboardItemEditMode ? <EditOutlined /> : <IconDashboard />}
+                            </div>
                             <span style={{ paddingLeft: 6 }}>
                                 {isDashboardItemEditMode ? 'Editing graph' : 'Viewing graph'}{' '}
                                 <b>{dashboardItem?.name}</b> from{' '}
@@ -47,10 +49,7 @@ export function DashboardInsightHeader({ dashboardId }: Props): JSX.Element {
                         </div>
 
                         {hasDashboardCollab && (
-                            <Card
-                                className="dashboard-item-description"
-                                bordered={!(dashboardItemMode === DashboardItemMode.Edit)}
-                            >
+                            <Card className="dashboard-insight-description" bordered={false}>
                                 {isDashboardItemEditMode ? (
                                     <div className="edit-box">
                                         <Input.TextArea
@@ -59,6 +58,8 @@ export function DashboardInsightHeader({ dashboardId }: Props): JSX.Element {
                                             onChange={(e) => {
                                                 setNewDescription(e.target.value)
                                             }}
+                                            autoSize
+                                            allowClear
                                         />
                                     </div>
                                 ) : (
@@ -69,7 +70,7 @@ export function DashboardInsightHeader({ dashboardId }: Props): JSX.Element {
                                         {dashboardItem.description ? (
                                             <span>{dashboardItem.description}</span>
                                         ) : (
-                                            <span className="text-small text-muted">
+                                            <span className="text-muted">
                                                 Add a description for this dashboard insight...
                                             </span>
                                         )}
@@ -81,13 +82,16 @@ export function DashboardInsightHeader({ dashboardId }: Props): JSX.Element {
                     </div>
                     {hasDashboardCollab && isDashboardItemEditMode && (
                         <Button
-                            style={{ marginRight: 16 }}
-                            icon={<SaveOutlined />}
-                            onClick={() => updateDashboardItem(dashboardItem.id, { description: newDescription })}
+                            style={{ marginLeft: 8, alignSelf: 'flex-end' }}
+                            onClick={() =>
+                                newDescription !== dashboardItem.description
+                                    ? updateDashboardItem(dashboardItem.id, { description: newDescription })
+                                    : setDashboardItemMode(null)
+                            }
                             type="primary"
                             data-attr="dashboard-insight-description-submit"
                         >
-                            Save changes
+                            Finish
                         </Button>
                     )}
                 </div>
