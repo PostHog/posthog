@@ -35,7 +35,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { DashboardItemType, HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardItemHeader } from 'scenes/dashboard/DashboardItemHeader'
+import { DashboardInsightHeader } from 'scenes/dashboard/DashboardInsightHeader'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 
 dayjs.extend(relativeTime)
@@ -401,7 +401,7 @@ interface HeaderProps {
 }
 function Header({ dashboardItem }: HeaderProps): JSX.Element {
     if (dashboardItem?.id) {
-        return <DashboardItemHeader dashboardId={dashboardItem.dashboard} />
+        return <DashboardInsightHeader dashboardId={dashboardItem.dashboard} />
     }
     return <PageHeader title="Insights" />
 }

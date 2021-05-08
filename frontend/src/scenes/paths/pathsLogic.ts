@@ -207,7 +207,7 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
                 }
             }
         },
-        '/insights/dashboard_item/(:dashboardItemId)': () => {
+        '/insights/dashboard_insight/(:dashboardItemId)': () => {
             const dashboardItem = insightLogic.values.dashboardItem
             if (dashboardItem && dashboardItem.filters.insight === ViewType.PATHS) {
                 actions.setFilter(cleanPathParams(dashboardItem.filters))

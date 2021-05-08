@@ -3,22 +3,33 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
-import { DashboardItemType } from '~/types'
+import { DashboardItemMode, DashboardItemType } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { dashboardItemsModelType } from '~/models/dashboardItemsModelType'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType>>({
     actions: () => ({
         renameDashboardItem: (item: DashboardItemType) => ({ item }),
         renameDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
+        updateDashboardItem: (id: number, payload: Partial<DashboardItemType>) => ({ id, ...payload }),
         duplicateDashboardItem: (item: DashboardItemType, dashboardId?: number, move: boolean = false) => ({
             item,
             dashboardId,
             move,
         }),
+        setDashboardItemMode: (mode: DashboardItemMode) => ({ mode }),
         duplicateDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
         refreshAllDashboardItems: (filters: Record<string, any>) => filters,
+    }),
+    reducers: () => ({
+        dashboardItemMode: [
+            null as DashboardItemMode | null,
+            {
+                setDashboardItemMode: (_, { mode }) => mode,
+            },
+        ],
     }),
     listeners: ({ actions }) => ({
         renameDashboardItem: async ({ item }) => {
@@ -33,6 +44,14 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
                     actions.renameDashboardItemSuccess(item)
                 },
             })
+        },
+        updateDashboardItem: async ({ id, ...payload }) => {
+            if (!Object.entries(payload).length) {
+                return
+            }
+            const response = await api.update(`api/dashboard_item/${id}`, payload)
+            actions.setDashboardItemMode(null)
+            insightLogic.actions.setDashboardItem(response)
         },
         duplicateDashboardItem: async ({ item, dashboardId, move }) => {
             if (!item) {
