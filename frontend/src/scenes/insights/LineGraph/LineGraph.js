@@ -286,17 +286,21 @@ export function LineGraph({
                 ],
             }
         } else if (type === 'line') {
+            const tickOptions = {
+                autoSkip: true,
+                beginAtZero: true,
+                min: 0,
+                fontColor: axisLabelColor,
+                precision: 0,
+            }
+
             options.scales = {
                 xAxes: [
                     {
                         display: true,
                         gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
                         ticks: {
-                            autoSkip: true,
-                            beginAtZero: true,
-                            min: 0,
-                            fontColor: axisLabelColor,
-                            precision: 0,
+                            ...tickOptions,
                             padding: annotationsLoading || !annotationInRange ? 0 : 35,
                         },
                     },
@@ -312,11 +316,7 @@ export function LineGraph({
                                   },
                               }
                             : {
-                                  autoSkip: true,
-                                  beginAtZero: true,
-                                  min: 0,
-                                  fontColor: axisLabelColor,
-                                  precision: 0,
+                                  ...tickOptions,
                                   callback: (value) => {
                                       return maybeAddCommasToInteger(value)
                                   },
@@ -330,11 +330,7 @@ export function LineGraph({
                     {
                         display: true,
                         ticks: {
-                            autoSkip: true,
-                            beginAtZero: true,
-                            min: 0,
-                            fontColor: axisLabelColor,
-                            precision: 0,
+                            ...tickOptions,
                             callback: (value) => {
                                 return maybeAddCommasToInteger(value)
                             },
@@ -373,7 +369,7 @@ export function LineGraph({
             onMouseMove={(e) => {
                 setEnabled(true)
                 if (annotationsCondition && myLineChart.current) {
-                    var rect = e.currentTarget.getBoundingClientRect(),
+                    const rect = e.currentTarget.getBoundingClientRect(),
                         offsetX = e.clientX - rect.left,
                         offsetY = e.clientY - rect.top
                     if (offsetY < topExtent - 30 && !focused && !annotationsFocused) {
@@ -382,11 +378,12 @@ export function LineGraph({
                         return
                     }
 
-                    const _leftExtent = myLineChart.current.scales['x-axis-0'].left
-                    const _rightExtent = myLineChart.current.scales['x-axis-0'].right
-                    const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
-                    const delta = _rightExtent - _leftExtent
-                    const _interval = delta / (ticks - 1)
+                    const xAxis = myLineChart.current.scales['x-axis-0'],
+                        _leftExtent = xAxis.left,
+                        _rightExtent = xAxis.right,
+                        ticks = xAxis.ticks.length,
+                        delta = _rightExtent - _leftExtent,
+                        _interval = delta / (ticks - 1)
                     if (offsetX < _leftExtent - _interval / 2) {
                         return
                     }
@@ -415,9 +412,7 @@ export function LineGraph({
                         setFocused(false)
                         setAnnotationsFocused(true)
                     }}
-                    onClose={() => {
-                        setAnnotationsFocused(false)
-                    }}
+                    onClose={() => setAnnotationsFocused(false)}
                     graphColor={color}
                     color={color === 'white' ? null : 'white'}
                     accessoryColor={color === 'white' ? null : 'black'}
