@@ -4,7 +4,6 @@ import { Button } from 'antd'
 import { useActions } from 'kea'
 import { Popover, Row } from 'antd'
 import { CloseButton } from 'lib/components/CloseButton'
-import { DeleteOutlined } from '@ant-design/icons'
 import PropertyFilterButton from './PropertyFilterButton'
 import 'scenes/actions/Actions.scss'
 
@@ -48,21 +47,16 @@ export const FilterRow = React.memo(function FilterRow({
             style={{
                 maxWidth: '90vw',
             }}
+            wrap={false}
         >
             {disablePopover ? (
                 <>
                     <PropertyFilter {...propertyFilterCommonProps} variant="unified" />
                     {!!Object.keys(filters[index]).length && (
-                        <Button
-                            type="link"
+                        <CloseButton
                             onClick={() => remove(index)}
-                            style={{
-                                padding: 0,
-                                paddingLeft: 5,
-                            }}
-                        >
-                            <DeleteOutlined />
-                        </Button>
+                            style={{ cursor: 'pointer', float: 'none', paddingLeft: 8 }}
+                        />
                     )}
                 </>
             ) : (
@@ -87,9 +81,7 @@ export const FilterRow = React.memo(function FilterRow({
                     {!!Object.keys(filters[index]).length && (
                         <CloseButton
                             className="ml-1"
-                            onClick={() => {
-                                remove(index)
-                            }}
+                            onClick={() => remove(index)}
                             style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
                         />
                     )}

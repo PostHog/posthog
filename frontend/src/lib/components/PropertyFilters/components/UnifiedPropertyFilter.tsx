@@ -15,6 +15,7 @@ import {
 import { humanFriendlyDetailedTime, isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { SelectBox, SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
 import { PropertyFilterInternalProps } from './PropertyFilter'
+import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 function FilterDropdown({ open, children }: { open: boolean; children: React.ReactNode }): JSX.Element | null {
     return open ? <div>{children}</div> : null
@@ -80,6 +81,8 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
     const { key, value, operator, type } = filters[index]
     const [open, setOpen] = useState(false)
     const selectBoxToggleRef = useRef<HTMLElement>(null)
+    const screens = useBreakpoint()
+    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
 
     const displayOperatorAndValue = key && type !== 'cohort'
 
@@ -176,7 +179,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
 
     return (
         <>
-            <Row gutter={8} wrap={false}>
+            <Row gutter={8} wrap={isSmallScreen}>
                 <Col
                     style={{
                         height: '32px', // matches antd Select height
@@ -257,7 +260,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                             {
                                 style: {
                                     flexShrink: 1,
-                                    maxWidth: '50vw',
+                                    maxWidth: isSmallScreen ? 'unset' : '50vw',
                                     minWidth: '11em',
                                 },
                             },
