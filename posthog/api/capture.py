@@ -136,12 +136,13 @@ def get_event(request):
     except RequestParsingError as error:
         capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
         return cors_response(
-            request, generate_exception_response(f"Malformed request data: {error}", code="invalid_payload"),
+            request, generate_exception_response("capture", f"Malformed request data: {error}", code="invalid_payload"),
         )
     if not data:
         return cors_response(
             request,
             generate_exception_response(
+                "capture",
                 "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
                 code="no_data",
             ),
@@ -155,6 +156,7 @@ def get_event(request):
         return cors_response(
             request,
             generate_exception_response(
+                "capture",
                 "API key not provided. You can find your project API key in PostHog project settings.",
                 type="authentication_error",
                 code="missing_api_key",
@@ -169,12 +171,16 @@ def get_event(request):
             project_id = _get_project_id(data, request)
         except ValueError:
             return cors_response(
-                request, generate_exception_response("Invalid Project ID.", code="invalid_project", attr="project_id"),
+                request,
+                generate_exception_response(
+                    "capture", "Invalid Project ID.", code="invalid_project", attr="project_id"
+                ),
             )
         if not project_id:
             return cors_response(
                 request,
                 generate_exception_response(
+                    "capture",
                     "Project API key invalid. You can find your project API key in PostHog project settings.",
                     type="authentication_error",
                     code="invalid_api_key",
@@ -186,6 +192,7 @@ def get_event(request):
             return cors_response(
                 request,
                 generate_exception_response(
+                    "capture",
                     "Invalid Personal API key.",
                     type="authentication_error",
                     code="invalid_personal_api_key",
@@ -209,7 +216,9 @@ def get_event(request):
     try:
         events = preprocess_session_recording_events(events)
     except ValueError as e:
-        return cors_response(request, generate_exception_response(f"Invalid payload: {e}", code="invalid_payload"))
+        return cors_response(
+            request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
+        )
 
     for event in events:
         try:
@@ -218,14 +227,17 @@ def get_event(request):
             return cors_response(
                 request,
                 generate_exception_response(
-                    "You need to set user distinct ID field `distinct_id`.", code="required", attr="distinct_id"
+                    "capture",
+                    "You need to set user distinct ID field `distinct_id`.",
+                    code="required",
+                    attr="distinct_id",
                 ),
             )
         if not event.get("event"):
             return cors_response(
                 request,
                 generate_exception_response(
-                    "You need to set user event name, field `event`.", code="required", attr="event"
+                    "capture", "You need to set user event name, field `event`.", code="required", attr="event"
                 ),
             )
 
