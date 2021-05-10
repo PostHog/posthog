@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
+from django.urls.base import resolve
 from loginas.utils import is_impersonated_session
 
 from posthog.ee import is_ee_enabled
@@ -18,15 +19,20 @@ class CHQueries(object):
         """
         from ee.clickhouse import client
 
-        if (
-            is_ee_enabled()
-            and request.user.pk
-            and (request.user.is_staff or is_impersonated_session(request) or settings.DEBUG)
-        ):
-            client._save_query_user_id = request.user.pk
+        route = resolve(request.path)
+        client._request_information = {
+            "save": (
+                is_ee_enabled()
+                and request.user.pk
+                and (request.user.is_staff or is_impersonated_session(request) or settings.DEBUG)
+            ),
+            "user_id": request.user.pk,
+            "kind": "request",
+            "id": f"{route.route} ({route.func.__name__})",
+        }
 
         response: HttpResponse = self.get_response(request)
 
-        client._save_query_user_id = False
+        client._request_information = None
 
         return response
