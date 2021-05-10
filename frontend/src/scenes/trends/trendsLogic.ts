@@ -56,7 +56,7 @@ interface PeopleParamType {
 
 function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
     return {
-        insight: filters.session ? ViewType.SESSIONS : filters.insight || ViewType.TRENDS,
+        insight: ViewType.TRENDS,
         ...filters,
         interval: autocorrectInterval(filters),
         display:
@@ -67,7 +67,6 @@ function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
         events: Array.isArray(filters.events) ? filters.events : undefined,
         properties: filters.properties || [],
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
-        ...(filters.session ? { session: filters.session } : {}),
     }
 }
 
