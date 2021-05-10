@@ -285,4 +285,5 @@ def get_event(request):
                 args=[distinct_id, ip, request.build_absolute_uri("/")[:-1], event, team.pk, now.isoformat(), sent_at,],
             )
     timer.stop()
+    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",})
     return cors_response(request, JsonResponse({"status": 1}))

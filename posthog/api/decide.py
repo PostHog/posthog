@@ -7,6 +7,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
@@ -121,4 +122,5 @@ def get_decide(request: HttpRequest):
             response["featureFlags"] = get_active_feature_flags(team, data["distinct_id"])
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
+    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide",})
     return cors_response(request, JsonResponse(response))
