@@ -96,7 +96,7 @@ export function SelectGradientOverflow({
     }, [autoFocus, defaultOpen])
 
     const outsideClickListener = (event: any): void => {
-        if (!containerRef.current?.contains(event.target) && isOpen) {
+        if (!containerRef.current?.contains(event.target) && !dropdownRef.current?.contains(event.target) && isOpen) {
             selectRef.current?.blur()
         }
     }
