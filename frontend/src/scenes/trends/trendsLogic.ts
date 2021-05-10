@@ -148,7 +148,8 @@ export const trendsLogic = kea<
     trendsLogicType<TrendResponse, IndexedTrendResult, TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter>
 >({
     key: (props) => {
-        return props.dashboardItemId || 'all_trends'
+        const pathname = router.values.location.pathname
+        return props.dashboardItemId || (pathname.indexOf('dashboard_item') > -1 ? pathname : 'all_trends')
     },
 
     connect: {
@@ -528,7 +529,10 @@ export const trendsLogic = kea<
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '/insights': ({}, searchParams: Partial<FilterType>) => {
+        '/insights(/dashboard_item)(/:dashboardItemId)': async (
+            { dashboardItemId },
+            searchParams: Partial<FilterType>
+        ) => {
             if (props.dashboardItemId) {
                 return
             }
@@ -539,6 +543,10 @@ export const trendsLogic = kea<
                 searchParams.insight === ViewType.STICKINESS ||
                 searchParams.insight === ViewType.LIFECYCLE
             ) {
+                if (dashboardItemId) {
+                    const dashboardItem = await api.get(`api/dashboard_item/${dashboardItemId}`)
+                    searchParams = dashboardItem.filters
+                }
                 const cleanSearchParams = cleanFilters(searchParams)
 
                 const keys = Object.keys(searchParams)
@@ -575,12 +583,6 @@ export const trendsLogic = kea<
                 }
 
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
-            }
-        },
-        '/insights/dashboard_item/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
-            const dashboardItem = await api.get(`api/dashboard_item/${dashboardItemId}`)
-            if (dashboardItem && dashboardItem.filters.insight === ViewType.TRENDS) {
-                actions.setFilters(cleanFilters(dashboardItem.filters), true)
             }
         },
     }),
