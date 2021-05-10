@@ -13,6 +13,7 @@ import {
     ContainerOutlined,
     UserOutlined,
     UsergroupAddOutlined,
+    PlusOutlined,
 } from '@ant-design/icons'
 import {
     OperatorValueFilterType,
@@ -204,20 +205,23 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
     return (
         <>
             <Row gutter={8} wrap={isSmallScreen} className="property-filter-row">
-                <Col className="filter-where" style={{ opacity: key ? 1 : 0.6 }}>
-                    <span className="arrow">&#8627;</span>
-                    {index === 0 ? 'where' : 'and'}
-                </Col>
+                {key && (
+                    <Col className="filter-where">
+                        <span className="arrow">&#8627;</span>
+                        {index === 0 ? 'where' : 'and'}
+                    </Col>
+                )}
                 <Col className="filter-dropdown-container">
                     <Button
                         onClick={onClick}
                         style={{ display: 'flex', alignItems: 'center' }}
                         ref={selectBoxToggleRef}
                     >
+                        {!key && <PlusOutlined style={{ fontSize: 10 }} />}
                         <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                            <PropertyKeyInfo value={key || 'Select property'} />
+                            <PropertyKeyInfo value={key || 'Add filter'} />
                         </span>
-                        <DownOutlined style={{ fontSize: 10 }} />
+                        {key && <DownOutlined style={{ fontSize: 10 }} />}
                     </Button>
                     <FilterDropdown open={open}>
                         <SelectBox
