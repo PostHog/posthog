@@ -5,7 +5,7 @@ import React from 'react'
 import { FilterType } from '~/types'
 import { SettingOutlined } from '@ant-design/icons'
 import { teamLogic } from 'scenes/teamLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+//import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function TestAccountFilter({
     filters,
@@ -16,9 +16,10 @@ export function TestAccountFilter({
 }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-    const { featureFlags } = useValues(featureFlagLogic)
+    //const { featureFlags } = useValues(featureFlagLogic)
 
-    return featureFlags['test-environment-3149'] ? null : (
+    //return featureFlags['test-environment-3149'] ? null : (
+    return (
         <Tooltip
             title={
                 hasFilters
