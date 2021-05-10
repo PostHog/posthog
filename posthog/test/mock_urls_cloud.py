@@ -1,4 +1,3 @@
-from posthog.settings import MULTI_TENANCY
 from posthog.urls import opt_slash_path
 from posthog.views import robots_txt
 
