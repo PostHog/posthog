@@ -71,19 +71,6 @@ interface DisplayProps {
     link: (item: DashboardItemType) => string
 }
 
-export const displayHistoryItemLink = ({ id, dashboard, filters }: DashboardItemType): string => {
-    const specialViewTypes = [ViewType.FUNNELS, ViewType.PATHS, ViewType.RETENTION]
-
-    if (specialViewTypes.includes(filters.insights)) {
-        return combineUrl(
-            `/insights`,
-            { insight: filters.insights, dashboardItem: { id: id, dashboard: dashboard }, ...filters },
-            {}
-        ).url
-    }
-    return combineUrl(`/insights`, { dashboardItem: { id: id, dashboard: dashboard }, ...filters }, {}).url
-}
-
 export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsLineGraph: {
         className: 'graph',
