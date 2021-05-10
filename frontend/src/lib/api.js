@@ -110,9 +110,9 @@ function isWhitelisted(url) {
     const WHITELIST = ['api']
 
     for (let i = 0; i < WHITELIST.length; i++) {
-        let startsWith = url.indexOf(WHITELIST[i]) === 0
-        let startsWithSlash = '/' + url.indexOf(WHITELIST[i]) === 0
-        if (startsWith || startsWithSlash) {
+        const urlWithSlash = '/' + url
+        const startsWith = url.indexOf(WHITELIST[i]) === 0 || urlWithSlash.indexOf(WHITELIST[i]) === 0
+        if (startsWith) {
             return true
         }
     }
@@ -122,8 +122,8 @@ function isWhitelisted(url) {
 
 function maybeAddEnvironmentProperty(url) {
     const localStorageEnvironmentValue = window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY)
-    const shouldAddEnvironmentValue =
-        localStorageEnvironmentValue && isWhitelisted(url) && localStorageEnvironmentValue === Environments.TEST
+    const isWhitelistedUrl = isWhitelisted(url)
+    const shouldAddEnvironmentValue = localStorageEnvironmentValue && isWhitelistedUrl
 
     if (shouldAddEnvironmentValue) {
         let urlObject = url.indexOf('http') === 0 ? new URL(url) : new URL(url, window.location.origin)
@@ -137,7 +137,9 @@ function maybeAddEnvironmentProperty(url) {
 
         if (params.properties) {
             let parsedProperties = JSON.parse(params.properties)
-            parsedProperties.push(environmentProperty)
+            parsedProperties = Array.isArray(parsedProperties)
+                ? [...parsedProperties, environmentProperty]
+                : [parsedProperties, environmentProperty]
             params.properties = JSON.stringify(parsedProperties)
         } else {
             params.properties = JSON.stringify([environmentProperty])

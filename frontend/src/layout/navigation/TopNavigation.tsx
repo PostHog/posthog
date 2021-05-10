@@ -335,7 +335,7 @@ export function TopNavigation(): JSX.Element {
                                 <Switch
                                     // @ts-expect-error - below works even if it's not defined as a prop
                                     id="global-environment-switch"
-                                    value={filteredEnvironment === Environments.PRODUCTION}
+                                    checked={filteredEnvironment === Environments.PRODUCTION}
                                     defaultChecked={filteredEnvironment === Environments.PRODUCTION}
                                     onChange={(val) =>
                                         setFilteredEnvironment(val ? Environments.PRODUCTION : Environments.TEST)
