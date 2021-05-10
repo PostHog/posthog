@@ -62,6 +62,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         JOB_QUEUES: 'graphile',
         JOB_QUEUE_GRAPHILE_URL: '',
         JOB_QUEUE_GRAPHILE_SCHEMA: 'graphile_worker',
+        JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: false,
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         STALENESS_RESTART_SECONDS: 0,
     }
@@ -108,6 +109,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         JOB_QUEUES: 'retry queue engine and fallback queues',
         JOB_QUEUE_GRAPHILE_URL: 'use a different postgres connection in the graphile retry queue',
         JOB_QUEUE_GRAPHILE_SCHEMA: 'the postgres schema that the graphile job queue uses',
+        JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: 'enable this to increase job queue throughput if not using pgbouncer',
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE:
             'refuse to start unless there is a properly configured persistent job queue (e.g. graphile)',
         STALENESS_RESTART_SECONDS: 'trigger a restart if no event ingested for this duration',
