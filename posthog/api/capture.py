@@ -241,7 +241,10 @@ def get_event(request):
             return cors_response(
                 request,
                 generate_exception_response(
-                    "Distinct ID field `distinct_id` must have a non-empty value.", code="required", attr="distinct_id"
+                    "capture",
+                    "Distinct ID field `distinct_id` must have a non-empty value.",
+                    code="required",
+                    attr="distinct_id",
                 ),
             )
         if not event.get("event"):
@@ -268,7 +271,7 @@ def get_event(request):
                 ip=ip,
                 site_url=request.build_absolute_uri("/")[:-1],
                 data=event,
-                team_id=team.id,
+                team_id=team.pk,
                 now=now,
                 sent_at=sent_at,
                 event_uuid=event_uuid,
@@ -279,7 +282,7 @@ def get_event(request):
             celery_app.send_task(
                 name=task_name,
                 queue=celery_queue,
-                args=[distinct_id, ip, request.build_absolute_uri("/")[:-1], event, team.id, now.isoformat(), sent_at,],
+                args=[distinct_id, ip, request.build_absolute_uri("/")[:-1], event, team.pk, now.isoformat(), sent_at,],
             )
     timer.stop()
     return cors_response(request, JsonResponse({"status": 1}))
