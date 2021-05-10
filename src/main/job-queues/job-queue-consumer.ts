@@ -24,7 +24,7 @@ export async function startJobQueueConsumer(server: PluginsServer, piscina: Pisc
         server,
         resource: LOCKED_RESOURCE,
         onLock: async () => {
-            status.info('🔄', 'Job queue consumer lock aquired')
+            status.info('🔄', 'Job queue consumer lock acquired')
             try {
                 await server.jobQueueManager.startConsumer(onJob)
             } catch (error) {

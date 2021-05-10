@@ -74,6 +74,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     JOB_QUEUES: string
     JOB_QUEUE_GRAPHILE_URL: string
     JOB_QUEUE_GRAPHILE_SCHEMA: string
+    JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
     STALENESS_RESTART_SECONDS: number
 }
