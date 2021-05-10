@@ -57,6 +57,21 @@
         }
     }
 }
+.row-action-btn {
+    &:focus {
+        border: 1px solid $primary;
+    }
+    &.delete {
+        padding: 0 4px;
+    }
+    &.show-filters {
+        padding: 0 8px;
+        &.visible {
+            background-color: $primary;
+            color: #fff;
+        }
+    }
+}
 .action-row-letter {
     line-height: 32px;
     padding-right: 1px;

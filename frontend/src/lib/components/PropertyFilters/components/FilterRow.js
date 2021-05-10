@@ -16,6 +16,7 @@ export const FilterRow = React.memo(function FilterRow({
     showConditionBadge,
     totalCount,
     disablePopover = false, // use bare PropertyFilter without popover
+    horizontalUI = false, // apply styles specific to new horizontal UI (Issue #4050)
     popoverPlacement,
 }) {
     const { remove } = useActions(logic)
@@ -48,7 +49,7 @@ export const FilterRow = React.memo(function FilterRow({
                 maxWidth: '90vw',
                 margin: '0.25rem 0',
                 padding: '0.25rem 0',
-                background: (index + 1) % 2 === 0 ? '#f6f6f6' : 'unset',
+                background: horizontalUI && (index + 1) % 2 === 0 ? '#f6f6f6' : 'unset',
             }}
             wrap={false}
         >

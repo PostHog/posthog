@@ -10,7 +10,8 @@ export function PropertyFilters({
     onChange = null,
     pageKey,
     showConditionBadge = false,
-    disablePopover = false,
+    disablePopover = false, // use bare PropertyFilter without popover
+    horizontalUI = false, // apply styles specific to new horizontal UI (Issue #4050)
     popoverPlacement = null,
     style = {},
 }) {
@@ -32,6 +33,7 @@ export function PropertyFilters({
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadge}
                             disablePopover={disablePopover}
+                            horizontalUI={horizontalUI}
                             popoverPlacement={popoverPlacement}
                         />
                     )
