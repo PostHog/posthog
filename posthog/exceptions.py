@@ -4,6 +4,7 @@ from django.http.response import JsonResponse
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 
 class RequestParsingError(Exception):
@@ -20,6 +21,7 @@ def exception_reporting(exception: Exception, *args, **kwargs) -> None:
 
 
 def generate_exception_response(
+    endpoint: str,
     detail: str,
     code: str = "invalid",
     type: str = "validation_error",
@@ -29,4 +31,5 @@ def generate_exception_response(
     """
     Generates a friendly JSON error response in line with drf-exceptions-hog for endpoints not under DRF.
     """
+    statsd.incr(f"posthog_cloud_raw_endpoint_exception", tags={"endpoint": endpoint, "code": code, "type": type})
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code,)
