@@ -112,13 +112,17 @@ def _get_project_id(data, request) -> Optional[int]:
 
 
 def _get_distinct_id(data: Dict[str, Any]) -> str:
+    raw_value: Any = ""
     try:
-        return str(data["$distinct_id"])[0:200]
+        raw_value = data["$distinct_id"]
     except KeyError:
         try:
-            return str(data["properties"]["distinct_id"])[0:200]
+            raw_value = data["properties"]["distinct_id"]
         except KeyError:
-            return str(data["distinct_id"])[0:200]
+            raw_value = data["distinct_id"]
+    if not raw_value:
+        raise ValueError()
+    return str(raw_value)[0:200]
 
 
 def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, distinct_id: str):
@@ -221,7 +225,7 @@ def get_event(request):
                     "You need to set user distinct ID field `distinct_id`.", code="required", attr="distinct_id"
                 ),
             )
-        if not distinct_id:
+        except ValueError:
             return cors_response(
                 request,
                 generate_exception_response(
