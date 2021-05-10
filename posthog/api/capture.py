@@ -171,7 +171,10 @@ def get_event(request):
             project_id = _get_project_id(data, request)
         except ValueError:
             return cors_response(
-                request, generate_exception_response("Invalid Project ID.", code="invalid_project", attr="project_id"),
+                request,
+                generate_exception_response(
+                    "capture", "Invalid Project ID.", code="invalid_project", attr="project_id"
+                ),
             )
         if not project_id:
             return cors_response(
