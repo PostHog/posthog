@@ -155,6 +155,7 @@ function HorizontalDefaultInsightDisplayConfig({
                         }}
                         filters={allFilters}
                         disabled={allFilters.insight === ViewType.LIFECYCLE}
+                        showIcons={featureFlags['4050-query-ui-optB']}
                     />
                 )}
 
