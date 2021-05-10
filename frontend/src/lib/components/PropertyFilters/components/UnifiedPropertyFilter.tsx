@@ -7,7 +7,13 @@ import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '~/models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { Link } from '../../Link'
-import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import {
+    DownOutlined,
+    InfoCircleOutlined,
+    ContainerOutlined,
+    UserOutlined,
+    UsergroupAddOutlined,
+} from '@ant-design/icons'
 import {
     OperatorValueFilterType,
     OperatorValueSelect,
@@ -111,7 +117,11 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
         {
             name: 'Event properties',
             header: function eventPropertiesHeader(label: string) {
-                return <>{label}</>
+                return (
+                    <>
+                        <ContainerOutlined /> {label}
+                    </>
+                )
             },
             dataSource: eventProperties?.map(({ value: eventValue, label, is_numerical }: PropertiesType) => ({
                 name: label,
@@ -127,7 +137,11 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
         {
             name: 'User properties',
             header: function personPropertiesHeader(label: string) {
-                return <>{label}</>
+                return (
+                    <>
+                        <UserOutlined /> {label}
+                    </>
+                )
             },
             dataSource: personProperties?.map(({ value: propertyValue, label, is_numerical }: PropertiesType) => ({
                 name: label,
@@ -161,7 +175,11 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
         {
             name: 'Cohorts',
             header: function cohortPropertiesHeader(label: string) {
-                return <>{label}</>
+                return (
+                    <>
+                        <UsergroupAddOutlined /> {label}
+                    </>
+                )
             },
             dataSource: cohorts
                 ?.filter(({ deleted }) => !deleted)
