@@ -530,7 +530,7 @@ export const trendsLogic = kea<
 
     urlToAction: ({ actions, values, props }) => ({
         '/insights(/dashboard_item)(/:dashboardItemId)': async (
-            { dashboardItemId },
+            { dashboardItemId }: { dashboardItemId: number },
             searchParams: Partial<FilterType>
         ) => {
             if (props.dashboardItemId) {
