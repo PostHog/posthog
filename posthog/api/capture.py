@@ -221,6 +221,13 @@ def get_event(request):
                     "You need to set user distinct ID field `distinct_id`.", code="required", attr="distinct_id"
                 ),
             )
+        if not distinct_id:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "Distinct ID field `distinct_id` must have a non-empty value.", code="required", attr="distinct_id"
+                ),
+            )
         if not event.get("event"):
             return cors_response(
                 request,
