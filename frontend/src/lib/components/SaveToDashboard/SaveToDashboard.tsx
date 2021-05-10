@@ -1,8 +1,7 @@
 import React, { useState } from 'react'
 import { Button } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
-import { useValues } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { router } from 'kea-router'
 
 interface Props {
     item: DashboardItemAttributes
@@ -25,7 +24,7 @@ interface FunnelPayload {
 
 export function SaveToDashboard({ item, displayComponent }: Props): JSX.Element {
     const [openModal, setOpenModal] = useState<boolean>(false)
-    const { dashboardItem } = useValues(insightLogic)
+    const [{ fromItem, fromItemName, fromDashboard }] = useState(router.values.hashParams)
 
     let _name: string = ''
     let _filters: Record<string, any> | null = null
@@ -45,9 +44,9 @@ export function SaveToDashboard({ item, displayComponent }: Props): JSX.Element 
                     closeModal={() => setOpenModal(false)}
                     name={_name}
                     filters={_filters}
-                    fromItem={dashboardItem?.id}
-                    fromDashboard={dashboardItem?.dashboard}
-                    fromItemName={dashboardItem?.name}
+                    fromItem={fromItem}
+                    fromDashboard={fromDashboard}
+                    fromItemName={fromItemName}
                     annotations={_annotations}
                 />
             )}
@@ -55,7 +54,7 @@ export function SaveToDashboard({ item, displayComponent }: Props): JSX.Element 
                 <span onClick={() => setOpenModal(true)}>{displayComponent}</span>
             ) : (
                 <Button onClick={() => setOpenModal(true)} type="primary" data-attr="save-to-dashboard-button">
-                    {dashboardItem?.id ? 'Update Dashboard' : 'Add to dashboard'}
+                    {fromItem ? 'Update Dashboard' : 'Add to dashboard'}
                 </Button>
             )}
         </span>
