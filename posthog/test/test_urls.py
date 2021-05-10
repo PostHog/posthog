@@ -61,9 +61,8 @@ class TestUrls(APIBaseTest):
 
     @pytest.mark.urls("posthog.test.mock_urls")
     def test_robots_txt_allow_crawl_on_cloud(self):
-        with self.settings(MULTI_TENANCY=True):
-            response = self.client.get("/robots.txt")
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        response = self.client.get("/robots.txt")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_robots_txt_block_crawl_by_default(self):
         with self.settings(MULTI_TENANCY=False):
