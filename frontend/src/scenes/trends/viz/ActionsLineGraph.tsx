@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Loading } from '../../../lib/utils'
 import { LineGraph } from '../../insights/LineGraph'
 import { useActions, useValues } from 'kea'
@@ -6,7 +6,8 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART } from 'lib/constants'
 import { ChartParams } from '~/types'
-import { insightLogic, ViewType } from 'scenes/insights/insightLogic'
+import { ViewType } from 'scenes/insights/insightLogic'
+import { router } from 'kea-router'
 
 export function ActionsLineGraph({
     dashboardItemId,
@@ -24,7 +25,7 @@ export function ActionsLineGraph({
     })
     const { filters, indexedResults, resultsLoading, visibilityMap } = useValues(logic)
     const { loadPeople } = useActions(logic)
-    const { dashboardItem } = useValues(insightLogic)
+    const [{ fromItem }] = useState(router.values.hashParams)
 
     return indexedResults && !resultsLoading ? (
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
@@ -36,7 +37,7 @@ export function ActionsLineGraph({
                 visibilityMap={visibilityMap}
                 labels={(indexedResults[0] && indexedResults[0].labels) || []}
                 isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId || dashboardItem?.id}
+                dashboardItemId={dashboardItemId || fromItem}
                 inSharedMode={inSharedMode}
                 onClick={
                     dashboardItemId
