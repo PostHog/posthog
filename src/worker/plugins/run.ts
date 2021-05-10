@@ -63,7 +63,10 @@ export async function runProcessEvent(server: PluginsServer, event: PluginEvent)
                 server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.process_event.ERROR`)
                 pluginsFailed.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
             }
-            server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.process_event`, timer)
+            server.statsd?.timing(`plugin.process_event`, timer, {
+                plugin: pluginConfig.plugin?.name ?? '?',
+                teamId: event.team_id.toString(),
+            })
 
             if (!returnedEvent) {
                 return null
@@ -114,7 +117,7 @@ export async function runProcessEventBatch(server: PluginsServer, batch: PluginE
                     pluginsFailed.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
                 }
                 server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.process_event_batch`, timer)
-                server.statsd?.timing('plugin.process_event_batch', timer, 0.2, {
+                server.statsd?.timing('plugin.process_event_batch', timer, {
                     plugin: pluginConfig.plugin?.name ?? '?',
                     teamId: teamId.toString(),
                 })

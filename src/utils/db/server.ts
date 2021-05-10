@@ -34,6 +34,7 @@ export async function createServer(
     const instanceId = new UUIDT()
 
     let statsd: StatsD | undefined
+    let eventLoopLagInterval: NodeJS.Timeout | undefined
     if (serverConfig.STATSD_HOST) {
         statsd = new StatsD({
             port: serverConfig.STATSD_PORT,
@@ -47,6 +48,12 @@ export async function createServer(
                 })
             },
         })
+        eventLoopLagInterval = setInterval(() => {
+            const time = new Date()
+            setImmediate(() => {
+                statsd?.timing('event_loop_lag', time)
+            })
+        }, 2000)
         // don't repeat the same info in each thread
         if (threadId === null) {
             status.info(
@@ -181,6 +188,9 @@ export async function createServer(
     }
 
     const closeServer = async () => {
+        if (eventLoopLagInterval) {
+            clearInterval(eventLoopLagInterval)
+        }
         server.mmdbUpdateJob?.cancel()
         await server.jobQueueManager?.disconnectProducer()
         if (kafkaProducer) {
