@@ -146,7 +146,7 @@ export const retentionTableLogic = kea<
     }),
     actionToUrl: ({ props, values }) => ({
         setFilters: () => {
-            if (props.dashboardItemId || insightLogic.values.fromDashboardItem) {
+            if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
             return ['/insights', values.filters, router.values.hashParams]
@@ -175,12 +175,6 @@ export const retentionTableLogic = kea<
                 if (!objectsEqual(cleanSearchParams, cleanedFilters)) {
                     actions.setFilters(cleanSearchParams)
                 }
-            }
-        },
-        '/insights/dashboard_item/(:dashboardItemId)': () => {
-            const dashboardItem = insightLogic.values.dashboardItem
-            if (dashboardItem && dashboardItem.filters.insight === ViewType.RETENTION) {
-                actions.setFilters(dashboardItem.filters)
             }
         },
     }),
