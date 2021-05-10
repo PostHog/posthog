@@ -112,13 +112,17 @@ def _get_project_id(data, request) -> Optional[int]:
 
 
 def _get_distinct_id(data: Dict[str, Any]) -> str:
+    raw_value: Any = ""
     try:
-        return str(data["$distinct_id"])[0:200]
+        raw_value = data["$distinct_id"]
     except KeyError:
         try:
-            return str(data["properties"]["distinct_id"])[0:200]
+            raw_value = data["properties"]["distinct_id"]
         except KeyError:
-            return str(data["distinct_id"])[0:200]
+            raw_value = data["distinct_id"]
+    if not raw_value:
+        raise ValueError()
+    return str(raw_value)[0:200]
 
 
 def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, distinct_id: str):
@@ -233,6 +237,16 @@ def get_event(request):
                     attr="distinct_id",
                 ),
             )
+        except ValueError:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "Distinct ID field `distinct_id` must have a non-empty value.",
+                    code="required",
+                    attr="distinct_id",
+                ),
+            )
         if not event.get("event"):
             return cors_response(
                 request,
@@ -257,7 +271,7 @@ def get_event(request):
                 ip=ip,
                 site_url=request.build_absolute_uri("/")[:-1],
                 data=event,
-                team_id=team.id,
+                team_id=team.pk,
                 now=now,
                 sent_at=sent_at,
                 event_uuid=event_uuid,
@@ -268,7 +282,7 @@ def get_event(request):
             celery_app.send_task(
                 name=task_name,
                 queue=celery_queue,
-                args=[distinct_id, ip, request.build_absolute_uri("/")[:-1], event, team.id, now.isoformat(), sent_at,],
+                args=[distinct_id, ip, request.build_absolute_uri("/")[:-1], event, team.pk, now.isoformat(), sent_at,],
             )
     timer.stop()
     return cors_response(request, JsonResponse({"status": 1}))

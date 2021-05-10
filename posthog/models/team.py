@@ -123,7 +123,7 @@ class Team(UUIDClassicModel):
     event_properties_with_usage: models.JSONField = models.JSONField(default=list)
     event_properties_numerical: models.JSONField = models.JSONField(default=list)
 
-    objects = TeamManager()
+    objects: TeamManager = TeamManager()
 
     def __str__(self):
         if self.name:
