@@ -100,7 +100,9 @@ function DefaultInsightDisplayConfig({
         <div style={{ display: 'flex', alignItems: 'center' }}>
             <TZIndicator style={{ float: 'left' }} />
             <div style={{ width: '100%', textAlign: 'right' }}>
-                {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
+                {showIntervalFilter(activeView, allFilters) && (
+                    <IntervalFilter view={activeView} showIcons={featureFlags['4050-query-ui-optB']} />
+                )}
                 {showChartFilter(activeView, featureFlags) && (
                     <ChartFilter
                         onChange={(display: DisplayType) => {
@@ -159,7 +161,9 @@ function HorizontalDefaultInsightDisplayConfig({
                     />
                 )}
 
-                {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
+                {showIntervalFilter(activeView, allFilters) && (
+                    <IntervalFilter view={activeView} showIcons={featureFlags['4050-query-ui-optB']} />
+                )}
                 {showDateFilter[activeView] && (
                     <>
                         <InsightDateFilter
