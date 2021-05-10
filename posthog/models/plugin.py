@@ -299,8 +299,10 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
                     url=plugin_url,
                     is_preinstalled=True,
                 )
-            except Exception:
-                print(f"ℹ⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}")
+            except Exception as e:
+                print(
+                    f"⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}:\n", e
+                )
 
 
 @receiver(models.signals.post_save, sender=Team)
