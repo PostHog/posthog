@@ -17,6 +17,8 @@ import { SelectBox, SelectBoxItem, SelectedItem } from 'lib/components/SelectBox
 import { PropertyFilterInternalProps } from './PropertyFilter'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
+import './UnifiedPropertyFilter.scss'
+
 function FilterDropdown({ open, children }: { open: boolean; children: React.ReactNode }): JSX.Element | null {
     return open ? <div>{children}</div> : null
 }
@@ -179,32 +181,12 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
 
     return (
         <>
-            <Row gutter={8} wrap={isSmallScreen}>
-                <Col
-                    style={{
-                        height: '32px', // matches antd Select height
-                        flexShrink: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                    }}
-                >
-                    <span style={{ opacity: key ? 1 : 0.6 }}>
-                        <span
-                            style={{
-                                color: '#C4C4C4',
-                                fontSize: 18,
-                                paddingLeft: 6,
-                                paddingRight: 8,
-                                position: 'relative',
-                                top: -4,
-                            }}
-                        >
-                            &#8627;
-                        </span>
-                        {index === 0 ? 'where' : 'and'}
-                    </span>
+            <Row gutter={8} wrap={isSmallScreen} className="property-filter-row">
+                <Col className="filter-where" style={{ opacity: key ? 1 : 0.6 }}>
+                    <span className="arrow">&#8627;</span>
+                    {index === 0 ? 'where' : 'and'}
                 </Col>
-                <Col style={{ minWidth: '6em' }}>
+                <Col className="filter-dropdown-container">
                     <Button
                         onClick={onClick}
                         style={{ display: 'flex', alignItems: 'center' }}
@@ -259,8 +241,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                             },
                             {
                                 style: {
-                                    flexShrink: 1,
-                                    maxWidth: isSmallScreen ? 'unset' : '50vw',
+                                    maxWidth: isSmallScreen ? 'unset' : '60%',
                                     minWidth: '11em',
                                 },
                             },

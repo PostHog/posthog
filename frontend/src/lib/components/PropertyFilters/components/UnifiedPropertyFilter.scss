@@ -1,0 +1,23 @@
+.property-filter-row {
+    min-width: 0;
+
+    .filter-where {
+        height: 32px; // matches antd Select height
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+
+        .arrow {
+            color: #c4c4c4;
+            font-size: 18;
+            padding-left: 6;
+            padding-right: 8;
+            position: relative;
+            top: -4;
+        }
+    }
+
+    .filter-dropdown-container {
+        min-width: 6em;
+    }
+}
