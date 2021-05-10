@@ -103,6 +103,13 @@ def _get_token(data, request) -> Optional[str]:
     return None
 
 
+# Support test_[apiKey] for users with multiple environments
+def _clean_token(token):
+    is_test_environment = token.startswith("test_")
+    token = token[5:] if is_test_environment else token
+    return (token, is_test_environment)
+
+
 def _get_project_id(data, request) -> Optional[int]:
     if request.GET.get("project_id"):
         return int(request.POST["project_id"])
@@ -167,9 +174,7 @@ def get_event(request):
             ),
         )
 
-    # Support test_[apiKey] for users with multiple environments
-    is_test_environment = token.startswith("test_")
-    token = token[5:] if is_test_environment else token
+    token, is_test_environment = _clean_token(token)
 
     team = Team.objects.get_team_from_token(token)
 
