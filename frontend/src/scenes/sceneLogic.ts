@@ -150,7 +150,6 @@ export const routes: Record<string, Scene> = {
     '/action/:id': Scene.Action,
     '/action': Scene.Action,
     '/insights': Scene.Insights,
-    '/insights/dashboard_item/:id': Scene.Insights,
     '/events': Scene.Events,
     '/events/*': Scene.Events,
     '/sessions': Scene.Sessions,
