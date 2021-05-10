@@ -642,6 +642,12 @@ export class DB {
             console.error(e)
         }
 
+        this.statsd?.increment(`logs.entries_created`, {
+            source,
+            team_id: pluginConfig.team_id.toString(),
+            plugin_id: pluginConfig.plugin_id.toString(),
+        })
+
         return entry
     }
 
