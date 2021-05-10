@@ -177,6 +177,7 @@ def get_event(request):
         )
 
     token, is_test_environment = _clean_token(token)
+    assert token is not None
 
     team = Team.objects.get_team_from_token(token)
 
