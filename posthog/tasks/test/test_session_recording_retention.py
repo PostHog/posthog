@@ -29,7 +29,8 @@ class TestSessionRecording(BaseTest):
                 [
                     call(team_id=team.id, time_threshold=now() - timedelta(days=5)),
                     call(team_id=team3.id, time_threshold=now() - timedelta(days=6)),
-                ]
+                ],
+                any_order=True,
             )
 
     def test_deletes_from_django(self) -> None:

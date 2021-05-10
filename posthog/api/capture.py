@@ -1,9 +1,8 @@
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, Optional
 
-import statsd
 from dateutil import parser
 from django.conf import settings
 from django.http import JsonResponse
@@ -11,6 +10,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from posthog.celery import app as celery_app
 from posthog.ee import is_ee_enabled
@@ -20,9 +20,6 @@ from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
-
-if settings.STATSD_HOST is not None:
-    statsd.Connection.set_defaults(host=settings.STATSD_HOST, port=settings.STATSD_PORT)
 
 if is_ee_enabled():
     from ee.kafka_client.client import KafkaProducer
@@ -132,8 +129,7 @@ def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, d
 
 @csrf_exempt
 def get_event(request):
-    timer = statsd.Timer("%s_posthog_cloud" % (settings.STATSD_PREFIX,))
-    timer.start()
+    timer = statsd.timer("posthog_cloud_event_endpoint").start()
     now = timezone.now()
     try:
         data = load_data_from_request(request)
@@ -242,7 +238,7 @@ def get_event(request):
         ip = None if team.anonymize_ips else get_ip_address(request)
 
         if is_ee_enabled():
-            statsd.Counter("%s_posthog_cloud_plugin_server_ingestion" % (settings.STATSD_PREFIX,)).increment()
+            statsd.incr("posthog_cloud_plugin_server_ingestion")
 
             log_event(
                 distinct_id=distinct_id,
@@ -262,5 +258,5 @@ def get_event(request):
                 queue=celery_queue,
                 args=[distinct_id, ip, request.build_absolute_uri("/")[:-1], event, team.id, now.isoformat(), sent_at,],
             )
-    timer.stop("event_endpoint")
+    timer.stop()
     return cors_response(request, JsonResponse({"status": 1}))
