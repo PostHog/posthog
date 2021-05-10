@@ -34,11 +34,15 @@ function EventPropertiesInfo({ item }: { item: SelectedItem }): JSX.Element {
             </h3>
             {info?.description && <p>{info.description}</p>}
             {info?.examples?.length && (
-                <>
+                <p>
                     <i>Example: </i>
                     {info.examples.join(', ')}
-                </>
+                </p>
             )}
+            <hr />
+            <p>
+                Sent as <code>{item.name}</code>
+            </p>
         </>
     )
 }
