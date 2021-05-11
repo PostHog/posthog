@@ -14,7 +14,7 @@ export async function startJobQueueConsumer(server: PluginsServer, piscina: Pisc
     status.info('🔄', 'Starting job queue consumer, trying to get lock...')
 
     const onJob: OnJobCallback = async (jobs) => {
-        pauseQueueIfWorkerFull(server.jobQueueManager.pauseConsumer, server, piscina)
+        pauseQueueIfWorkerFull(() => server.jobQueueManager.pauseConsumer(), server, piscina)
         for (const job of jobs) {
             await piscina.runTask({ task: 'runJob', args: { job } })
         }
