@@ -207,8 +207,16 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
             <Row gutter={8} wrap={isSmallScreen} className="property-filter-row">
                 {key && (
                     <Col className="filter-where">
-                        <span className="arrow">&#8627;</span>
-                        {index === 0 ? 'where' : 'and'}
+                        {index === 0 ? (
+                            <>
+                                <span className="arrow">&#8627;</span>
+                                where
+                            </>
+                        ) : (
+                            <span className="stateful-badge and" style={{ marginLeft: 28, fontSize: '90%' }}>
+                                AND
+                            </span>
+                        )}
                     </Col>
                 )}
                 <Col className="filter-dropdown-container">
@@ -269,6 +277,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                                 style: {
                                     maxWidth: isSmallScreen ? 'unset' : '60%',
                                     minWidth: '11em',
+                                    flexShrink: 3,
                                 },
                             },
                         ]}

@@ -23,7 +23,7 @@ export function InsightDisplayConfig({
     horizontalUI,
     ...props
 }: InsightDisplayConfigProps & { horizontalUI: boolean }): JSX.Element {
-    return horizontalUI && props.activeView !== ViewType.FUNNELS ? (
+    return horizontalUI ? (
         <HorizontalDefaultInsightDisplayConfig {...props} />
     ) : (
         <DefaultInsightDisplayConfig {...props} />

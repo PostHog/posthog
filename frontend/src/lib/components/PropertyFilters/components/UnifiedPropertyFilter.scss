@@ -19,5 +19,9 @@
 
     .filter-dropdown-container {
         min-width: 6em;
+
+        .ant-btn {
+            width: 100%;
+        }
     }
 }
