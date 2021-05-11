@@ -1,27 +1,27 @@
-import { Button, Card, Input, PageHeader } from "antd"
-import { useValues, useActions } from "kea"
-import { IconDashboard } from "lib/components/icons"
-import { Link } from "lib/components/Link"
-import React, { useState } from "react"
-import { userLogic } from "scenes/userLogic"
-import { dashboardItemsModel } from "~/models/dashboardItemsModel"
-import { DashboardItemType } from "~/types"
+import { Button, Card, Input } from 'antd'
+import { useValues, useActions } from 'kea'
+import { IconDashboard } from 'lib/components/icons'
+import { Link } from 'lib/components/Link'
+import React, { useState } from 'react'
+import { userLogic } from 'scenes/userLogic'
+import { DashboardItemMode, DashboardItemType } from '~/types'
 import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons'
 import './DashboardInsight.scss'
+import { dashboardInsightLogic } from './dashboardInsightLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 interface Props {
-    dashboardInsight: DashboardItemType,
+    dashboardInsight: DashboardItemType
     dashboardName: string
 }
 
 export function DashboardInsightHeader({ dashboardInsight, dashboardName }: Props): JSX.Element {
-    // const { dashboardItemMode } = useValues(dashboardItemsModel)
-    // const { setDashboardItemMode, updateDashboardItem } = useActions(dashboardItemsModel)
+    const { dashboardInsightMode } = useValues(dashboardInsightLogic)
+    const { setDashboardInsightMode, updateDashboardInsight } = useActions(dashboardInsightLogic)
     const [newDescription, setNewDescription] = useState(dashboardInsight.description) // Used to update the input immediately, debouncing API calls
     const { user } = useValues(userLogic)
     const isDashboardCollab = user?.organization?.available_features?.includes('dashboard_collaboration')
-    // const isDashboardItemEditMode = dashboardItemMode === DashboardItemMode.Edit
-    const isDashboardItemEditMode = true
+    const isDashboardItemEditMode = dashboardInsightMode === DashboardItemMode.Edit
 
     return (
         <div className="dashboard-insight-header">
@@ -62,7 +62,7 @@ export function DashboardInsightHeader({ dashboardInsight, dashboardName }: Prop
                                 ) : (
                                     <div
                                         className="description-box"
-                                        // onClick={() => setDashboardItemMode(DashboardItemMode.Edit)}
+                                        onClick={() => setDashboardInsightMode(DashboardItemMode.Edit)}
                                     >
                                         {dashboardInsight.description ? (
                                             <span>{dashboardInsight.description}</span>
@@ -77,20 +77,20 @@ export function DashboardInsightHeader({ dashboardInsight, dashboardName }: Prop
                             </Card>
                         )}
                     </div>
-                    {/* {isDashboardCollab && isDashboardItemEditMode && (
+                    {isDashboardCollab && isDashboardItemEditMode && (
                         <Button
                             style={{ marginLeft: 8, alignSelf: 'flex-end' }}
                             onClick={() =>
                                 newDescription !== dashboardInsight.description
-                                    ? updateDashboardItem(dashboardInsight.id, { description: newDescription })
-                                    : setDashboardItemMode(null)
+                                    ? updateDashboardInsight(dashboardInsight.id, { description: newDescription })
+                                    : setDashboardInsightMode(null)
                             }
                             type="primary"
                             data-attr="dashboard-insight-description-submit"
                         >
                             Finish
                         </Button>
-                    )} */}
+                    )}
                 </div>
             </div>
         </div>
