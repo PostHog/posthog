@@ -6,7 +6,12 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.trends.util import get_active_user_params, parse_response, process_math
+from ee.clickhouse.queries.trends.util import (
+    get_active_user_params,
+    parse_response,
+    populate_entity_params,
+    process_math,
+)
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL, NULL_BREAKDOWN_SQL, NULL_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL, GET_LATEST_PERSON_SQL
@@ -93,11 +98,11 @@ class ClickhouseTrendsBreakdown:
             )
         elif filter.breakdown_type == "person":
             _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_person_params(
-                "count(*)" if entity.math == "dau" else aggregate_operation, filter, team_id
+                "count(*)" if entity.math == "dau" else aggregate_operation, entity, filter, team_id
             )
         else:
             _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_prop_params(
-                "count(*)" if entity.math == "dau" else aggregate_operation, filter, team_id
+                "count(*)" if entity.math == "dau" else aggregate_operation, entity, filter, team_id
             )
 
         if len(_params["values"]) == 0:
@@ -171,7 +176,7 @@ class ClickhouseTrendsBreakdown:
 
         return params, breakdown_filter, breakdown_filter_params, "value"
 
-    def _breakdown_person_params(self, aggregate_operation: str, filter: Filter, team_id: int):
+    def _breakdown_person_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
         prop_filters, prop_filter_params = parse_prop_clauses(
             filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts
@@ -184,6 +189,8 @@ class ClickhouseTrendsBreakdown:
             is_person_query=True,
         )
 
+        entity_params, entity_format_params = populate_entity_params(entity)
+
         elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
@@ -192,9 +199,10 @@ class ClickhouseTrendsBreakdown:
             person_prop_filters=person_prop_filters,
             aggregate_operation=aggregate_operation,
             latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            **entity_format_params
         )
         top_elements_array = self._get_top_elements(
-            elements_query, filter, team_id, params={**prop_filter_params, **person_prop_params}
+            elements_query, filter, team_id, params={**prop_filter_params, **person_prop_params, **entity_params}
         )
         params = {
             "values": top_elements_array,
@@ -206,18 +214,24 @@ class ClickhouseTrendsBreakdown:
 
         return params, breakdown_filter, breakdown_filter_params, "value"
 
-    def _breakdown_prop_params(self, aggregate_operation: str, filter: Filter, team_id: int):
+    def _breakdown_prop_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
         prop_filters, prop_filter_params = parse_prop_clauses(
             filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts
         )
+
+        entity_params, entity_format_params = populate_entity_params(entity)
+
         elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
             prop_filters=prop_filters,
             aggregate_operation=aggregate_operation,
+            **entity_format_params
         )
-        top_elements_array = self._get_top_elements(elements_query, filter, team_id, params=prop_filter_params)
+        top_elements_array = self._get_top_elements(
+            elements_query, filter, team_id, params={**prop_filter_params, **entity_params}
+        )
         params = {
             "values": top_elements_array,
         }

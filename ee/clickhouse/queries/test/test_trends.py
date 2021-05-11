@@ -80,7 +80,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             event_response, action_response,
         )
 
-    def test_breakdown_filtering(self):
+    def test_breakdown_filtering_ish(self):
         self._create_events()
         # test breakdown filtering
         with freeze_time("2020-01-04T13:01:01Z"):

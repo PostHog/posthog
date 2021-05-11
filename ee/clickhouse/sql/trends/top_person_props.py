@@ -23,7 +23,7 @@ SELECT groupArray(value) FROM (
             WHERE key = %(key)s
         ) ep ON person_id = ep.id
     WHERE
-        e.team_id = %(team_id)s {parsed_date_from} {parsed_date_to} {prop_filters}
+        e.team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters}
     GROUP BY value
     ORDER BY count DESC
     LIMIT %(limit)s OFFSET %(offset)s

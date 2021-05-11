@@ -53,6 +53,7 @@ class ClickhouseTrends(
             if settings.TEST or settings.DEBUG:
                 raise e
             result = []
+
         result = parse_function(result)
         serialized_data = self._format_serialized(entity, result)
 
