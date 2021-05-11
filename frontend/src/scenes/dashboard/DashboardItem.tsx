@@ -68,39 +68,101 @@ interface DisplayProps {
     element: (props: any) => JSX.Element | null
     icon: (props: any) => JSX.Element | null
     viewText: string
-}
-
-const displayMapItem = (className: string, element: any, icon: any, viewText: string): DisplayProps => {
-    return { className, element, icon, viewText }
-}
-
-const displayMapItemLink = ({ id }: DashboardItemType): string => {
-    return `/insights/dashboard_item/${id}`
-}
-
-export const displayHistoryItemLink = ({ id, dashboard, filters }: DashboardItemType): string => {
-    const specialViewTypes = [ViewType.FUNNELS, ViewType.PATHS, ViewType.RETENTION]
-
-    if (specialViewTypes.includes(filters.insights)) {
-        return combineUrl(
-            `/insights`,
-            { insight: filters.insights, dashboardItem: { id: id, dashboard: dashboard }, ...filters },
-            {}
-        ).url
-    }
-    return combineUrl(`/insights`, { dashboardItem: { id: id, dashboard: dashboard }, ...filters }, {}).url
+    link: (item: DashboardItemType) => string
 }
 
 export const displayMap: Record<DisplayedType, DisplayProps> = {
-    ActionsLineGraph: displayMapItem('graph', ActionsLineGraph, LineChartOutlined, 'View graph'),
-    ActionsLineGraphCumulative: displayMapItem('graph', ActionsLineGraph, LineChartOutlined, 'View graph'),
-    ActionsBar: displayMapItem('bar', ActionsLineGraph, BarChartOutlined, 'View graph'),
-    ActionsBarValue: displayMapItem('bar', ActionsBarValueGraph, BarChartOutlined, 'View graph'),
-    ActionsTable: displayMapItem('table', ActionsTable, TableOutlined, 'View table'),
-    ActionsPie: displayMapItem('pie', ActionsPie, PieChartOutlined, 'View graph'),
-    FunnelViz: displayMapItem('funnel', FunnelViz, FunnelPlotOutlined, 'View funnel'),
-    RetentionContainer: displayMapItem('retention', RetentionContainer, TableOutlined, 'View retention'),
-    PathsViz: displayMapItem('paths-viz', Paths, FunnelPlotOutlined, 'View graph'),
+    ActionsLineGraph: {
+        className: 'graph',
+        element: ActionsLineGraph,
+        icon: LineChartOutlined,
+        viewText: 'View graph',
+        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+    },
+    ActionsLineGraphCumulative: {
+        className: 'graph',
+        element: ActionsLineGraph,
+        icon: LineChartOutlined,
+        viewText: 'View graph',
+        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+    },
+    ActionsBar: {
+        className: 'bar',
+        element: ActionsLineGraph,
+        icon: BarChartOutlined,
+        viewText: 'View graph',
+        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+    },
+    ActionsBarValue: {
+        className: 'bar',
+        element: ActionsBarValueGraph,
+        icon: BarChartOutlined,
+        viewText: 'View graph',
+        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+    },
+    ActionsTable: {
+        className: 'table',
+        element: ActionsTable,
+        icon: TableOutlined,
+        viewText: 'View table',
+        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+    },
+    ActionsPie: {
+        className: 'pie',
+        element: ActionsPie,
+        icon: PieChartOutlined,
+        viewText: 'View graph',
+        link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+    },
+    FunnelViz: {
+        className: 'funnel',
+        element: FunnelViz,
+        icon: FunnelPlotOutlined,
+        viewText: 'View funnel',
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
+            return combineUrl(
+                `/insights`,
+                {
+                    insight: ViewType.FUNNELS,
+                    fromDashboardItem: { id: id, name: name, dashboard: dashboard },
+                    ...filters,
+                },
+                {}
+            ).url
+        },
+    },
+    RetentionContainer: {
+        className: 'retention',
+        element: RetentionContainer,
+        icon: TableOutlined,
+        viewText: 'View retention',
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
+            return combineUrl(
+                `/insights`,
+                { insight: ViewType.RETENTION, ...filters },
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
+            ).url
+        },
+    },
+    PathsViz: {
+        className: 'paths-viz',
+        element: Paths,
+        icon: FunnelPlotOutlined,
+        viewText: 'View graph',
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
+            return combineUrl(
+                `/insights`,
+                { insight: ViewType.PATHS, ...filters },
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
+            ).url
+        },
+    },
 }
 
 export function DashboardItem({
@@ -150,7 +212,7 @@ export function DashboardItem({
     const Element = displayMap[_type].element
     const Icon = displayMap[_type].icon
     const viewText = displayMap[_type].viewText
-    const link = displayMapItemLink(item)
+    const link = displayMap[_type].link(item)
     const color = item.color || 'white'
     const { dashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)

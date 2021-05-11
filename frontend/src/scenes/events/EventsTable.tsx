@@ -74,6 +74,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 const { event } = item
                 return <PropertyKeyInfo value={eventToName(event)} />
             },
+            ellipsis: true,
         },
         {
             title: 'Person',
@@ -143,6 +144,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 }
                 return <TZLabel time={event.timestamp} showSeconds />
             },
+            ellipsis: true,
         },
         {
             title: 'Usage',
