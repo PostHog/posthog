@@ -227,8 +227,8 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                         <SelectBox
                             disablePopover
                             selectedItemKey={undefined}
-                            onDismiss={(e: MouseEvent) => {
-                                if (e.target && selectBoxToggleRef?.current?.contains(e.target as Node)) {
+                            onDismiss={(e?: MouseEvent) => {
+                                if (e?.target && selectBoxToggleRef?.current?.contains(e.target as Node)) {
                                     return
                                 }
                                 setOpen(false)

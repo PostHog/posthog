@@ -39,8 +39,8 @@ export function ActionFilterDropdown({
     const { actions } = useValues(actionsModel)
     const { eventDefinitions } = useValues(eventDefinitionsLogic)
 
-    const handleDismiss = (event: MouseEvent): void => {
-        if (openButtonRef?.current?.contains(event.target as Node)) {
+    const handleDismiss = (event?: MouseEvent): void => {
+        if (openButtonRef?.current?.contains(event?.target as Node)) {
             return
         }
         onClose()
@@ -189,6 +189,7 @@ export function ActionInfo({ item }: { item: SelectedItem }): JSX.Element {
                     window.location.pathname + window.location.search
                 )}`}
                 style={{ float: 'right' }}
+                tabIndex={-1}
             >
                 edit
             </Link>
