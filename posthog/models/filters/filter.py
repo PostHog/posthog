@@ -18,7 +18,6 @@ from posthog.models.filters.mixins.common import (
     FilterTestAccountsMixin,
     FormulaMixin,
     GroupedKeyMixin,
-    GroupedMixin,
     InsightMixin,
     IntervalMixin,
     OffsetMixin,
@@ -49,7 +48,6 @@ class Filter(
     DateMixin,
     BaseFilter,
     FormulaMixin,
-    GroupedMixin,
     GroupedKeyMixin,
 ):
     """

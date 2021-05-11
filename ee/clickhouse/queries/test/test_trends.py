@@ -434,3 +434,66 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         filter = Filter(data=data)
         result = ClickhouseTrends().run(filter, self.team,)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
+
+    def _create_grouped_persons(self):
+        p0 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p0"], properties={"org_id": "1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p0",
+            timestamp="2020-01-03T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"org_id": "1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-10T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"org_id": "1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+    def test_grouped_trends(self):
+        self._create_grouped_persons()
+
+        data = {
+            "date_from": "2020-01-01T00:00:00Z",
+            "date_to": "2020-01-12T00:00:00Z",
+            "grouped_key": "org_id",
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "dau"}],
+        }
+
+        filter = Filter(data=data)
+        result = ClickhouseTrends().run(filter, self.team,)
+        self.assertEqual(result[0]["data"], [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0])

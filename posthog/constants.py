@@ -85,7 +85,6 @@ FORMULA = "formula"
 ENTITY_ID = "entity_id"
 ENTITY_TYPE = "entity_type"
 ENTITY_MATH = "entity_math"
-GROUPED = "grouped"
 GROUPED_KEY = "grouped_key"
 
 RETENTION_RECURRING = "retention_recurring"
