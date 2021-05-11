@@ -31,7 +31,7 @@ export function RetentionTab(): JSX.Element {
     return featureFlags['4050-query-ui-optB'] ? <RetentionTabHorizontal /> : <DefaultRetentionTab />
 }
 
-export function DefaultRetentionTab(): JSX.Element {
+function DefaultRetentionTab(): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const returningNode = useRef<HTMLElement>(null)
     const [open, setOpen] = useState<boolean>(false)

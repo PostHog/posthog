@@ -133,7 +133,7 @@ export function RetentionTabHorizontal(): JSX.Element {
                         <Col>...</Col>
                     </Row>
                     <Row gutter={8} align="middle" className="mt">
-                        <Col>... who then came back and did</Col>
+                        <Col>... and then came back and did</Col>
                         <Col>
                             <Button
                                 ref={returningNode}

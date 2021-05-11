@@ -9,8 +9,15 @@ import { FilterType } from '~/types'
 import { Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../TestAccountFilter'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SessionTabHorizontal } from './SessionTabHorizontal'
 
 export function SessionTab(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags['4050-query-ui-optB'] ? <SessionTabHorizontal /> : <DefaultSessionTab />
+}
+
+function DefaultSessionTab(): JSX.Element {
     const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
 

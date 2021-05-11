@@ -93,6 +93,7 @@ export function ActionFilter({
                             singleFilter={singleFilter}
                             showOr={showOr}
                             horizontalUI={horizontalUI}
+                            filterCount={localFilters.length}
                         />
                     ))
                 )
