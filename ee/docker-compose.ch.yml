@@ -93,3 +93,36 @@ services:
             - redis:redis
             - clickhouse:clickhouse
             - kafka:kafka
+    chbk:
+        image: alexakulov/clickhouse-backup
+        command: server
+        ports:
+            - '7171:7171'
+        environment:
+            API_LISTEN: '0.0.0.0:7171'
+            REMOTE_STORAGE: 's3'
+            LOG_LEVEL: 'debug'
+            CLICKHOUSE_HOST: 'clickhouse'
+            S3_ENDPOINT: 'http://minio:9090'
+            S3_ACCESS_KEY: 'AKIAIOSFODNN7EXAMPLE'
+            S3_SECRET_KEY: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+            S3_BUCKET: 'posthog-ch-backups-test'
+            S3_COMPRESSION_LEVEL: '1'
+            S3_COMPRESSION_FORMAT: 'tar'
+            S3_ACL: 'private'
+            S3_FORCE_PATH_STYLE: 'true'
+            S3_PATH: 'backup'
+            S3_DISABLE_SSL: 'true'
+        depends_on:
+            - clickhouse
+            - minio
+    minio:
+        image: minio/minio
+        command: server --address :9090 /data
+        ports:
+            - '9090:9090'
+        volumes:
+            - ./s3data:/data
+        environment:
+            MINIO_ROOT_USER: 'AKIAIOSFODNN7EXAMPLE'
+            MINIO_ROOT_PASSWORD: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
