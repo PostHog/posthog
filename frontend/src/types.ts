@@ -279,7 +279,7 @@ export interface EntityWithProperties extends Entity {
 
 export interface PersonType {
     id?: number
-    uuid?: string
+    uuid: string
     name?: string
     distinct_ids: string[]
     properties: Record<string, any>

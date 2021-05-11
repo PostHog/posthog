@@ -42,9 +42,9 @@ export const eventUsageLogic = kea<
             instanceEmailAvailable,
         }),
         reportFunnelCalculated: (
-            eventCount: number,
-            actionCount: number,
-            interval: string,
+            eventCount: number | undefined,
+            actionCount: number | undefined,
+            interval: string | undefined,
             success: boolean,
             error?: string
         ) => ({
@@ -277,7 +277,10 @@ export const eventUsageLogic = kea<
             posthog.capture('funnel result calculated', {
                 event_count: eventCount,
                 action_count: actionCount,
-                total_count_actions_events: eventCount + actionCount,
+                total_count_actions_events:
+                    typeof eventCount === 'number' && typeof actionCount === 'number'
+                        ? eventCount + actionCount
+                        : undefined,
                 interval: interval,
                 success: success,
                 error: error,

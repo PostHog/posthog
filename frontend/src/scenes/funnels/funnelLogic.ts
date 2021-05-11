@@ -8,24 +8,26 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { funnelLogicType } from './funnelLogicType'
-import { ActionFilter, FilterType } from '~/types'
-interface FunnelParams {
-    actions: ActionFilter[]
-    date_from: string
-    date_to: string
-    display: string
-    insight: string
-    interval: string
-    path_type: string
-    properties: []
-    start_point: string
-}
-
-
+import { FilterType, PersonType } from '~/types'
 interface FunnelResult {
     is_cached: boolean
     last_refresh: string
     result: []
+    type: string
+}
+
+interface FunnelParams {
+    refresh?: boolean
+    from_dashboard?: boolean
+}
+
+interface FunnelStep {
+    action_id: number
+    average_time: number
+    count: number
+    name: string
+    order: number
+    people: string[]
     type: string
 }
 
@@ -36,19 +38,18 @@ function wait(ms = 1000): Promise<void> {
 }
 const SECONDS_TO_POLL = 3 * 60
 
-async function pollFunnel(params = {}): Promise<FunnelResult> {
+async function pollFunnel(params = {} as FunnelParams & Partial<FilterType>): Promise<FunnelResult> {
     let result = await api.get('api/insight/funnel/?' + toParams(params))
     const start = window.performance.now()
     while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
-        const { refresh: _, ...restParams } = params // eslint-disable-line
+        const { refresh, ...restParams } = params
         result = await api.get('api/insight/funnel/?' + toParams(restParams))
     }
     // if endpoint is still loading after 3 minutes just return default
     if (result.loading) {
         throw { status: 0, statusText: 'Funnel timeout' }
     }
-    console.log('POLLING FUNNEL RESULT', result)
     return result
 }
 
@@ -66,11 +67,11 @@ const cleanFunnelParams = (filters: Partial<FilterType>): Partial<FilterType> =>
         interval: autocorrectInterval(filters),
         insight: ViewType.FUNNELS,
     }
-    console.log('CLEAN FUNNEL PARAMS', params)
     return params
 }
 
-const isStepsEmpty = (filters: Partial<FilterType>): boolean => [...(filters.actions || []), ...(filters.events || [])].length === 0
+const isStepsEmpty = (filters: Partial<FilterType>): boolean =>
+    [...(filters.actions || []), ...(filters.events || [])].length === 0
 
 export const funnelLogic = kea<funnelLogicType>({
     key: (props) => {
@@ -78,7 +79,7 @@ export const funnelLogic = kea<funnelLogicType>({
     },
 
     actions: () => ({
-        setSteps: (steps) => ({ steps }),
+        setSteps: (steps: FunnelStep[]) => ({ steps }),
         clearFunnel: true,
         setFilters: (filters, refresh = false) => ({ filters, refresh }),
         saveFunnelInsight: (name) => ({ name }),
@@ -117,7 +118,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     result = await pollFunnel(params)
                     eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
                 } catch (e) {
-                    insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
+                    insightLogic.actions.endQuery(ViewType.FUNNELS, null, e)
                     eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, false, e.message)
                     return []
                 }
@@ -136,7 +137,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
     reducers: ({ props }) => ({
         filters: [
-            props.filters || {},
+            (props.filters as Partial<FilterType>) || {},
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
                 clearFunnel: (state) => ({ new_entity: state.new_entity }),
@@ -164,12 +165,11 @@ export const funnelLogic = kea<funnelLogicType>({
     selectors: ({ selectors }) => ({
         peopleSorted: [
             () => [selectors.stepsWithCount, selectors.people],
-            (steps, people) => {
-                console.log('SELECTORS people', people)
+            (steps: FunnelStep[], people: PersonType[]) => {
                 if (!people) {
                     return null
                 }
-                const score = (person) => {
+                const score = (person: PersonType): number => {
                     return steps.reduce((val, step) => (step.people?.indexOf(person.uuid) > -1 ? val + 1 : val), 0)
                 }
                 return people.sort((a, b) => score(b) - score(a))
@@ -177,15 +177,14 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         isStepsEmpty: [
             () => [selectors.filters],
-            (filters) => {
+            (filters: Partial<FilterType>) => {
                 return isStepsEmpty(filters)
             },
         ],
         propertiesForUrl: [
             () => [selectors.filters],
-            (filters) => {
-                console.log('SELECTORS filters', filters)
-                let result = {
+            (filters: Partial<FilterType>) => {
+                const result = {
                     insight: ViewType.FUNNELS,
                     ...cleanFunnelParams(filters),
                 }
@@ -194,8 +193,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         isValidFunnel: [
             () => [selectors.stepsWithCount],
-            (stepsWithCount) => {
-                console.log('SELECTORS stepswithcount', stepsWithCount)
+            (stepsWithCount: FunnelStep[]) => {
                 return stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1
             },
         ],
@@ -243,7 +241,7 @@ export const funnelLogic = kea<funnelLogicType>({
             if (!props.dashboardItemId) {
                 return ['/insights', { insight: ViewType.FUNNELS }]
             }
-        }
+        },
     }),
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>) => {
