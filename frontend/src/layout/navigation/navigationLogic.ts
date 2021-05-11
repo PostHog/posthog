@@ -186,7 +186,8 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            if (featureFlagLogic.values.featureFlags['test-environment-3149']) {
+            const notSharedDashboard = location.pathname.indexOf('shared_dashboard') > -1 ? false : true
+            if (notSharedDashboard && featureFlagLogic.values.featureFlags['test-environment-3149']) {
                 const localStorageValue =
                     window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY) || Environments.PRODUCTION
                 actions.setFilteredEnvironment(localStorageValue, true)
