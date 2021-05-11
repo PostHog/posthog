@@ -120,11 +120,12 @@ def system_status(request):
         }
     )
 
+    plugin_server_queues = get_plugin_server_job_queues()
     metrics.append(
         {
             "key": "plugin_sever_job_queues",
             "metric": "Job queues enabled in plugin server",
-            "value": get_plugin_server_job_queues() or "unknown",
+            "value": ", ".join([q.capitalize() for q in plugin_server_queues]) if plugin_server_queues else "unknown",
         }
     )
 

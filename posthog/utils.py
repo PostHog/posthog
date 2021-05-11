@@ -472,11 +472,11 @@ def get_plugin_server_version() -> Optional[str]:
     return None
 
 
-def get_plugin_server_job_queues() -> Optional[str]:
+def get_plugin_server_job_queues() -> Optional[List[str]]:
     cache_key_value = get_client().get("@posthog-plugin-server/enabled-job-queues")
     if cache_key_value:
         qs = cache_key_value.decode("utf-8").replace('"', "")
-        return ", ".join([q.capitalize() for q in qs.split(",")])
+        return qs.split(",")
     return None
 
 
