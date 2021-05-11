@@ -472,6 +472,14 @@ def get_plugin_server_version() -> Optional[str]:
     return None
 
 
+def get_plugin_server_job_queues() -> Optional[str]:
+    cache_key_value = get_client().get("@posthog-plugin-server/enabled-job-queues")
+    if cache_key_value:
+        qs = cache_key_value.decode("utf-8").replace('"', "")
+        return ", ".join([q.capitalize() for q in qs.split(",")])
+    return None
+
+
 def get_redis_info() -> Mapping[str, Any]:
     return get_client().info()
 

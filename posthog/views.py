@@ -17,6 +17,7 @@ from posthog.ee import is_ee_enabled
 from posthog.email import is_email_available
 from posthog.models import User
 from posthog.utils import (
+    get_plugin_server_job_queues,
     get_redis_info,
     get_redis_queue_depth,
     get_table_approx_count,
@@ -116,6 +117,14 @@ def system_status(request):
             "key": "plugin_sever_version",
             "metric": "Plugin server version",
             "value": get_plugin_server_version() or "unknown",
+        }
+    )
+
+    metrics.append(
+        {
+            "key": "plugin_sever_job_queues",
+            "metric": "Job queues enabled in plugin server",
+            "value": get_plugin_server_job_queues() or "unknown",
         }
     )
 
