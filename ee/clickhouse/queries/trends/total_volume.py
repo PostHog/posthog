@@ -17,8 +17,8 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
 
-class ClickhouseTrendsNormal:
-    def _normal_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
+class ClickhouseTrendsTotalVolume:
+    def _total_volume_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
 
         interval_annotation = get_trunc_func_ch(filter.interval)
         num_intervals, seconds_in_interval, round_interval = get_time_diff(
@@ -78,7 +78,7 @@ class ClickhouseTrendsNormal:
                 date_to=filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
             )
             final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
-            return final_query, params, self._parse_normal_result(filter)
+            return final_query, params, self._parse_total_volume_result(filter)
 
     def _enumerate_time_range(self, filter: Filter, seconds_in_interval: int) -> List[str]:
         date_from = filter.date_from
@@ -98,7 +98,7 @@ class ClickhouseTrendsNormal:
             date_from += delta
         return time_range
 
-    def _parse_normal_result(self, filter: Filter) -> Callable:
+    def _parse_total_volume_result(self, filter: Filter) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
             for _, stats in enumerate(result):

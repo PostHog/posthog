@@ -59,10 +59,9 @@ export function RetentionTable({
     ]
 
     if (!resultsLoading && results) {
-        if (results.length === 0 || !results[0].values) {
+        if (results.length === 0) {
             return null
         }
-
         results[0].values.forEach((_: any, dayIndex: number) => {
             columns.push({
                 title: results[dayIndex].label,
