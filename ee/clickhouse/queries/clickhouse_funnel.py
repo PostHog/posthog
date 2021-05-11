@@ -9,7 +9,8 @@ from django.utils import timezone
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.util import get_join_condition, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.sql.events import EVENT_JOIN_GROUP_SQL, EVENT_JOIN_PERSON_SQL
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_LINEAR
@@ -25,6 +26,7 @@ from posthog.utils import format_label_date, get_daterange, relative_date_parse
 class ClickhouseFunnel(Funnel):
     _filter: Filter
     _team: Team
+    _join_condition: str
 
     def __init__(self, filter: Filter, team: Team) -> None:
         self._filter = filter
@@ -33,6 +35,10 @@ class ClickhouseFunnel(Funnel):
             "team_id": self._team.pk,
             "events": [],  # purely a speed optimization, don't need this for filtering
         }
+
+        join_condition, join_condition_params = get_join_condition(self._filter, default_with_persons=True)
+        self.params.update(join_condition_params)
+        self._join_condition = join_condition
 
     def _build_filters(self, entity: Entity, index: int) -> str:
         prop_filters, prop_filter_params = parse_prop_clauses(
@@ -81,6 +87,7 @@ class ClickhouseFunnel(Funnel):
             filter=self._filter, table="events.", team_id=self._team.pk
         )
         self.params.update(prop_filter_params)
+
         steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
         query = FUNNEL_SQL.format(
             team_id=self._team.id,
@@ -92,7 +99,7 @@ class ClickhouseFunnel(Funnel):
             extra_select="",
             extra_groupby="",
             within_time="6048000000000000",
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            event_join=self._join_condition,
         )
         return sync_execute(query, self.params)
 
@@ -120,7 +127,7 @@ class ClickhouseFunnel(Funnel):
             extra_select="{}(timestamp) as date,".format(get_trunc_func_ch(self._filter.interval)),
             extra_groupby=",{}(timestamp)".format(get_trunc_func_ch(self._filter.interval)),
             within_time="86400000000",
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            event_join=self._join_condition,
         )
         results = sync_execute(funnel_query, self.params)
         parsed_results = []

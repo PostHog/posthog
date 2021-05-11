@@ -1,12 +1,14 @@
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
+from ee.clickhouse.sql.events import EVENT_JOIN_GROUP_SQL, EVENT_JOIN_PERSON_SQL, GET_EARLIEST_TIMESTAMP_SQL
+from posthog.models.entity import Entity
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
+from posthog.models.filters import Filter
 from posthog.queries.base import TIME_IN_SECONDS
 from posthog.types import FilterType
 
@@ -106,3 +108,14 @@ def date_from_clause(interval_annotation: str, round_interval: bool) -> str:
         return "AND {interval}(timestamp) >= {interval}(toDateTime(%(date_from)s))".format(interval=interval_annotation)
     else:
         return "AND timestamp >= %(date_from)s"
+
+
+def get_join_condition(filter: Filter, default_with_persons=False) -> Tuple[str, Dict[str, Optional[str]]]:
+    join_condition, params = "", {}
+    if filter.grouped:
+        join_condition = EVENT_JOIN_GROUP_SQL
+        params = {"grouped_key": filter.grouped_key}
+    elif default_with_persons:
+        join_condition = EVENT_JOIN_PERSON_SQL
+
+    return join_condition, params

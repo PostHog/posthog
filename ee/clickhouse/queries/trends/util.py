@@ -2,7 +2,6 @@ from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
-from ee.clickhouse.sql.events import EVENT_JOIN_GROUP_SQL, EVENT_JOIN_PERSON_SQL
 from posthog.constants import WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -17,17 +16,6 @@ MATH_FUNCTIONS = {
     "p95": "quantile(0.95)",
     "p99": "quantile(0.99)",
 }
-
-
-def get_join_condition(entity: Entity, filter: Filter) -> Tuple[str, Dict[str, Optional[str]]]:
-    join_condition, params = "", {}
-    if filter.grouped:
-        join_condition = EVENT_JOIN_GROUP_SQL
-        params = {"grouped_key": filter.grouped_key}
-    elif entity.math == "dau":
-        join_condition = EVENT_JOIN_PERSON_SQL
-
-    return join_condition, params
 
 
 def process_math(entity: Entity) -> Tuple[str, Dict[str, Optional[str]]]:
