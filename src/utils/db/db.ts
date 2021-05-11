@@ -639,6 +639,7 @@ export class DB {
             }
         } catch (e) {
             captureException(e)
+            console.error(entry)
             console.error(e)
         }
 

@@ -15,6 +15,7 @@ import {
     pluginAttachment1,
     pluginConfig39,
 } from './helpers/plugins'
+import { resetTestDatabase } from './helpers/sql'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from './helpers/sqlMock'
 
 jest.mock('../src/utils/db/sql')
@@ -30,6 +31,7 @@ let closeServer: () => Promise<void>
 beforeEach(async () => {
     ;[mockServer, closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log })
     console.warn = jest.fn() as any
+    await resetTestDatabase()
 })
 afterEach(async () => {
     await closeServer()
