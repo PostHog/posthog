@@ -5,9 +5,9 @@ import { toParams, objectsEqual } from 'lib/utils'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { actionsModel } from '~/models'
-import { ActionType } from '~/types'
+import { ActionType, FilterType } from '~/types'
 import {
     RetentionTablePayload,
     RetentionTrendPayload,
@@ -15,11 +15,10 @@ import {
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
-
-const RETENTION_RECURRING = 'retention_recurring'
-const RETENTION_FIRST_TIME = 'retention_first_time'
 
 export const retentionOptions = {
     [`${RETENTION_FIRST_TIME}`]: 'First Time',
@@ -103,6 +102,7 @@ export const retentionTableLogic = kea<
         values: [actionsModel, ['actions']],
     },
     actions: () => ({
+        // TODO: This needs to be properly typed with `FilterType`. N.B. We're currently mixing snake_case and pascalCase attribute names.
         setFilters: (filters: Record<string, any>) => ({ filters }),
         loadMorePeople: true,
         updatePeople: (people) => ({ people }),
@@ -114,7 +114,7 @@ export const retentionTableLogic = kea<
         filters: [
             props.filters
                 ? defaultFilters(props.filters as Record<string, any>)
-                : (state: Record<string, any>) => defaultFilters(router.selectors.searchParams(state)),
+                : (state) => defaultFilters(router.selectors.searchParams(state)),
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -139,6 +139,10 @@ export const retentionTableLogic = kea<
         actionsLookup: [
             (selectors) => [(selectors as any).actions],
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
+        ],
+        filtersLoading: [
+            () => [eventDefinitionsLogic.selectors.loaded, propertyDefinitionsLogic.selectors.loaded],
+            (eventsLoaded, propertiesLoaded) => !eventsLoaded || !propertiesLoaded,
         ],
     },
     events: ({ actions, props }) => ({
@@ -202,7 +206,7 @@ export const retentionTableLogic = kea<
                 actions.updatePeople(newPeople)
             }
         },
-        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: FilterType) => {
             if (props.dashboardItemId) {
                 actions.setFilters(filters)
             }
