@@ -105,7 +105,9 @@ export function SelectBox({
                         onChange={(e) => {
                             setSearch(e.target.value)
                         }}
-                        onBlur={() => onDismiss()}
+                        onKeyDown={(e) => {
+                            e.key === 'Tab' && onDismiss() // Close select box when input blurs via Tab
+                        }}
                         style={{ width: '100%', borderRadius: 0, height: '10%' }}
                     />
                     <div style={{ width: '100%', height: '90%' }} tabIndex={-1}>
