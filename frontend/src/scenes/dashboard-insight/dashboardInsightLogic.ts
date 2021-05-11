@@ -43,7 +43,7 @@ export const dashboardInsightLogic = kea<dashboardInsightLogicType>({
     }),
 
     urlToAction: ({ actions }) => ({
-        '/dashboard_insight(/:id)': async ({ id }) => {
+        '/dashboard_insight(/:id)': async ({ id }: { id: number }) => {
             actions.loadDashboardInsight(id)
         },
     }),
