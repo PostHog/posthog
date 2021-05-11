@@ -22,7 +22,7 @@ import {
 } from '@ant-design/icons'
 
 export function ChartFilter(props) {
-    let { filters, onChange, showIcons = false } = props
+    let { filters, onChange } = props
 
     const { chartFilter } = useValues(chartFilterLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
@@ -43,12 +43,10 @@ export function ChartFilter(props) {
             : ACTIONS_LINE_GRAPH_LINEAR
 
     function Label({ icon, children = null }) {
-        return showIcons ? (
+        return (
             <>
                 {icon} {children}
             </>
-        ) : (
-            children
         )
     }
 

@@ -217,6 +217,7 @@ export function ActionFilterRow({
                             type="link"
                             onClick={onClose}
                             className="row-action-btn delete"
+                            data-attr={'delete-prop-filter-' + index}
                             title="Delete graph series"
                         >
                             <DeleteOutlined />

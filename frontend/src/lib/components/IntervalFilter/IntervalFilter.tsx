@@ -41,21 +41,18 @@ type IntervalKeyType = keyof typeof intervals
 interface InvertalFilterProps {
     view: ViewType
     disabled?: boolean
-    showIcons?: boolean
 }
 
-export function IntervalFilter({ view, disabled, showIcons }: InvertalFilterProps): JSX.Element {
+export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Element {
     const interval: IntervalKeyType = useValues(intervalFilterLogic).interval
     const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic)
     const options = Object.entries(intervals).map(([key, { label, icon }]) => ({
         key,
         value: key,
-        label: showIcons ? (
+        label: (
             <>
                 {icon} {label}
             </>
-        ) : (
-            label
         ),
         disabled: (key === 'minute' || key === 'hour') && view === ViewType.SESSIONS,
     }))
