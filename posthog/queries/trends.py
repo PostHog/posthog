@@ -307,7 +307,7 @@ class Trends(LifecycleTrend, BaseQuery):
         elif filter.shown_as == TRENDS_LIFECYCLE:
             result = self._serialize_lifecycle(entity, filter, team_id)
         else:
-            result = self._format_normal_query(entity, filter, team_id)
+            result = self._format_total_volume_query(entity, filter, team_id)
 
         serialized_data = self._format_serialized(entity, result)
 
@@ -330,7 +330,7 @@ class Trends(LifecycleTrend, BaseQuery):
             )
         return filter
 
-    def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+    def _format_total_volume_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
 
         items, filtered_events = aggregate_by_interval(events=events, team_id=team_id, entity=entity, filter=filter,)
