@@ -117,6 +117,7 @@ describe('e2e clickhouse ingestion', () => {
 
         await server.kafkaProducer?.flush()
         await delayUntilEventIngested(() => server.db.fetchEvents())
+        await delayUntilEventIngested(() => server.db.fetchPluginLogEntries())
 
         const pluginLogEntries = await getLogsSinceStart()
         expect(
