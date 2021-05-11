@@ -25,8 +25,6 @@ if is_ee_enabled():
     from ee.kafka_client.client import KafkaProducer
     from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 
-    producer = KafkaProducer()
-
     def log_event(
         distinct_id: str,
         ip: Optional[str],
@@ -51,7 +49,7 @@ if is_ee_enabled():
             "now": now.isoformat(),
             "sent_at": sent_at.isoformat() if sent_at else "",
         }
-        producer.produce(topic=topic, data=data)
+        KafkaProducer().produce(topic=topic, data=data)
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
