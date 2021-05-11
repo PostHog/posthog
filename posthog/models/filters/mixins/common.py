@@ -20,6 +20,8 @@ from posthog.constants import (
     EVENTS,
     FILTER_TEST_ACCOUNTS,
     FORMULA,
+    GROUPED,
+    GROUPED_KEY,
     INSIGHT,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
@@ -321,3 +323,23 @@ class EntityTypeMixin(BaseParamMixin):
     @include_dict
     def entity_type_to_dict(self):
         return {"entity_type": self.target_entity_type} if self.target_entity_type else {}
+
+
+class GroupedMixin(BaseParamMixin):
+    @cached_property
+    def grouped(self) -> Optional[bool]:
+        return self._date.get(GROUPED, False)
+
+    @include_dict
+    def grouped_to_dict(self):
+        return {"grouped": self.grouped} if self.grouped else {}
+
+
+class GroupedKeyMixin(BaseParamMixin):
+    @cached_property
+    def grouped_key(self) -> Optional[str]:
+        return self._date.get(GROUPED_KEY, False)
+
+    @include_dict
+    def grouped_key_to_dict(self):
+        return {"grouped_key": self.grouped_key} if self.grouped_key else {}

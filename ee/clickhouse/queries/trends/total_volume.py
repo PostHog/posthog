@@ -6,7 +6,7 @@ from django.utils import timezone
 from ee.clickhouse.client import format_sql, sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.trends.util import get_active_user_params, parse_response, process_math
+from ee.clickhouse.queries.trends.util import get_active_user_params, get_join_condition, parse_response, process_math
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
@@ -31,10 +31,11 @@ class ClickhouseTrendsTotalVolume:
             props_to_filter, team_id, filter_test_accounts=filter.filter_test_accounts
         )
 
-        aggregate_operation, join_condition, math_params = process_math(entity)
+        aggregate_operation, math_params = process_math(entity)
+        join_condition, join_params = get_join_condition(entity, filter)
 
         params: Dict = {"team_id": team_id}
-        params = {**params, **prop_filter_params, **math_params, **date_params}
+        params = {**params, **prop_filter_params, **math_params, **date_params, **join_params}
         content_sql_params = {
             "interval": interval_annotation,
             "parsed_date_from": date_from_clause(interval_annotation, round_interval),

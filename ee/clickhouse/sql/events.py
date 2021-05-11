@@ -195,7 +195,20 @@ SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seco
 """
 
 EVENT_JOIN_PERSON_SQL = """
-INNER JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) as pid ON events.distinct_id = pid.distinct_id
+INNER JOIN (SELECT person_id AS uid, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) as pid ON events.distinct_id = pid.distinct_id
+""".format(
+    latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
+)
+
+EVENT_JOIN_GROUP_SQL = """
+INNER JOIN (
+    SELECT grouped_identifier as uid, distinct_id FROM ({latest_distinct_id_sql}) pdi
+    JOIN (
+        SELECT id, trim(BOTH '"' FROM JSONExtractRaw(properties, %(grouped_key)s)) AS grouped_identifier FROM person WHERE team_id = %(team_id)s AND notEmpty(grouped_identifier)
+    ) p
+    ON pdi.person_id = p.id
+    WHERE team_id = %(team_id)s
+ ) AS pid ON events.distinct_id = pid.distinct_id
 """.format(
     latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
 )

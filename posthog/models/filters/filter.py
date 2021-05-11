@@ -17,6 +17,8 @@ from posthog.models.filters.mixins.common import (
     EntityTypeMixin,
     FilterTestAccountsMixin,
     FormulaMixin,
+    GroupedKeyMixin,
+    GroupedMixin,
     InsightMixin,
     IntervalMixin,
     OffsetMixin,
@@ -47,6 +49,8 @@ class Filter(
     DateMixin,
     BaseFilter,
     FormulaMixin,
+    GroupedMixin,
+    GroupedKeyMixin,
 ):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.

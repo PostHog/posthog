@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
-from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
+from ee.clickhouse.sql.events import EVENT_JOIN_GROUP_SQL, EVENT_JOIN_PERSON_SQL
 from posthog.constants import WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -19,19 +19,28 @@ MATH_FUNCTIONS = {
 }
 
 
-def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
+def get_join_condition(entity: Entity, filter: Filter) -> Tuple[str, Dict[str, Optional[str]]]:
+    join_condition, params = "", {}
+    if filter.grouped:
+        join_condition = EVENT_JOIN_GROUP_SQL
+        params = {"grouped_key": filter.grouped_key}
+    elif entity.math == "dau":
+        join_condition = EVENT_JOIN_PERSON_SQL
+
+    return join_condition, params
+
+
+def process_math(entity: Entity) -> Tuple[str, Dict[str, Optional[str]]]:
     aggregate_operation = "count(*)"
     params = {}
-    join_condition = ""
     value = "toFloat64OrNull(JSONExtractRaw(properties, '{}'))".format(entity.math_property)
     if entity.math == "dau":
-        join_condition = EVENT_JOIN_PERSON_SQL
-        aggregate_operation = "count(DISTINCT person_id)"
+        aggregate_operation = "count(DISTINCT uid)"
     elif entity.math in MATH_FUNCTIONS:
         aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}({value})"
         params = {"join_property_key": entity.math_property}
 
-    return aggregate_operation, join_condition, params
+    return aggregate_operation, params
 
 
 def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
