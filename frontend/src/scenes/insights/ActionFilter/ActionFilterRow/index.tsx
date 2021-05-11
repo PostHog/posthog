@@ -110,7 +110,7 @@ export function ActionFilterRow({
     }
 
     return (
-        <div>
+        <div className={horizontalUI ? 'action-row-striped' : ''}>
             {showOr && (
                 <Row align="middle">
                     {index > 0 && (
@@ -120,7 +120,7 @@ export function ActionFilterRow({
                     )}
                 </Row>
             )}
-            <Row gutter={8} align="middle" className="mt">
+            <Row gutter={8} align="middle" className={!horizontalUI ? 'mt' : ''}>
                 {letter && (
                     <Col className="action-row-letter">
                         <span>{letter}</span>
@@ -260,7 +260,6 @@ export function ActionFilterRow({
                         propertyFilters={filter.properties}
                         onChange={(properties: PropertyFilter[]) => updateFilterProperty({ properties, index })}
                         disablePopover={horizontalUI}
-                        horizontalUI={horizontalUI}
                         style={{ marginBottom: 0 }}
                     />
                 </div>
