@@ -126,7 +126,8 @@ export function LineGraph({
             hoverBackgroundColor: hoverColor,
             backgroundColor: (type === 'bar' || type === 'doughnut') && borderColor,
             fill: false,
-            borderWidth: 1,
+            borderWidth: 2,
+            pointRadius: 0,
             pointHitRadius: 8,
             ...dataset,
         }
