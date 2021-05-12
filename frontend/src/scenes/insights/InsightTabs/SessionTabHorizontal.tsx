@@ -20,12 +20,12 @@ export function SessionTabHorizontal(): JSX.Element {
     return (
         <Row gutter={16}>
             <Col md={16} xs={24}>
-                <Row gutter={8} align="middle" className="mt">
+                <Row gutter={8} align="middle" className="mt mb">
                     <Col>Showing</Col>
                     <Col>
                         <SessionFilter value={filters.session} onChange={(v: string) => setFilters({ session: v })} />
                     </Col>
-                    <Col>where a session is counted if a user did any of the following events</Col>
+                    <Col>where a user did any of the following:</Col>
                     <Col />
                 </Row>
                 <ActionFilter

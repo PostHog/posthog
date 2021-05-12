@@ -111,11 +111,11 @@ export function ActionFilterRow({
         value = entity.id || filter.id
     }
 
-    const orLabel = showOr ? <div className="stateful-badge mc-main or width-locked">OR</div> : null
+    const orLabel = <div className="stateful-badge mc-main or width-locked">OR</div>
 
     return (
         <div className={horizontalUI ? 'action-row-striped' : ''}>
-            {!horizontalUI && index > 0 && (
+            {!horizontalUI && index > 0 && showOr && (
                 <Row align="middle" style={{ marginTop: 12 }}>
                     {orLabel}
                 </Row>
@@ -233,7 +233,7 @@ export function ActionFilterRow({
                         </Button>
                     </Col>
                 )}
-                {horizontalUI && filterCount > 1 && index < filterCount - 1 && orLabel}
+                {horizontalUI && filterCount > 1 && index < filterCount - 1 && showOr && orLabel}
             </Row>
             {!horizontalUI && !hideMathSelector && MATHS[math || '']?.onProperty && (
                 <Row align="middle">
