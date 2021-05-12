@@ -5,7 +5,7 @@ import { ActionFilter, EntityTypes, PropertyFilter, SelectOption } from '~/types
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
-import { DownOutlined, DeleteOutlined, FilterOutlined } from '@ant-design/icons'
+import { DownOutlined, DeleteOutlined, FilterOutlined, CloseSquareOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -38,6 +38,7 @@ interface ActionFilterRowProps {
     showOr?: boolean
     letter?: string | null
     horizontalUI?: boolean
+    filterCount: number
 }
 
 export function ActionFilterRow({
@@ -50,6 +51,7 @@ export function ActionFilterRow({
     showOr,
     letter,
     horizontalUI = false,
+    filterCount,
 }: ActionFilterRowProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
@@ -109,53 +111,60 @@ export function ActionFilterRow({
         value = entity.id || filter.id
     }
 
+    const orLabel = <div className="stateful-badge mc-main or width-locked">OR</div>
+
     return (
         <div className={horizontalUI ? 'action-row-striped' : ''}>
-            {showOr && (
-                <Row align="middle">
-                    {index > 0 && (
-                        <div className="stateful-badge mc-main or width-locked" style={{ marginTop: 12 }}>
-                            OR
-                        </div>
-                    )}
+            {!horizontalUI && index > 0 && showOr && (
+                <Row align="middle" style={{ marginTop: 12 }}>
+                    {orLabel}
                 </Row>
             )}
+
             <Row gutter={8} align="middle" className={!horizontalUI ? 'mt' : ''}>
+                {horizontalUI && !singleFilter && filterCount > 1 && (
+                    <Col>
+                        <Button
+                            type="link"
+                            onClick={onClose}
+                            className="row-action-btn delete"
+                            title="Remove graph series"
+                            danger
+                            icon={<CloseSquareOutlined />}
+                        />
+                    </Col>
+                )}
                 {letter && (
                     <Col className="action-row-letter">
                         <span>{letter}</span>
                     </Col>
                 )}
-                {horizontalUI && (
+                {horizontalUI && !hideMathSelector && (
                     <>
                         <Col>Showing</Col>
-                        {!hideMathSelector && (
+                        <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
+                            <MathSelector
+                                math={math}
+                                index={index}
+                                onMathSelect={onMathSelect}
+                                areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
+                                style={{ maxWidth: '100%', width: 'initial' }}
+                            />
+                        </Col>
+                        {MATHS[math || '']?.onProperty && (
                             <>
+                                <Col>of</Col>
                                 <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
-                                    <MathSelector
+                                    <MathPropertySelector
+                                        name={name}
                                         math={math}
+                                        mathProperty={mathProperty}
                                         index={index}
-                                        onMathSelect={onMathSelect}
-                                        areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
-                                        style={{ maxWidth: '100%', width: 'initial' }}
+                                        onMathPropertySelect={onMathPropertySelect}
+                                        properties={numericalPropertyNames}
+                                        horizontalUI={horizontalUI}
                                     />
                                 </Col>
-                                {MATHS[math || '']?.onProperty && (
-                                    <>
-                                        <Col>of</Col>
-                                        <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
-                                            <MathPropertySelector
-                                                name={name}
-                                                math={math}
-                                                mathProperty={mathProperty}
-                                                index={index}
-                                                onMathPropertySelect={onMathPropertySelect}
-                                                properties={numericalPropertyNames}
-                                                horizontalUI={horizontalUI}
-                                            />
-                                        </Col>
-                                    </>
-                                )}
                             </>
                         )}
                         <Col>{separatorWord}</Col>
@@ -202,7 +211,7 @@ export function ActionFilterRow({
                                     ? setEntityFilterVisibility(filter.order, !visible)
                                     : undefined
                             }}
-                            className={`row-action-btn show-filters ${visible ? 'visible' : ''}`}
+                            className={`row-action-btn show-filters${filter.properties?.length ? ' visible' : ''}`}
                             data-attr={'show-prop-filter-' + index}
                             title="Show filters"
                         >
@@ -211,7 +220,7 @@ export function ActionFilterRow({
                         </Button>
                     </Col>
                 )}
-                {!singleFilter && (
+                {!horizontalUI && !singleFilter && filterCount > 1 && (
                     <Col>
                         <Button
                             type="link"
@@ -224,6 +233,7 @@ export function ActionFilterRow({
                         </Button>
                     </Col>
                 )}
+                {horizontalUI && filterCount > 1 && index < filterCount - 1 && showOr && orLabel}
             </Row>
             {!horizontalUI && !hideMathSelector && MATHS[math || '']?.onProperty && (
                 <Row align="middle">

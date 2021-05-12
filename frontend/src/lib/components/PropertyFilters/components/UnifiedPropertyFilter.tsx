@@ -224,10 +224,10 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                         onClick={onClick}
                         style={{ display: 'flex', alignItems: 'center' }}
                         ref={selectBoxToggleRef}
+                        icon={!key ? <PlusOutlined /> : null}
                     >
-                        {!key && <PlusOutlined style={{ fontSize: 10 }} />}
                         <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                            <PropertyKeyInfo value={key || 'Add filter'} />
+                            {key ? <PropertyKeyInfo value={key} /> : 'Add filter'}
                         </span>
                         {key && <DownOutlined style={{ fontSize: 10 }} />}
                     </Button>

@@ -43,6 +43,7 @@ export const SortableActionFilterRow = sortableElement(
                 key={filterIndex}
                 hideMathSelector={hideMathSelector}
                 hidePropertySelector={hidePropertySelector}
+                filterCount={filterCount}
             />
         </div>
     )

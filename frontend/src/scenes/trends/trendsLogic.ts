@@ -304,7 +304,7 @@ export const trendsLogic = kea<
     selectors: () => ({
         filtersLoading: [
             () => [eventDefinitionsLogic.selectors.loaded, propertyDefinitionsLogic.selectors.loaded],
-            (eventsLoaded, propertiesLoaded) => !eventsLoaded || !propertiesLoaded,
+            (eventsLoaded, propertiesLoaded): boolean => !eventsLoaded || !propertiesLoaded,
         ],
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],

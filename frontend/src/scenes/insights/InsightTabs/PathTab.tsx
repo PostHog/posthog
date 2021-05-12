@@ -13,8 +13,15 @@ import { Select } from 'antd'
 import { PropertyValue } from 'lib/components/PropertyFilters'
 import { TestAccountFilter } from '../TestAccountFilter'
 import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PathTabHorizontal } from './PathTabHorizontal'
 
 export function PathTab(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags['4050-query-ui-optB'] ? <PathTabHorizontal /> : <DefaultPathTab />
+}
+
+function DefaultPathTab(): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsLogic)
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
