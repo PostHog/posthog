@@ -92,31 +92,37 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                             )}
                         </>
                     )}
-                    <h4 className="secondary">Global Filters</h4>
-                    {filtersLoading ? (
-                        <Skeleton active paragraph={{ rows: 2 }} />
-                    ) : (
+                    {filters.insight !== ViewType.LIFECYCLE && (
                         <>
-                            <PropertyFilters pageKey="trends-filters" />
-                            <TestAccountFilter filters={filters} onChange={setFilters} />
-                            {(!filters.insight || filters.insight === ViewType.TRENDS) &&
-                                featureFlags['3275-formulas'] &&
-                                preflight?.ee_enabled && (
-                                    <>
-                                        <hr />
-                                        <h4 className="secondary">Formula</h4>
-                                        <Formula
-                                            filters={filters}
-                                            onFocus={(hasFocus, localFormula) =>
-                                                setIsUsingFormulas(hasFocus ? true : localFormula ? true : false)
-                                            }
-                                            onChange={(formula: string): void => {
-                                                setIsUsingFormulas(formula ? true : false)
-                                                setFilters({ formula })
-                                            }}
-                                        />
-                                    </>
-                                )}
+                            <h4 className="secondary">Global Filters</h4>
+                            {filtersLoading ? (
+                                <Skeleton active paragraph={{ rows: 2 }} />
+                            ) : (
+                                <>
+                                    <PropertyFilters pageKey="trends-filters" />
+                                    <TestAccountFilter filters={filters} onChange={setFilters} />
+                                    {(!filters.insight || filters.insight === ViewType.TRENDS) &&
+                                        featureFlags['3275-formulas'] &&
+                                        preflight?.ee_enabled && (
+                                            <>
+                                                <hr />
+                                                <h4 className="secondary">Formula</h4>
+                                                <Formula
+                                                    filters={filters}
+                                                    onFocus={(hasFocus, localFormula) =>
+                                                        setIsUsingFormulas(
+                                                            hasFocus ? true : localFormula ? true : false
+                                                        )
+                                                    }
+                                                    onChange={(formula: string): void => {
+                                                        setIsUsingFormulas(formula ? true : false)
+                                                        setFilters({ formula })
+                                                    }}
+                                                />
+                                            </>
+                                        )}
+                                </>
+                            )}
                         </>
                     )}
                     {filters.insight !== ViewType.LIFECYCLE && filters.insight !== ViewType.STICKINESS && (
