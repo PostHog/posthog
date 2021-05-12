@@ -9,8 +9,10 @@ import { FilterType } from '~/types'
 import { Col, Row, Skeleton } from 'antd'
 import { TestAccountFilter } from '../TestAccountFilter'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import { BaseTabProps } from '../Insights'
+import { InsightTitle } from './InsightTitle'
 
-export function SessionTabHorizontal(): JSX.Element {
+export function SessionTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
 
@@ -20,7 +22,10 @@ export function SessionTabHorizontal(): JSX.Element {
     return (
         <Row gutter={16}>
             <Col md={16} xs={24}>
-                <Row gutter={8} align="middle" className="mt mb">
+                <Row>
+                    <InsightTitle annotations={annotationsToCreate} filters={filters} />
+                </Row>
+                <Row gutter={8} align="middle" className="mb">
                     <Col>Showing</Col>
                     <Col>
                         <SessionFilter value={filters.session} onChange={(v: string) => setFilters({ session: v })} />

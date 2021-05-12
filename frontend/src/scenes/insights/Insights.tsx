@@ -34,6 +34,11 @@ import { HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
+import { PageHeader } from 'lib/components/PageHeader'
+
+export interface BaseTabProps {
+    annotationsToCreate: any[] // TODO: Type properly
+}
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -95,6 +100,7 @@ export function Insights(): JSX.Element {
 
     return (
         <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>
+            {horizontalUI && <PageHeader title="Insights" />}
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
                     activeKey={activeView}
@@ -242,10 +248,18 @@ export function Insights(): JSX.Element {
                                                     annotationsToCreate={annotationsToCreate}
                                                 />
                                             ),
-                                            [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                            [`${ViewType.FUNNELS}`]: <FunnelTab />,
-                                            [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                            [`${ViewType.PATHS}`]: <PathTab />,
+                                            [`${ViewType.SESSIONS}`]: (
+                                                <SessionTab annotationsToCreate={annotationsToCreate} />
+                                            ),
+                                            [`${ViewType.FUNNELS}`]: (
+                                                <FunnelTab annotationsToCreate={annotationsToCreate} />
+                                            ),
+                                            [`${ViewType.RETENTION}`]: (
+                                                <RetentionTab annotationsToCreate={annotationsToCreate} />
+                                            ),
+                                            [`${ViewType.PATHS}`]: (
+                                                <PathTab annotationsToCreate={annotationsToCreate} />
+                                            ),
                                         }[activeView]
                                     }
                                 </div>

@@ -24,12 +24,13 @@ import './RetentionTab.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { RetentionTabHorizontal } from './RetentionTabHorizontal'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { BaseTabProps } from '../Insights'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
-export function RetentionTab(): JSX.Element {
+export function RetentionTab(props: BaseTabProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? <RetentionTabHorizontal /> : <DefaultRetentionTab />
+    return featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? <RetentionTabHorizontal {...props} /> : <DefaultRetentionTab />
 }
 
 function DefaultRetentionTab(): JSX.Element {

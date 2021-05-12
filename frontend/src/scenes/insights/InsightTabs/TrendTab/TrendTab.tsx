@@ -16,10 +16,10 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
 import { TrendTabHorizontal } from './TrendTabHorizontal'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { BaseTabProps } from 'scenes/insights/Insights'
 
-export interface TrendTabProps {
+export interface TrendTabProps extends BaseTabProps {
     view: string
-    annotationsToCreate: any[] // TODO: Type properly
 }
 
 export function TrendTab(props: TrendTabProps): JSX.Element {

@@ -5,7 +5,7 @@ import { ActionFilter } from '../../ActionFilter/ActionFilter'
 import { Tooltip, Row, Skeleton, Checkbox, Col, Button } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
-import { InfoCircleOutlined, SaveOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
 import { ViewType } from '../../insightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,9 +14,9 @@ import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { TrendTabProps } from './TrendTab'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import { InsightTitle } from '../InsightTitle'
 
 export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
@@ -43,18 +43,7 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
         <>
             <Row gutter={16}>
                 <Col md={16} xs={24}>
-                    <h3 className="l3" style={{ display: 'flex', alignItems: 'center' }}>
-                        Unsaved query{' '}
-                        <SaveToDashboard
-                            displayComponent={<Button type="link" size="small" icon={<SaveOutlined />} />}
-                            item={{
-                                entity: {
-                                    filters: filters,
-                                    annotations: annotationsToCreate,
-                                },
-                            }}
-                        />
-                    </h3>
+                    <InsightTitle annotations={annotationsToCreate} filters={filters} />
                     {filtersLoading ? (
                         <Skeleton active />
                     ) : (
