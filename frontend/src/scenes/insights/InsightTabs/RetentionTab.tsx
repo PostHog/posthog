@@ -100,9 +100,10 @@ function DefaultRetentionTab(): JSX.Element {
                     data-attr="retention-action"
                     onClick={(): void => setOpen(!open)}
                     style={{ marginRight: 8, marginBottom: 8 }}
+                    className="btn-retention-dropdown"
                 >
                     <PropertyKeyInfo value={selectedCohortizingEvent} />
-                    <DownOutlined className="text-muted svg-fix" style={{ marginRight: '-6px' }} />
+                    <DownOutlined className="dropdown-indicator" />
                 </Button>
                 <Select
                     value={retentionOptions[filters.retention_type]}
@@ -140,9 +141,10 @@ function DefaultRetentionTab(): JSX.Element {
                 ref={returningNode}
                 data-attr="retention-returning-action"
                 onClick={(): void => setReturningOpen(!returningOpen)}
+                className="btn-retention-dropdown"
             >
                 <PropertyKeyInfo value={selectedRetainingEvent} />
-                <DownOutlined className="text-muted svg-fix" style={{ marginRight: '-6px' }} />
+                <DownOutlined className="dropdown-indicator" />
             </Button>
             <ActionFilterDropdown
                 open={returningOpen}
