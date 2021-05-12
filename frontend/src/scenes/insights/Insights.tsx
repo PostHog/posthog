@@ -63,7 +63,8 @@ export function Insights(): JSX.Element {
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
 
-    const horizontalUI = featureFlags[FEATURE_FLAGS.QUERY_UX_V2] && activeView !== ViewType.FUNNELS
+    const newUI = featureFlags[FEATURE_FLAGS.QUERY_UX_V2]
+    const horizontalUI = newUI && activeView !== ViewType.FUNNELS
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -100,7 +101,7 @@ export function Insights(): JSX.Element {
 
     return (
         <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>
-            {horizontalUI && <PageHeader title="Insights" />}
+            {newUI && <PageHeader title="Insights" />}
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
                     activeKey={activeView}
@@ -252,7 +253,7 @@ export function Insights(): JSX.Element {
                                                 <SessionTab annotationsToCreate={annotationsToCreate} />
                                             ),
                                             [`${ViewType.FUNNELS}`]: (
-                                                <FunnelTab annotationsToCreate={annotationsToCreate} />
+                                                <FunnelTab annotationsToCreate={annotationsToCreate} newUI={newUI} />
                                             ),
                                             [`${ViewType.RETENTION}`]: (
                                                 <RetentionTab annotationsToCreate={annotationsToCreate} />
