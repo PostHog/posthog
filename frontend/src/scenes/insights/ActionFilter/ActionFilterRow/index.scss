@@ -69,6 +69,12 @@
         &.visible {
             background-color: $primary;
             color: #fff;
+
+            &:hover {
+                background-color: #fff;
+                color: $primary;
+                border: 1px solid $primary;
+            }
         }
     }
 }

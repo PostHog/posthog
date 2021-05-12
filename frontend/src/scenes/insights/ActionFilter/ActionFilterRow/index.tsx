@@ -199,7 +199,7 @@ export function ActionFilterRow({
                                     ? setEntityFilterVisibility(filter.order, !visible)
                                     : undefined
                             }}
-                            className={`row-action-btn show-filters ${visible ? 'visible' : ''}`}
+                            className={`row-action-btn show-filters${filter.properties.length ? ' visible' : ''}`}
                             data-attr={'show-prop-filter-' + index}
                             title="Show filters"
                         >
@@ -208,7 +208,7 @@ export function ActionFilterRow({
                         </Button>
                     </Col>
                 )}
-                {!singleFilter && (
+                {!singleFilter && filterCount > 1 && (
                     <Col>
                         <Button
                             type="link"
