@@ -668,6 +668,10 @@ export enum DashboardMode { // Default mode is null
     Public = 'public', // When viewing the dashboard publicly via a shareToken
 }
 
+export enum DashboardItemMode {
+    Edit = 'edit',
+}
+
 // Reserved hotkeys globally available
 export type GlobalHotKeys = 'g'
 
