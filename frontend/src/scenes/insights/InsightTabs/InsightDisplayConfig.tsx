@@ -158,9 +158,7 @@ function HorizontalDefaultInsightDisplayConfig({
                         disabled={allFilters.insight === ViewType.LIFECYCLE}
                     />
                 )}
-                {showIntervalFilter(activeView, allFilters) && (
-                    <IntervalFilter view={activeView} showIcons={featureFlags['4050-query-ui-optB']} />
-                )}
+                {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
 
