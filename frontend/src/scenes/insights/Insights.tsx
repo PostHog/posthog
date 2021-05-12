@@ -58,7 +58,7 @@ export function Insights(): JSX.Element {
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
 
-    const horizontalUI = featureFlags['4050-query-ui-optB']
+    const horizontalUI = featureFlags['4050-query-ui-optB'] && activeView !== ViewType.FUNNELS
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)

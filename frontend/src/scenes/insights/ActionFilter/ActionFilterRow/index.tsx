@@ -5,13 +5,14 @@ import { ActionFilter, EntityTypes, PropertyFilter, SelectOption } from '~/types
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
-import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
+import { DownOutlined, DeleteOutlined, FilterOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { pluralize } from 'lib/utils'
 import './index.scss'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
@@ -22,9 +23,7 @@ const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): 
         return 'Hide filters'
     }
     if (filter.properties && Object.keys(filter.properties).length > 0) {
-        return `${Object.keys(filter.properties).length} filter${
-            Object.keys(filter.properties).length === 1 ? '' : 's'
-        }`
+        return pluralize(filter.properties?.length, 'filter')
     }
     return 'Add filters'
 }
@@ -63,7 +62,7 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsLogic)
 
-    const visible = horizontalUI || (typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false)
+    const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
     let entity, name, value
     const { math, math_property: mathProperty } = filter
@@ -111,7 +110,7 @@ export function ActionFilterRow({
     }
 
     return (
-        <div>
+        <div className={horizontalUI ? 'action-row-striped' : ''}>
             {showOr && (
                 <Row align="middle">
                     {index > 0 && (
@@ -121,7 +120,7 @@ export function ActionFilterRow({
                     )}
                 </Row>
             )}
-            <Row gutter={8} align="middle" className="mt">
+            <Row gutter={8} align="middle" className={!horizontalUI ? 'mt' : ''}>
                 {letter && (
                     <Col className="action-row-letter">
                         <span>{letter}</span>
@@ -194,15 +193,32 @@ export function ActionFilterRow({
                         )}
                     </Col>
                 )}
+                {horizontalUI && (
+                    <Col>
+                        <Button
+                            type="link"
+                            onClick={() => {
+                                typeof filter.order === 'number'
+                                    ? setEntityFilterVisibility(filter.order, !visible)
+                                    : undefined
+                            }}
+                            className={`row-action-btn show-filters ${visible ? 'visible' : ''}`}
+                            data-attr={'show-prop-filter-' + index}
+                            title="Show filters"
+                        >
+                            <FilterOutlined />
+                            {filter.properties?.length ? pluralize(filter.properties?.length, 'filter') : null}
+                        </Button>
+                    </Col>
+                )}
                 {!singleFilter && (
                     <Col>
                         <Button
                             type="link"
                             onClick={onClose}
-                            style={{
-                                padding: 0,
-                                paddingLeft: 8,
-                            }}
+                            className="row-action-btn delete"
+                            data-attr={'delete-prop-filter-' + index}
+                            title="Delete graph series"
                         >
                             <DeleteOutlined />
                         </Button>

@@ -4,14 +4,39 @@ import { intervalFilterLogic } from './intervalFilterLogic'
 import { useValues, useActions } from 'kea'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { disableHourFor, disableMinuteFor } from 'lib/utils'
+import { CalendarOutlined, ClockCircleOutlined } from '@ant-design/icons'
 
-const intervalMapping = {
-    minute: 'Minute',
-    hour: 'Hourly',
-    day: 'Daily',
-    week: 'Weekly',
-    month: 'Monthly',
+const intervals = {
+    minute: {
+        label: 'Minute',
+        newDateFrom: 'dStart',
+        icon: <ClockCircleOutlined />,
+    },
+    hour: {
+        label: 'Hourly',
+        newDateFrom: 'dStart',
+        icon: <ClockCircleOutlined />,
+    },
+    day: {
+        label: 'Daily',
+        newDateFrom: undefined,
+        icon: <ClockCircleOutlined />,
+    },
+    week: {
+        label: 'Weekly',
+        newDateFrom: '-30d',
+        icon: <CalendarOutlined />,
+    },
+    month: {
+        label: 'Monthly',
+        newDateFrom: '-90d',
+        icon: <CalendarOutlined />,
+    },
 }
+
+const defaultInterval = intervals.day
+
+type IntervalKeyType = keyof typeof intervals
 
 interface InvertalFilterProps {
     view: ViewType
@@ -19,39 +44,30 @@ interface InvertalFilterProps {
 }
 
 export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Element {
-    const interval: 'minute' | 'hour' | 'day' | 'week' | 'month' = useValues(intervalFilterLogic).interval
+    const interval: IntervalKeyType = useValues(intervalFilterLogic).interval
     const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic)
+    const options = Object.entries(intervals).map(([key, { label, icon }]) => ({
+        key,
+        value: key,
+        label: (
+            <>
+                {icon} {label}
+            </>
+        ),
+        disabled: (key === 'minute' || key === 'hour') && view === ViewType.SESSIONS,
+    }))
     return (
         <Select
             bordered={false}
             disabled={disabled}
-            defaultValue={intervalMapping[interval] || intervalMapping['day']}
-            value={intervalMapping[interval]}
+            defaultValue={interval || 'day'}
+            value={interval}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
-                let newDateFrom
-
-                switch (key) {
-                    case 'minute':
-                        newDateFrom = 'dStart'
-                        break
-                    case 'hour':
-                        newDateFrom = 'dStart'
-                        break
-                    case 'week':
-                        newDateFrom = '-30d'
-                        break
-                    case 'month':
-                        newDateFrom = '-90d'
-                        break
-                    default:
-                        newDateFrom = undefined
-                        break
-                }
-
-                const minute_disabled = key === 'minute' && newDateFrom && disableMinuteFor[newDateFrom]
-                const hour_disabled = key === 'hour' && newDateFrom && disableHourFor[newDateFrom]
-                if (minute_disabled || hour_disabled) {
+                const { newDateFrom } = intervals[key as IntervalKeyType] || defaultInterval
+                const minuteDisabled = key === 'minute' && newDateFrom && disableMinuteFor[newDateFrom]
+                const hourDisabled = key === 'hour' && newDateFrom && disableHourFor[newDateFrom]
+                if (minuteDisabled || hourDisabled) {
                     return false
                 }
 
@@ -62,16 +78,7 @@ export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Ele
                 setIntervalFilter(key)
             }}
             data-attr="interval-filter"
-        >
-            {Object.entries(intervalMapping).map(([key, value]) => (
-                <Select.Option
-                    key={key}
-                    value={key}
-                    disabled={(key === 'minute' || key === 'hour') && view === ViewType.SESSIONS}
-                >
-                    {value}
-                </Select.Option>
-            ))}
-        </Select>
+            options={options}
+        />
     )
 }

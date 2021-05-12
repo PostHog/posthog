@@ -7,7 +7,14 @@ import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '~/models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { Link } from '../../Link'
-import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import {
+    DownOutlined,
+    InfoCircleOutlined,
+    ContainerOutlined,
+    UserOutlined,
+    UsergroupAddOutlined,
+    PlusOutlined,
+} from '@ant-design/icons'
 import {
     OperatorValueFilterType,
     OperatorValueSelect,
@@ -15,6 +22,9 @@ import {
 import { humanFriendlyDetailedTime, isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { SelectBox, SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
 import { PropertyFilterInternalProps } from './PropertyFilter'
+import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+
+import './UnifiedPropertyFilter.scss'
 
 function FilterDropdown({ open, children }: { open: boolean; children: React.ReactNode }): JSX.Element | null {
     return open ? <div>{children}</div> : null
@@ -31,11 +41,15 @@ function EventPropertiesInfo({ item }: { item: SelectedItem }): JSX.Element {
             </h3>
             {info?.description && <p>{info.description}</p>}
             {info?.examples?.length && (
-                <>
+                <p>
                     <i>Example: </i>
                     {info.examples.join(', ')}
-                </>
+                </p>
             )}
+            <hr />
+            <p>
+                Sent as <code>{item.name}</code>
+            </p>
         </>
     )
 }
@@ -80,6 +94,8 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
     const { key, value, operator, type } = filters[index]
     const [open, setOpen] = useState(false)
     const selectBoxToggleRef = useRef<HTMLElement>(null)
+    const screens = useBreakpoint()
+    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
 
     const displayOperatorAndValue = key && type !== 'cohort'
 
@@ -102,7 +118,11 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
         {
             name: 'Event properties',
             header: function eventPropertiesHeader(label: string) {
-                return <>{label}</>
+                return (
+                    <>
+                        <ContainerOutlined /> {label}
+                    </>
+                )
             },
             dataSource: eventProperties?.map(({ value: eventValue, label, is_numerical }: PropertiesType) => ({
                 name: label,
@@ -118,7 +138,11 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
         {
             name: 'User properties',
             header: function personPropertiesHeader(label: string) {
-                return <>{label}</>
+                return (
+                    <>
+                        <UserOutlined /> {label}
+                    </>
+                )
             },
             dataSource: personProperties?.map(({ value: propertyValue, label, is_numerical }: PropertiesType) => ({
                 name: label,
@@ -152,7 +176,11 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
         {
             name: 'Cohorts',
             header: function cohortPropertiesHeader(label: string) {
-                return <>{label}</>
+                return (
+                    <>
+                        <UsergroupAddOutlined /> {label}
+                    </>
+                )
             },
             dataSource: cohorts
                 ?.filter(({ deleted }) => !deleted)
@@ -176,48 +204,39 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
 
     return (
         <>
-            <Row gutter={8} wrap={false}>
-                <Col
-                    style={{
-                        height: '32px', // matches antd Select height
-                        flexShrink: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                    }}
-                >
-                    <span style={{ opacity: key ? 1 : 0.6 }}>
-                        <span
-                            style={{
-                                color: '#C4C4C4',
-                                fontSize: 18,
-                                paddingLeft: 6,
-                                paddingRight: 8,
-                                position: 'relative',
-                                top: -4,
-                            }}
-                        >
-                            &#8627;
-                        </span>
-                        {index === 0 ? 'where' : 'and'}
-                    </span>
-                </Col>
-                <Col style={{ minWidth: '6em' }}>
+            <Row gutter={8} wrap={isSmallScreen} className="property-filter-row">
+                {key && (
+                    <Col className="filter-where">
+                        {index === 0 ? (
+                            <>
+                                <span className="arrow">&#8627;</span>
+                                where
+                            </>
+                        ) : (
+                            <span className="stateful-badge and" style={{ marginLeft: 28, fontSize: '90%' }}>
+                                AND
+                            </span>
+                        )}
+                    </Col>
+                )}
+                <Col className="filter-dropdown-container">
                     <Button
                         onClick={onClick}
                         style={{ display: 'flex', alignItems: 'center' }}
                         ref={selectBoxToggleRef}
                     >
+                        {!key && <PlusOutlined style={{ fontSize: 10 }} />}
                         <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                            <PropertyKeyInfo value={key || 'Select property'} />
+                            <PropertyKeyInfo value={key || 'Add filter'} />
                         </span>
-                        <DownOutlined style={{ fontSize: 10 }} />
+                        {key && <DownOutlined style={{ fontSize: 10 }} />}
                     </Button>
                     <FilterDropdown open={open}>
                         <SelectBox
                             disablePopover
                             selectedItemKey={undefined}
-                            onDismiss={(e: MouseEvent) => {
-                                if (e.target && selectBoxToggleRef?.current?.contains(e.target as Node)) {
+                            onDismiss={(e?: MouseEvent) => {
+                                if (e?.target && selectBoxToggleRef?.current?.contains(e.target as Node)) {
                                     return
                                 }
                                 setOpen(false)
@@ -256,9 +275,9 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                             },
                             {
                                 style: {
-                                    flexShrink: 1,
-                                    maxWidth: '50vw',
+                                    maxWidth: isSmallScreen ? 'unset' : '60%',
                                     minWidth: '11em',
+                                    flexShrink: 3,
                                 },
                             },
                         ]}

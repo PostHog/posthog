@@ -7,7 +7,7 @@ import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../../ActionSelectInfo'
 import { SelectBox, SelectedItem } from 'lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { entityFilterLogic } from '../entityFilterLogic'
 import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 
@@ -39,8 +39,8 @@ export function ActionFilterDropdown({
     const { actions } = useValues(actionsModel)
     const { eventDefinitions } = useValues(eventDefinitionsLogic)
 
-    const handleDismiss = (event: MouseEvent): void => {
-        if (openButtonRef?.current?.contains(event.target as Node)) {
+    const handleDismiss = (event?: MouseEvent): void => {
+        if (openButtonRef?.current?.contains(event?.target as Node)) {
             return
         }
         onClose()
@@ -59,6 +59,7 @@ export function ActionFilterDropdown({
 
     return (
         <SelectBox
+            disablePopover
             selectedItemKey={`${selectedFilter?.type || ''}${selectedFilter?.id || ''}`}
             onDismiss={handleDismiss}
             onSelect={callUpdateFilter}
@@ -138,11 +139,25 @@ export function ActionFilterDropdown({
                             key: EntityTypes.EVENTS + definition.id,
                         })) || [],
                     renderInfo: function events({ item }) {
+                        const info = keyMapping.event[item.name]
                         return (
                             <>
                                 <ContainerOutlined /> Events
                                 <br />
-                                <h3>{item.name}</h3>
+                                <h3>
+                                    <PropertyKeyInfo value={item.name} disablePopover={true} />
+                                </h3>
+                                {info?.description && <p>{info.description}</p>}
+                                {info?.examples?.length && (
+                                    <p>
+                                        <i>Example: </i>
+                                        {info.examples.join(', ')}
+                                    </p>
+                                )}
+                                <hr />
+                                <p>
+                                    Sent as <code>{item.name}</code>
+                                </p>
                                 {(item?.volume_30_day ?? 0 > 0) && (
                                     <>
                                         Seen <strong>{item.volume_30_day}</strong> times.{' '}
@@ -174,6 +189,7 @@ export function ActionInfo({ item }: { item: SelectedItem }): JSX.Element {
                     window.location.pathname + window.location.search
                 )}`}
                 style={{ float: 'right' }}
+                tabIndex={-1}
             >
                 edit
             </Link>
