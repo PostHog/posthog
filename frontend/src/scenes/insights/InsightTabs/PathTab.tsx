@@ -15,10 +15,11 @@ import { TestAccountFilter } from '../TestAccountFilter'
 import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathTabHorizontal } from './PathTabHorizontal'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function PathTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags['4050-query-ui-optB'] ? <PathTabHorizontal /> : <DefaultPathTab />
+    return featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? <PathTabHorizontal /> : <DefaultPathTab />
 }
 
 function DefaultPathTab(): JSX.Element {

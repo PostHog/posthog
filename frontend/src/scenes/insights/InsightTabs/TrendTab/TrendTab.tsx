@@ -15,6 +15,7 @@ import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
 import { TrendTabHorizontal } from './TrendTabHorizontal'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface TrendTabProps {
     view: string
@@ -23,7 +24,7 @@ export interface TrendTabProps {
 
 export function TrendTab(props: TrendTabProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags['4050-query-ui-optB'] ? <TrendTabHorizontal {...props} /> : <DefaultTrendTab {...props} />
+    return featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? <TrendTabHorizontal {...props} /> : <DefaultTrendTab {...props} />
 }
 
 function DefaultTrendTab({ view }: TrendTabProps): JSX.Element {

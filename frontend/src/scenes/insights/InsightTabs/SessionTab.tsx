@@ -11,10 +11,11 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../TestAccountFilter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SessionTabHorizontal } from './SessionTabHorizontal'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function SessionTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags['4050-query-ui-optB'] ? <SessionTabHorizontal /> : <DefaultSessionTab />
+    return featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? <SessionTabHorizontal /> : <DefaultSessionTab />
 }
 
 function DefaultSessionTab(): JSX.Element {

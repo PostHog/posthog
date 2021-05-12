@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, FUNNEL_VIZ } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, FUNNEL_VIZ, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -58,7 +58,7 @@ export function Insights(): JSX.Element {
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
 
-    const horizontalUI = featureFlags['4050-query-ui-optB'] && activeView !== ViewType.FUNNELS
+    const horizontalUI = featureFlags[FEATURE_FLAGS.QUERY_UX_V2] && activeView !== ViewType.FUNNELS
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
