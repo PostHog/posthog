@@ -6,10 +6,14 @@ export function Formula({
     filters,
     onChange,
     onFocus,
+    autoFocus,
+    allowClear = true,
 }: {
     filters: Partial<FilterType>
     onChange: (formula: string) => void
-    onFocus: (hasFocus: boolean, localFormula: string) => void
+    onFocus?: (hasFocus: boolean, localFormula: string) => void
+    autoFocus?: boolean
+    allowClear?: boolean
 }): JSX.Element {
     const [value, setValue] = useState(filters.formula)
     useEffect(() => {
@@ -19,7 +23,8 @@ export function Formula({
         <div style={{ maxWidth: 300 }}>
             <Input.Search
                 placeholder="e.g. (A + B)/(A - B) * 100"
-                allowClear
+                allowClear={allowClear}
+                autoFocus={autoFocus}
                 value={value}
                 onChange={(e) => {
                     let value = e.target.value.toLocaleUpperCase()
@@ -30,8 +35,8 @@ export function Formula({
                         .join('')
                     setValue(value)
                 }}
-                onFocus={() => onFocus(true, value)}
-                onBlur={() => !filters.formula && onFocus(false, value)}
+                onFocus={() => onFocus && onFocus(true, value)}
+                onBlur={() => !filters.formula && onFocus && onFocus(false, value)}
                 enterButton="Apply"
                 onSearch={onChange}
             />

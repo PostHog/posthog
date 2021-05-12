@@ -33,6 +33,11 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
     ]
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
+    const formulaAvailable =
+        (!filters.insight || filters.insight === ViewType.TRENDS) &&
+        featureFlags['3275-formulas'] &&
+        preflight?.ee_enabled
+    const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
 
     return (
         <>
@@ -101,26 +106,50 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                                 <>
                                     <PropertyFilters pageKey="trends-filters" />
                                     <TestAccountFilter filters={filters} onChange={setFilters} />
-                                    {(!filters.insight || filters.insight === ViewType.TRENDS) &&
-                                        featureFlags['3275-formulas'] &&
-                                        preflight?.ee_enabled && (
-                                            <>
-                                                <hr />
-                                                <h4 className="secondary">Formula</h4>
-                                                <Formula
-                                                    filters={filters}
-                                                    onFocus={(hasFocus, localFormula) =>
-                                                        setIsUsingFormulas(
-                                                            hasFocus ? true : localFormula ? true : false
-                                                        )
+                                    {formulaAvailable && (
+                                        <>
+                                            <hr />
+                                            <h4 className="secondary">Formula</h4>
+                                            {isUsingFormulas ? (
+                                                <Row align="middle" gutter={4}>
+                                                    <Col>
+                                                        <CloseButton
+                                                            onClick={() => {
+                                                                setIsUsingFormulas(false)
+                                                                setFilters({ formula: undefined })
+                                                            }}
+                                                        />
+                                                    </Col>
+                                                    <Col>
+                                                        <Formula
+                                                            filters={filters}
+                                                            onChange={(formula: string): void => {
+                                                                setFilters({ formula })
+                                                            }}
+                                                            autoFocus
+                                                            allowClear={false}
+                                                        />
+                                                    </Col>
+                                                </Row>
+                                            ) : (
+                                                <Tooltip
+                                                    title={
+                                                        !formulaEnabled
+                                                            ? 'Please add at least two graph series to use formulas'
+                                                            : undefined
                                                     }
-                                                    onChange={(formula: string): void => {
-                                                        setIsUsingFormulas(formula ? true : false)
-                                                        setFilters({ formula })
-                                                    }}
-                                                />
-                                            </>
-                                        )}
+                                                >
+                                                    <Button
+                                                        shape="round"
+                                                        onClick={() => setIsUsingFormulas(true)}
+                                                        disabled={!formulaEnabled}
+                                                    >
+                                                        Add formula
+                                                    </Button>
+                                                </Tooltip>
+                                            )}
+                                        </>
+                                    )}
                                 </>
                             )}
                         </>
