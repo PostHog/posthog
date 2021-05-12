@@ -21,7 +21,7 @@ function processEvent(event, { config }) {
 // 
 // }
 
-// /* Ran once per hour on each worker instance */
+// /* Ran once per hour across all worker instance */
 // function runEveryHour(meta) {
 //     const weather = await (await fetch('https://weather.example.api/?city=New+York')).json()
 //     posthog.capture('weather', { degrees: weather.deg, fahrenheit: weather.us })
