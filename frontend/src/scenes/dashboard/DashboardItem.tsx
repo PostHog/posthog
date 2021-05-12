@@ -128,12 +128,8 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
-                {
-                    insight: ViewType.FUNNELS,
-                    fromDashboardItem: { id: id, name: name, dashboard: dashboard },
-                    ...filters,
-                },
-                {}
+                { insight: ViewType.FUNNELS, ...filters },
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
             ).url
         },
     },

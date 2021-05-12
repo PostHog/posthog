@@ -5,7 +5,7 @@ import { ActionFilter } from '../../ActionFilter/ActionFilter'
 import { Tooltip, Row, Skeleton, Checkbox, Col, Button } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
-import { InfoCircleOutlined, SaveOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
 import { ViewType } from '../../insightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,9 +14,9 @@ import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { TrendTabProps } from './TrendTab'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import { InsightTitle } from '../InsightTitle'
 
 export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
@@ -33,23 +33,17 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
     ]
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
+    const formulaAvailable =
+        (!filters.insight || filters.insight === ViewType.TRENDS) &&
+        featureFlags['3275-formulas'] &&
+        preflight?.ee_enabled
+    const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
 
     return (
         <>
             <Row gutter={16}>
                 <Col md={16} xs={24}>
-                    <h3 className="l3" style={{ display: 'flex', alignItems: 'center' }}>
-                        Unsaved query{' '}
-                        <SaveToDashboard
-                            displayComponent={<Button type="link" size="small" icon={<SaveOutlined />} />}
-                            item={{
-                                entity: {
-                                    filters: filters,
-                                    annotations: annotationsToCreate,
-                                },
-                            }}
-                        />
-                    </h3>
+                    <InsightTitle annotations={annotationsToCreate} filters={filters} />
                     {filtersLoading ? (
                         <Skeleton active />
                     ) : (
@@ -92,31 +86,61 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                             )}
                         </>
                     )}
-                    <h4 className="secondary">Global Filters</h4>
-                    {filtersLoading ? (
-                        <Skeleton active paragraph={{ rows: 2 }} />
-                    ) : (
+                    {filters.insight !== ViewType.LIFECYCLE && (
                         <>
-                            <PropertyFilters pageKey="trends-filters" />
-                            <TestAccountFilter filters={filters} onChange={setFilters} />
-                            {(!filters.insight || filters.insight === ViewType.TRENDS) &&
-                                featureFlags['3275-formulas'] &&
-                                preflight?.ee_enabled && (
-                                    <>
-                                        <hr />
-                                        <h4 className="secondary">Formula</h4>
-                                        <Formula
-                                            filters={filters}
-                                            onFocus={(hasFocus, localFormula) =>
-                                                setIsUsingFormulas(hasFocus ? true : localFormula ? true : false)
-                                            }
-                                            onChange={(formula: string): void => {
-                                                setIsUsingFormulas(formula ? true : false)
-                                                setFilters({ formula })
-                                            }}
-                                        />
-                                    </>
-                                )}
+                            <h4 className="secondary">Global Filters</h4>
+                            {filtersLoading ? (
+                                <Skeleton active paragraph={{ rows: 2 }} />
+                            ) : (
+                                <>
+                                    <PropertyFilters pageKey="trends-filters" />
+                                    <TestAccountFilter filters={filters} onChange={setFilters} />
+                                    {formulaAvailable && (
+                                        <>
+                                            <hr />
+                                            <h4 className="secondary">Formula</h4>
+                                            {isUsingFormulas ? (
+                                                <Row align="middle" gutter={4}>
+                                                    <Col>
+                                                        <CloseButton
+                                                            onClick={() => {
+                                                                setIsUsingFormulas(false)
+                                                                setFilters({ formula: undefined })
+                                                            }}
+                                                        />
+                                                    </Col>
+                                                    <Col>
+                                                        <Formula
+                                                            filters={filters}
+                                                            onChange={(formula: string): void => {
+                                                                setFilters({ formula })
+                                                            }}
+                                                            autoFocus
+                                                            allowClear={false}
+                                                        />
+                                                    </Col>
+                                                </Row>
+                                            ) : (
+                                                <Tooltip
+                                                    title={
+                                                        !formulaEnabled
+                                                            ? 'Please add at least two graph series to use formulas'
+                                                            : undefined
+                                                    }
+                                                >
+                                                    <Button
+                                                        shape="round"
+                                                        onClick={() => setIsUsingFormulas(true)}
+                                                        disabled={!formulaEnabled}
+                                                    >
+                                                        Add formula
+                                                    </Button>
+                                                </Tooltip>
+                                            )}
+                                        </>
+                                    )}
+                                </>
+                            )}
                         </>
                     )}
                     {filters.insight !== ViewType.LIFECYCLE && filters.insight !== ViewType.STICKINESS && (

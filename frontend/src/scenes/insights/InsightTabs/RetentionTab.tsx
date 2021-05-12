@@ -23,12 +23,14 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import './RetentionTab.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { RetentionTabHorizontal } from './RetentionTabHorizontal'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { BaseTabProps } from '../Insights'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
-export function RetentionTab(): JSX.Element {
+export function RetentionTab(props: BaseTabProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags['4050-query-ui-optB'] ? <RetentionTabHorizontal /> : <DefaultRetentionTab />
+    return featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? <RetentionTabHorizontal {...props} /> : <DefaultRetentionTab />
 }
 
 function DefaultRetentionTab(): JSX.Element {
@@ -99,9 +101,10 @@ function DefaultRetentionTab(): JSX.Element {
                     data-attr="retention-action"
                     onClick={(): void => setOpen(!open)}
                     style={{ marginRight: 8, marginBottom: 8 }}
+                    className="btn-retention-dropdown"
                 >
                     <PropertyKeyInfo value={selectedCohortizingEvent} />
-                    <DownOutlined className="text-muted svg-fix" style={{ marginRight: '-6px' }} />
+                    <DownOutlined className="dropdown-indicator" />
                 </Button>
                 <Select
                     value={retentionOptions[filters.retention_type]}
@@ -139,9 +142,10 @@ function DefaultRetentionTab(): JSX.Element {
                 ref={returningNode}
                 data-attr="retention-returning-action"
                 onClick={(): void => setReturningOpen(!returningOpen)}
+                className="btn-retention-dropdown"
             >
                 <PropertyKeyInfo value={selectedRetainingEvent} />
-                <DownOutlined className="text-muted svg-fix" style={{ marginRight: '-6px' }} />
+                <DownOutlined className="dropdown-indicator" />
             </Button>
             <ActionFilterDropdown
                 open={returningOpen}

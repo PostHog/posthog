@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, FUNNEL_VIZ } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, FUNNEL_VIZ, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -34,6 +34,11 @@ import { HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
+import { PageHeader } from 'lib/components/PageHeader'
+
+export interface BaseTabProps {
+    annotationsToCreate: any[] // TODO: Type properly
+}
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -58,7 +63,8 @@ export function Insights(): JSX.Element {
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
 
-    const horizontalUI = featureFlags['4050-query-ui-optB'] && activeView !== ViewType.FUNNELS
+    const newUI = featureFlags[FEATURE_FLAGS.QUERY_UX_V2]
+    const horizontalUI = newUI && activeView !== ViewType.FUNNELS
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -95,6 +101,7 @@ export function Insights(): JSX.Element {
 
     return (
         <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>
+            {newUI && <PageHeader title="Insights" />}
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
                     activeKey={activeView}
@@ -242,10 +249,18 @@ export function Insights(): JSX.Element {
                                                     annotationsToCreate={annotationsToCreate}
                                                 />
                                             ),
-                                            [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                            [`${ViewType.FUNNELS}`]: <FunnelTab />,
-                                            [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                            [`${ViewType.PATHS}`]: <PathTab />,
+                                            [`${ViewType.SESSIONS}`]: (
+                                                <SessionTab annotationsToCreate={annotationsToCreate} />
+                                            ),
+                                            [`${ViewType.FUNNELS}`]: (
+                                                <FunnelTab annotationsToCreate={annotationsToCreate} newUI={newUI} />
+                                            ),
+                                            [`${ViewType.RETENTION}`]: (
+                                                <RetentionTab annotationsToCreate={annotationsToCreate} />
+                                            ),
+                                            [`${ViewType.PATHS}`]: (
+                                                <PathTab annotationsToCreate={annotationsToCreate} />
+                                            ),
                                         }[activeView]
                                     }
                                 </div>

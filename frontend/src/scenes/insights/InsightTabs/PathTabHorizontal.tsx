@@ -14,8 +14,10 @@ import { PropertyValue } from 'lib/components/PropertyFilters'
 import { TestAccountFilter } from '../TestAccountFilter'
 import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import { BaseTabProps } from '../Insights'
+import { InsightTitle } from './InsightTitle'
 
-export function PathTabHorizontal(): JSX.Element {
+export function PathTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsLogic)
     const { filter, filtersLoading } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
@@ -26,6 +28,9 @@ export function PathTabHorizontal(): JSX.Element {
     return (
         <Row gutter={16}>
             <Col md={16} xs={24}>
+                <Row>
+                    <InsightTitle annotations={annotationsToCreate} filters={filter} />
+                </Row>
                 <Row gutter={8} align="middle" className="mt">
                     <Col>Showing paths from</Col>
                     <Col>

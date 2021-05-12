@@ -15,8 +15,10 @@ import './RetentionTab.scss'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { IconExternalLink } from 'lib/components/icons'
+import { BaseTabProps } from '../Insights'
+import { InsightTitle } from './InsightTitle'
 
-export function RetentionTabHorizontal(): JSX.Element {
+export function RetentionTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const returningNode = useRef<HTMLElement>(null)
     const [open, setOpen] = useState<boolean>(false)
@@ -79,17 +81,22 @@ export function RetentionTabHorizontal(): JSX.Element {
         <div data-attr="retention-tab" className="retention-tab">
             <Row gutter={16}>
                 <Col md={16} xs={24}>
-                    <Row gutter={8} align="middle" className="mt">
+                    <Row>
+                        <InsightTitle annotations={annotationsToCreate} filters={filters} />
+                    </Row>
+                    <Row gutter={8} align="middle">
                         <Col>
                             Showing <b>Unique users</b> who did
                         </Col>
                         <Col>
-                            <Button ref={node} data-attr="retention-action" onClick={() => setOpen(!open)}>
+                            <Button
+                                className="btn-retention-dropdown"
+                                ref={node}
+                                data-attr="retention-action"
+                                onClick={() => setOpen(!open)}
+                            >
                                 <PropertyKeyInfo value={selectedCohortizingEvent} disablePopover />
-                                <DownOutlined
-                                    className="svg-fix"
-                                    style={{ marginRight: '-6px', marginTop: 2, color: '#bdbdbd', fontSize: '1.3em' }}
-                                />
+                                <DownOutlined className="dropdown-indicator" />
                             </Button>
                             <ActionFilterDropdown
                                 open={open}
@@ -138,12 +145,10 @@ export function RetentionTabHorizontal(): JSX.Element {
                                 ref={returningNode}
                                 data-attr="retention-returning-action"
                                 onClick={(): void => setReturningOpen(!returningOpen)}
+                                className="btn-retention-dropdown"
                             >
                                 <PropertyKeyInfo value={selectedRetainingEvent} disablePopover />
-                                <DownOutlined
-                                    className="svg-fix"
-                                    style={{ marginRight: '-6px', marginTop: 2, color: '#bdbdbd', fontSize: '1.3em' }}
-                                />
+                                <DownOutlined className="dropdown-indicator" />
                             </Button>
                             <ActionFilterDropdown
                                 open={returningOpen}

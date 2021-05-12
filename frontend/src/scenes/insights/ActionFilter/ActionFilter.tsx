@@ -9,6 +9,8 @@ import { alphabet } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ActionFilter as ActionFilterType, FilterType, Optional } from '~/types'
 import { SortableContainer, SortableActionFilterRow } from './Sortable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -40,6 +42,8 @@ export function ActionFilter({
     horizontalUI = false,
 }: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { localFilters } = useValues(logic)
     const { addFilter, setLocalFilters } = useActions(logic)
@@ -101,12 +105,13 @@ export function ActionFilter({
             {!singleFilter && (
                 <div className="mt">
                     <Button
-                        type="primary"
+                        type={featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? 'dashed' : 'primary'}
                         onClick={() => addFilter()}
                         style={{ marginTop: '0.5rem' }}
                         data-attr="add-action-event-button"
                         icon={<PlusCircleOutlined />}
                         disabled={disabled}
+                        className={`add-action-event-button${featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? ' new-ui' : ''}`}
                     >
                         {buttonCopy || 'Action or event'}
                     </Button>
