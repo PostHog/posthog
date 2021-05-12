@@ -12,6 +12,14 @@ import {
 } from '~/lib/constants'
 import { chartFilterLogic } from './chartFilterLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
+import {
+    OrderedListOutlined,
+    LineChartOutlined,
+    AreaChartOutlined,
+    BarChartOutlined,
+    TableOutlined,
+    PieChartOutlined,
+} from '@ant-design/icons'
 
 export function ChartFilter(props) {
     let { filters, onChange } = props
@@ -34,6 +42,75 @@ export function ChartFilter(props) {
             ? FUNNEL_VIZ
             : ACTIONS_LINE_GRAPH_LINEAR
 
+    function Label({ icon, children = null }) {
+        return (
+            <>
+                {icon} {children}
+            </>
+        )
+    }
+
+    const options =
+        filters.insight === ViewType.FUNNELS
+            ? [
+                  {
+                      value: FUNNEL_VIZ,
+                      label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
+                  },
+                  {
+                      value: ACTIONS_LINE_GRAPH_LINEAR,
+                      label: (
+                          <Label icon={<LineChartOutlined />}>
+                              Trends
+                              <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
+                                  BETA
+                              </Tag>
+                          </Label>
+                      ),
+                  },
+              ]
+            : [
+                  {
+                      label: 'Line Chart',
+                      options: [
+                          {
+                              value: ACTIONS_LINE_GRAPH_LINEAR,
+                              label: <Label icon={<LineChartOutlined />}>Linear</Label>,
+                              disabled: linearDisabled,
+                          },
+                          {
+                              value: ACTIONS_LINE_GRAPH_CUMULATIVE,
+                              label: <Label icon={<AreaChartOutlined />}>Cumulative</Label>,
+                              disabled: cumulativeDisabled,
+                          },
+                      ],
+                  },
+                  {
+                      label: 'Bar Chart',
+                      options: [
+                          {
+                              value: ACTIONS_BAR_CHART,
+                              label: <Label icon={<BarChartOutlined />}>Time</Label>,
+                              disabled: barDisabled,
+                          },
+                          {
+                              value: ACTIONS_BAR_CHART_VALUE,
+                              label: <Label icon={<BarChartOutlined />}>Value</Label>,
+                              disabled: barValueDisabled,
+                          },
+                      ],
+                  },
+                  {
+                      value: ACTIONS_TABLE,
+                      label: <Label icon={<TableOutlined />}>Table</Label>,
+                      disabled: tableDisabled,
+                  },
+                  {
+                      value: ACTIONS_PIE_CHART,
+                      label: <Label icon={<PieChartOutlined />}>Pie</Label>,
+                      disabled: pieDisabled,
+                  },
+              ]
     return (
         <Select
             key="2"
@@ -47,43 +124,7 @@ export function ChartFilter(props) {
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
             disabled={props.disabled}
-        >
-            {filters.insight === ViewType.FUNNELS ? (
-                <>
-                    <Select.Option value={FUNNEL_VIZ}>Steps</Select.Option>
-                    <Select.Option value={ACTIONS_LINE_GRAPH_LINEAR}>
-                        Trends
-                        <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
-                            BETA
-                        </Tag>
-                    </Select.Option>
-                </>
-            ) : (
-                <>
-                    <Select.OptGroup label={'Line Chart'}>
-                        <Select.Option value={ACTIONS_LINE_GRAPH_LINEAR} disabled={linearDisabled}>
-                            Linear
-                        </Select.Option>
-                        <Select.Option value={ACTIONS_LINE_GRAPH_CUMULATIVE} disabled={cumulativeDisabled}>
-                            Cumulative
-                        </Select.Option>
-                    </Select.OptGroup>
-                    <Select.OptGroup label={'Bar Chart'}>
-                        <Select.Option value={ACTIONS_BAR_CHART} disabled={barDisabled}>
-                            Time
-                        </Select.Option>
-                        <Select.Option value={ACTIONS_BAR_CHART_VALUE} disabled={barValueDisabled}>
-                            Value
-                        </Select.Option>
-                    </Select.OptGroup>
-                    <Select.Option value={ACTIONS_TABLE} disabled={tableDisabled}>
-                        Table
-                    </Select.Option>
-                    <Select.Option value={ACTIONS_PIE_CHART} disabled={pieDisabled}>
-                        Pie
-                    </Select.Option>
-                </>
-            )}
-        </Select>
+            options={options}
+        />
     )
 }

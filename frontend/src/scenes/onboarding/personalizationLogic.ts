@@ -6,6 +6,9 @@ import { PersonalizationData } from '~/types'
 import { router } from 'kea-router'
 
 export const personalizationLogic = kea<personalizationLogicType<PersonalizationData>>({
+    connect: {
+        actions: [organizationLogic, ['updateOrganizationSuccess', 'loadCurrentOrganizationSuccess']],
+    },
     actions: {
         setPersonalizationData: (payload: PersonalizationData) => ({ payload }),
         appendPersonalizationData: (key: 'role' | 'products' | 'technical', value: string | string[] | null) => ({
@@ -28,10 +31,10 @@ export const personalizationLogic = kea<personalizationLogicType<Personalization
         ],
     },
     listeners: {
-        reportPersonalizationSkipped: async () => {
+        reportPersonalizationSkipped: () => {
             posthog.capture('personalization skipped')
         },
-        reportPersonalization: async ({ payload, step_completed_fully }) => {
+        reportPersonalization: ({ payload, step_completed_fully }) => {
             posthog.people.set_once(payload)
             posthog.capture('personalization finalized', {
                 step_completed_fully,
@@ -40,10 +43,10 @@ export const personalizationLogic = kea<personalizationLogicType<Personalization
             })
             organizationLogic.actions.updateOrganization({ personalization: payload })
         },
-        [organizationLogic.actionTypes.updateOrganizationSuccess]: async () => {
+        [organizationLogic.actionTypes.updateOrganizationSuccess]: () => {
             window.location.href = '/'
         },
-        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: async () => {
+        [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: () => {
             // Edge case in case this logic loaded before the api/organization request is completed
             const personalization = organizationLogic.values.currentOrganization?.personalization
             if (personalization && Object.keys(personalization).length) {

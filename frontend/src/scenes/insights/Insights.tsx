@@ -5,10 +5,8 @@ import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { PageHeader } from 'lib/components/PageHeader'
-
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, FUNNEL_VIZ } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, FUNNEL_VIZ, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -32,11 +30,15 @@ import { People } from 'scenes/funnels/People'
 import { TrendLegend } from './TrendLegend'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { DashboardItemType, HotKeys } from '~/types'
+import { HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardItemHeader } from 'scenes/dashboard/DashboardItemHeader'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
+import { PageHeader } from 'lib/components/PageHeader'
+
+export interface BaseTabProps {
+    annotationsToCreate: any[] // TODO: Type properly
+}
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -52,22 +54,17 @@ export function Insights(): JSX.Element {
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const {
-        lastRefresh,
-        isLoading,
-        activeView,
-        allFilters,
-        dashboardItem,
-        showTimeoutMessage,
-        showErrorMessage,
-    } = useValues(insightLogic)
+    const { lastRefresh, isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(
+        insightLogic
+    )
     const { setActiveView } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
 
-    const horizontalUI = featureFlags['4050-query-ui-optB']
+    const newUI = featureFlags[FEATURE_FLAGS.QUERY_UX_V2]
+    const horizontalUI = newUI && activeView !== ViewType.FUNNELS
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -104,120 +101,118 @@ export function Insights(): JSX.Element {
 
     return (
         <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>
-            <Header dashboardItem={dashboardItem} />
-            {!dashboardItem && (
-                <Row justify="space-between" align="middle" className="top-bar">
-                    <Tabs
-                        activeKey={activeView}
-                        style={{
-                            overflow: 'visible',
-                        }}
-                        className="top-bar"
-                        onChange={(key) => setActiveView(key)}
-                        animated={false}
-                        tabBarExtraContent={{
-                            right: (
-                                <Button
-                                    type={activeView === 'history' ? 'primary' : undefined}
-                                    data-attr="insight-history-button"
-                                    onClick={() => setActiveView('history')}
-                                >
-                                    History
-                                </Button>
-                            ),
-                        }}
-                    >
-                        <TabPane
-                            tab={
-                                <span data-attr="insight-trends-tab">
-                                    Trends
-                                    <InsightHotkey hotkey="t" />
-                                </span>
-                            }
-                            key={ViewType.TRENDS}
-                        />
-                        <TabPane
-                            tab={
-                                <span data-attr="insight-funnels-tab">
-                                    Funnels
-                                    <InsightHotkey hotkey="f" />
-                                </span>
-                            }
-                            key={ViewType.FUNNELS}
-                        />
-                        <TabPane
-                            tab={
-                                <span data-attr="insight-sessions-tab">
-                                    Sessions
-                                    <InsightHotkey hotkey="s" />
-                                </span>
-                            }
-                            key={ViewType.SESSIONS}
-                        />
-                        <TabPane
-                            tab={
-                                <span data-attr="insight-retention-tab">
-                                    Retention
-                                    <InsightHotkey hotkey="r" />
-                                </span>
-                            }
-                            key={ViewType.RETENTION}
-                        />
-                        <TabPane
-                            tab={
-                                <span data-attr="insight-path-tab">
-                                    User Paths
-                                    <InsightHotkey hotkey="p" />
-                                </span>
-                            }
-                            key={ViewType.PATHS}
-                        />
-                        <TabPane
-                            tab={
-                                <Tooltip
-                                    placement="bottom"
-                                    title={
-                                        <>
-                                            Stickiness shows you how many days users performed an action repeteadely
-                                            within a timeframe.
-                                            <br />
-                                            <br />
-                                            <i>
-                                                Example: If a user performed an action on Monday and again on Friday, it
-                                                would be shown as "2 days".
-                                            </i>
-                                        </>
-                                    }
-                                    data-attr="insight-stickiness-tab"
-                                >
-                                    Stickiness
-                                    <InsightHotkey hotkey="k" />
-                                </Tooltip>
-                            }
-                            key={ViewType.STICKINESS}
-                        />
-                        <TabPane
-                            tab={
-                                <Tooltip
-                                    placement="bottom"
-                                    title={
-                                        <>
-                                            Lifecycle will show you new, resurrected, returning and dormant users so you
-                                            understand how your user base is composed. This can help you understand
-                                            where your user growth is coming from.
-                                        </>
-                                    }
-                                    data-attr="insight-lifecycle-tab"
-                                >
-                                    Lifecycle
-                                    <InsightHotkey hotkey="l" />
-                                </Tooltip>
-                            }
-                            key={ViewType.LIFECYCLE}
-                        />
-                    </Tabs>
-                </Row>
-            )}
+            {newUI && <PageHeader title="Insights" />}
+            <Row justify="space-between" align="middle" className="top-bar">
+                <Tabs
+                    activeKey={activeView}
+                    style={{
+                        overflow: 'visible',
+                    }}
+                    className="top-bar"
+                    onChange={(key) => setActiveView(key)}
+                    animated={false}
+                    tabBarExtraContent={{
+                        right: (
+                            <Button
+                                type={activeView === 'history' ? 'primary' : undefined}
+                                data-attr="insight-history-button"
+                                onClick={() => setActiveView('history')}
+                            >
+                                History
+                            </Button>
+                        ),
+                    }}
+                >
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-trends-tab">
+                                Trends
+                                <InsightHotkey hotkey="t" />
+                            </span>
+                        }
+                        key={ViewType.TRENDS}
+                    />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-funnels-tab">
+                                Funnels
+                                <InsightHotkey hotkey="f" />
+                            </span>
+                        }
+                        key={ViewType.FUNNELS}
+                    />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-sessions-tab">
+                                Sessions
+                                <InsightHotkey hotkey="s" />
+                            </span>
+                        }
+                        key={ViewType.SESSIONS}
+                    />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-retention-tab">
+                                Retention
+                                <InsightHotkey hotkey="r" />
+                            </span>
+                        }
+                        key={ViewType.RETENTION}
+                    />
+                    <TabPane
+                        tab={
+                            <span data-attr="insight-path-tab">
+                                User Paths
+                                <InsightHotkey hotkey="p" />
+                            </span>
+                        }
+                        key={ViewType.PATHS}
+                    />
+                    <TabPane
+                        tab={
+                            <Tooltip
+                                placement="bottom"
+                                title={
+                                    <>
+                                        Stickiness shows you how many days users performed an action repeteadely within
+                                        a timeframe.
+                                        <br />
+                                        <br />
+                                        <i>
+                                            Example: If a user performed an action on Monday and again on Friday, it
+                                            would be shown as "2 days".
+                                        </i>
+                                    </>
+                                }
+                                data-attr="insight-stickiness-tab"
+                            >
+                                Stickiness
+                                <InsightHotkey hotkey="k" />
+                            </Tooltip>
+                        }
+                        key={ViewType.STICKINESS}
+                    />
+                    <TabPane
+                        tab={
+                            <Tooltip
+                                placement="bottom"
+                                title={
+                                    <>
+                                        Lifecycle will show you new, resurrected, returning and dormant users so you
+                                        understand how your user base is composed. This can help you understand where
+                                        your user growth is coming from.
+                                    </>
+                                }
+                                data-attr="insight-lifecycle-tab"
+                            >
+                                Lifecycle
+                                <InsightHotkey hotkey="l" />
+                            </Tooltip>
+                        }
+                        key={ViewType.LIFECYCLE}
+                    />
+                </Tabs>
+            </Row>
             <Row gutter={16}>
                 {activeView === 'history' ? (
                     <Col xs={24} xl={24}>
@@ -254,10 +249,18 @@ export function Insights(): JSX.Element {
                                                     annotationsToCreate={annotationsToCreate}
                                                 />
                                             ),
-                                            [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                            [`${ViewType.FUNNELS}`]: <FunnelTab />,
-                                            [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                            [`${ViewType.PATHS}`]: <PathTab />,
+                                            [`${ViewType.SESSIONS}`]: (
+                                                <SessionTab annotationsToCreate={annotationsToCreate} />
+                                            ),
+                                            [`${ViewType.FUNNELS}`]: (
+                                                <FunnelTab annotationsToCreate={annotationsToCreate} newUI={newUI} />
+                                            ),
+                                            [`${ViewType.RETENTION}`]: (
+                                                <RetentionTab annotationsToCreate={annotationsToCreate} />
+                                            ),
+                                            [`${ViewType.PATHS}`]: (
+                                                <PathTab annotationsToCreate={annotationsToCreate} />
+                                            ),
                                         }[activeView]
                                     }
                                 </div>
@@ -394,14 +397,4 @@ function FunnelPeople(): JSX.Element {
         return <People />
     }
     return <></>
-}
-
-interface HeaderProps {
-    dashboardItem: DashboardItemType | null
-}
-function Header({ dashboardItem }: HeaderProps): JSX.Element {
-    if (dashboardItem?.id) {
-        return <DashboardItemHeader dashboardId={dashboardItem.dashboard} />
-    }
-    return <PageHeader title="Insights" />
 }

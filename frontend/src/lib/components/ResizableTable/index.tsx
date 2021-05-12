@@ -18,6 +18,7 @@ export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> 
         | ((value: any, record?: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
     ellipsis?: boolean
     span: number
+    widthConstraints?: [number, number] // Override default min and max width (px). To specify no max, use Infinity.
 }
 
 export interface InternalColumnType<RecordType> extends ResizableColumnType<RecordType> {

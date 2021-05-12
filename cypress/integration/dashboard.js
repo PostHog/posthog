@@ -117,7 +117,7 @@ describe('Dashboard', () => {
     it('Opens dashboard item in insights', () => {
         cy.get('[data-attr=dashboard-name]').contains('My App Dashboard').click()
         cy.get('[data-attr=dashboard-item-0] .dashboard-item-title a').click()
-        cy.location('pathname').should('include', '/insights/dashboard_item')
+        cy.location('pathname').should('include', '/insights')
         cy.get('[data-attr=math-selector-0]').contains('Unique users').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
