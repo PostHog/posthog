@@ -86,6 +86,17 @@
         background-color: #f6f6f6;
     }
 }
+
+.horizontal-ui {
+    .row-action-btn {
+        &.delete {
+            padding: 0;
+            width: unset;
+            color: rgba($danger, 0.6);
+        }
+    }
+}
+
 .action-row-letter {
     line-height: 32px;
     padding-right: 1px;

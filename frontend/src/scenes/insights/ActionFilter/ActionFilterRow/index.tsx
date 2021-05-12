@@ -5,7 +5,7 @@ import { ActionFilter, EntityTypes, PropertyFilter, SelectOption } from '~/types
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
-import { DownOutlined, DeleteOutlined, FilterOutlined } from '@ant-design/icons'
+import { DownOutlined, DeleteOutlined, FilterOutlined, CloseSquareOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -122,6 +122,18 @@ export function ActionFilterRow({
             )}
 
             <Row gutter={8} align="middle" className={!horizontalUI ? 'mt' : ''}>
+                {horizontalUI && !singleFilter && filterCount > 1 && (
+                    <Col>
+                        <Button
+                            type="link"
+                            onClick={onClose}
+                            className="row-action-btn delete"
+                            title="Remove graph series"
+                            danger
+                            icon={<CloseSquareOutlined />}
+                        />
+                    </Col>
+                )}
                 {letter && (
                     <Col className="action-row-letter">
                         <span>{letter}</span>
@@ -199,7 +211,7 @@ export function ActionFilterRow({
                                     ? setEntityFilterVisibility(filter.order, !visible)
                                     : undefined
                             }}
-                            className={`row-action-btn show-filters${filter.properties.length ? ' visible' : ''}`}
+                            className={`row-action-btn show-filters${filter.properties?.length ? ' visible' : ''}`}
                             data-attr={'show-prop-filter-' + index}
                             title="Show filters"
                         >
@@ -208,7 +220,7 @@ export function ActionFilterRow({
                         </Button>
                     </Col>
                 )}
-                {!singleFilter && filterCount > 1 && (
+                {!horizontalUI && !singleFilter && filterCount > 1 && (
                     <Col>
                         <Button
                             type="link"
