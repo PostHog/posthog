@@ -5,7 +5,7 @@ export enum TableConfigStates {
     columnConfig = 'columnConfig', // Modal showing
     saving = 'saving', // Saving in progress
     success = 'success', // Save committed
-    failure = 'failure', // Save failure
+    failure = 'failure' // Save failure
 }
 
 export type TableConfigStateType = `${TableConfigStates}` | null

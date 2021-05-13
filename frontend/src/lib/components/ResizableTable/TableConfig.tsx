@@ -1,14 +1,6 @@
 import { Button, Card, Col, Input, Row, Tooltip } from 'antd'
 import React, { useEffect, useState } from 'react'
-import {
-    DownloadOutlined,
-    SettingOutlined,
-    SaveOutlined,
-    SearchOutlined,
-    ClearOutlined,
-    CheckOutlined,
-    ExclamationCircleOutlined,
-} from '@ant-design/icons'
+import { DownloadOutlined, SettingOutlined, SaveOutlined, SearchOutlined, ClearOutlined, CheckOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
 import { tableConfigLogic, TableConfigStates as STATES } from './tableConfigLogic'
@@ -48,19 +40,22 @@ export function TableConfig({
                 <div className="rhs-actions">
                     {selectedColumns && availableColumns && onColumnUpdate && (
                         <>
-                            {(state === null || state === STATES.columnConfig) && (
+                            { (state === null || state === STATES.columnConfig) && (
                                 <Button
                                     data-attr="events-table-column-selector"
                                     onClick={() => setState(STATES.columnConfig)}
                                     icon={<SettingOutlined />}
                                 />
                             )}
-                            {state === STATES.saving && (
-                                <Button data-attr="events-table-column-selector" loading={true}>
+                            { state === STATES.saving && (
+                                <Button
+                                    data-attr="events-table-column-selector"
+                                    loading={true}
+                                >
                                     Saving...
                                 </Button>
                             )}
-                            {state === STATES.success && (
+                            { state === STATES.success && (
                                 <Button
                                     data-attr="events-table-column-selector"
                                     onClick={() => setState(STATES.columnConfig)}
@@ -69,7 +64,7 @@ export function TableConfig({
                                     Saved!
                                 </Button>
                             )}
-                            {state === STATES.failure && (
+                            { state === STATES.failure && (
                                 <Button
                                     data-attr="events-table-column-selector"
                                     onClick={() => setState(STATES.columnConfig)}
@@ -79,7 +74,7 @@ export function TableConfig({
                                     Failed to save
                                 </Button>
                             )}
-                            {state === STATES.columnConfig && (
+                            { state === STATES.columnConfig && (
                                 <ColumnConfigurator
                                     allColumns={availableColumns}
                                     currentSelection={selectedColumns}
