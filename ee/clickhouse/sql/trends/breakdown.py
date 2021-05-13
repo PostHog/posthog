@@ -16,8 +16,6 @@ SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value
             ORDER BY breakdown_value, day_start
             UNION ALL
             {inner_sql}
-            UNION ALL
-            {negation_inner_sql}
         )
     )
     GROUP BY day_start, breakdown_value
