@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/node'
 import equal from 'fast-deep-equal'
 import { DateTime, Duration } from 'luxon'
 import * as fetch from 'node-fetch'
+import { QueryResult } from 'pg'
 import { nodePostHog } from 'posthog-js-lite/dist/src/targets/node'
 
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
@@ -24,7 +25,7 @@ import { DB } from '../../utils/db/db'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { elementsToString, personInitialAndUTMProperties, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { castTimestampOrNow, UUID, UUIDT } from '../../utils/utils'
+import { castTimestampOrNow, filterIncrementProperties, UUID, UUIDT } from '../../utils/utils'
 import { PersonManager } from './person-manager'
 import { TeamManager } from './team-manager'
 
@@ -212,7 +213,8 @@ export class EventsProcessor {
         teamId: number,
         distinctId: string,
         properties: Properties,
-        propertiesOnce: Properties
+        propertiesOnce: Properties,
+        incrementProperties: Record<string, number>
     ): Promise<Person> {
         let personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
@@ -237,10 +239,26 @@ export class EventsProcessor {
                 `Could not find person with distinct id "${distinctId}" in team "${teamId}", even after trying to insert them`
             )
         }
-        const updatedProperties: Properties = { ...propertiesOnce, ...personFound.properties, ...properties }
 
-        if (equal(personFound.properties, updatedProperties)) {
+        let updatedProperties: Properties = { ...propertiesOnce, ...personFound.properties, ...properties }
+
+        let incrementedPropertiesQueryResult: QueryResult | null = null
+
+        const areTherePropsToIncrement = !!Object.keys(incrementProperties).length
+
+        if (areTherePropsToIncrement) {
+            incrementedPropertiesQueryResult = await this.db.incrementPersonProperties(personFound, incrementProperties)
+        }
+
+        const arePersonsEqualExcludingIncrement = equal(personFound.properties, updatedProperties)
+
+        // CH still needs to update if there are $increment props but Postgres has already done so
+        if (arePersonsEqualExcludingIncrement && (!this.db.kafkaProducer || !areTherePropsToIncrement)) {
             return personFound
+        }
+
+        if (incrementedPropertiesQueryResult && incrementedPropertiesQueryResult.rows.length > 0) {
+            updatedProperties = { ...updatedProperties, ...incrementedPropertiesQueryResult.rows[0].properties }
         }
 
         return await this.db.updatePerson(personFound, { properties: updatedProperties })
@@ -394,12 +412,15 @@ export class EventsProcessor {
 
         properties = personInitialAndUTMProperties(properties)
 
-        if (properties['$set'] || properties['$set_once']) {
+        if (properties['$set'] || properties['$set_once'] || properties['$increment']) {
+            const filteredIncrementProperties = filterIncrementProperties(properties['$increment'])
+
             await this.updatePersonProperties(
                 teamId,
                 distinctId,
                 properties['$set'] || {},
-                properties['$set_once'] || {}
+                properties['$set_once'] || {},
+                filteredIncrementProperties
             )
         }
 
