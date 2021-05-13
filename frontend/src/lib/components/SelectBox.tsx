@@ -16,11 +16,13 @@ import { ListRowProps, ListRowRenderer } from 'react-virtualized'
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
     renderInfo({ item }: { item: SelectedItem }): JSX.Element
+    key: string
     name: string
     header: (label: string) => JSX.Element
     type: string
     getValue: (item: SelectedItem) => string | number
     getLabel: (item: SelectedItem) => string
+    metadata?: Record<string, any> // Used to store additional data (e.g. search term)
 }
 
 export interface SelectedItem {

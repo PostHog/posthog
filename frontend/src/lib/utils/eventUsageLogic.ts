@@ -93,6 +93,10 @@ export const eventUsageLogic = kea<
             extraProps?: Record<string, string | boolean | number | undefined>
         ) => ({ module, item, extraProps }),
         reportProjectHomeSeen: (teamHasData: boolean) => ({ teamHasData }),
+        reportEventSearched: (search_term: string, extra_props?: Record<string, number>) => ({
+            search_term,
+            extra_props,
+        }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -348,6 +352,10 @@ export const eventUsageLogic = kea<
         },
         reportProjectHomeSeen: async ({ teamHasData }) => {
             posthog.capture('project home seen', { team_has_data: teamHasData })
+        },
+        reportEventSearched: async ({ search_term, extra_props }) => {
+            // Triggered when a search is executed for an action/event (mainly for use on insights)
+            posthog.capture('event searched', { search_term, ...extra_props })
         },
     },
 })
