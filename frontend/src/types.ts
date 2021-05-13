@@ -25,11 +25,15 @@ export type AvailableFeatures =
     | 'dashboard_collaboration'
     | 'clickhouse'
 
+export interface ColumnConfig {
+    active: string[] | 'DEFAULT'
+}
 export interface UserType {
     uuid: string
     first_name: string
     email: string
     email_opt_in: boolean
+    events_column_config: ColumnConfig
     anonymize_data: boolean
     distinct_id: string
     toolbar_mode: 'disabled' | 'toolbar'
