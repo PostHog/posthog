@@ -102,7 +102,7 @@ def _get_token(data, request) -> Optional[str]:
 def _clean_token(token):
     is_test_environment = token.startswith("test_")
     token = token[5:] if is_test_environment else token
-    return (token, is_test_environment)
+    return token, is_test_environment
 
 
 def _get_project_id(data, request) -> Optional[int]:
