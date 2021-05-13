@@ -302,7 +302,7 @@ function MathSelector({
 
     let math_entries = EVENT_MATH_ENTRIES
 
-    if (!featureFlags['3638-trailing-wau-mau'] || !preflight?.ee_enabled) {
+    if (!featureFlags['3638-trailing-wau-mau'] || !preflight?.is_clickhouse_enabled) {
         math_entries = math_entries.filter((item) => item[0] !== 'weekly_active' && item[0] !== 'monthly_active')
     }
 

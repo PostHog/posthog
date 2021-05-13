@@ -97,7 +97,7 @@ function DefaultTrendTab({ view }: TrendTabProps): JSX.Element {
                     <TestAccountFilter filters={filters} onChange={setFilters} />
                     {(!filters.insight || filters.insight === ViewType.TRENDS) &&
                         featureFlags['3275-formulas'] &&
-                        preflight?.ee_enabled && (
+                        preflight?.is_clickhouse_enabled && (
                             <>
                                 <hr />
                                 <h4 className="secondary">Formula</h4>

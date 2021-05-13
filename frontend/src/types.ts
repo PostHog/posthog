@@ -648,7 +648,7 @@ export interface PreflightStatus {
     cloud: boolean
     celery: boolean
     ee_available?: boolean
-    ee_enabled?: boolean
+    is_clickhouse_enabled?: boolean
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>

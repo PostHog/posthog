@@ -19,7 +19,7 @@ from rest_framework import mixins, permissions, serializers, viewsets
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
@@ -285,7 +285,7 @@ def user(request):
             "posthog_version": VERSION,
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
             "ee_available": settings.EE_AVAILABLE,
-            "ee_enabled": is_ee_enabled(),
+            "is_clickhouse_enabled": is_clickhouse_enabled(),
             "email_service_available": is_email_available(with_absolute_urls=True),
             "is_debug": getattr(settings, "DEBUG", False),
             "is_staff": user.is_staff,
