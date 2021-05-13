@@ -1499,6 +1499,154 @@ export const createProcessEventTests = (
         expect(person2.properties).toEqual({ a_prop: 'test-1', b_prop: 'test-2b', c_prop: 'test-1' })
     })
 
+    test('$increment increments numerical user properties or creates a new one', async () => {
+        await createPerson(server, team, ['distinct_id'])
+
+        await processEvent(
+            'distinct_id',
+            '',
+            '',
+            ({
+                event: 'some_event',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id',
+                    $increment: { a: 100, b: 200, c: -100, d: 2 ** 64, non_numerical: '1' },
+                },
+            } as any) as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+
+        expect((await server.db.fetchEvents()).length).toBe(1)
+
+        const [event] = await server.db.fetchEvents()
+        expect(event.properties['$increment']).toEqual({ a: 100, b: 200, c: -100, d: 2 ** 64, non_numerical: '1' })
+
+        const [person] = await server.db.fetchPersons()
+        expect(await server.db.fetchDistinctIdValues(person)).toEqual(['distinct_id'])
+
+        // creates numerical prop, ignores non-numerical values
+        expect(person.properties).toEqual({ a: 100, b: 200, c: -100, d: 2 ** 64 })
+
+        await processEvent(
+            'distinct_id',
+            '',
+            '',
+            ({
+                event: 'some_other_event',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id',
+                    $increment: { a: 247, b: -100, c: -568 },
+                },
+            } as any) as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+
+        expect((await server.db.fetchEvents()).length).toBe(2)
+        const [person2] = await server.db.fetchPersons()
+
+        // adds to the existing prop value
+        expect(person2.properties).toEqual({ a: 347, b: 100, c: -668, d: 2 ** 64 })
+    })
+
+    test('$increment does not increment non-numerical props', async () => {
+        await createPerson(server, team, ['distinct_id'])
+
+        await processEvent(
+            'distinct_id',
+            '',
+            '',
+            ({
+                event: 'some_event',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id',
+                    $set: { hello: 'world' },
+                },
+            } as any) as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+
+        await processEvent(
+            'distinct_id',
+            '',
+            '',
+            ({
+                event: 'some_other_event',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id',
+                    $increment: { hello: 10000 }, // try to increment a string
+                },
+            } as any) as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+
+        const [person] = await server.db.fetchPersons()
+        expect(await server.db.fetchDistinctIdValues(person)).toEqual(['distinct_id'])
+
+        // $increment doesn't update a prop that is not an integer
+        expect(person.properties).toEqual({ hello: 'world' })
+    })
+
+    test('$increment does not increment non-integer numeric values', async () => {
+        await createPerson(server, team, ['distinct_id'])
+
+        await processEvent(
+            'distinct_id',
+            '',
+            '',
+            ({
+                event: 'some_other_event',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id',
+                    $increment: { a: 1, b: 2, c: 3 },
+                },
+            } as any) as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+
+        await processEvent(
+            'distinct_id',
+            '',
+            '',
+            ({
+                event: 'some_other_event',
+                properties: {
+                    token: team.api_token,
+                    distinct_id: 'distinct_id',
+                    $increment: { a: 1.2, b: NaN, c: Infinity, d: 4 },
+                },
+            } as any) as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+
+        const [person] = await server.db.fetchPersons()
+        expect(await server.db.fetchDistinctIdValues(person)).toEqual(['distinct_id'])
+
+        expect(person.properties).toEqual({ a: 1, b: 2, c: 3, d: 4 })
+    })
+
     test('distinct_id wrong type (number)', async () => {
         await createPerson(server, team, ['asdfasdfasdf'])
         await processEvent(
