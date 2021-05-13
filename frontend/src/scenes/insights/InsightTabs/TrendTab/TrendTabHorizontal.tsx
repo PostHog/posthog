@@ -36,7 +36,7 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
     const formulaAvailable =
         (!filters.insight || filters.insight === ViewType.TRENDS) &&
         featureFlags['3275-formulas'] &&
-        preflight?.ee_enabled
+        preflight?.is_clickhouse_enabled
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
 
     return (
