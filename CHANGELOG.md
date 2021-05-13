@@ -18,7 +18,7 @@ Enjoy!
 
 ![Legends](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/legends.png)
 
-This feature isn't new to all of you, because we've been testing it out with a [feature flag](/docs/tutorials/feature-flags). However, legends for charts in 'Trends' are now enabled for everyone!
+This feature isn't new to all of you, because we've been testing it out with a [feature flag](https://posthog.com/docs/tutorials/feature-flags). However, legends for charts in 'Trends' are now enabled for everyone!
 
 With legends, you're able to determine with more clarity the different sections/lines you see on a graph, see the exact values for each datapoint, and disable sections with one click. You can find them under your graph in 'Trends'.
 
@@ -56,7 +56,7 @@ In addition, plugins can now leverage have two more functions: `onEvent` and `on
 
 These are read-only functions that run on processed events and are particularly useful for export plugins. `onSnapshot` handles session recording events while `onEvent` handles all other events.
 
-For more information about this, check our [_Building Your Own Plugin_ page](/docs/plugins/build).
+For more information about this, check our [_Building Your Own Plugin_ page](https://posthog.com/docs/plugins/build).
 
 - [Fuzzy search for properties](https://github.com/PostHog/posthog/pull/4091)
 
