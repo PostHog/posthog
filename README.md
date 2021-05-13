@@ -11,7 +11,7 @@ Let's get you developing the plugin server in no time:
 
 1. Install dependencies and prepare for takeoff by running command `yarn`.
 
-1. Start a development instance of [PostHog](/PostHog/posthog). After all, this is the _PostHog_ Plugin Server, and it works in conjuction with the main server. To avoid interference, disable the plugin server there with `PLUGIN_SERVER_IDLE=true`.
+1. Start a development instance of [PostHog](/PostHog/posthog). After all, this is the _PostHog_ Plugin Server, and it works in conjuction with the main server. To avoid interference, disable the plugin server there with setting the PLUGIN_SERVER_IDLE env variable before running. `PLUGIN_SERVER_IDLE=true ./bin/start`
 
 1. Make sure that the plugin server is configured correctly (see [Configuration](#Configuration)). Two settings that you MUST get right are DATABASE_URL and REDIS_URL - they need to be identical between the plugin server and the main server.
 
@@ -73,6 +73,68 @@ There's a multitude of settings you can use to control the plugin server. Use th
 It's magic! Just bump up `version` in `package.json` on the main branch and the new version will be published automatically, with a matching PR to the main PostHog repo created.  
 You can also use a `bump patch/minor/major` label on a PR - this will do the above for you when the PR is merged.  
 Courtesy of GitHub Actions.
+
+## Walkthrough
+
+The story begins with `pluginServer.ts -> startPluginServer`, which is the main thread of the plugin server.
+
+This main thread spawns 4 worker threads, managed using Piscina. Each worker thread runs 10 tasks.<sup>[1](#f1)</sup>
+
+### The main thread
+
+Let's talk about the main thread first. This has:
+
+1. `pubSub`: a Redis powered pubSub mechanism for reloading plugins whenever a message is published by the main PostHog app.
+
+2. `server`: sets up connections to required DBs and queues(clickhouse, Kafka, Postgres, Redis), via `server.ts -> createServer`. This is a shared setup between the main and worker threads
+
+3. `fastifyInstance`: sets up a web server. Unused for now, but may be used for enabling webhooks in the future.
+
+4. `piscina`: this is the thread manager. `makePiscina` creates the manager, while `createWorker` creates the worker threads.
+
+5. `scheduleControl`: The scheduled job controller. Responsible for adding piscina tasks for scheduled jobs, when the time comes.
+   The schedule information makes it into `server.pluginSchedule` via `vm.ts -> createPluginConfigVM -> __tasks`, which parses for `runEvery*` tasks, and
+   then used in `src/workers/plugins/setup.ts -> loadSchedule`. More about the vm internals in a bit.
+
+6. `jobQueueConsumer`: The internal job queue consumer. This enables retries, scheduling jobs in the future (once) (Note: this is the difference between `scheduleControl` and this internal `jobQueue`). While `scheduleControl` is triggered via `runEveryMinute`, `runEveryHour` tasks, the `jobQueueConsumer` deals with `meta.jobs.doX(event).runAt(new Date())`.
+
+    Enqueuing jobs is managed by `job-queue-manager.ts`, which is backed by a Graphile-worker (`graphile-queue.ts`)
+
+7. `queue`: Wait, another queue?
+
+Side Note about Queues:
+
+Yes, there are a LOT of queues. Each of them serve a separate function. The one we've seen already is the graphile job queue. This is the internal one dealing with `job.runAt()` tasks.
+
+Then, there's the main ingestion queue, which sends events from PostHog to the plugin server. This is a Celery (backed by Redis) or Kafka queue, depending on the setup (Enterprise/high event volume is Kafka). These are consumed by the `queue` above, and sent off to the Piscina workers (`src/main/ingestion-queues/queue.ts -> ingestEvent`). Since all of the "real" stuff happens inside the worker threads, you'll find the specific ingestion code there (`src/worker/ingestion/ingest-event.ts`). This finally writes things into Postgres.
+
+It's also a good idea to see the producer side of this ingestion queue, which comes from `Posthog/posthog/api/capture.py`. There's several tasks in this queue, and our plugin server is only interested in one kind of task: `posthog.tasks.process_event.process_event_with_plugins`.
+
+### Worker threads
+
+That's all for the main thread. Onto the workers now: It all begins with `worker.ts` and `createWorker()`
+
+`server` is the same DB connections setup as in the main thread.
+
+What's new here is `setupPlugins` and `createTaskRunner`.
+
+1. `setupPlugins`: Does `loadPluginsFromDB` and then `loadPlugins` (which creates VMs lazily for each plugin+team). TeamID represents a company using plugins, and each team can have it's own set of plugins enabled. The PluginConfig shows which team the config belongs to, the plugin to run, and the VM to run it in.
+
+2. `createTaskRunner`: There's some excellent wizardry happening here. `makePiscina` of `piscina.js` sets up the workers to run the existing file itself (using `__filename` in the setup config, returning `createWorker()`. This `createWorker()` is a function returning `createTaskRunner`, which is a [curried function](https://javascript.info/currying-partials), which given `{task, args}`, returns `workerTasks[task](server, args)`. These worker tasks are available in `src/worker/tasks.ts`.
+
+### Worker Lifecycle
+
+TODO: what happens with getPLuginRows, getPluginConfigRows and SetupPlugins.
+
+Q: Where is teamID populated? At event creation time? (in posthog/posthog? row.pk)
+
+### VM Internals
+
+TODO
+
+### End Notes
+
+<a name="f1">1</a>: What are tasks? - TASKS_PER_WORKER - a Piscina setting (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions) -> concurrentTasksPerWorker
 
 ## Questions?
 

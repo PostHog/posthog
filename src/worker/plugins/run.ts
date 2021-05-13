@@ -44,7 +44,8 @@ export async function runOnSnapshot(server: PluginsServer, event: PluginEvent): 
 }
 
 export async function runProcessEvent(server: PluginsServer, event: PluginEvent): Promise<PluginEvent | null> {
-    const pluginsToRun = getPluginsForTeam(server, event.team_id)
+    const teamId = event.team_id
+    const pluginsToRun = getPluginsForTeam(server, teamId)
     let returnedEvent: PluginEvent | null = event
 
     const pluginsSucceeded = []
@@ -57,6 +58,10 @@ export async function runProcessEvent(server: PluginsServer, event: PluginEvent)
 
             try {
                 returnedEvent = (await processEvent(returnedEvent)) || null
+                if (returnedEvent.team_id != teamId) {
+                    returnedEvent = null // don't try to ingest events with modified teamIDs
+                    throw new Error('Illegal Operation: Plugin tried to change teamID')
+                }
                 pluginsSucceeded.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
             } catch (error) {
                 await processError(server, pluginConfig, error, returnedEvent)
@@ -65,7 +70,7 @@ export async function runProcessEvent(server: PluginsServer, event: PluginEvent)
             }
             server.statsd?.timing(`plugin.process_event`, timer, {
                 plugin: pluginConfig.plugin?.name ?? '?',
-                teamId: event.team_id.toString(),
+                teamId: teamId.toString(),
             })
 
             if (!returnedEvent) {
