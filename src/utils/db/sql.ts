@@ -3,10 +3,12 @@ import {
     PluginAttachmentDB,
     PluginConfig,
     PluginError,
+    PluginId,
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginsServer,
 } from '../../types'
+import { TeamId } from './../../types'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
     return `SELECT posthog_pluginconfig.${specificField || '*'}
@@ -69,4 +71,12 @@ export async function setError(
             pluginError.time
         )
     }
+}
+
+export async function disablePlugin(server: PluginsServer, teamId: TeamId, pluginId: PluginId): Promise<void> {
+    await server.db.postgresQuery(
+        `UPDATE posthog_pluginconfig SET enabled='f' WHERE team_id=$1 AND plugin_id=$2 AND enabled='t'`,
+        [teamId, pluginId],
+        'disablePlugin'
+    )
 }

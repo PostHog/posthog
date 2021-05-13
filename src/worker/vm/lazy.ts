@@ -8,6 +8,7 @@ import {
     PluginTaskType,
 } from '../../types'
 import { clearError, processError } from '../../utils/db/error'
+import { disablePlugin } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { createPluginConfigVM } from './vm'
 
@@ -41,10 +42,11 @@ export class LazyPluginVM {
                         pluginConfig,
                         PluginLogEntrySource.System,
                         PluginLogEntryType.Error,
-                        `Plugin failed to load (instance ID ${server.instanceId}).`,
+                        `Plugin failed to load and was disabled (instance ID ${server.instanceId}).`,
                         server.instanceId
                     )
                     status.warn('⚠️', `Failed to load ${logInfo}`)
+                    void disablePlugin(server, pluginConfig.team_id, pluginConfig.plugin_id)
                     void processError(server, pluginConfig, error)
                     resolve(null)
                 }

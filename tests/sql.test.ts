@@ -1,6 +1,12 @@
 import { PluginConfig, PluginError, PluginsServer } from '../src/types'
 import { createServer } from '../src/utils/db/server'
-import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setError } from '../src/utils/db/sql'
+import {
+    disablePlugin,
+    getPluginAttachmentRows,
+    getPluginConfigRows,
+    getPluginRows,
+    setError,
+} from '../src/utils/db/sql'
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
@@ -36,7 +42,6 @@ test('getPluginAttachmentRows', async () => {
 })
 
 test('getPluginConfigRows', async () => {
-    await resetTestDatabase(`const processEvent = event => event`)
     const rowsExpected = [
         {
             config: {
@@ -61,7 +66,6 @@ test('getPluginConfigRows', async () => {
 })
 
 test('getPluginRows', async () => {
-    await resetTestDatabase(`const processEvent = event => event`)
     const rowsExpected = [
         {
             archive: expect.any(Buffer),
@@ -139,4 +143,28 @@ test('setError', async () => {
         [pluginError, pluginConfig39.id],
         'updatePluginConfigError'
     )
+})
+
+describe('disablePlugin', () => {
+    test('disablePlugin query builds correctly', async () => {
+        server.db.postgresQuery = jest.fn() as any
+
+        await disablePlugin(server, 2, 60)
+        expect(server.db.postgresQuery).toHaveBeenCalledWith(
+            `UPDATE posthog_pluginconfig SET enabled='f' WHERE team_id=$1 AND plugin_id=$2 AND enabled='t'`,
+            [2, 60],
+            'disablePlugin'
+        )
+    })
+
+    test('disablePlugin disables a plugin', async () => {
+        const rowsBefore = await getPluginConfigRows(server)
+        expect(rowsBefore[0].plugin_id).toEqual(60)
+        expect(rowsBefore[0].enabled).toEqual(true)
+
+        await disablePlugin(server, 2, 60)
+
+        const rowsAfter = await getPluginConfigRows(server)
+        expect(rowsAfter).toEqual([])
+    })
 })

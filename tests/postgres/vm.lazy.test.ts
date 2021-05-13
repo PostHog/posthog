@@ -5,10 +5,17 @@ import { clearError, processError } from '../../src/utils/db/error'
 import { status } from '../../src/utils/status'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
+import { disablePlugin } from '../helpers/sqlMock'
 
 jest.mock('../../src/worker/vm/vm')
 jest.mock('../../src/utils/db/error')
 jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/db/sql')
+
+const mockConfig = {
+    plugin_id: 60,
+    team_id: 2,
+}
 
 describe('LazyPluginVM', () => {
     const createVM = () => new LazyPluginVM()
@@ -17,7 +24,7 @@ describe('LazyPluginVM', () => {
             createPluginLogEntry: jest.fn(),
         },
     }
-    const initializeVm = (vm: LazyPluginVM) => vm.initialize!(mockServer, 'mockConfig' as any, '', 'some plugin')
+    const initializeVm = (vm: LazyPluginVM) => vm.initialize!(mockServer, mockConfig as any, '', 'some plugin')
 
     describe('VM creation succeeds', () => {
         const mockVM = {
@@ -53,9 +60,9 @@ describe('LazyPluginVM', () => {
             await vm.resolveInternalVm
 
             expect(status.info).toHaveBeenCalledWith('🔌', 'Loaded some plugin')
-            expect(clearError).toHaveBeenCalledWith(mockServer, 'mockConfig')
+            expect(clearError).toHaveBeenCalledWith(mockServer, mockConfig)
             expect(mockServer.db.createPluginLogEntry).toHaveBeenCalledWith(
-                'mockConfig',
+                mockConfig,
                 PluginLogEntrySource.System,
                 PluginLogEntryType.Info,
                 expect.stringContaining('Plugin loaded'),
@@ -81,7 +88,7 @@ describe('LazyPluginVM', () => {
             expect(await vm.getTasks(PluginTaskType.Schedule)).toEqual({})
         })
 
-        it('logs failure', async () => {
+        it('logs failure and disables plugin', async () => {
             try {
                 const vm = createVM()
                 void initializeVm(vm)
@@ -89,9 +96,10 @@ describe('LazyPluginVM', () => {
             } catch {}
 
             expect(status.warn).toHaveBeenCalledWith('⚠️', 'Failed to load some plugin')
-            expect(processError).toHaveBeenCalledWith(mockServer, 'mockConfig', error)
+            expect(processError).toHaveBeenCalledWith(mockServer, mockConfig, error)
+            expect(disablePlugin).toHaveBeenCalledWith(mockServer, 2, 60)
             expect(mockServer.db.createPluginLogEntry).toHaveBeenCalledWith(
-                'mockConfig',
+                mockConfig,
                 PluginLogEntrySource.System,
                 PluginLogEntryType.Error,
                 expect.stringContaining('Plugin failed to load'),

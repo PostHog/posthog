@@ -10,3 +10,4 @@ export const getPluginConfigRows = (s.getPluginConfigRows as unknown) as jest.Mo
     UnPromisify<typeof s.getPluginConfigRows>
 >
 export const setError = (s.setError as unknown) as jest.MockedFunction<UnPromisify<typeof s.setError>>
+export const disablePlugin = (s.disablePlugin as unknown) as jest.MockedFunction<UnPromisify<void>>
