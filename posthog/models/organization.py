@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models.query import QuerySet
+from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
@@ -42,6 +43,15 @@ class OrganizationManager(models.Manager):
 
 
 class Organization(UUIDModel):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["for_internal_metrics"],
+                condition=Q(for_internal_metrics=True),
+                name="single_for_internal_metrics",
+            ),
+        ]
+
     class PluginsAccessLevel(models.IntegerChoices):
         # None means the organization can't use plugins at all. They're hidden. Cloud default.
         NONE = 0, "none"
