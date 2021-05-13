@@ -43,6 +43,7 @@ export const annotationScopeToName = new Map<string, string>([
 
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
 
+// Event constants
 export const PAGEVIEW = '$pageview'
 export const AUTOCAPTURE = '$autocapture'
 export const SCREEN = '$screen'
@@ -58,9 +59,13 @@ export enum ShownAsValue {
     LIFECYCLE = 'Lifecycle',
 }
 
+// Retention constants
+export const RETENTION_RECURRING = 'retention_recurring'
+export const RETENTION_FIRST_TIME = 'retention_first_time'
+
+// Properties constants
 export const PROPERTY_MATH_TYPE = 'property'
 export const EVENT_MATH_TYPE = 'event'
-
 export const MATHS: Record<string, any> = {
     total: {
         name: 'Total volume',
@@ -227,4 +232,5 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS: Record<string, string> = {
     INGESTION_GRID: 'ingestion-grid-exp-3',
     PROJECT_HOME: 'project-home-exp-5',
+    QUERY_UX_V2: '4050-query-ui-optB',
 }

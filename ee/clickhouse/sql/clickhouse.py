@@ -64,5 +64,5 @@ def kafka_engine(
         )
 
 
-def ttl_period():
-    return "" if TEST else "TTL toDate(created_at) + INTERVAL 3 WEEK"
+def ttl_period(field: str = "created_at", weeks: int = 3):
+    return "" if TEST else f"TTL toDate({field}) + INTERVAL {weeks} WEEK"

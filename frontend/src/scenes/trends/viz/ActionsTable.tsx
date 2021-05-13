@@ -1,5 +1,5 @@
 import React from 'react'
-import { Loading, formatLabel } from 'lib/utils'
+import { Loading, formatLabel, maybeAddCommasToInteger } from 'lib/utils'
 import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useValues } from 'kea'
@@ -19,6 +19,14 @@ export function ActionsTable({
     if (!filters.session && data) {
         data = data.sort((a, b) => b.aggregated_value - a.aggregated_value)
     }
+
+    data = data.map((d: any) => {
+        const key: string = filters.session ? 'count' : 'aggregated_value'
+        const value: any = d[key]
+        d[key + '_formatted'] = maybeAddCommasToInteger(value)
+        return d
+    })
+
     return data && !resultsLoading ? (
         data[0] && (filters.session || data[0].labels) ? (
             <Table
@@ -37,7 +45,7 @@ export function ActionsTable({
                     },
                     {
                         title: filters.session ? 'Value' : 'Count',
-                        dataIndex: filters.session ? 'count' : 'aggregated_value',
+                        dataIndex: filters.session ? 'count_formatted' : 'aggregated_value_formatted',
                     },
                 ]}
                 rowKey="label"

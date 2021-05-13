@@ -35,6 +35,8 @@ from .utils import (
     get_plugin_server_version,
 )
 
+ROBOTS_TXT_CONTENT = "User-agent: *\nDisallow: /"
+
 
 def noop(*args, **kwargs) -> None:
     return None
@@ -77,6 +79,10 @@ def stats(request):
     stats_response: Dict[str, Union[int, str]] = {}
     stats_response["worker_heartbeat"] = get_celery_heartbeat()
     return JsonResponse(stats_response)
+
+
+def robots_txt(request):
+    return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
 
 
 @never_cache

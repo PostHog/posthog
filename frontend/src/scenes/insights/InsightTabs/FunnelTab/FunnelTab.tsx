@@ -11,8 +11,14 @@ import { useState } from 'react'
 import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
+import { BaseTabProps } from 'scenes/insights/Insights'
+import { InsightTitle } from '../InsightTitle'
 
-export function FunnelTab(): JSX.Element {
+interface FunnelTabProps extends BaseTabProps {
+    newUI: boolean
+}
+
+export function FunnelTab({ annotationsToCreate, newUI }: FunnelTabProps): JSX.Element {
     useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic())
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
@@ -28,6 +34,11 @@ export function FunnelTab(): JSX.Element {
 
     return (
         <div data-attr="funnel-tab">
+            {newUI && (
+                <Row>
+                    <InsightTitle annotations={annotationsToCreate} filters={filters} />
+                </Row>
+            )}
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()

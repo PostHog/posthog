@@ -5,14 +5,15 @@ import { ActionFilter, EntityTypes, PropertyFilter, SelectOption } from '~/types
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_MATH_TYPE, EVENT_MATH_TYPE, MATHS } from 'lib/constants'
-import { DownOutlined, DeleteOutlined } from '@ant-design/icons'
+import { DownOutlined, DeleteOutlined, FilterOutlined, CloseSquareOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import './ActionFilterRow.scss'
-import { BareEntity, entityFilterLogic } from './entityFilterLogic'
+import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { pluralize } from 'lib/utils'
+import './index.scss'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
@@ -22,9 +23,7 @@ const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): 
         return 'Hide filters'
     }
     if (filter.properties && Object.keys(filter.properties).length > 0) {
-        return `${Object.keys(filter.properties).length} filter${
-            Object.keys(filter.properties).length === 1 ? '' : 's'
-        }`
+        return pluralize(filter.properties?.length, 'filter')
     }
     return 'Add filters'
 }
@@ -39,6 +38,7 @@ interface ActionFilterRowProps {
     showOr?: boolean
     letter?: string | null
     horizontalUI?: boolean
+    filterCount: number
 }
 
 export function ActionFilterRow({
@@ -51,6 +51,7 @@ export function ActionFilterRow({
     showOr,
     letter,
     horizontalUI = false,
+    filterCount,
 }: ActionFilterRowProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
@@ -87,9 +88,11 @@ export function ActionFilterRow({
         })
     }
 
-    const dropDownCondition: boolean = Boolean(
+    const dropDownCondition = Boolean(
         selectedFilter && selectedFilter?.type === filter.type && selectedFilter?.index === index
     )
+
+    const separatorWord = math === 'dau' ? 'who did' : 'of' // Separator between property and value.
 
     const onClick = (): void => {
         if (dropDownCondition) {
@@ -107,38 +110,64 @@ export function ActionFilterRow({
         name = entity.name || filter.name
         value = entity.id || filter.id
     }
+
+    const orLabel = <div className="stateful-badge mc-main or width-locked">OR</div>
+
     return (
-        <div>
-            {showOr && (
-                <Row align="middle">
-                    {index > 0 && (
-                        <div className="stateful-badge mc-main or width-locked" style={{ marginTop: 12 }}>
-                            OR
-                        </div>
-                    )}
+        <div className={horizontalUI ? 'action-row-striped' : ''}>
+            {!horizontalUI && index > 0 && showOr && (
+                <Row align="middle" style={{ marginTop: 12 }}>
+                    {orLabel}
                 </Row>
             )}
-            <Row gutter={8} align="middle" className="mt">
+
+            <Row gutter={8} align="middle" className={!horizontalUI ? 'mt' : ''}>
+                {horizontalUI && !singleFilter && filterCount > 1 && (
+                    <Col>
+                        <Button
+                            type="link"
+                            onClick={onClose}
+                            className="row-action-btn delete"
+                            title="Remove graph series"
+                            danger
+                            icon={<CloseSquareOutlined />}
+                        />
+                    </Col>
+                )}
                 {letter && (
                     <Col className="action-row-letter">
                         <span>{letter}</span>
                     </Col>
                 )}
-                {horizontalUI && (
+                {horizontalUI && !hideMathSelector && (
                     <>
                         <Col>Showing</Col>
                         <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
-                            {!hideMathSelector && (
-                                <MathSelector
-                                    math={math}
-                                    index={index}
-                                    onMathSelect={onMathSelect}
-                                    areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
-                                    style={{ maxWidth: '100%', width: 'initial' }}
-                                />
-                            )}
+                            <MathSelector
+                                math={math}
+                                index={index}
+                                onMathSelect={onMathSelect}
+                                areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
+                                style={{ maxWidth: '100%', width: 'initial' }}
+                            />
                         </Col>
-                        <Col>of</Col>
+                        {MATHS[math || '']?.onProperty && (
+                            <>
+                                <Col>of</Col>
+                                <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
+                                    <MathPropertySelector
+                                        name={name}
+                                        math={math}
+                                        mathProperty={mathProperty}
+                                        index={index}
+                                        onMathPropertySelect={onMathPropertySelect}
+                                        properties={numericalPropertyNames}
+                                        horizontalUI={horizontalUI}
+                                    />
+                                </Col>
+                            </>
+                        )}
+                        <Col>{separatorWord}</Col>
                     </>
                 )}
                 <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
@@ -173,32 +202,52 @@ export function ActionFilterRow({
                         )}
                     </Col>
                 )}
-                {!singleFilter && (
+                {horizontalUI && (
+                    <Col>
+                        <Button
+                            type="link"
+                            onClick={() => {
+                                typeof filter.order === 'number'
+                                    ? setEntityFilterVisibility(filter.order, !visible)
+                                    : undefined
+                            }}
+                            className={`row-action-btn show-filters${filter.properties?.length ? ' visible' : ''}`}
+                            data-attr={'show-prop-filter-' + index}
+                            title="Show filters"
+                        >
+                            <FilterOutlined />
+                            {filter.properties?.length ? pluralize(filter.properties?.length, 'filter') : null}
+                        </Button>
+                    </Col>
+                )}
+                {!horizontalUI && !singleFilter && filterCount > 1 && (
                     <Col>
                         <Button
                             type="link"
                             onClick={onClose}
-                            style={{
-                                padding: 0,
-                                paddingLeft: 8,
-                            }}
+                            className="row-action-btn delete"
+                            data-attr={'delete-prop-filter-' + index}
+                            title="Delete graph series"
                         >
                             <DeleteOutlined />
                         </Button>
                     </Col>
                 )}
+                {horizontalUI && filterCount > 1 && index < filterCount - 1 && showOr && orLabel}
             </Row>
-            {!hideMathSelector && MATHS[math || '']?.onProperty && (
-                <MathPropertySelector
-                    name={name}
-                    math={math}
-                    mathProperty={mathProperty}
-                    index={index}
-                    onMathPropertySelect={onMathPropertySelect}
-                    properties={numericalPropertyNames}
-                />
+            {!horizontalUI && !hideMathSelector && MATHS[math || '']?.onProperty && (
+                <Row align="middle">
+                    <MathPropertySelector
+                        name={name}
+                        math={math}
+                        mathProperty={mathProperty}
+                        index={index}
+                        onMathPropertySelect={onMathPropertySelect}
+                        properties={numericalPropertyNames}
+                    />
+                </Row>
             )}
-            {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) && (
+            {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) && !horizontalUI && (
                 <div style={{ paddingTop: 6 }}>
                     <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
                     <Button
@@ -221,6 +270,7 @@ export function ActionFilterRow({
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
                         onChange={(properties: PropertyFilter[]) => updateFilterProperty({ properties, index })}
+                        disablePopover={horizontalUI}
                         style={{ marginBottom: 0 }}
                     />
                 </div>
@@ -335,6 +385,7 @@ interface MathPropertySelectorProps {
     index: number
     onMathPropertySelect: (index: number, value: string) => any
     properties: SelectOption[]
+    horizontalUI?: boolean
 }
 
 function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
@@ -353,11 +404,10 @@ function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
     return (
         <SelectGradientOverflow
             showSearch
-            style={{ width: 150 }}
+            className={`property-select ${props.horizontalUI ? 'horizontal-ui' : ''}`}
             onChange={(_: string, payload) => {
                 props.onMathPropertySelect(props.index, (payload as SelectOption)?.value)
             }}
-            className="property-select"
             value={props.mathProperty}
             data-attr="math-property-select"
             dropdownMatchSelectWidth={350}

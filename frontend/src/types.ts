@@ -8,6 +8,8 @@ import {
     PAGEVIEW,
     SCREEN,
     ShownAsValue,
+    RETENTION_RECURRING,
+    RETENTION_FIRST_TIME,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
@@ -446,6 +448,7 @@ export interface PluginType {
 export interface PluginConfigType {
     id?: number
     plugin: number
+    team_id: number
     enabled: boolean
     order: number
     config: Record<string, any>
@@ -458,6 +461,26 @@ export interface PluginErrorType {
     stack?: string
     name?: string
     event?: Record<string, any>
+}
+
+export enum PluginLogEntryType {
+    Debug = 'DEBUG',
+    Log = 'LOG',
+    Info = 'INFO',
+    Warn = 'WARN',
+    Error = 'ERROR',
+}
+
+export interface PluginLogEntry {
+    id: string
+    team_id: number
+    plugin_id: number
+    plugin_config_id: number
+    timestamp: string
+    type: PluginLogEntryType
+    is_system: boolean
+    message: string
+    instance_id: string
 }
 
 export interface AnnotationType {
@@ -486,7 +509,8 @@ export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PAT
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type PathType = typeof PAGEVIEW | typeof AUTOCAPTURE | typeof SCREEN | typeof CUSTOM_EVENT
-export type RetentionType = 'retention_recurring' | 'retention_first_time'
+
+export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
 export interface FilterType {
     insight?: InsightType
@@ -642,6 +666,10 @@ export enum DashboardMode { // Default mode is null
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
     Public = 'public', // When viewing the dashboard publicly via a shareToken
+}
+
+export enum DashboardItemMode {
+    Edit = 'edit',
 }
 
 // Reserved hotkeys globally available

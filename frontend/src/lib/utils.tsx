@@ -840,3 +840,12 @@ export function resolveWebhookService(webhookUrl: string): string {
     }
     return 'your webhook service'
 }
+
+export function maybeAddCommasToInteger(value: any): any {
+    const isNumber = !isNaN(value)
+    if (!isNumber) {
+        return value
+    }
+    const internationalNumberFormat = new Intl.NumberFormat('en-US')
+    return internationalNumberFormat.format(value)
+}

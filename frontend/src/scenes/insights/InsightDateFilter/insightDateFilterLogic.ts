@@ -1,8 +1,8 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import dayjs from 'dayjs'
-import { dateFilterLogicType } from 'scenes/insights/DateFilter/dateFilterLogicType'
 import { objectsEqual } from 'lib/utils'
+import { insightDateFilterLogicType } from './insightDateFilterLogicType'
 
 type Dayjs = dayjs.Dayjs
 
@@ -11,7 +11,7 @@ interface UrlParams {
     date_to?: string
 }
 
-export const dateFilterLogic = kea<dateFilterLogicType<UrlParams, Dayjs>>({
+export const insightDateFilterLogic = kea<insightDateFilterLogicType<UrlParams, Dayjs>>({
     actions: () => ({
         setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({
             dateFrom,

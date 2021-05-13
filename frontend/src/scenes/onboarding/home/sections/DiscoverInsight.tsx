@@ -20,7 +20,7 @@ import { CarouselArrow } from 'scenes/onboarding/home/sections/CarouselArrow'
 
 const { Paragraph } = Typography
 
-const insights = [
+const insightsTypes = [
     {
         name: 'Trends',
         target: '/insights?insight=TRENDS',
@@ -91,7 +91,7 @@ function CreateAnalysisSection(): JSX.Element {
             <List
                 style={{ overflowY: 'scroll' }}
                 grid={{}}
-                dataSource={insights}
+                dataSource={insightsTypes}
                 renderItem={(insight) => (
                     <a
                         href={insight.target}

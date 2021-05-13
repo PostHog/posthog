@@ -3,11 +3,11 @@ import { Loading } from '../../../lib/utils'
 import { LineGraph } from '../../insights/LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { router } from 'kea-router'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART } from 'lib/constants'
 import { ChartParams } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { router } from 'kea-router'
 
 export function ActionsLineGraph({
     dashboardItemId,
@@ -25,8 +25,8 @@ export function ActionsLineGraph({
     })
     const { filters, indexedResults, resultsLoading, visibilityMap } = useValues(logic)
     const { loadPeople } = useActions(logic)
-
     const [{ fromItem }] = useState(router.values.hashParams)
+
     return indexedResults && !resultsLoading ? (
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
             <LineGraph

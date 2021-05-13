@@ -14,12 +14,20 @@ import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
+import { TrendTabHorizontal } from './TrendTabHorizontal'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { BaseTabProps } from 'scenes/insights/Insights'
 
-interface TrendTabProps {
+export interface TrendTabProps extends BaseTabProps {
     view: string
 }
 
-export function TrendTab({ view }: TrendTabProps): JSX.Element {
+export function TrendTab(props: TrendTabProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? <TrendTabHorizontal {...props} /> : <DefaultTrendTab {...props} />
+}
+
+function DefaultTrendTab({ view }: TrendTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
@@ -42,7 +50,6 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                 <Skeleton active />
             ) : (
                 <ActionFilter
-                    horizontalUI={featureFlags['4050-query-ui-optB']}
                     filters={filters}
                     setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                     typeKey={'trends_' + view}

@@ -9,8 +9,8 @@ import './InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { router } from 'kea-router'
-import { ViewType } from '../insightLogic'
 import relativeTime from 'dayjs/plugin/relativeTime'
+import { ViewType } from '../insightLogic'
 dayjs.extend(relativeTime)
 
 const InsightHistoryType = {

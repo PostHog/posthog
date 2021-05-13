@@ -74,6 +74,9 @@ if DEBUG:
 else:
     JS_URL = os.getenv("JS_URL", "")
 
+PLUGINS_PREINSTALLED_URLS: List[str] = os.getenv(
+    "PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip"
+).split(",") if not TEST else []
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
@@ -205,6 +208,9 @@ ALLOWED_HOSTS = get_list(os.getenv("ALLOWED_HOSTS", "*"))
 STATSD_HOST = os.getenv("STATSD_HOST")
 STATSD_PORT = os.getenv("STATSD_PORT", 8125)
 STATSD_PREFIX = os.getenv("STATSD_PREFIX", "")
+STATSD_TELEGRAF = True
+STATSD_CLIENT = "statshog"
+STATSD_SEPARATOR = "_"
 
 # django-axes settings to lockout after too many attempts
 AXES_ENABLED = get_from_env("AXES_ENABLED", True, type_cast=strtobool)
