@@ -24,6 +24,8 @@ import { TableConfig } from 'lib/components/ResizableTable'
 import { propertyDefinitionsLogic } from './propertyDefinitionsLogic'
 import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -55,6 +57,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
     } = useValues(logic)
     const { propertyNames } = useValues(propertyDefinitionsLogic)
     const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
@@ -63,7 +66,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 ? item.date_break
                 : newEvents.length === 1
                 ? `There is 1 new event. Click here to load it.`
-                : `There are ${newEvents.length} new events. Click here to load them.`,
+                : `There are ${newEvents.length || ''} new events. Click here to load them.`,
             props: {
                 colSpan,
                 style: {
@@ -291,7 +294,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     orderBy: [orderBy],
                 })}`}
                 selectedColumns={selectedConfigOptions}
-                availableColumns={propertyNames}
+                availableColumns={featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] ? propertyNames : undefined}
                 immutableColumns={['event', 'person', 'when']}
                 defaultColumns={defaultColumns.map((e) => e.key || '')}
                 onColumnUpdate={setColumnConfig}

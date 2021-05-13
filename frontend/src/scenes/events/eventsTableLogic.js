@@ -169,7 +169,7 @@ export const eventsTableLogic = kea({
             () => [selectors.events, selectors.newEvents],
             (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
         ],
-        columnConfig: [() => [userLogic.selectors.user], (user) => user.events_column_config.active],
+        columnConfig: [() => [userLogic.selectors.user], (user) => user?.events_column_config?.active || 'DEFAULT'],
     }),
 
     events: ({ values }) => ({
