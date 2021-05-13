@@ -11,6 +11,7 @@ import { DisplayType, FilterType } from '~/types'
 import { ViewType } from '../insightLogic'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
+import { RetentionDatePicker } from '../RetentionDatePicker'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -157,8 +158,10 @@ function HorizontalDefaultInsightDisplayConfig({
                         disabled={allFilters.insight === ViewType.LIFECYCLE}
                     />
                 )}
-
                 {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
+
+                {activeView === ViewType.RETENTION && <RetentionDatePicker />}
+
                 {showDateFilter[activeView] && (
                     <>
                         <InsightDateFilter

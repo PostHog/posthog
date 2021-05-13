@@ -13,6 +13,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 export enum Scene {
     Dashboards = 'dashboards',
     Dashboard = 'dashboard',
+    DashboardInsight = 'dashboardInsight',
     Insights = 'insights',
     Cohorts = 'cohorts',
     Events = 'events',
@@ -55,6 +56,8 @@ interface Params {
 export const scenes: Record<Scene, () => any> = {
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
+    [Scene.DashboardInsight]: () =>
+        import(/* webpackChunkName: 'dashboardInsight' */ './dashboard-insight/DashboardInsight'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './persons/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
@@ -147,6 +150,7 @@ export const redirects: Record<string, string | ((params: Params) => any)> = {
 export const routes: Record<string, Scene> = {
     '/dashboard': Scene.Dashboards,
     '/dashboard/:id': Scene.Dashboard,
+    '/dashboard_insight/:id': Scene.DashboardInsight,
     '/action/:id': Scene.Action,
     '/action': Scene.Action,
     '/insights': Scene.Insights,

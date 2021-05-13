@@ -21,7 +21,7 @@ from posthog.constants import (
     TRENDS_STICKINESS,
 )
 from posthog.decorators import CacheType
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.models import DashboardItem, Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -122,7 +122,7 @@ def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type:
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
 
-    if is_ee_enabled():
+    if is_clickhouse_enabled():
         insight_class_path = CH_TYPE_TO_IMPORT[cache_type]
     else:
         insight_class_path = TYPE_TO_IMPORT[cache_type]
@@ -137,7 +137,7 @@ def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, 
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
 
-    if is_ee_enabled():
+    if is_clickhouse_enabled():
         insight_class = import_from("ee.clickhouse.queries.clickhouse_funnel", "ClickhouseFunnel")
     else:
         insight_class = import_from("posthog.queries.funnel", "Funnel")

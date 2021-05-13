@@ -78,6 +78,14 @@
             }
         }
     }
+
+    .retention-date-picker {
+        background-color: transparent;
+        border: 0;
+        input::placeholder {
+            color: $text_default;
+        }
+    }
 }
 
 .insight-empty-state {

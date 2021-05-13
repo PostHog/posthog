@@ -12,7 +12,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec, Version
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
@@ -247,7 +247,7 @@ def fetch_plugin_log_entries(
     search: Optional[str] = None,
     limit: Optional[int] = None,
 ) -> List[Union[PluginLogEntry, PluginLogEntryRaw]]:
-    if is_ee_enabled():
+    if is_clickhouse_enabled():
         clickhouse_where_parts: List[str] = []
         clickhouse_kwargs: Dict[str, Any] = {}
         if team_id is not None:

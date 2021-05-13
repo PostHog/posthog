@@ -13,7 +13,7 @@ from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.email import is_email_available
 from posthog.models import User
 from posthog.utils import (
@@ -106,7 +106,7 @@ def system_status(request):
         {
             "key": "analytics_database",
             "metric": "Analytics database in use",
-            "value": "ClickHouse" if is_ee_enabled() else "Postgres",
+            "value": "ClickHouse" if is_clickhouse_enabled() else "Postgres",
         }
     )
 
@@ -130,7 +130,7 @@ def system_status(request):
             }
         )
 
-        if not is_ee_enabled():
+        if not is_clickhouse_enabled():
             event_table_count = get_table_approx_count(Event._meta.db_table)
             event_table_size = get_table_size(Event._meta.db_table)
 
@@ -155,7 +155,7 @@ def system_status(request):
                     "value": f"{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
                 }
             )
-    if is_ee_enabled():
+    if is_clickhouse_enabled():
         from ee.clickhouse.system_status import system_status
 
         metrics.extend(list(system_status()))
@@ -208,7 +208,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         response = {
             **response,
             "ee_available": settings.EE_AVAILABLE,
-            "ee_enabled": is_ee_enabled(),
+            "is_clickhouse_enabled": is_clickhouse_enabled(),
             "db_backend": settings.PRIMARY_DB.value,
             "available_timezones": get_available_timezones_with_offsets(),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),

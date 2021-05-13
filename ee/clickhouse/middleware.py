@@ -3,7 +3,7 @@ from django.http import HttpRequest, HttpResponse
 from django.urls.base import resolve
 from loginas.utils import is_impersonated_session
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 
 
 class CHQueries(object):
@@ -22,7 +22,7 @@ class CHQueries(object):
         route = resolve(request.path)
         client._request_information = {
             "save": (
-                is_ee_enabled()
+                is_clickhouse_enabled()
                 and request.user.pk
                 and (request.user.is_staff or is_impersonated_session(request) or settings.DEBUG)
             ),

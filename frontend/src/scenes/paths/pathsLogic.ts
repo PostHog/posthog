@@ -7,6 +7,7 @@ import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insight
 import { pathsLogicType } from './pathsLogicType'
 import { FilterType, PropertyFilter } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 
 export const PAGEVIEW = '$pageview'
 export const SCREEN = '$screen'
@@ -14,10 +15,10 @@ export const AUTOCAPTURE = '$autocapture'
 export const CUSTOM_EVENT = 'custom_event'
 
 export const pathOptionsToLabels = {
-    [`${PAGEVIEW}`]: 'Pageview (Web)',
-    [`${SCREEN}`]: 'Screen (Mobile)',
-    [`${AUTOCAPTURE}`]: 'Autocaptured Events',
-    [`${CUSTOM_EVENT}`]: 'Custom Events',
+    [`${PAGEVIEW}`]: 'Page views (Web)',
+    [`${SCREEN}`]: 'Screen views (Mobile)',
+    [`${AUTOCAPTURE}`]: 'Autocaptured events',
+    [`${CUSTOM_EVENT}`]: 'Custom events',
 }
 
 export const pathOptionsToProperty = {
@@ -176,6 +177,10 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
 
                 return Object.keys(result).length === 0 ? '' : result
             },
+        ],
+        filtersLoading: [
+            () => [propertyDefinitionsLogic.selectors.loaded],
+            (propertiesLoaded): boolean => !propertiesLoaded,
         ],
     },
     actionToUrl: ({ values }) => ({

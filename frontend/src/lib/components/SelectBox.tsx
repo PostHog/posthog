@@ -59,7 +59,7 @@ export function SelectBox({
     items: SelectBoxItem[]
     selectedItemKey?: string
     onSelect: (type: any, id: string | number, name: string) => void
-    onDismiss: (event: MouseEvent) => void
+    onDismiss: (event?: MouseEvent) => void
     inputPlaceholder?: string
     disablePopover?: boolean // Disable PropertyKeyInfo popover
 }): JSX.Element {
@@ -72,7 +72,7 @@ export function SelectBox({
         if (e.target && dropdownRef?.current?.contains(e.target as Node)) {
             return
         }
-        onDismiss && onDismiss(e)
+        onDismiss(e)
     }
 
     const data = !search ? items : searchGroupItems(items, search)
@@ -96,7 +96,7 @@ export function SelectBox({
         }
     }, [])
     return (
-        <div ref={dropdownRef} className="select-box" tabIndex={0}>
+        <div ref={dropdownRef} className="select-box" tabIndex={-1}>
             <Row style={{ height: '100%' }}>
                 <Col sm={14} style={{ borderRight: '1px solid rgba(0, 0, 0, 0.1)', maxHeight: '100%' }}>
                     <Input
@@ -105,9 +105,12 @@ export function SelectBox({
                         onChange={(e) => {
                             setSearch(e.target.value)
                         }}
+                        onKeyDown={(e) => {
+                            e.key === 'Tab' && onDismiss() // Close select box when input blurs via Tab
+                        }}
                         style={{ width: '100%', borderRadius: 0, height: '10%' }}
                     />
-                    <div style={{ width: '100%', height: '90%' }}>
+                    <div style={{ width: '100%', height: '90%' }} tabIndex={-1}>
                         <SelectUnit
                             items={Object.assign({}, ...data.map((item) => ({ [item.name]: item })))}
                             dropdownLogic={dropdownLogic}
@@ -260,6 +263,7 @@ export function SelectUnit({
                                         rowHeight={35}
                                         rowRenderer={renderItem}
                                         width={width}
+                                        tabIndex={-1}
                                     />
                                 )
                             }}
