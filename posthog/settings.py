@@ -212,6 +212,9 @@ STATSD_TELEGRAF = True
 STATSD_CLIENT = "statshog"
 STATSD_SEPARATOR = "_"
 
+# Whether to capture internal metrics
+CAPTURE_INTERNAL_METRICS = get_from_env("CAPTURE_INTERNAL_METRICS", False, type_cast=strtobool)
+
 # django-axes settings to lockout after too many attempts
 AXES_ENABLED = get_from_env("AXES_ENABLED", True, type_cast=strtobool)
 AXES_FAILURE_LIMIT = int(os.getenv("AXES_FAILURE_LIMIT", 5))

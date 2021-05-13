@@ -70,6 +70,7 @@ class Organization(UUIDModel):
         default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
         choices=PluginsAccessLevel.choices,
     )
+    for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
 
     objects: OrganizationManager = OrganizationManager()
 
