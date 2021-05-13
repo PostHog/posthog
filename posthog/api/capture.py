@@ -253,35 +253,40 @@ def get_event(request):
                 ),
             )
 
-        if not event.get("properties"):
-            event["properties"] = {}
-
+        site_url = request.build_absolute_uri("/")[:-1]
+        ip = None if team.anonymize_ips else get_ip_address(request)
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
-        event_uuid = UUIDT()
-        ip = None if team.anonymize_ips else get_ip_address(request)
+        statsd.incr("posthog_cloud_plugin_server_ingestion")
+        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk)
 
-        if is_clickhouse_enabled():
-            statsd.incr("posthog_cloud_plugin_server_ingestion")
-
-            log_event(
-                distinct_id=distinct_id,
-                ip=ip,
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.pk,
-                now=now,
-                sent_at=sent_at,
-                event_uuid=event_uuid,
-            )
-        else:
-            task_name = "posthog.tasks.process_event.process_event_with_plugins"
-            celery_queue = settings.PLUGINS_CELERY_QUEUE
-            celery_app.send_task(
-                name=task_name,
-                queue=celery_queue,
-                args=[distinct_id, ip, request.build_absolute_uri("/")[:-1], event, team.pk, now.isoformat(), sent_at,],
-            )
     timer.stop()
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",})
     return cors_response(request, JsonResponse({"status": 1}))
+
+
+def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id):
+    if not event.get("properties"):
+        event["properties"] = {}
+
+    event_uuid = UUIDT()
+
+    if is_clickhouse_enabled():
+        log_event(
+            distinct_id=distinct_id,
+            ip=ip,
+            site_url=site_url,
+            data=event,
+            team_id=team_id,
+            now=now,
+            sent_at=sent_at,
+            event_uuid=event_uuid,
+        )
+    else:
+        task_name = "posthog.tasks.process_event.process_event_with_plugins"
+        celery_queue = settings.PLUGINS_CELERY_QUEUE
+        celery_app.send_task(
+            name=task_name,
+            queue=celery_queue,
+            args=[distinct_id, ip, site_url, event, team_id, now.isoformat(), sent_at,],
+        )
