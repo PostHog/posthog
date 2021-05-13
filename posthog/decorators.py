@@ -28,7 +28,7 @@ class CacheType(str, Enum):
 def cached_function():
     def parameterized_decorator(f: Callable):
         @wraps(f)
-        def wrapper(*args, **kwargs) -> Dict[str, Union[List, datetime, bool]]:
+        def wrapper(*args, **kwargs) -> Dict[str, Union[List, datetime, bool, str]]:
             # prepare caching params
             request: HttpRequest = args[1]
             team = cast(User, request.user).team
