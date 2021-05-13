@@ -2,7 +2,10 @@ BREAKDOWN_QUERY_SQL = """
 SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value FROM (
     SELECT SUM(total) as count, day_start, breakdown_value FROM (
         SELECT * FROM (
-            {null_sql} as main
+            SELECT 
+            toUInt16(0) AS total, 
+            {interval}(toDateTime(%(date_to)s) - number * %(seconds_in_interval)s}) as day_start, 
+            breakdown_value from numbers(%(num_intervals)s) as main
             CROSS JOIN
                 (
                     SELECT breakdown_value
@@ -13,6 +16,8 @@ SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value
             ORDER BY breakdown_value, day_start
             UNION ALL
             {inner_sql}
+            UNION ALL
+            {negation_inner_sql}
         )
     )
     GROUP BY day_start, breakdown_value
@@ -73,31 +78,6 @@ SELECT {aggregate_operation} as total, {breakdown_value} as breakdown_value
 FROM
 events e {event_join} {breakdown_filter}
 GROUP BY breakdown_value
-"""
-
-
-BREAKDOWN_DEFAULT_SQL = """
-SELECT groupArray(day_start) as date, groupArray(count) as data FROM (
-    SELECT SUM(total) as count, day_start FROM (
-        SELECT * FROM (
-            {null_sql} as main
-            ORDER BY day_start
-            UNION ALL
-            SELECT {aggregate_operation} as total, toDateTime({interval_annotation}(timestamp), 'UTC') as day_start
-            FROM
-            events e {event_join} {breakdown_filter}
-            GROUP BY day_start
-        )
-    )
-    GROUP BY day_start
-    ORDER BY day_start
-)
-"""
-
-BREAKDOWN_AGGREGATE_DEFAULT_SQL = """
-SELECT {aggregate_operation} as total
-FROM
-events e {event_join} {breakdown_filter}
 """
 
 BREAKDOWN_CONDITIONS_SQL = """

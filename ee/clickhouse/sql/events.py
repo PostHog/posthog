@@ -190,10 +190,6 @@ NULL_SQL = """
 SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start from numbers({num_intervals})
 """
 
-NULL_BREAKDOWN_SQL = """
-SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start, breakdown_value from numbers({num_intervals})
-"""
-
 EVENT_JOIN_PERSON_SQL = """
 INNER JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) as pid ON events.distinct_id = pid.distinct_id
 """.format(

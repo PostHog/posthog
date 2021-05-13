@@ -13,16 +13,14 @@ from ee.clickhouse.queries.trends.util import (
     process_math,
 )
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
-from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL, NULL_BREAKDOWN_SQL, NULL_SQL
+from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL, GET_LATEST_PERSON_SQL
 from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
     BREAKDOWN_ACTIVE_USER_INNER_SQL,
-    BREAKDOWN_AGGREGATE_DEFAULT_SQL,
     BREAKDOWN_AGGREGATE_QUERY_SQL,
     BREAKDOWN_COHORT_JOIN_SQL,
     BREAKDOWN_CONDITIONS_SQL,
-    BREAKDOWN_DEFAULT_SQL,
     BREAKDOWN_INNER_SQL,
     BREAKDOWN_PERSON_PROP_JOIN_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
@@ -63,13 +61,6 @@ class ClickhouseTrendsBreakdown:
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
-
-        null_sql = NULL_BREAKDOWN_SQL.format(
-            interval=interval_annotation,
-            seconds_in_interval=seconds_in_interval,
-            num_intervals=num_intervals,
-            date_to=(filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
-        )
 
         params = {
             **params,
@@ -124,12 +115,6 @@ class ClickhouseTrendsBreakdown:
 
         else:
 
-            null_sql = null_sql.format(
-                interval=interval_annotation,
-                seconds_in_interval=seconds_in_interval,
-                num_intervals=num_intervals,
-                date_to=(filter.date_to).strftime("%Y-%m-%d %H:%M:%S"),
-            )
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
@@ -158,7 +143,16 @@ class ClickhouseTrendsBreakdown:
                     conditions=conditions,
                 )
 
-            breakdown_query = breakdown_query.format(null_sql=null_sql, inner_sql=inner_sql)
+            breakdown_query = breakdown_query.format(
+                interval=interval_annotation, num_intervals=num_intervals, inner_sql=inner_sql
+            )
+            params.update(
+                {
+                    "date_to": filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
+                    "seconds_in_interval": seconds_in_interval,
+                    "num_intervals": num_intervals,
+                }
+            )
 
             return breakdown_query, params, self._parse_trend_result(filter, entity)
 
