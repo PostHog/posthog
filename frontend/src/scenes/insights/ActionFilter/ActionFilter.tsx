@@ -24,6 +24,7 @@ export interface ActionFilterProps {
     sortable?: boolean // Whether actions/events can be sorted (used mainly for funnel step reordering)
     showLetters?: boolean // Whether to show a letter indicator identifying each graph
     showOr?: boolean // Whether to show the "OR" label after each filter
+    customRowPrefix?: string | JSX.Element // Custom prefix element to show in each ActionFilterRow
     horizontalUI?: boolean
 }
 
@@ -40,6 +41,7 @@ export function ActionFilter({
     showLetters = false,
     showOr = false,
     horizontalUI = false,
+    customRowPrefix,
 }: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
@@ -77,10 +79,10 @@ export function ActionFilter({
                                 logic={logic as any}
                                 filter={filter as ActionFilterType}
                                 index={index}
-                                filterIndex={index}
                                 hideMathSelector={hideMathSelector}
                                 hidePropertySelector={hidePropertySelector}
                                 filterCount={localFilters.length}
+                                customRowPrefix={customRowPrefix}
                             />
                         ))}
                     </SortableContainer>
@@ -98,6 +100,7 @@ export function ActionFilter({
                             showOr={showOr}
                             horizontalUI={horizontalUI}
                             filterCount={localFilters.length}
+                            customRowPrefix={customRowPrefix}
                         />
                     ))
                 )

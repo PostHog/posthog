@@ -55,7 +55,14 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                             buttonCopy="Add graph series"
                             showLetters={isUsingFormulas}
                             singleFilter={filters.insight === ViewType.LIFECYCLE}
-                            hidePropertySelector={filters.insight === ViewType.LIFECYCLE}
+                            hideMathSelector={filters.insight === ViewType.LIFECYCLE}
+                            customRowPrefix={
+                                filters.insight === ViewType.LIFECYCLE ? (
+                                    <>
+                                        Showing <b>Unique users</b> who did
+                                    </>
+                                ) : undefined
+                            }
                         />
                     )}
                 </Col>
