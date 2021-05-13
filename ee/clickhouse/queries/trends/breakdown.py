@@ -133,14 +133,12 @@ class ClickhouseTrendsBreakdown:
                     **breakdown_filter_params
                 )
             else:
-                conditions = BREAKDOWN_CONDITIONS_SQL.format(**breakdown_filter_params)
                 inner_sql = BREAKDOWN_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
                     event_join=join_condition,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    conditions=conditions,
                 )
 
             breakdown_query = breakdown_query.format(

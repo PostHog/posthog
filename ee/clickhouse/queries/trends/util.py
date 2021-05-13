@@ -97,7 +97,7 @@ def populate_entity_params(entity: Entity) -> Tuple[Dict, Dict]:
             action = Action.objects.get(pk=entity.id)
             action_query, action_params = format_action_filter(action)
             params = {**action_params}
-            content_sql_params = {"entity_query": "AND {actions_query}".format(action_query)}
+            content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}
         except:
             raise ValueError("Action does not exist")
     else:

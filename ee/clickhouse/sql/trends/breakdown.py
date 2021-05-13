@@ -78,10 +78,6 @@ events e {event_join} {breakdown_filter}
 GROUP BY breakdown_value
 """
 
-BREAKDOWN_CONDITIONS_SQL = """
-WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {actions_query}
-"""
-
 BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_range} {parsed_date_to} {actions_query}
 """
