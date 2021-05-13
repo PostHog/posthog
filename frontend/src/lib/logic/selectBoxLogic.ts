@@ -81,6 +81,22 @@ export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem
                 )
             },
         ],
+        data: [
+            (s) => [s.search],
+            (search): SelectBoxItem[] => {
+                if (!search) {
+                    return props.items
+                }
+                const newItems: SelectBoxItem[] = []
+                for (const item of props.items) {
+                    newItems.push({
+                        ...item,
+                        dataSource: searchItems(item.dataSource, search),
+                    })
+                }
+                return newItems
+            },
+        ],
     }),
     listeners: ({ props, values, actions }) => ({
         clickSelectedItem: ({ item, group }: { item: SelectedItem; group: SelectBoxItem }) => {
