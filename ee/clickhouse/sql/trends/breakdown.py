@@ -4,7 +4,7 @@ SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value
         SELECT * FROM (
             SELECT 
             toUInt16(0) AS total, 
-            {interval}(toDateTime(%(date_to)s) - number * %(seconds_in_interval)s}) as day_start, 
+            {interval}(toDateTime(%(date_to)s) - number * %(seconds_in_interval)s) as day_start, 
             breakdown_value from numbers(%(num_intervals)s) as main
             CROSS JOIN
                 (
