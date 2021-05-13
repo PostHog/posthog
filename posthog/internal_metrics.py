@@ -6,9 +6,6 @@ from sentry_sdk.api import capture_exception
 from statshog.client.base import Tags
 from statshog.defaults.django import statsd
 
-from posthog.api.capture import capture_internal
-from posthog.models.organization import Organization
-from posthog.models.team import Team
 from posthog.utils import get_machine_id
 
 NAME = "Posthog Internal Metrics"
@@ -30,6 +27,8 @@ def incr(metric_name: str, count: int = 1, tags: Tags = None):
 
 
 def _capture(metric_name: str, value: Any, tags: Tags):
+    from posthog.api.capture import capture_internal
+
     team_id = get_internal_metrics_team_id()
     if team_id is not None:
         now = timezone.now()
@@ -42,6 +41,11 @@ _cached_internal_team_id: Optional[int] = None
 
 
 def get_internal_metrics_team_id() -> Optional[int]:
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    global _cached_internal_team_id
+
     if not settings.CAPTURE_INTERNAL_METRICS:
         return None
     if _cached_internal_team_id is not None:
@@ -61,7 +65,6 @@ def get_internal_metrics_team_id() -> Optional[int]:
                 is_demo=True,
             )
 
-        global _cached_internal_team_id
         _cached_internal_team_id = team.pk
 
         return team.pk
