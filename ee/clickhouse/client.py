@@ -124,6 +124,10 @@ else:
             try:
                 sql, tags = _annotate_tagged_query(query, args)
                 result = client.execute(sql, args, settings=settings)
+            except Exception as e:
+                tags["failed"] = True
+                tags["reason"] = str(e)
+                raise e
             finally:
                 execution_time = time() - start_time
                 statsd.gauge("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
