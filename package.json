@@ -64,7 +64,7 @@
         "kea-localstorage": "^1.0.2",
         "kea-router": "^0.5.2",
         "kea-window-values": "^0.0.1",
-        "posthog-js": "1.9.7",
+        "posthog-js": "1.10.0",
         "posthog-js-lite": "^0.0.3",
         "prop-types": "^15.7.2",
         "query-selector-shadow-dom": "0.8.0",

@@ -1,7 +1,7 @@
 import './ActionsPie.scss'
 
 import React, { useState, useEffect } from 'react'
-import { Loading } from 'lib/utils'
+import { Loading, maybeAddCommasToInteger } from 'lib/utils'
 import { LineGraph } from '../../insights/LineGraph'
 import { getChartColors } from 'lib/colors'
 import { useValues, useActions } from 'kea'
@@ -76,7 +76,7 @@ export function ActionsPie({
                 </div>
                 <h1>
                     <span className="label">Total: </span>
-                    {total}
+                    {maybeAddCommasToInteger(total)}
                 </h1>
             </div>
         ) : (

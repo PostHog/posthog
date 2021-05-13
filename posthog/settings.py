@@ -74,6 +74,9 @@ if DEBUG:
 else:
     JS_URL = os.getenv("JS_URL", "")
 
+PLUGINS_PREINSTALLED_URLS: List[str] = os.getenv(
+    "PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip"
+).split(",") if not TEST else []
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
@@ -157,7 +160,12 @@ if CLICKHOUSE_SECURE:
     _clickhouse_http_protocol = "https://"
     _clickhouse_http_port = "8443"
 
-CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
+CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
+
+_clickhouse_hosts = get_from_env("CLICKHOUSE_MIGRATION_HOSTS", CLICKHOUSE_HOST).split(",")
+CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS = [
+    f"{_clickhouse_http_protocol}{host}:{_clickhouse_http_port}/" for host in _clickhouse_hosts
+]
 
 IS_HEROKU = get_from_env("IS_HEROKU", False, type_cast=strtobool)
 
@@ -200,6 +208,9 @@ ALLOWED_HOSTS = get_list(os.getenv("ALLOWED_HOSTS", "*"))
 STATSD_HOST = os.getenv("STATSD_HOST")
 STATSD_PORT = os.getenv("STATSD_PORT", 8125)
 STATSD_PREFIX = os.getenv("STATSD_PREFIX", "")
+STATSD_TELEGRAF = True
+STATSD_CLIENT = "statshog"
+STATSD_SEPARATOR = "_"
 
 # django-axes settings to lockout after too many attempts
 AXES_ENABLED = get_from_env("AXES_ENABLED", True, type_cast=strtobool)

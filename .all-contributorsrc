@@ -1157,6 +1157,60 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "gesposito",
+      "name": "Gianluca Esposito",
+      "avatar_url": "https://avatars.githubusercontent.com/u/735227?v=4",
+      "profile": "https://www.esposi.to",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "sankalpdomore",
+      "name": "Sankalp Sinha",
+      "avatar_url": "https://avatars.githubusercontent.com/u/18334593?v=4",
+      "profile": "http://www.sankalpsinha.com",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "gagantrivedi",
+      "name": "gagandeep trivedi",
+      "avatar_url": "https://avatars.githubusercontent.com/u/18366226?v=4",
+      "profile": "https://github.com/gagantrivedi",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "j-fuentes",
+      "name": "Jose Fuentes Castillo",
+      "avatar_url": "https://avatars.githubusercontent.com/u/10594577?v=4",
+      "profile": "https://github.com/j-fuentes",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "akshayagarwal",
+      "name": "Akshay Agarwal",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1273012?v=4",
+      "profile": "http://in.linkedin.com/in/akshayagr",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "JeffreyQ",
+      "name": "Jeff Qiu",
+      "avatar_url": "https://avatars.githubusercontent.com/u/10890152?v=4",
+      "profile": "https://github.com/JeffreyQ",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

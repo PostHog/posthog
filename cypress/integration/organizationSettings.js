@@ -1,3 +1,4 @@
+// For tests related to team members administration please see `inviteMembers.js`
 describe('Organization settings', () => {
     it('can navigate to organization settings', () => {
         cy.get('[data-attr=top-navigation-whoami]').click()

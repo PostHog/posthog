@@ -5,7 +5,7 @@ from rest_framework.request import Request
 from posthog.demo.app_data_generator import AppDataGenerator
 from posthog.demo.revenue_data_generator import RevenueDataGenerator
 from posthog.demo.web_data_generator import WebDataGenerator
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.models import Organization, Team, User
 from posthog.utils import render_template
 
@@ -33,7 +33,7 @@ def demo(request: Request):
         team.event_names_with_usage.append({"event": "$pageview", "usage_count": None, "volume": None})
         team.save()
 
-    if is_ee_enabled():  # :TRICKY: Lazily backfill missing event data.
+    if is_clickhouse_enabled():  # :TRICKY: Lazily backfill missing event data.
         from ee.clickhouse.models.event import get_events_by_team
 
         result = get_events_by_team(team_id=team.pk)
