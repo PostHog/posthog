@@ -255,6 +255,10 @@ def get_event(request):
 
         site_url = request.build_absolute_uri("/")[:-1]
         ip = None if team.anonymize_ips else get_ip_address(request)
+
+        if not event.get("properties"):
+            event["properties"] = {}
+
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
         statsd.incr("posthog_cloud_plugin_server_ingestion")
@@ -266,9 +270,6 @@ def get_event(request):
 
 
 def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id):
-    if not event.get("properties"):
-        event["properties"] = {}
-
     event_uuid = UUIDT()
 
     if is_clickhouse_enabled():

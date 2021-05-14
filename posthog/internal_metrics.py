@@ -1,7 +1,7 @@
-from datetime import timezone
 from typing import Any, Optional, Union
 
 from django.conf import settings
+from django.utils import timezone
 from sentry_sdk.api import capture_exception
 from statshog.client.base import Tags
 from statshog.defaults.django import statsd
@@ -58,7 +58,6 @@ def get_internal_metrics_team_id() -> Optional[int]:
             organization = Organization.objects.create(name=NAME, for_internal_metrics=True)
             team = Team.objects.create(
                 name=NAME,
-                default_dashboards=False,
                 organization=organization,
                 ingested_event=True,
                 completed_snippet_onboarding=True,
