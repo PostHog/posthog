@@ -8,6 +8,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconExternalLink } from 'lib/components/icons'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
+import { ClickhouseTab } from 'scenes/instance/SystemStatus/ClickhouseTab'
 
 export function SystemStatus(): JSX.Element {
     const { tab, error } = useValues(systemStatusLogic)
@@ -64,7 +65,7 @@ export function SystemStatus(): JSX.Element {
                     <OverviewTab />
                 </Tabs.TabPane>
                 <Tabs.TabPane tab="Clickhouse" key="clickhouse">
-                    <div>Hello</div>
+                    <ClickhouseTab />
                 </Tabs.TabPane>
             </Tabs>
         </div>
