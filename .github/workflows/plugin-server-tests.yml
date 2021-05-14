@@ -113,13 +113,13 @@ jobs:
             - name: Check out Django server for database setup
               uses: actions/checkout@v2
               with:
-                  repository: 'PostHog/posthog'
                   path: 'posthog/'
 
             - name: Check out plugin server
               uses: actions/checkout@v2
               with:
-                  path: 'plugin-server'
+                  repository: 'PostHog/plugin-server'
+                  path: 'plugin-server/'
 
             - name: Fix Kafka Hostname
               run: |
