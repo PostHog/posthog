@@ -33,7 +33,7 @@ def insight_test_factory(event_factory, person_factory):
             # create without user
             DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
-            response = self.client.get("/api/insight/", data={"user": "true"}).json()
+            response = self.client.get("/api/projects/@current/insight/", data={"user": "true"}).json()
 
             self.assertEqual(len(response["results"]), 1)
 
@@ -55,14 +55,16 @@ def insight_test_factory(event_factory, person_factory):
             # create without user
             DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
-            response = self.client.get("/api/insight/", data={"saved": "true", "user": "true",},).json()
+            response = self.client.get(
+                "/api/projects/@current/insight/", data={"saved": "true", "user": "true",},
+            ).json()
 
             self.assertEqual(len(response["results"]), 1)
 
         def test_create_insight_items(self):
             # Make sure the endpoint works with and without the trailing slash
             self.client.post(
-                "/api/insight",
+                "/api/projects/@current/insight",
                 data={
                     "filters": {
                         "events": [{"id": "$pageview"}],
@@ -86,7 +88,7 @@ def insight_test_factory(event_factory, person_factory):
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = self.client.get(
-                    "/api/insight/trend/?events={}".format(json.dumps([{"id": "$pageview"}]))
+                    "/api/projects/@current/insight/trend/?events={}".format(json.dumps([{"id": "$pageview"}]))
                 ).json()
 
             self.assertEqual(response["result"][0]["count"], 2)
@@ -102,7 +104,7 @@ def insight_test_factory(event_factory, person_factory):
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = self.client.get(
-                    "/api/insight/trend/",
+                    "/api/projects/@current/insight/trend/",
                     data={
                         "events": json.dumps([{"id": "$pageview"}]),
                         "breakdown": "$some_property",
@@ -121,7 +123,7 @@ def insight_test_factory(event_factory, person_factory):
                 properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
             )
 
-            response = self.client.get("/api/insight/path",).json()
+            response = self.client.get("/api/projects/@current/insight/path",).json()
             self.assertEqual(len(response["result"]), 1)
 
         # TODO: remove this check
@@ -131,7 +133,7 @@ def insight_test_factory(event_factory, person_factory):
             def test_insight_funnels_basic(self):
                 event_factory(team=self.team, event="user signed up", distinct_id="1")
                 response = self.client.get(
-                    "/api/insight/funnel/?events={}".format(
+                    "/api/projects/@current/insight/funnel/?events={}".format(
                         json.dumps([{"id": "user signed up", "type": "events", "order": 0},])
                     )
                 ).json()
@@ -153,7 +155,7 @@ def insight_test_factory(event_factory, person_factory):
                     distinct_id="person1",
                     timestamp=timezone.now() - timedelta(days=10),
                 )
-                response = self.client.get("/api/insight/retention/",).json()
+                response = self.client.get("/api/projects/@current/insight/retention/",).json()
 
                 self.assertEqual(len(response["result"]), 11)
 

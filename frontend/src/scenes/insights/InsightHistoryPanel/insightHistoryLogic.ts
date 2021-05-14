@@ -36,7 +36,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
             __default: [] as DashboardItemType[],
             loadInsights: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
+                    'api/projects/@current/insight/?' +
                         toParams({
                             order: '-created_at',
                             limit: 20,
@@ -51,7 +51,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
             __default: [] as DashboardItemType[],
             loadSavedInsights: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
+                    'api/projects/@current/insight/?' +
                         toParams({
                             order: '-created_at',
                             saved: true,
@@ -67,7 +67,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
             __default: [] as DashboardItemType[],
             loadTeamInsights: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
+                    'api/projects/@current/insight/?' +
                         toParams({
                             order: '-created_at',
                             saved: true,
@@ -155,12 +155,12 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
     },
     listeners: ({ actions, values }) => ({
         createInsight: async ({ filters }) => {
-            await api.create('api/insight', {
+            await api.create('api/projects/@current/insight', {
                 filters,
             })
         },
         updateInsight: async ({ insight }) => {
-            await api.update(`api/insight/${insight.id}`, insight)
+            await api.update(`api/projects/@current/insight/${insight.id}`, insight)
             toast('Saved Insight')
             actions.updateInsightSuccess(insight)
         },

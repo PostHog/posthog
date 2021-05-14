@@ -72,7 +72,7 @@ export const retentionTableLogic = kea<
                 let res
                 const urlParams = toParams({ ...values.filters, ...(refresh ? { refresh: true } : {}) })
                 try {
-                    res = await api.get(`api/insight/retention/?${urlParams}`)
+                    res = await api.get(`api/projects/@current/insight/retention/?${urlParams}`)
                 } catch (e) {
                     insightLogic.actions.endQuery(ViewType.RETENTION, null, e)
                     return []

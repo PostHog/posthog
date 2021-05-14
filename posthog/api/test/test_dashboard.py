@@ -130,7 +130,7 @@ class TestDashboard(APIBaseTest):
 
         # cache results
         response = self.client.get(
-            "/api/insight/trend/?events=%s&properties=%s"
+            "/api/projects/@current/insight/trend/?events=%s&properties=%s"
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         self.assertEqual(response.status_code, 200)
@@ -273,7 +273,7 @@ class TestDashboard(APIBaseTest):
             dashboard=dashboard, filters=filter.to_dict(), team=self.team,
         )
         self.client.get(
-            "/api/insight/trend/?events=%s&properties=%s&date_from=-7d"
+            "/api/projects/@current/insight/trend/?events=%s&properties=%s&date_from=-7d"
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         patch_response = self.client.patch(
@@ -283,7 +283,7 @@ class TestDashboard(APIBaseTest):
 
         # cache results
         response = self.client.get(
-            "/api/insight/trend/?events=%s&properties=%s&date_from=-24h"
+            "/api/projects/@current/insight/trend/?events=%s&properties=%s&date_from=-24h"
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         self.assertEqual(response.status_code, 200)

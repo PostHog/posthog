@@ -30,7 +30,8 @@ export const appUrlsLogic = kea<appUrlsLogicType<TrendResult>>({
                     breakdown: '$current_url',
                     date_from: dayjs().subtract(3, 'days').toISOString(),
                 }
-                const result = (await api.get('api/insight/trend/?' + toParams(params))).result as TrendResult[]
+                const result = (await api.get('api/projects/@current/insight/trend/?' + toParams(params)))
+                    .result as TrendResult[]
                 if (result && result[0]?.count === 0) {
                     return []
                 }

@@ -167,13 +167,13 @@ export const trendsLogic = kea<
                 try {
                     if (values.filters?.insight === ViewType.SESSIONS || values.filters?.session) {
                         response = await api.get(
-                            'api/insight/session/?' +
+                            'api/projects/@current/insight/session/?' +
                                 (refresh ? 'refresh=true&' : '') +
                                 toAPIParams(filterClientSideParams(values.filters))
                         )
                     } else {
                         response = await api.get(
-                            'api/insight/trend/?' +
+                            'api/projects/@current/insight/trend/?' +
                                 (refresh ? 'refresh=true&' : '') +
                                 toAPIParams(filterClientSideParams(values.filters))
                         )

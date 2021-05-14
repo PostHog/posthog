@@ -99,16 +99,17 @@ if is_clickhouse_enabled():
         # legacy endpoints (to be removed eventually)
         router.register(r"action", LegacyClickhouseActionsViewSet, basename="action")
         router.register(r"event", ClickhouseEventsViewSet, basename="event")
-        router.register(r"insight", ClickhouseInsightsViewSet, basename="insight")
         router.register(r"person", ClickhousePersonViewSet, basename="person")
         router.register(r"paths", ClickhousePathsViewSet, basename="paths")
         router.register(r"element", ClickhouseElementViewSet, basename="element")
         router.register(r"cohort", ClickhouseCohortViewSet, basename="cohort")
         # nested endpoints
         projects_router.register(r"actions", ClickhouseActionsViewSet, "project_actions", ["team_id"])
+        projects_router.register(
+            r"insight", ClickhouseInsightsViewSet, "project_insights", ["team_id"],
+        )
 else:
     # legacy endpoints (to be removed eventually)
-    router.register(r"insight", insight.InsightViewSet)
     router.register(r"action", action.LegacyActionViewSet)
     router.register(r"person", person.PersonViewSet)
     router.register(r"event", event.EventViewSet)
@@ -117,3 +118,4 @@ else:
     router.register(r"cohort", cohort.CohortViewSet)
     # nested endpoints
     projects_router.register(r"actions", action.ActionViewSet, "project_actions", ["team_id"])
+    projects_router.register(r"insight", insight.InsightViewSet, "project_insights", ["team_id"])

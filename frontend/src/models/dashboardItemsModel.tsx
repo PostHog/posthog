@@ -28,7 +28,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
                 value: item.name,
                 error: 'You must enter name',
                 success: async (name: string) => {
-                    item = await api.update(`api/insight/${item.id}`, { name })
+                    item = await api.update(`api/projects/@current/insight/${item.id}`, { name })
                     toast('Succesfully renamed item')
                     actions.renameDashboardItemSuccess(item)
                 },
@@ -46,12 +46,12 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
 
             const { id: _discard, ...rest } = item // eslint-disable-line
             const newItem = dashboardId ? { ...rest, dashboard: dashboardId, layouts } : { ...rest, layouts }
-            const addedItem = await api.create('api/insight', newItem)
+            const addedItem = await api.create('api/projects/@current/insight', newItem)
 
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
 
             if (move) {
-                const deletedItem = await api.update(`api/insight/${item.id}`, {
+                const deletedItem = await api.update(`api/projects/@current/insight/${item.id}`, {
                     deleted: true,
                 })
                 dashboardsModel.actions.updateDashboardItem(deletedItem)
@@ -68,8 +68,8 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
                             onClick={async () => {
                                 toast.dismiss(toastId)
                                 const [restoredItem, removedItem] = await Promise.all([
-                                    api.update(`api/insight/${item.id}`, { deleted: false }),
-                                    api.update(`api/insight/${addedItem.id}`, {
+                                    api.update(`api/projects/@current/insight/${item.id}`, { deleted: false }),
+                                    api.update(`api/projects/@current/insight/${addedItem.id}`, {
                                         deleted: true,
                                     }),
                                 ])

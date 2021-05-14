@@ -24,7 +24,7 @@ export const funnelsModel = kea<funnelsModelType<SavedFunnel, DashboardItemType>
             __default: [] as SavedFunnel[],
             loadFunnels: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
+                    'api/projects/@current/insight/?' +
                         toParams({
                             order: '-created_at',
                             saved: true,
@@ -37,7 +37,7 @@ export const funnelsModel = kea<funnelsModelType<SavedFunnel, DashboardItemType>
                 return results
             },
             deleteFunnel: async (funnelId: number) => {
-                await api.delete(`api/insight/${funnelId}`)
+                await api.delete(`api/projects/@current/insight/${funnelId}`)
                 return values.funnels.filter((funnel) => funnel.id !== funnelId)
             },
         },

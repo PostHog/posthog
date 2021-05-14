@@ -15,12 +15,12 @@ function wait(ms = 1000) {
 const SECONDS_TO_POLL = 3 * 60
 
 async function pollFunnel(params = {}) {
-    let result = await api.get('api/insight/funnel/?' + toParams(params))
+    let result = await api.get('api/projects/@current/insight/funnel/?' + toParams(params))
     let start = window.performance.now()
     while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
         const { refresh: _, ...restParams } = params // eslint-disable-line
-        result = await api.get('api/insight/funnel/?' + toParams(restParams))
+        result = await api.get('api/projects/@current/insight/funnel/?' + toParams(restParams))
     }
     // if endpoint is still loading after 3 minutes just return default
     if (result.loading) {
@@ -189,7 +189,7 @@ export const funnelLogic = kea({
             insightLogic.actions.setLastRefresh(false)
         },
         saveFunnelInsight: async ({ name }) => {
-            await api.create('api/insight', {
+            await api.create('api/projects/@current/insight', {
                 filters: values.filters,
                 name,
                 saved: true,
