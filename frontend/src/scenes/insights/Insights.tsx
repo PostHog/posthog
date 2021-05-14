@@ -293,7 +293,7 @@ export function Insights(): JSX.Element {
                                 className="insights-graph-container"
                             >
                                 <div>
-                                    {lastRefresh && (
+                                    {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
                                         <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
                                             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
                                             <Button
