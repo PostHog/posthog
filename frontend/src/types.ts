@@ -357,12 +357,6 @@ export interface SessionType {
     matching_events: Array<number | string>
 }
 
-export interface FormattedNumber {
-    // :TODO: DEPRECATED, formatting will now happen client-side
-    value: number
-    formatted: string
-}
-
 export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean

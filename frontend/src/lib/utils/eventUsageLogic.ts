@@ -7,6 +7,7 @@ import { eventUsageLogicType } from './eventUsageLogicType'
 import { AnnotationType, FilterType, DashboardType, PersonType, DashboardMode, HotKeys, GlobalHotKeys } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import dayjs from 'dayjs'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
@@ -24,6 +25,7 @@ export enum DashboardEventSource {
 export const eventUsageLogic = kea<
     eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardMode, DashboardEventSource>
 >({
+    connect: [preflightLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
@@ -93,6 +95,10 @@ export const eventUsageLogic = kea<
             extraProps?: Record<string, string | boolean | number | undefined>
         ) => ({ module, item, extraProps }),
         reportProjectHomeSeen: (teamHasData: boolean) => ({ teamHasData }),
+        reportEventSearched: (searchTerm: string, extraProps?: Record<string, number>) => ({
+            searchTerm,
+            extraProps,
+        }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -348,6 +354,13 @@ export const eventUsageLogic = kea<
         },
         reportProjectHomeSeen: async ({ teamHasData }) => {
             posthog.capture('project home seen', { team_has_data: teamHasData })
+        },
+        reportEventSearched: async ({ searchTerm, extraProps }) => {
+            // This event is only captured on PostHog Cloud
+            if (preflightLogic.values.realm === 'cloud') {
+                // Triggered when a search is executed for an action/event (mainly for use on insights)
+                posthog.capture('event searched', { searchTerm, ...extraProps })
+            }
         },
     },
 })
