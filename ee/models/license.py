@@ -93,5 +93,3 @@ def get_licensed_users_available() -> Optional[int]:
 
         users_left = max_users - get_user_model().objects.count() - OrganizationInvite.objects.count()
         return max(users_left, 0)
-
-    return None
