@@ -28,18 +28,17 @@ const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): 
     return 'Add filters'
 }
 
-export interface ActionFilterRowProps {
+interface ActionFilterRowProps {
     logic: typeof entityFilterLogic
     filter: ActionFilter
     index: number
     hideMathSelector?: boolean
-    hidePropertySelector?: boolean // DEPRECATED: Out of use in the new horizontal UI
+    hidePropertySelector?: boolean
     singleFilter?: boolean
     showOr?: boolean
     letter?: string | null
     horizontalUI?: boolean
     filterCount: number
-    customRowPrefix?: string | JSX.Element // Custom prefix element to show in each row
 }
 
 export function ActionFilterRow({
@@ -53,7 +52,6 @@ export function ActionFilterRow({
     letter,
     horizontalUI = false,
     filterCount,
-    customRowPrefix,
 }: ActionFilterRowProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
@@ -141,7 +139,6 @@ export function ActionFilterRow({
                         <span>{letter}</span>
                     </Col>
                 )}
-                {customRowPrefix && <Col>{customRowPrefix}</Col>}
                 {horizontalUI && !hideMathSelector && (
                     <>
                         <Col>Showing</Col>

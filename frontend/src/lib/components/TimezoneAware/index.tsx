@@ -12,7 +12,6 @@ import { ProjectOutlined, LaptopOutlined, GlobalOutlined, SettingOutlined } from
 import { Link } from '../Link'
 import { humanTzOffset, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { TooltipPlacement } from 'antd/lib/tooltip'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY HH:mm'
 
@@ -101,13 +100,7 @@ export function TZLabel({ time, showSeconds }: { time: string | dayjs.Dayjs; sho
 }
 
 /** Return an explainer component for analytics visualization pages. */
-export function TZIndicator({
-    style,
-    placement,
-}: {
-    style?: React.CSSProperties
-    placement?: TooltipPlacement
-}): JSX.Element {
+export function TZIndicator({ style }: { style?: React.CSSProperties }): JSX.Element {
     const { user } = useValues(userLogic)
     /* We use the team in userLogic because the attribute that we need `timezone` is available in that response,
      which will be loaded much sooner than `currentTeam`. */
@@ -125,7 +118,7 @@ export function TZIndicator({
         <div className="tz-label-popover">
             <TZConversionHeader />
             <p style={{ maxWidth: 320 }}>
-                All graphs are calculated and presented in UTC (GMT timezone).
+                All graphs are calculated and presented in UTC (GTM timezone).
                 <br />
                 Conversion to your local timezones are shown below.
             </p>
@@ -156,7 +149,7 @@ export function TZIndicator({
     )
 
     return (
-        <Popover content={PopoverContent} onVisibleChange={handleVisibleChange} placement={placement}>
+        <Popover content={PopoverContent} onVisibleChange={handleVisibleChange}>
             <span className="tz-indicator" style={style}>
                 <GlobalOutlined /> UTC
             </span>
