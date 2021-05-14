@@ -23,7 +23,11 @@ export function InsightTitle({ annotations, filters }: InsightTitleProps): JSX.E
                 )}
                 {fromItemName || 'Unsaved query'}{' '}
                 <SaveToDashboard
-                    displayComponent={<Button type="link" size="small" icon={<SaveOutlined />} />}
+                    displayComponent={
+                        <Button type="link" size="small" icon={<SaveOutlined />}>
+                            Add to dashboard
+                        </Button>
+                    }
                     item={{
                         entity: {
                             filters,
