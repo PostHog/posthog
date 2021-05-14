@@ -130,7 +130,7 @@ else:
                 raise e
             finally:
                 execution_time = time() - start_time
-                statsd.gauge("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
+                statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
                 if app_settings.SHELL_PLUS_PRINT_SQL:
                     print(format_sql(query, args))
                     print("Execution time: %.6fs" % (execution_time,))
