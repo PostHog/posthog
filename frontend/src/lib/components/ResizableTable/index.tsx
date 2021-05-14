@@ -6,8 +6,11 @@ import ResizeObserver from 'resize-observer-polyfill'
 import { RenderedCell } from 'rc-table/lib/interface'
 import { getActiveBreakpoint, getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from './responsiveUtils'
 import VirtualTableHeader from './VirtualTableHeader'
+import { TableConfig as _TableConfig } from './TableConfig'
 
 import './index.scss'
+
+export const TableConfig = _TableConfig
 
 export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> {
     title: string | JSX.Element
@@ -18,6 +21,7 @@ export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> 
         | ((value: any, record?: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
     ellipsis?: boolean
     span: number
+    eventProperties?: string[]
     widthConstraints?: [number, number] // Override default min and max width (px). To specify no max, use Infinity.
 }
 

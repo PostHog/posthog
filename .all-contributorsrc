@@ -1211,6 +1211,16 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "ConradKurth",
+      "name": "Conrad",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1794593?v=4",
+      "profile": "https://github.com/ConradKurth",
+      "contributions": [
+        "code",
+        "plugin"
+      ]
     }
   ],
   "contributorsPerLine": 7,
