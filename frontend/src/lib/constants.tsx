@@ -119,19 +119,6 @@ export const MATHS: Record<string, any> = {
         onProperty: false,
         type: EVENT_MATH_TYPE,
     },
-    sum: {
-        name: 'Sum',
-        description: (
-            <>
-                Event property sum.
-                <br />
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
     avg: {
         name: 'Average',
         description: (
@@ -140,6 +127,19 @@ export const MATHS: Record<string, any> = {
                 <br />
                 <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 14.
+            </>
+        ),
+        onProperty: true,
+        type: PROPERTY_MATH_TYPE,
+    },
+    sum: {
+        name: 'Sum',
+        description: (
+            <>
+                Event property sum.
+                <br />
+                <br />
+                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
             </>
         ),
         onProperty: true,
