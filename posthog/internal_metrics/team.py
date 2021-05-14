@@ -14,7 +14,7 @@ CLICKHOUSE_DASHBOARD = {
     "name": "Clickhouse internal dashboard",
     "items": [
         {
-            "name": "Query time breakdown requests (ms)",
+            "name": "Requests: query time breakdown (ms)",
             "filters": {
                 "events": [
                     {
@@ -51,7 +51,48 @@ CLICKHOUSE_DASHBOARD = {
                 "date_from": "-24h",
                 "properties": [{"key": "kind", "type": "event", "value": ["request"], "operator": "exact"}],
             },
-        }
+        },
+        {
+            "name": "Clickhouse mutations count",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$posthog_celery_clickhouse_table_mutations_count",
+                        "math": "avg",
+                        "name": "$$clickhouse_sync_execution_time",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": "value",
+                    },
+                    {
+                        "id": "$$posthog_celery_clickhouse_table_mutations_count",
+                        "math": "avg",
+                        "name": "$$clickhouse_sync_execution_time",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [{"key": "table", "type": "events", "value": ["person"], "operator": "exact"}],
+                        "math_property": "value",
+                    },
+                    {
+                        "id": "$$posthog_celery_clickhouse_table_mutations_count",
+                        "math": "avg",
+                        "name": "$$clickhouse_sync_execution_time",
+                        "type": "events",
+                        "order": 2,
+                        "properties": [
+                            {"key": "table", "type": "events", "value": ["person_distinct_id"], "operator": "exact"}
+                        ],
+                        "math_property": "value",
+                    },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "properties": [],
+            },
+        },
     ],
 }
 
@@ -107,8 +148,8 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
             name=definition["name"], description=description, team_id=team_id, share_token=secrets.token_urlsafe(22)
         )
 
-        for item in definition["items"]:
-            DashboardItem.objects.create(team_id=team_id, dashboard=dashboard, **item)
+        for index, item in enumerate(definition["items"]):
+            DashboardItem.objects.create(team_id=team_id, dashboard=dashboard, order=index, **item)
 
     return dashboard
 
