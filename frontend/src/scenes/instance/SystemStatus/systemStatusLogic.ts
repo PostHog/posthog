@@ -5,9 +5,12 @@ import { userLogic } from 'scenes/userLogic'
 import { SystemStatus } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
-export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus>>({
+export type TabName = 'overview'
+
+export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus, TabName>>({
     actions: {
         addSystemStatus: (systemStatus: SystemStatus) => ({ systemStatus }),
+        setTab: (tab: TabName) => ({ tab }),
     },
     loaders: {
         systemStatus: [
@@ -23,6 +26,12 @@ export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus>>({
         ],
     },
     reducers: {
+        tab: [
+            'overview' as TabName,
+            {
+                setTab: (_, { tab }) => tab,
+            },
+        ],
         error: [
             null as null | string,
             {
@@ -34,6 +43,19 @@ export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus>>({
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadSystemStatus()
+        },
+    }),
+
+    actionToUrl: ({ values }) => ({
+        setTab: () => '/instance/status' + (values.tab === 'overview' ? '' : '/' + values.tab),
+    }),
+
+    urlToAction: ({ actions, values }) => ({
+        '/instance/status(/:tab)': ({ tab }: { tab?: TabName }) => {
+            const currentTab = tab || 'overview'
+            if (currentTab !== values.tab) {
+                actions.setTab(currentTab)
+            }
         },
     }),
 })

@@ -52,9 +52,10 @@ export function OverviewTab(): JSX.Element {
                         expandRowByClick: true,
                     }}
                 />
-            </Card>
-            <Card style={{ marginTop: 32 }}>
-                <h3 className="l3">Configuration options</h3>
+
+                <h3 className="l3" style={{ marginTop: 32 }}>
+                    Configuration options
+                </h3>
                 <Table
                     className="system-config-table"
                     size="small"

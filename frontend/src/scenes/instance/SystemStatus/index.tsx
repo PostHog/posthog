@@ -1,16 +1,17 @@
 import './index.scss'
 
 import React from 'react'
-import { Alert } from 'antd'
-import { systemStatusLogic } from './systemStatusLogic'
-import { useValues } from 'kea'
+import { Alert, Tabs } from 'antd'
+import { systemStatusLogic, TabName } from './systemStatusLogic'
+import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconExternalLink } from 'lib/components/icons'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 
 export function SystemStatus(): JSX.Element {
-    const { error } = useValues(systemStatusLogic)
+    const { tab, error } = useValues(systemStatusLogic)
+    const { setTab } = useActions(systemStatusLogic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
 
     return (
@@ -57,7 +58,15 @@ export function SystemStatus(): JSX.Element {
                     style={{ marginBottom: 32 }}
                 />
             )}
-            <OverviewTab />
+
+            <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(key) => setTab(key as TabName)}>
+                <Tabs.TabPane tab="Overview" key="overview">
+                    <OverviewTab />
+                </Tabs.TabPane>
+                <Tabs.TabPane tab="Clickhouse" key="clickhouse">
+                    <div>Hello</div>
+                </Tabs.TabPane>
+            </Tabs>
         </div>
     )
 }
