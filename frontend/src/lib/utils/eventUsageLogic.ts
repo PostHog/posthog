@@ -95,9 +95,9 @@ export const eventUsageLogic = kea<
             extraProps?: Record<string, string | boolean | number | undefined>
         ) => ({ module, item, extraProps }),
         reportProjectHomeSeen: (teamHasData: boolean) => ({ teamHasData }),
-        reportEventSearched: (search_term: string, extra_props?: Record<string, number>) => ({
-            search_term,
-            extra_props,
+        reportEventSearched: (searchTerm: string, extraProps?: Record<string, number>) => ({
+            searchTerm,
+            extraProps,
         }),
     },
     listeners: {
@@ -355,13 +355,12 @@ export const eventUsageLogic = kea<
         reportProjectHomeSeen: async ({ teamHasData }) => {
             posthog.capture('project home seen', { team_has_data: teamHasData })
         },
-        reportEventSearched: async ({ search_term, extra_props }) => {
-            if (preflightLogic.values.realm !== 'cloud') {
-                // This event is only captured on PostHog Cloud
-                return
+        reportEventSearched: async ({ searchTerm, extraProps }) => {
+            // This event is only captured on PostHog Cloud
+            if (preflightLogic.values.realm === 'cloud') {
+                // Triggered when a search is executed for an action/event (mainly for use on insights)
+                posthog.capture('event searched', { searchTerm, ...extraProps })
             }
-            // Triggered when a search is executed for an action/event (mainly for use on insights)
-            posthog.capture('event searched', { search_term, ...extra_props })
         },
     },
 })
