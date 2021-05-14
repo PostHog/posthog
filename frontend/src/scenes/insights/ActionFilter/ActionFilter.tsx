@@ -25,6 +25,7 @@ export interface ActionFilterProps {
     showLetters?: boolean // Whether to show a letter indicator identifying each graph
     showOr?: boolean // Whether to show the "OR" label after each filter
     customRowPrefix?: string | JSX.Element // Custom prefix element to show in each ActionFilterRow
+    customActions?: JSX.Element // Custom actions to be added next to the add series button
     horizontalUI?: boolean
 }
 
@@ -42,6 +43,7 @@ export function ActionFilter({
     showOr = false,
     horizontalUI = false,
     customRowPrefix,
+    customActions,
 }: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
@@ -105,19 +107,23 @@ export function ActionFilter({
                     ))
                 )
             ) : null}
-            {!singleFilter && (
-                <div className="mt">
-                    <Button
-                        type={featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? 'dashed' : 'primary'}
-                        onClick={() => addFilter()}
-                        style={{ marginTop: '0.5rem' }}
-                        data-attr="add-action-event-button"
-                        icon={<PlusCircleOutlined />}
-                        disabled={disabled}
-                        className={`add-action-event-button${featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? ' new-ui' : ''}`}
-                    >
-                        {buttonCopy || 'Action or event'}
-                    </Button>
+            {(!singleFilter || customActions) && (
+                <div className="mt" style={{ display: 'flex', alignItems: 'center' }}>
+                    {!singleFilter && (
+                        <Button
+                            type={featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? 'dashed' : 'primary'}
+                            onClick={() => addFilter()}
+                            data-attr="add-action-event-button"
+                            icon={<PlusCircleOutlined />}
+                            disabled={disabled}
+                            className={`add-action-event-button${
+                                featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? ' new-ui' : ''
+                            }`}
+                        >
+                            {buttonCopy || 'Action or event'}
+                        </Button>
+                    )}
+                    {customActions}
                 </div>
             )}
         </div>
