@@ -81,6 +81,7 @@ export function ActionFilter({
                                 logic={logic as any}
                                 filter={filter as ActionFilterType}
                                 index={index}
+                                filterIndex={index}
                                 hideMathSelector={hideMathSelector}
                                 hidePropertySelector={hidePropertySelector}
                                 filterCount={localFilters.length}

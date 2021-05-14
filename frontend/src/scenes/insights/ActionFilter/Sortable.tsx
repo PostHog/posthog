@@ -13,12 +13,18 @@ const DragHandle = sortableHandle(() => (
     </span>
 ))
 
-export const SortableActionFilterRow = sortableElement(({ filterCount, ...props }: ActionFilterRowProps) => (
-    <div className="draggable-action-filter">
-        {filterCount > 1 && <DragHandle />}
-        <ActionFilterRow filterCount={filterCount} {...props} />
-    </div>
-))
+interface SortableActionFilterRowProps extends ActionFilterRowProps {
+    filterIndex: number // sortable requires, yet eats, the index prop
+}
+
+export const SortableActionFilterRow = sortableElement(
+    ({ filterCount, filterIndex, ...props }: SortableActionFilterRowProps) => (
+        <div className="draggable-action-filter">
+            {filterCount > 1 && <DragHandle />}
+            <ActionFilterRow {...props} filterCount={filterCount} index={filterIndex} key={filterIndex} />
+        </div>
+    )
+)
 
 export const SortableContainer = sortableContainer(({ children }: { children: React.ReactNode }) => {
     return <div>{children}</div>
