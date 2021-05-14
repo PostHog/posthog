@@ -70,7 +70,7 @@ def get_max_users() -> Optional[int]:
     Returns the maximum number of users allowed.
     Examines all available valid licenses and returns the max users available.
     """
-    licenses = License.objects.all()
+    licenses = License.objects.filter(valid_until__gte=timezone.now())
     if len(licenses) > 0:
         return max([l.max_users for l in licenses])
     else:
