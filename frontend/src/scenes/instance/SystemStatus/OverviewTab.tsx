@@ -1,0 +1,81 @@
+import React from 'react'
+import { Table, Tag, Card } from 'antd'
+import { systemStatusLogic } from './systemStatusLogic'
+import { useValues } from 'kea'
+import { SystemStatusSubrows } from '~/types'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+
+function RenderValue(value: any): JSX.Element | string {
+    if (typeof value === 'boolean') {
+        return <Tag color={value ? 'success' : 'error'}>{value ? 'Yes' : 'No'}</Tag>
+    }
+    if (value === null || value === undefined || value === '') {
+        return <Tag>Unknown</Tag>
+    }
+    return value.toString()
+}
+
+export function OverviewTab(): JSX.Element {
+    const { systemStatus, systemStatusLoading } = useValues(systemStatusLogic)
+    const { configOptions, preflightLoading } = useValues(preflightLogic)
+
+    const columns = [
+        {
+            title: 'Metric',
+            dataIndex: 'metric',
+            className: 'metric-column',
+        },
+        {
+            title: 'Value',
+            dataIndex: 'value',
+            render: RenderValue,
+        },
+    ]
+
+    return (
+        <>
+            <Card>
+                <h3 className="l3">Key metrics</h3>
+                <Table
+                    className="system-status-table"
+                    size="small"
+                    rowKey="metric"
+                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                    dataSource={systemStatus}
+                    columns={columns}
+                    loading={systemStatusLoading}
+                    expandable={{
+                        expandedRowRender: function renderExpand(row) {
+                            return row.subrows ? <Subrows {...row.subrows} /> : null
+                        },
+                        rowExpandable: (row) => !!row.subrows && row.subrows.rows.length > 0,
+                        expandRowByClick: true,
+                    }}
+                />
+            </Card>
+            <Card style={{ marginTop: 32 }}>
+                <h3 className="l3">Configuration options</h3>
+                <Table
+                    className="system-config-table"
+                    size="small"
+                    rowKey="metric"
+                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                    dataSource={configOptions}
+                    columns={columns}
+                    loading={preflightLoading}
+                />
+            </Card>
+        </>
+    )
+}
+
+function Subrows(props: SystemStatusSubrows): JSX.Element {
+    return (
+        <Table
+            rowKey="metric"
+            pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+            dataSource={props.rows}
+            columns={props.columns.map((title, dataIndex) => ({ title, dataIndex }))}
+        />
+    )
+}
