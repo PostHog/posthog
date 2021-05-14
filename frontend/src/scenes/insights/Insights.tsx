@@ -293,7 +293,7 @@ export function Insights(): JSX.Element {
                                 className="insights-graph-container"
                             >
                                 <div>
-                                    {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
+                                    {lastRefresh && (
                                         <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
                                             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
                                             <Button
@@ -341,7 +341,7 @@ export function Insights(): JSX.Element {
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && (
-                                    <Card style={{ marginTop: 16 }}>
+                                    <Card>
                                         <FunnelPeople />
                                     </Card>
                                 )}
@@ -349,7 +349,7 @@ export function Insights(): JSX.Element {
                                 allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
                                 allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) &&
                                 (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
-                                    <Card style={{ marginTop: 16 }}>
+                                    <Card>
                                         <BindLogic
                                             logic={trendsLogic}
                                             props={{ dashboardItemId: null, view: activeView }}

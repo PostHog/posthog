@@ -11,7 +11,6 @@ import { TestAccountFilter } from '../TestAccountFilter'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { BaseTabProps } from '../Insights'
 import { InsightTitle } from './InsightTitle'
-import { InsightActionBar } from './InsightActionBar'
 
 export function SessionTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
@@ -24,7 +23,7 @@ export function SessionTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX
         <Row gutter={16}>
             <Col md={16} xs={24}>
                 <Row>
-                    <InsightTitle />
+                    <InsightTitle annotations={annotationsToCreate} filters={filters} />
                 </Row>
                 <Row gutter={8} align="middle" className="mb">
                     <Col>Showing</Col>
@@ -43,7 +42,6 @@ export function SessionTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX
                     showOr={true}
                     horizontalUI
                 />
-                <InsightActionBar filters={filters} annotations={annotationsToCreate} insight="SESSIONS" />
             </Col>
             <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                 <h4 className="secondary">Global Filters</h4>

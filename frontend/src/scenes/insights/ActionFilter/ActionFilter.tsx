@@ -24,8 +24,6 @@ export interface ActionFilterProps {
     sortable?: boolean // Whether actions/events can be sorted (used mainly for funnel step reordering)
     showLetters?: boolean // Whether to show a letter indicator identifying each graph
     showOr?: boolean // Whether to show the "OR" label after each filter
-    customRowPrefix?: string | JSX.Element // Custom prefix element to show in each ActionFilterRow
-    customActions?: JSX.Element // Custom actions to be added next to the add series button
     horizontalUI?: boolean
 }
 
@@ -42,8 +40,6 @@ export function ActionFilter({
     showLetters = false,
     showOr = false,
     horizontalUI = false,
-    customRowPrefix,
-    customActions,
 }: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
@@ -81,10 +77,10 @@ export function ActionFilter({
                                 logic={logic as any}
                                 filter={filter as ActionFilterType}
                                 index={index}
+                                filterIndex={index}
                                 hideMathSelector={hideMathSelector}
                                 hidePropertySelector={hidePropertySelector}
                                 filterCount={localFilters.length}
-                                customRowPrefix={customRowPrefix}
                             />
                         ))}
                     </SortableContainer>
@@ -102,28 +98,23 @@ export function ActionFilter({
                             showOr={showOr}
                             horizontalUI={horizontalUI}
                             filterCount={localFilters.length}
-                            customRowPrefix={customRowPrefix}
                         />
                     ))
                 )
             ) : null}
-            {(!singleFilter || customActions) && (
-                <div className="mt" style={{ display: 'flex', alignItems: 'center' }}>
-                    {!singleFilter && (
-                        <Button
-                            type={featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? 'dashed' : 'primary'}
-                            onClick={() => addFilter()}
-                            data-attr="add-action-event-button"
-                            icon={<PlusCircleOutlined />}
-                            disabled={disabled}
-                            className={`add-action-event-button${
-                                featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? ' new-ui' : ''
-                            }`}
-                        >
-                            {buttonCopy || 'Action or event'}
-                        </Button>
-                    )}
-                    {customActions}
+            {!singleFilter && (
+                <div className="mt">
+                    <Button
+                        type={featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? 'dashed' : 'primary'}
+                        onClick={() => addFilter()}
+                        style={{ marginTop: '0.5rem' }}
+                        data-attr="add-action-event-button"
+                        icon={<PlusCircleOutlined />}
+                        disabled={disabled}
+                        className={`add-action-event-button${featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? ' new-ui' : ''}`}
+                    >
+                        {buttonCopy || 'Action or event'}
+                    </Button>
                 </div>
             )}
         </div>
