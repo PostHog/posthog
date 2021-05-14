@@ -42,7 +42,7 @@ def cached_function():
             if not request.GET.get("refresh", False):
                 cached_result = get_safe_cache(cache_key)
                 if cached_result and cached_result.get("result"):
-                    return {**cached_result, "is_cached": True, "cache_key": cache_key}
+                    return {**cached_result, "is_cached": True}
             # call function being wrapped
             result = f(*args, **kwargs)
 
@@ -54,7 +54,7 @@ def cached_function():
                 if filter:
                     dashboard_items = DashboardItem.objects.filter(team_id=team.pk, filters_hash=cache_key)
                     dashboard_items.update(last_refresh=now())
-            return {**result, "cache_key": cache_key}
+            return result
 
         return wrapper
 
