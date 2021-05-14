@@ -18,14 +18,12 @@ import { TrendTabProps } from './TrendTab'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { InsightTitle } from '../InsightTitle'
 import { InsightActionBar } from '../InsightActionBar'
-import { router } from 'kea-router'
 
 export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
-    const { push } = useActions(router)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const { toggleLifecycle } = useActions(trendsLogic)
     const lifecycles = [
@@ -68,11 +66,7 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                             }
                         />
                     )}
-                    <InsightActionBar
-                        filters={filters}
-                        annotations={annotationsToCreate}
-                        onReset={() => push(`/insights?insight=${filters.insight}`)}
-                    />
+                    <InsightActionBar filters={filters} annotations={annotationsToCreate} insight={filters.insight} />
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     {filters.insight === ViewType.LIFECYCLE && (
