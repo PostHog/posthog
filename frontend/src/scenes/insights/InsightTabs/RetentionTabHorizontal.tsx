@@ -5,7 +5,12 @@ import { ActionFilterDropdown } from '../ActionFilter/ActionFilterRow/ActionFilt
 import { entityFilterLogic } from '../ActionFilter/entityFilterLogic'
 
 import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { retentionTableLogic, dateOptions, retentionOptionDescriptions } from 'scenes/retention/retentionTableLogic'
+import {
+    retentionTableLogic,
+    dateOptions,
+    retentionOptionDescriptions,
+    defaultFilters,
+} from 'scenes/retention/retentionTableLogic'
 import { Button, Select, Tooltip, Row, Col, Skeleton } from 'antd'
 
 import { FilterType, RetentionType } from '~/types'
@@ -17,6 +22,7 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { IconExternalLink } from 'lib/components/icons'
 import { BaseTabProps } from '../Insights'
 import { InsightTitle } from './InsightTitle'
+import { InsightActionBar } from './InsightActionBar'
 
 export function RetentionTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
@@ -82,7 +88,7 @@ export function RetentionTabHorizontal({ annotationsToCreate }: BaseTabProps): J
             <Row gutter={16}>
                 <Col md={16} xs={24}>
                     <Row>
-                        <InsightTitle annotations={annotationsToCreate} filters={filters} />
+                        <InsightTitle />
                     </Row>
                     <Row gutter={8} align="middle">
                         <Col>
@@ -174,6 +180,12 @@ export function RetentionTabHorizontal({ annotationsToCreate }: BaseTabProps): J
                             </p>
                         </Col>
                     </Row>
+                    <InsightActionBar
+                        filters={filters}
+                        annotations={annotationsToCreate}
+                        insight="RETENTION"
+                        onReset={() => setFilters(defaultFilters({}))}
+                    />
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     <h4 className="secondary">Global Filters</h4>
