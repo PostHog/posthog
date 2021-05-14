@@ -11,7 +11,7 @@ import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { ClickhouseTab } from 'scenes/instance/SystemStatus/ClickhouseTab'
 
 export function SystemStatus(): JSX.Element {
-    const { tab, error } = useValues(systemStatusLogic)
+    const { tab, error, systemStatus } = useValues(systemStatusLogic)
     const { setTab } = useActions(systemStatusLogic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
 
@@ -64,7 +64,7 @@ export function SystemStatus(): JSX.Element {
                 <Tabs.TabPane tab="Overview" key="overview">
                     <OverviewTab />
                 </Tabs.TabPane>
-                <Tabs.TabPane tab="Clickhouse" key="clickhouse">
+                <Tabs.TabPane tab="Clickhouse" key="clickhouse" disabled={!systemStatus?.internal_metrics.clickhouse}>
                     <ClickhouseTab />
                 </Tabs.TabPane>
             </Tabs>

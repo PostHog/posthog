@@ -16,7 +16,7 @@ function RenderValue(value: any): JSX.Element | string {
 }
 
 export function OverviewTab(): JSX.Element {
-    const { systemStatus, systemStatusLoading } = useValues(systemStatusLogic)
+    const { overview, systemStatusLoading } = useValues(systemStatusLogic)
     const { configOptions, preflightLoading } = useValues(preflightLogic)
 
     const columns = [
@@ -41,7 +41,7 @@ export function OverviewTab(): JSX.Element {
                     size="small"
                     rowKey="metric"
                     pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                    dataSource={systemStatus}
+                    dataSource={overview}
                     columns={columns}
                     loading={systemStatusLoading}
                     expandable={{

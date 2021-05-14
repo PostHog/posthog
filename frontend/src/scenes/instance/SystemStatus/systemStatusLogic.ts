@@ -2,19 +2,18 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import { systemStatusLogicType } from './systemStatusLogicType'
 import { userLogic } from 'scenes/userLogic'
-import { SystemStatus } from '~/types'
+import { SystemStatus, SystemStatusRow } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
-export type TabName = 'overview'
+export type TabName = 'overview' | 'clickhouse'
 
-export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus, TabName>>({
+export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus, SystemStatusRow, TabName>>({
     actions: {
-        addSystemStatus: (systemStatus: SystemStatus) => ({ systemStatus }),
         setTab: (tab: TabName) => ({ tab }),
     },
     loaders: {
         systemStatus: [
-            [] as SystemStatus[],
+            null as SystemStatus | null,
             {
                 loadSystemStatus: async () => {
                     if (preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
@@ -39,6 +38,13 @@ export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus, TabName
             },
         ],
     },
+
+    selectors: () => ({
+        overview: [
+            (s) => [s.systemStatus],
+            (status: SystemStatus | null): SystemStatusRow[] => (status ? status.overview : []),
+        ],
+    }),
 
     events: ({ actions }) => ({
         afterMount: () => {
