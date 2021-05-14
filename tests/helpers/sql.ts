@@ -98,6 +98,7 @@ export async function createUserTeamAndOrganization(
         is_staff: false,
         is_active: false,
         date_joined: new Date().toISOString(),
+        events_column_config: { active: 'DEFAULT' },
     })
     await insertRow(db, 'posthog_organization', {
         id: organizationId,
