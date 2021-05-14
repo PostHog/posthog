@@ -65,6 +65,18 @@ class License(models.Model):
         return self.PLANS.get(self.plan, [])
 
 
+def get_max_users() -> Optional[int]:
+    """
+    Returns the maximum number of users allowed.
+    Examines all available valid licenses and returns the max users available.
+    """
+    licenses = License.objects.all()
+    if len(licenses) > 0:
+        return max([l.max_users for l in licenses])
+    else:
+        return None
+
+
 def get_licensed_users_available() -> Optional[int]:
     """
     Returns the number of user slots available that can be created based on the instance's current license.
@@ -72,14 +84,14 @@ def get_licensed_users_available() -> Optional[int]:
     `None` means unlimited users.
     """
 
-    license = License.objects.first_valid()
+    max_users = get_max_users()
     from posthog.models import OrganizationInvite
 
     if license:
-        if license.max_users is None:
+        if max_users is None:
             return None
 
-        users_left = license.max_users - get_user_model().objects.count() - OrganizationInvite.objects.count()
+        users_left = max_users - get_user_model().objects.count() - OrganizationInvite.objects.count()
         return max(users_left, 0)
 
     return None
