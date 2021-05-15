@@ -42,6 +42,7 @@ export function SessionTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX
                     buttonCopy="Add action or event"
                     showOr={true}
                     horizontalUI
+                    customRowPrefix=""
                 />
                 <InsightActionBar filters={filters} annotations={annotationsToCreate} insight="SESSIONS" />
             </Col>

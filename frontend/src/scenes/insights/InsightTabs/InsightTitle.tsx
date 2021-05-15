@@ -6,7 +6,7 @@ export function InsightTitle(): JSX.Element {
     const [{ fromItemName, fromDashboard }] = useState(router.values.hashParams)
     return (
         <>
-            <h3 className="l3" style={{ display: 'flex', alignItems: 'center' }}>
+            <h3 className="l3" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
                 {fromDashboard && (
                     <DashboardOutlined
                         style={{ color: 'var(--warning)', marginRight: 4 }}

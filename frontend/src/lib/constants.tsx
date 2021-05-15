@@ -68,13 +68,13 @@ export const PROPERTY_MATH_TYPE = 'property'
 export const EVENT_MATH_TYPE = 'event'
 export const MATHS: Record<string, any> = {
     total: {
-        name: 'Total volume',
+        name: 'Total count',
         description: (
             <>
-                Total event volume.
+                Total event count. Number of times the user performed the event.
                 <br />
                 <br />
-                If a user performs an event 3 times in a given day/week/month, it counts as 3.
+                <i>Example: If a user performs an event 3 times in the given period, it counts as 3.</i>
             </>
         ),
         onProperty: false,
@@ -84,10 +84,12 @@ export const MATHS: Record<string, any> = {
         name: 'Unique users',
         description: (
             <>
-                Unique users who performed the event in the specified time interval.
+                Number of unique users who performed the event in the specified period.
                 <br />
                 <br />
-                If a single user performs an event 3 times in a given day/week/month, it counts only as 1.
+                <i>
+                    Example: If a single user performs an event 3 times in a given day/week/month, it counts only as 1.
+                </i>
             </>
         ),
         onProperty: false,
@@ -117,19 +119,6 @@ export const MATHS: Record<string, any> = {
         onProperty: false,
         type: EVENT_MATH_TYPE,
     },
-    sum: {
-        name: 'Sum',
-        description: (
-            <>
-                Event property sum.
-                <br />
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
     avg: {
         name: 'Average',
         description: (
@@ -138,6 +127,19 @@ export const MATHS: Record<string, any> = {
                 <br />
                 <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 14.
+            </>
+        ),
+        onProperty: true,
+        type: PROPERTY_MATH_TYPE,
+    },
+    sum: {
+        name: 'Sum',
+        description: (
+            <>
+                Event property sum.
+                <br />
+                <br />
+                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
             </>
         ),
         onProperty: true,
