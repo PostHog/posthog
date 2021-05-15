@@ -5,9 +5,7 @@ import {
     SortableHandle as sortableHandle,
 } from 'react-sortable-hoc'
 import { EllipsisOutlined } from '@ant-design/icons'
-import { entityFilterLogic } from './entityFilterLogic'
-import { ActionFilter } from '~/types'
-import { ActionFilterRow } from './ActionFilterRow'
+import { ActionFilterRow, ActionFilterRowProps } from './ActionFilterRow'
 
 const DragHandle = sortableHandle(() => (
     <span className="action-filter-drag-handle">
@@ -15,36 +13,15 @@ const DragHandle = sortableHandle(() => (
     </span>
 ))
 
-interface SortableActionFilterRowProps {
-    logic: typeof entityFilterLogic
-    filter: ActionFilter
-    filterIndex: number
-    hideMathSelector?: boolean
-    hidePropertySelector?: boolean
-    filterCount: number
+interface SortableActionFilterRowProps extends ActionFilterRowProps {
+    filterIndex: number // sortable requires, yet eats, the index prop
 }
 
 export const SortableActionFilterRow = sortableElement(
-    ({
-        logic,
-        filter,
-        filterIndex,
-        hideMathSelector,
-        hidePropertySelector,
-        filterCount,
-    }: SortableActionFilterRowProps) => (
+    ({ filterCount, filterIndex, ...props }: SortableActionFilterRowProps) => (
         <div className="draggable-action-filter">
             {filterCount > 1 && <DragHandle />}
-            <ActionFilterRow
-                logic={logic}
-                filter={filter}
-                // sortableElement requires, yet eats the index prop, so passing via filterIndex here
-                index={filterIndex}
-                key={filterIndex}
-                hideMathSelector={hideMathSelector}
-                hidePropertySelector={hidePropertySelector}
-                filterCount={filterCount}
-            />
+            <ActionFilterRow {...props} filterCount={filterCount} index={filterIndex} key={filterIndex} />
         </div>
     )
 )

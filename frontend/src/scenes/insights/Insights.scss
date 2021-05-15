@@ -79,6 +79,24 @@
         }
     }
 
+    .insights-tab-actions {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        text-align: right;
+        .btn-reset {
+            color: rgba($danger, 0.8);
+        }
+        .btn-save {
+            border-color: $primary;
+            color: $primary;
+            &:hover {
+                border-color: darken($primary, 30%);
+                color: darken($primary, 30%);
+            }
+        }
+    }
+
     .retention-date-picker {
         background-color: transparent;
         border: 0;
