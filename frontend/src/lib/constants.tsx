@@ -71,7 +71,7 @@ export const MATHS: Record<string, any> = {
         name: 'Total count',
         description: (
             <>
-                Total event volume count. Number of times the user performed the event.
+                Total event count. Number of times the user performed the event.
                 <br />
                 <br />
                 <i>Example: If a user performs an event 3 times in the given period, it counts as 3.</i>
