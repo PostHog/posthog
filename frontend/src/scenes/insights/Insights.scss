@@ -1,5 +1,9 @@
 @import '~/vars';
 
+.ant-card-bordered {
+    @extend .card_style;
+}
+
 .insights-page {
     .top-bar {
         .ant-tabs,
@@ -28,11 +32,14 @@
 
     .insight-controls {
         overflow: visible;
+        // @extend .card_style;
     }
 
     .insights-graph-container {
+        // @extend .card_style;
         .ant-card-head {
-            background-color: rgba(0, 0, 0, 0.03);
+            background-color: #f9f9f9;
+            border-bottom: 1px solid #e4e4e4;
         }
     }
 
