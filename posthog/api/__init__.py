@@ -26,6 +26,7 @@ from . import (
     sessions_filter,
     team,
     user,
+    versions,
 )
 
 
@@ -46,7 +47,7 @@ router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"plugin_config", plugin.PluginConfigViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"sessions_filter", sessions_filter.SessionsFilterViewSet)
-
+router.register(r"versions", versions.VersionsViewSet)
 # Nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet)
 project_plugins_configs_router = projects_router.register(

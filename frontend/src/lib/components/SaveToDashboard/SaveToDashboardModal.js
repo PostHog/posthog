@@ -86,6 +86,10 @@ export function SaveToDashboardModal({
                 name,
                 dashboard: dashboardId,
             })
+            api.create('api/versions', {
+                instance_key: response.id,
+                previous_state: response
+            })
             if (annotations) {
                 for (const { content, date_marker, created_at, scope } of annotations) {
                     await api.create('api/annotation', {

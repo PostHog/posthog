@@ -22,6 +22,7 @@ from .session_recording_event import SessionRecordingEvent
 from .sessions_filter import SessionsFilter
 from .team import Team
 from .user import User, UserManager
+from .version import Version
 
 __all__ = [
     "Action",
@@ -56,4 +57,5 @@ __all__ = [
     "Team",
     "User",
     "UserManager",
+    "Version",
 ]
