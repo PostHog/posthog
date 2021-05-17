@@ -60,14 +60,22 @@ export function SystemStatus(): JSX.Element {
                 />
             )}
 
-            <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(key) => setTab(key as TabName)}>
-                <Tabs.TabPane tab="Overview" key="overview">
-                    <OverviewTab />
-                </Tabs.TabPane>
-                <Tabs.TabPane tab="Clickhouse" key="clickhouse" disabled={!systemStatus?.internal_metrics.clickhouse}>
-                    <ClickhouseTab />
-                </Tabs.TabPane>
-            </Tabs>
+            {systemStatus?.internal_metrics.clickhouse ? (
+                <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(key) => setTab(key as TabName)}>
+                    <Tabs.TabPane tab="Overview" key="overview">
+                        <OverviewTab />
+                    </Tabs.TabPane>
+                    <Tabs.TabPane
+                        tab="Dashboards"
+                        key="Dashboards"
+                        disabled={!systemStatus?.internal_metrics.clickhouse}
+                    >
+                        <ClickhouseTab />
+                    </Tabs.TabPane>
+                </Tabs>
+            ) : (
+                <OverviewTab />
+            )}
         </div>
     )
 }

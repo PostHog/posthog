@@ -14,6 +14,25 @@ CLICKHOUSE_DASHBOARD = {
     "name": "Clickhouse internal dashboard",
     "items": [
         {
+            "name": "Clickhouse total queries",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$clickhouse_sync_execution_time",
+                        "name": "$$clickhouse_sync_execution_time",
+                        "type": "events",
+                        "order": 0,
+                        "math": "total",
+                    }
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "properties": [],
+            },
+        },
+        {
             "name": "Requests: query time breakdown (ms)",
             "filters": {
                 "events": [
@@ -59,7 +78,7 @@ CLICKHOUSE_DASHBOARD = {
                     {
                         "id": "$$posthog_celery_clickhouse_table_mutations_count",
                         "math": "avg",
-                        "name": "$$clickhouse_sync_execution_time",
+                        "name": "$$posthog_celery_clickhouse_table_mutations_count",
                         "type": "events",
                         "order": 0,
                         "properties": [],
@@ -68,7 +87,16 @@ CLICKHOUSE_DASHBOARD = {
                     {
                         "id": "$$posthog_celery_clickhouse_table_mutations_count",
                         "math": "avg",
-                        "name": "$$clickhouse_sync_execution_time",
+                        "name": "$$posthog_celery_clickhouse_table_mutations_count",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [{"key": "table", "type": "events", "value": ["events"], "operator": "exact"}],
+                        "math_property": "value",
+                    },
+                    {
+                        "id": "$$posthog_celery_clickhouse_table_mutations_count",
+                        "math": "avg",
+                        "name": "$$posthog_celery_clickhouse_table_mutations_count",
                         "type": "events",
                         "order": 1,
                         "properties": [{"key": "table", "type": "events", "value": ["person"], "operator": "exact"}],
@@ -76,6 +104,56 @@ CLICKHOUSE_DASHBOARD = {
                     },
                     {
                         "id": "$$posthog_celery_clickhouse_table_mutations_count",
+                        "math": "avg",
+                        "name": "$$posthog_celery_clickhouse_table_mutations_count",
+                        "type": "events",
+                        "order": 2,
+                        "properties": [
+                            {"key": "table", "type": "events", "value": ["person_distinct_id"], "operator": "exact"}
+                        ],
+                        "math_property": "value",
+                    },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "properties": [],
+            },
+        },
+        {
+            "name": "Clickhouse tables part counts",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$posthog_celery_clickhouse_table_parts_count",
+                        "math": "avg",
+                        "name": "$$posthog_celery_clickhouse_table_parts_count",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": "value",
+                    },
+                    {
+                        "id": "$$posthog_celery_clickhouse_table_parts_count",
+                        "math": "avg",
+                        "name": "$$posthog_celery_clickhouse_table_parts_count",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [{"key": "table", "type": "events", "value": ["events"], "operator": "exact"}],
+                        "math_property": "value",
+                    },
+                    {
+                        "id": "$$posthog_celery_clickhouse_table_parts_count",
+                        "math": "avg",
+                        "name": "$$posthog_celery_clickhouse_table_parts_count",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [{"key": "table", "type": "events", "value": ["person"], "operator": "exact"}],
+                        "math_property": "value",
+                    },
+                    {
+                        "id": "$$posthog_celery_clickhouse_table_parts_count",
                         "math": "avg",
                         "name": "$$clickhouse_sync_execution_time",
                         "type": "events",
@@ -85,6 +163,70 @@ CLICKHOUSE_DASHBOARD = {
                         ],
                         "math_property": "value",
                     },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "properties": [],
+            },
+        },
+        {
+            "name": "Clickhouse table lag (seconds)",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$posthog_celery_clickhouse__table_lag_seconds",
+                        "name": "$$posthog_celery_clickhouse__table_lag_seconds",
+                        "type": "events",
+                        "order": 0,
+                        "math": "avg",
+                        "math_property": "value",
+                    }
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "breakdown": "table",
+                "breakdown_type": "event",
+                "properties": [],
+            },
+        },
+        {
+            "name": "Clickhouse table row counts",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$posthog_celery_clickhouse_table_row_count",
+                        "name": "$$posthog_celery_clickhouse_table_row_count",
+                        "type": "events",
+                        "order": 0,
+                        "math": "avg",
+                        "math_property": "value",
+                    }
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "breakdown": "table",
+                "breakdown_type": "event",
+                "properties": [],
+            },
+        },
+        {
+            "name": "Celery queue depth",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$posthog_celery_queue_depth",
+                        "name": "$$posthog_celery_queue_depth",
+                        "type": "events",
+                        "order": 0,
+                        "math": "avg",
+                        "math_property": "value",
+                    }
                 ],
                 "display": "ActionsLineGraph",
                 "insight": "TRENDS",
@@ -144,6 +286,7 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
     dashboard = Dashboard.objects.filter(team_id=team_id, name=definition["name"], description=description).first()
 
     if dashboard is None:
+        Dashboard.objects.filter(team_id=team_id, name=definition["name"]).delete()
         dashboard = Dashboard.objects.create(
             name=definition["name"], description=description, team_id=team_id, share_token=secrets.token_urlsafe(22)
         )
@@ -155,4 +298,4 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
 
 
 def digest(d: Dict) -> str:
-    return hash(json.dumps(d, sort_keys=True))
+    return str(hash(json.dumps(d, sort_keys=True)))

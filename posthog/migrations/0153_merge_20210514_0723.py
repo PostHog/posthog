@@ -6,9 +6,8 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0152_user_events_column_config'),
-        ('posthog', '0152_organization_for_internal_metrics'),
+        ("posthog", "0152_user_events_column_config"),
+        ("posthog", "0152_organization_for_internal_metrics"),
     ]
 
-    operations = [
-    ]
+    operations = []  # type: ignore

@@ -4,8 +4,8 @@ from django.utils import timezone
 from statshog.client.base import Tags
 from statshog.defaults.django import statsd
 
+from posthog import utils
 from posthog.internal_metrics.team import get_internal_metrics_team_id
-from posthog.utils import get_machine_id
 
 
 def timing(metric_name: str, ms: float, tags: Tags = None):
@@ -29,6 +29,6 @@ def _capture(metric_name: str, value: Any, tags: Tags):
     team_id = get_internal_metrics_team_id()
     if team_id is not None:
         now = timezone.now()
-        distinct_id = get_machine_id()
-        event = {"event": f"$${metric_name}", "properties": {"value": value, **tags}}
+        distinct_id = utils.get_machine_id()
+        event = {"event": f"$${metric_name}", "properties": {"value": value, **(tags or {})}}
         capture_internal(event, distinct_id, None, None, now, now, team_id)
