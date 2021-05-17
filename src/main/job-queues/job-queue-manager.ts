@@ -104,4 +104,8 @@ export class JobQueueManager implements JobQueue {
     async resumeConsumer(): Promise<void> {
         await Promise.all(this.jobQueues.map((r) => r.resumeConsumer()))
     }
+
+    getJobQueueTypesAsString(): string {
+        return this.jobQueueTypes.join(',')
+    }
 }
