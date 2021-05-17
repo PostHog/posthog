@@ -5,6 +5,7 @@ import { FilterType, InsightType } from '~/types'
 import { SaveOutlined, ClearOutlined } from '@ant-design/icons'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 interface Props {
     filters: FilterType
@@ -22,6 +23,7 @@ export function InsightActionBar({ filters, annotations, insight, onReset }: Pro
                 onConfirm={() => {
                     window.scrollTo({ top: 0 })
                     onReset ? onReset() : push(`/insights?insight=${insight}`)
+                    posthog.capture('insights tab reset')
                 }}
             >
                 <Button type="link" icon={<ClearOutlined />} className="btn-reset">
