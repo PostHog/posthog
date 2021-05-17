@@ -21,7 +21,14 @@ class Migration(migrations.Migration):
                 ('update', models.JSONField(default=dict)),
                 ('comment', models.CharField(blank=True, max_length=400, null=True)),
                 ('created_by', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
-                ('instance_key', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='versions', to='posthog.dashboarditem')),
+                (
+                    'instance_key', models.ForeignKey(
+                        blank=True, null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name='versions',
+                        to='posthog.dashboarditem',
+                    ),
+                ),
             ],
         ),
     ]

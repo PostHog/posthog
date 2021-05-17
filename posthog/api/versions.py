@@ -18,7 +18,7 @@ class VersionSerializer(serializers.ModelSerializer):
             "comment",
             "created_at",
             "created_by",
-            "previous_state"
+            "previous_state",
         ]
 
     def create(self, validated_data: Dict, **kwargs) -> Version:
