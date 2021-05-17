@@ -88,7 +88,7 @@ export function SaveToDashboardModal({
             })
             api.create('api/versions', {
                 instance_key: response.id,
-                previous_state: response
+                previous_state: {},
             })
             if (annotations) {
                 for (const { content, date_marker, created_at, scope } of annotations) {
