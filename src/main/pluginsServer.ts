@@ -153,6 +153,11 @@ export async function startPluginsServer(
             }
         })
 
+        if (server.jobQueueManager) {
+            const queueString = server.jobQueueManager.getJobQueueTypesAsString()
+            await server!.db!.redisSet('@posthog-plugin-server/enabled-job-queues', queueString)
+        }
+
         // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
         pingJob = schedule.scheduleJob('*/5 * * * * *', async () => {
             await server!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {

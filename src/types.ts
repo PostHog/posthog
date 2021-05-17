@@ -5,6 +5,7 @@ import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { JobQueueManager } from 'main/job-queues/job-queue-manager'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
@@ -100,7 +101,7 @@ export interface PluginsServer extends PluginsServerConfig {
     pluginConfigSecretLookup: Map<string, PluginConfigId>
     // tools
     eventsProcessor: EventsProcessor
-    jobQueueManager: JobQueue
+    jobQueueManager: JobQueueManager
     // diagnostics
     lastActivity: number
     lastActivityType: string
