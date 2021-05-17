@@ -25,6 +25,7 @@ import { PropertyFilterInternalProps } from './PropertyFilter'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 import './UnifiedPropertyFilter.scss'
+import posthog from 'posthog-js'
 
 function FilterDropdown({ open, children }: { open: boolean; children: React.ReactNode }): JSX.Element | null {
     return open ? <div>{children}</div> : null
@@ -132,6 +133,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
             })),
             renderInfo: EventPropertiesInfo,
             type: 'event',
+            key: 'events',
             getValue: (item) => item.name || '',
             getLabel: (item) => item.name || '',
         },
@@ -170,6 +172,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                 )
             },
             type: 'person',
+            key: 'persons',
             getValue: (item) => item.name || '',
             getLabel: (item) => item.name || '',
         },
@@ -192,6 +195,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                 })),
             renderInfo: CohortPropertiesInfo,
             type: 'cohort',
+            key: 'cohorts',
             getValue: (item) => item.name || '',
             getLabel: (item) => item.name || '',
         },
@@ -199,6 +203,9 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
 
     const onClick = (e: React.SyntheticEvent): void => {
         e.preventDefault()
+        if (!open) {
+            posthog.capture('property select toggle opened')
+        }
         setOpen(!open)
     }
 
@@ -225,6 +232,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                         style={{ display: 'flex', alignItems: 'center' }}
                         ref={selectBoxToggleRef}
                         icon={!key ? <PlusOutlined /> : null}
+                        data-attr={'property-select-toggle-' + index}
                     >
                         <span className="text-overflow" style={{ maxWidth: '100%' }}>
                             {key ? <PropertyKeyInfo value={key} /> : 'Add filter'}

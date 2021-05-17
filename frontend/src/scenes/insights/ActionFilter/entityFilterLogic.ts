@@ -13,6 +13,7 @@ import {
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { ActionFilterProps } from './ActionFilter'
 import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import posthog from 'posthog-js'
 
 export type LocalFilter = EntityFilter & { order: number; properties?: PropertyFilter[] }
 export type BareEntity = Pick<Entity, 'id' | 'name'>
@@ -125,25 +126,30 @@ export const entityFilterLogic = kea<
 
     listeners: ({ actions, values, props }) => ({
         updateFilter: ({ type, index, name, id }) => {
+            posthog.capture('filter updated', { type, index, name, id })
             actions.setFilters(
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, id, name, type } : filter))
             )
             !props.singleMode && actions.selectFilter(null)
         },
         updateFilterProperty: ({ properties, index }) => {
+            posthog.capture('filter property updated', { index })
             actions.setFilters(
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, properties } : filter))
             )
         },
         updateFilterMath: ({ math, math_property, index }) => {
+            posthog.capture('filter math updated', { math, math_property, index })
             actions.setFilters(
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, math, math_property } : filter))
             )
         },
         removeLocalFilter: ({ index }) => {
+            posthog.capture('local filter removed', { index, previousLength: values.localFilters.length })
             actions.setFilters(values.localFilters.filter((_, i) => i !== index))
         },
         addFilter: () => {
+            posthog.capture('filter added', { previousLength: values.localFilters.length })
             if (values.localFilters.length > 0) {
                 const lastFilter: LocalFilter = values.localFilters[values.localFilters.length - 1]
                 const order = lastFilter.order + 1
@@ -161,9 +167,13 @@ export const entityFilterLogic = kea<
             }
         },
         setFilters: ({ filters }) => {
+            posthog.capture('filters set', { filters: filters?.map(({ id, type }) => ({ id, type })) })
             if (typeof props.setFilters === 'function') {
                 props.setFilters(toFilters(filters))
             }
+        },
+        setEntityFilterVisibility: ({ index, value }) => {
+            posthog.capture('entity filter visbility set', { index, visible: value })
         },
     }),
     events: ({ actions, props, values }) => ({
