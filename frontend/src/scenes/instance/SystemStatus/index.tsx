@@ -65,11 +65,7 @@ export function SystemStatus(): JSX.Element {
                     <Tabs.TabPane tab="Overview" key="overview">
                         <OverviewTab />
                     </Tabs.TabPane>
-                    <Tabs.TabPane
-                        tab="Dashboards"
-                        key="Dashboards"
-                        disabled={!systemStatus?.internal_metrics.clickhouse}
-                    >
+                    <Tabs.TabPane tab="Internal metrics" key="internal_metrics">
                         <ClickhouseTab />
                     </Tabs.TabPane>
                 </Tabs>
