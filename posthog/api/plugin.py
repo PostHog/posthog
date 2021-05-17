@@ -105,6 +105,7 @@ class PluginSerializer(serializers.ModelSerializer):
             "is_global",
             "organization_id",
             "organization_name",
+            "capabilities",
         ]
         read_only_fields = ["id", "latest_tag"]
 
