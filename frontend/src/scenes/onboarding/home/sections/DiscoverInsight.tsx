@@ -181,7 +181,6 @@ export function DiscoverInsightsModule(): JSX.Element {
                 Discover Insights
             </Title>
             <Divider />
-
             <CreateAnalysisSection />
             {(insights.length > 0 || teamInsights.length > 0 || savedInsights.length > 0) && <RecentInsightList />}
         </Card>
