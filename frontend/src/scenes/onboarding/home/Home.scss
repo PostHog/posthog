@@ -156,7 +156,7 @@
 
     .history-panel-container {
         height: 100%;
-        max-height: 750px;
+        max-height: 625px;
         width: fit-content;
         max-width: 1000px;
         overflow: scroll;
@@ -165,6 +165,12 @@
         }
         @media only screen and (max-width: $sm) {
             max-width: 315px;
+        }
+        @media only screen and (max-height: $lg) {
+            max-height: 450px;
+        }
+        @media only screen and (min-height: $xl) {
+            max-height: 750px;
         }
     }
 }
