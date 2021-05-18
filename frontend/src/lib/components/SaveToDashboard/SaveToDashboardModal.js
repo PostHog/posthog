@@ -9,9 +9,6 @@ import { prompt } from 'lib/logic/prompt'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-const unmount = eventUsageLogic.mount()
-const { reportCreatedDashboardFromModal } = eventUsageLogic.actions
-
 const saveToDashboardModalLogic = kea({
     connect: {
         values: [dashboardsModel, ['dashboards', 'lastDashboardId']],
@@ -52,8 +49,8 @@ const saveToDashboardModalLogic = kea({
             })
         },
 
-        [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
-            reportCreatedDashboardFromModal()
+        [dashboardsModel.actions.addDashboardSuccess]: async ({ dashboard }) => {
+            eventUsageLogic.actions.reportCreatedDashboardFromModal()
             actions.setDashboardId(dashboard.id)
         },
     }),
@@ -175,5 +172,3 @@ export function SaveToDashboardModal({
         </Modal>
     )
 }
-
-unmount()
