@@ -1230,6 +1230,16 @@
       "contributions": [
         "bug"
       ]
+    },
+    {
+      "login": "tobiastornros",
+      "name": "Tobias Törnros",
+      "avatar_url": "https://avatars.githubusercontent.com/u/17402497?v=4",
+      "profile": "https://github.com/tobiastornros",
+      "contributions": [
+        "bug",
+        "doc"
+      ]
     }
   ],
   "contributorsPerLine": 7,
