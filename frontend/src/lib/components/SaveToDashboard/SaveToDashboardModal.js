@@ -7,7 +7,10 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { Input, Select, Modal, Radio } from 'antd'
 import { prompt } from 'lib/logic/prompt'
 import dayjs from 'dayjs'
-import posthog from 'posthog-js'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+const unmount = eventUsageLogic.mount()
+const { reportCreatedDashboardFromModal } = eventUsageLogic.actions
 
 const saveToDashboardModalLogic = kea({
     connect: {
@@ -50,7 +53,7 @@ const saveToDashboardModalLogic = kea({
         },
 
         [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
-            posthog.capture('created new dashboard from modal')
+            reportCreatedDashboardFromModal()
             actions.setDashboardId(dashboard.id)
         },
     }),
@@ -74,6 +77,7 @@ export function SaveToDashboardModal({
     const logic = saveToDashboardModalLogic({ fromDashboard })
     const { dashboards, dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)
+    const { reportSavedInsightToDashboard } = useActions(eventUsageLogic)
     const [name, setName] = useState(fromItemName || initialName || '')
     const [visible, setVisible] = useState(true)
     const [newItem, setNewItem] = useState(!fromItem)
@@ -102,7 +106,7 @@ export function SaveToDashboardModal({
         } else {
             await api.update(`api/insight/${fromItem}`, { filters })
         }
-        posthog.capture('saved insight to dashboard')
+        reportSavedInsightToDashboard()
         toast(
             <div data-attr="success-toast">
                 {newItem ? 'Panel added to dashboard.' : 'Panel updated!'}&nbsp;
@@ -171,3 +175,5 @@ export function SaveToDashboardModal({
         </Modal>
     )
 }
+
+unmount()

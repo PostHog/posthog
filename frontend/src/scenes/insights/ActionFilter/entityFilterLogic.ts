@@ -18,6 +18,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 export type LocalFilter = EntityFilter & { order: number; properties?: PropertyFilter[] }
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
+const unmount = eventUsageLogic.mount()
+
 const {
     reportInsightFilterUpdated,
     reportInsightFilterPropertyUpdated,
@@ -199,3 +201,5 @@ export const entityFilterLogic = kea<
         },
     }),
 })
+
+unmount()

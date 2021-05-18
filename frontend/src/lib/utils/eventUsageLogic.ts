@@ -120,6 +120,8 @@ export const eventUsageLogic = kea<
         reportInsightFilterSet: (filters: Array<{ id: string | number | null; type?: EntityType }>) => ({ filters }),
         reportEntityFilterVisibilitySet: (index: number, visible: boolean) => ({ index, visible }),
         reportPropertySelectOpened: true,
+        reportCreatedDashboardFromModal: true,
+        reportSavedInsightToDashboard: true,
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -406,6 +408,12 @@ export const eventUsageLogic = kea<
         },
         reportPropertySelectOpened: () => {
             posthog.capture('property select toggle opened')
+        },
+        reportCreatedDashboardFromModal: () => {
+            posthog.capture('created new dashboard from modal')
+        },
+        reportSavedInsightToDashboard: () => {
+            posthog.capture('saved insight to dashboard')
         },
     },
 })
