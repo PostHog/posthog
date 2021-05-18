@@ -46,7 +46,7 @@ export class LazyPluginVM {
                         server.instanceId
                     )
                     status.warn('⚠️', `Failed to load ${logInfo}`)
-                    void disablePlugin(server, pluginConfig.team_id, pluginConfig.plugin_id)
+                    void disablePlugin(server, pluginConfig.id)
                     void processError(server, pluginConfig, error)
                     resolve(null)
                 }

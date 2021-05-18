@@ -2,8 +2,8 @@ import {
     Plugin,
     PluginAttachmentDB,
     PluginConfig,
+    PluginConfigId,
     PluginError,
-    PluginId,
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginsServer,
@@ -73,10 +73,10 @@ export async function setError(
     }
 }
 
-export async function disablePlugin(server: PluginsServer, teamId: TeamId, pluginId: PluginId): Promise<void> {
+export async function disablePlugin(server: PluginsServer, pluginConfigId: PluginConfigId): Promise<void> {
     await server.db.postgresQuery(
-        `UPDATE posthog_pluginconfig SET enabled='f' WHERE team_id=$1 AND plugin_id=$2 AND enabled='t'`,
-        [teamId, pluginId],
+        `UPDATE posthog_pluginconfig SET enabled='f' WHERE id=$1 AND enabled='t'`,
+        [pluginConfigId],
         'disablePlugin'
     )
 }
