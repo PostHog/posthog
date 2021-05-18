@@ -133,13 +133,11 @@ export const entityFilterLogic = kea<
             !props.singleMode && actions.selectFilter(null)
         },
         updateFilterProperty: async ({ properties, index }) => {
-            eventUsageLogic.actions.reportInsightFilterPropertyUpdated(index)
             actions.setFilters(
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, properties } : filter))
             )
         },
         updateFilterMath: async ({ math, math_property, index }) => {
-            eventUsageLogic.actions.reportInsightFilterMathUpdated(index, { math, mathProperty: math_property })
             actions.setFilters(
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, math, math_property } : filter))
             )

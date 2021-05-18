@@ -109,12 +109,6 @@ export const eventUsageLogic = kea<
             extraProps,
         }),
         reportInsightFilterUpdated: (index: number, name: string | null, type?: EntityType) => ({ type, index, name }),
-        reportInsightFilterPropertyUpdated: (index?: number) => ({ index }),
-        reportInsightFilterMathUpdated: (index: number, mathProps: { math?: string; mathProperty?: string }) => ({
-            index,
-            math: mathProps.math,
-            mathProperty: mathProps.mathProperty,
-        }),
         reportInsightFilterRemoved: (index: number) => ({ index }),
         reportInsightFilterAdded: (newLength: number) => ({ newLength }),
         reportInsightFilterSet: (filters: Array<{ id: string | number | null; type?: EntityType }>) => ({ filters }),
@@ -388,12 +382,6 @@ export const eventUsageLogic = kea<
         },
         reportInsightFilterUpdated: async ({ type, index, name }) => {
             posthog.capture('filter updated', { type, index, name })
-        },
-        reportInsightFilterPropertyUpdated: async ({ index }) => {
-            posthog.capture('filter property updated', { index })
-        },
-        reportInsightFilterMathUpdated: async ({ index, math, mathProperty }) => {
-            posthog.capture('filter math updated', { math, mathProperty, index })
         },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
