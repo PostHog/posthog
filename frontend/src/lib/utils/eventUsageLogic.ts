@@ -4,7 +4,16 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
-import { AnnotationType, FilterType, DashboardType, PersonType, DashboardMode, HotKeys, GlobalHotKeys } from '~/types'
+import {
+    AnnotationType,
+    FilterType,
+    DashboardType,
+    PersonType,
+    DashboardMode,
+    HotKeys,
+    GlobalHotKeys,
+    EntityType,
+} from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import dayjs from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -99,6 +108,17 @@ export const eventUsageLogic = kea<
             searchTerm,
             extraProps,
         }),
+        reportInsightFilterUpdated: (index: number, name: string | null, type?: EntityType) => ({ type, index, name }),
+        reportInsightFilterPropertyUpdated: (index?: number) => ({ index }),
+        reportInsightFilterMathUpdated: (index: number, mathProps: { math?: string; mathProperty?: string }) => ({
+            index,
+            math: mathProps.math,
+            mathProperty: mathProps.mathProperty,
+        }),
+        reportInsightFilterRemoved: (index: number) => ({ index }),
+        reportInsightFilterAdded: (newLength: number) => ({ newLength }),
+        reportInsightFilterSet: (filters: Array<{ id: string | number | null; type?: EntityType }>) => ({ filters }),
+        reportEntityFilterVisibilitySet: (index: number, visible: boolean) => ({ index, visible }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -361,6 +381,27 @@ export const eventUsageLogic = kea<
                 // Triggered when a search is executed for an action/event (mainly for use on insights)
                 posthog.capture('event searched', { searchTerm, ...extraProps })
             }
+        },
+        reportInsightFilterUpdated: ({ type, index, name }) => {
+            posthog.capture('filter updated', { type, index, name })
+        },
+        reportInsightFilterPropertyUpdated: ({ index }) => {
+            posthog.capture('filter property updated', { index })
+        },
+        reportInsightFilterMathUpdated: ({ index, math, mathProperty }) => {
+            posthog.capture('filter math updated', { math, mathProperty, index })
+        },
+        reportInsightFilterRemoved: ({ index }) => {
+            posthog.capture('local filter removed', { index })
+        },
+        reportInsightFilterAdded: ({ newLength }) => {
+            posthog.capture('filter added', { newLength })
+        },
+        reportInsightFilterSet: ({ filters }) => {
+            posthog.capture('filters set', { filters })
+        },
+        reportEntityFilterVisibilitySet: ({ index, visible }) => {
+            posthog.capture('entity filter visbility set', { index, visible })
         },
     },
 })
