@@ -6,9 +6,8 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0153_plugin_capabilities'),
-        ('posthog', '0154_version'),
+        ("posthog", "0153_plugin_capabilities"),
+        ("posthog", "0154_version"),
     ]
 
-    operations = [
-    ]
+    operations = []
