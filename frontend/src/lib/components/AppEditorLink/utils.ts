@@ -1,7 +1,7 @@
 import { encodeParams } from 'kea-router'
 import { EditorProps } from '~/types'
 
-export function appEditorUrl(actionId: number, appUrl: string): string {
+export function appEditorUrl(appUrl?: string, actionId?: number): string {
     const params: EditorProps = {
         userIntent: actionId ? 'edit-action' : 'add-action',
         ...(actionId ? { actionId } : {}),

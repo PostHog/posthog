@@ -1,9 +1,7 @@
-import json
 from typing import Any, Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
-from django.contrib.postgres.fields import JSONField
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.db.models import Q
@@ -11,7 +9,7 @@ from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 
 from .action import Action
 from .event import Event
@@ -52,7 +50,7 @@ class Cohort(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
-    groups: JSONField = JSONField(default=list)
+    groups: models.JSONField = models.JSONField(default=list)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
@@ -81,7 +79,7 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people(self, use_clickhouse=is_ee_enabled()):
+    def calculate_people(self, use_clickhouse=is_clickhouse_enabled()):
         if self.is_static:
             return
         try:
@@ -122,7 +120,7 @@ class Cohort(models.Model):
         Items can be distinct_id or email
         """
         batchsize = 1000
-        use_clickhouse = is_ee_enabled()
+        use_clickhouse = is_clickhouse_enabled()
         if use_clickhouse:
             from ee.clickhouse.models.cohort import insert_static_cohort
         try:

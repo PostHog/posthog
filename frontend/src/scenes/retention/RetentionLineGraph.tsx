@@ -3,12 +3,12 @@ import { retentionTableLogic } from './retentionTableLogic'
 import { LineGraph } from '../insights/LineGraph'
 import { useActions, useValues } from 'kea'
 import { Loading } from '../../lib/utils'
-import { router } from 'kea-router'
 import { LineGraphEmptyState } from '../insights/EmptyStates'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PersonType } from '~/types'
 import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
+import { router } from 'kea-router'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null

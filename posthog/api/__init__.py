@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions
 
 from posthog.api.routing import DefaultRouterPlusPlus
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 
 from . import (
     action,
@@ -11,6 +11,7 @@ from . import (
     dashboard,
     element,
     event,
+    event_definition,
     feature_flag,
     insight,
     organization,
@@ -20,6 +21,8 @@ from . import (
     person,
     personal_api_key,
     plugin,
+    plugin_log_entry,
+    property_definition,
     sessions_filter,
     team,
     user,
@@ -34,6 +37,7 @@ def api_not_found(request):
 
 
 router = DefaultRouterPlusPlus()
+
 # Legacy endpoints (to be removed eventually)
 router.register(r"annotation", annotation.AnnotationsViewSet)
 router.register(r"feature_flag", feature_flag.FeatureFlagViewSet)
@@ -45,8 +49,17 @@ router.register(r"sessions_filter", sessions_filter.SessionsFilterViewSet)
 
 # Nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet)
-organizations_router = router.register(r"organizations", organization.OrganizationViewSet)
-organizations_router.register(r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"])
+project_plugins_configs_router = projects_router.register(
+    r"plugin-configs", plugin.PluginConfigViewSet, "project_plugins_configs", ["team_id", "plugin_config_id"]
+)
+project_plugins_configs_router.register(
+    r"logs", plugin_log_entry.PluginLogEntryViewSet, "project_plugins_config_logs", ["team_id", "plugin_config_id"]
+)
+
+organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
+organization_plugins_router = organizations_router.register(
+    r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
+)
 organizations_router.register(
     r"members", organization_member.OrganizationMemberViewSet, "organization_members", ["organization_id"],
 )
@@ -57,11 +70,20 @@ organizations_router.register(
     r"onboarding", organization.OrganizationOnboardingViewset, "organization_onboarding", ["organization_id"],
 )
 
+# Project nested endpoints
+projects_router = router.register(r"projects", team.TeamViewSet, "projects")
+projects_router.register(
+    r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
+)
+projects_router.register(
+    r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
+)
+
 # General endpoints (shared across EE & FOSS)
 router.register(r"login", authentication.LoginViewSet)
 router.register(r"users", user.UserViewSet)
 
-if is_ee_enabled():
+if is_clickhouse_enabled():
     try:
         from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
         from ee.clickhouse.views.cohort import ClickhouseCohortViewSet

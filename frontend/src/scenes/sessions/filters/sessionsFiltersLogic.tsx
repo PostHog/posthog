@@ -149,7 +149,10 @@ export const sessionsFiltersLogic = kea<
                 if (type === 'action_type' || type === 'event_type' || type === 'cohort') {
                     actions.updateFilter({ type, key: 'id', value: id, label }, values.openFilter)
                 } else if (type === 'person') {
-                    actions.updateFilter({ type, key: id, value: null, label, operator: 'exact' }, values.openFilter)
+                    actions.updateFilter(
+                        { type, key: id.toString(), value: null, label, operator: 'exact' },
+                        values.openFilter
+                    )
                 } else if (type === 'recording' && id === 'duration') {
                     actions.updateFilter(SESSIONS_WITH_RECORDINGS_FILTER, values.openFilter)
                 } else if (type === 'recording') {

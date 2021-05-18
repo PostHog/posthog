@@ -71,7 +71,6 @@ export const webFrameworks = {
     [PYTHON]: 'Python',
     [PHP]: 'PHP',
     [ELIXIR]: 'Elixir',
-    ...httpFrameworks,
 }
 
 export const mobileFrameworks = {
@@ -79,13 +78,11 @@ export const mobileFrameworks = {
     [IOS]: 'iOS',
     [REACT_NATIVE]: 'React Native',
     [FLUTTER]: 'Flutter',
-    ...httpFrameworks,
 }
 
 export const clientFrameworks = {
     [PURE_JS]: 'JavaScript SDK',
     [AUTOCAPTURE]: 'JavaScript Snippet',
-    ...httpFrameworks,
 }
 
 export const allFrameworks = {

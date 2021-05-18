@@ -38,6 +38,7 @@ export function CopyToClipboardInline({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
+                    justifyContent: 'flex-end',
                     flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
                     flexWrap: iconPosition === 'end' ? 'wrap' : 'wrap-reverse',
                 }}

@@ -309,10 +309,14 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id
 """
 
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
-SELECT distinct_id FROM ({latest_distinct_id_sql}) WHERE person_id IN
+SELECT distinct_id FROM person_distinct_id JOIN (
+    SELECT distinct_id, max(_offset) as _offset FROM person_distinct_id WHERE team_id = %(team_id)s GROUP BY distinct_id
+) as person_max ON person_distinct_id.distinct_id = person_max.distinct_id AND person_distinct_id._offset = person_max._offset
+WHERE team_id = %(team_id)s
+AND person_id IN
 (
     SELECT id
     FROM person
     WHERE team_id = %(team_id)s {filters}
-) AND team_id = %(team_id)s
+)
 """

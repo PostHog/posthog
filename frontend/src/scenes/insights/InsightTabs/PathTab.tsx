@@ -12,10 +12,19 @@ import {
 import { Select } from 'antd'
 import { PropertyValue } from 'lib/components/PropertyFilters'
 import { TestAccountFilter } from '../TestAccountFilter'
-import { teamLogic } from 'scenes/teamLogic'
+import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PathTabHorizontal } from './PathTabHorizontal'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { BaseTabProps } from '../Insights'
 
-export function PathTab(): JSX.Element {
-    const { customEventNames } = useValues(teamLogic)
+export function PathTab(props: BaseTabProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? <PathTabHorizontal {...props} /> : <DefaultPathTab />
+}
+
+function DefaultPathTab(): JSX.Element {
+    const { customEventNames } = useValues(eventDefinitionsLogic)
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
 

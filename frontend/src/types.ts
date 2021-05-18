@@ -8,10 +8,15 @@ import {
     PAGEVIEW,
     SCREEN,
     ShownAsValue,
+    RETENTION_RECURRING,
+    RETENTION_FIRST_TIME,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { Dayjs } from 'dayjs'
+
+export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
 export type AvailableFeatures =
     | 'zapier'
@@ -20,11 +25,15 @@ export type AvailableFeatures =
     | 'dashboard_collaboration'
     | 'clickhouse'
 
+export interface ColumnConfig {
+    active: string[] | 'DEFAULT'
+}
 export interface UserType {
-    id: string
+    uuid: string
     first_name: string
     email: string
     email_opt_in: boolean
+    events_column_config: ColumnConfig
     anonymize_data: boolean
     distinct_id: string
     toolbar_mode: 'disabled' | 'toolbar'
@@ -43,11 +52,6 @@ export interface UserBasicType {
     distinct_id: string
     first_name: string
     email: string
-}
-
-export interface UserUpdateType {
-    user?: Omit<Partial<UserType>, 'team'>
-    team?: Partial<TeamType>
 }
 
 export interface PluginAccess {
@@ -124,11 +128,6 @@ export interface TeamBasicType {
 export interface TeamType extends TeamBasicType {
     anonymize_ips: boolean
     app_urls: string[]
-    event_names: string[]
-    event_properties: string[]
-    event_properties_numerical: string[]
-    event_names_with_usage: EventUsageType[]
-    event_properties_with_usage: PropertyUsageType[]
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
@@ -192,7 +191,7 @@ export interface PropertyFilter {
     key: string
     operator: string | null
     type: string
-    value: string | number
+    value: string | number | (string | number)[]
 }
 
 interface BasePropertyFilter {
@@ -258,13 +257,26 @@ export type SessionsPropertyFilter =
     | ActionTypePropertyFilter
     | EventTypePropertyFilter
 
-export type EntityType = 'actions' | 'events'
-
+export type EntityType = 'actions' | 'events' | 'new_entity'
 export interface Entity {
     id: string | number
     name: string
     order: number
     type: EntityType
+}
+
+export enum EntityTypes {
+    ACTIONS = 'actions',
+    EVENTS = 'events',
+    NEW_ENTITY = 'new_entity',
+}
+
+export type EntityFilter = {
+    type?: EntityType
+    id: Entity['id'] | null
+    name: string | null
+    index?: number
+    order?: number
 }
 
 export interface EntityWithProperties extends Entity {
@@ -324,6 +336,12 @@ export interface EventType {
     person?: Partial<PersonType> | null
 }
 
+export interface EventFormattedType {
+    event: EventType
+    date_break?: Dayjs
+    new_events?: boolean
+}
+
 export interface SessionType {
     distinct_id: string
     event_count: number
@@ -337,12 +355,6 @@ export interface SessionType {
     end_url?: string
     email?: string
     matching_events: Array<number | string>
-}
-
-export interface FormattedNumber {
-    // :TODO: DEPRECATED, formatting will now happen client-side
-    value: number
-    formatted: string
 }
 
 export interface BillingType {
@@ -434,6 +446,7 @@ export interface PluginType {
 export interface PluginConfigType {
     id?: number
     plugin: number
+    team_id: number
     enabled: boolean
     order: number
     config: Record<string, any>
@@ -446,6 +459,26 @@ export interface PluginErrorType {
     stack?: string
     name?: string
     event?: Record<string, any>
+}
+
+export enum PluginLogEntryType {
+    Debug = 'DEBUG',
+    Log = 'LOG',
+    Info = 'INFO',
+    Warn = 'WARN',
+    Error = 'ERROR',
+}
+
+export interface PluginLogEntry {
+    id: string
+    team_id: number
+    plugin_id: number
+    plugin_config_id: number
+    timestamp: string
+    type: PluginLogEntryType
+    is_system: boolean
+    message: string
+    instance_id: string
 }
 
 export interface AnnotationType {
@@ -474,10 +507,11 @@ export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PAT
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type PathType = typeof PAGEVIEW | typeof AUTOCAPTURE | typeof SCREEN | typeof CUSTOM_EVENT
-export type RetentionType = 'retention_recurring' | 'retention_first_time'
+
+export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
 export interface FilterType {
-    insight: InsightType
+    insight?: InsightType
     display?: DisplayType
     interval?: string
     date_from?: string
@@ -492,6 +526,7 @@ export interface FilterType {
     session?: string
     period?: string
     retentionType?: RetentionType
+    new_entity?: Record<string, any>[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
     path_type?: PathType
@@ -499,16 +534,24 @@ export interface FilterType {
     stickiness_days?: number
     entity_id?: string | number
     entity_type?: EntityType
+    entity_math?: string
     people_day?: any
     people_action?: any
     formula?: any
     filter_test_accounts?: boolean
 }
 
+export interface SystemStatusSubrows {
+    columns: string[]
+    rows: string[][]
+}
+
 export interface SystemStatus {
     metric: string
     value: string
     key?: string
+    description?: string
+    subrows?: SystemStatusSubrows
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>
@@ -529,12 +572,9 @@ interface DisabledSetupState {
 
 export type SetupState = EnabledSetupState | DisabledSetupState
 
-export interface ActionFilter {
-    id: number | string
+export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
-    name: string
-    order: number
     properties: PropertyFilter[]
     type: EntityType
 }
@@ -606,7 +646,7 @@ export interface PreflightStatus {
     cloud: boolean
     celery: boolean
     ee_available?: boolean
-    ee_enabled?: boolean
+    is_clickhouse_enabled?: boolean
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
@@ -615,8 +655,8 @@ export interface PreflightStatus {
     email_service_available?: boolean
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
-    is_async_event_action_mapping_enabled?: boolean
-    licensed_users_available: number | null
+    licensed_users_available?: number | null
+    site_url?: string
 }
 
 export enum DashboardMode { // Default mode is null
@@ -624,6 +664,10 @@ export enum DashboardMode { // Default mode is null
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
     Public = 'public', // When viewing the dashboard publicly via a shareToken
+}
+
+export enum DashboardItemMode {
+    Edit = 'edit',
 }
 
 // Reserved hotkeys globally available
@@ -665,4 +709,53 @@ export interface LicenseType {
     valid_until: string
     max_users: string | null
     created_at: string
+}
+
+export interface EventDefinition {
+    id: string
+    name: string
+    volume_30_day: number | null
+    query_usage_30_day: number | null
+}
+
+export interface PropertyDefinition {
+    id: string
+    name: string
+    volume_30_day: number | null
+    query_usage_30_day: number | null
+    is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
+}
+
+export interface SelectOption {
+    value: string
+    label?: string
+}
+
+export interface SelectOptionWithChildren extends SelectOption {
+    children: React.ReactChildren
+    ['data-attr']: string
+    key: string
+}
+
+export interface KeyMapping {
+    label: string
+    description: string | JSX.Element
+    examples?: string[]
+    hide?: boolean
+}
+
+export interface TileParams {
+    title: string
+    targetPath: string
+    openInNewTab?: boolean
+    hoverText?: string
+    icon: JSX.Element
+    class?: string
+}
+
+export interface TiledIconModuleProps {
+    tiles: TileParams[]
+    header?: string
+    subHeader?: string
+    analyticsModuleKey?: string
 }

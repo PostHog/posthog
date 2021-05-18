@@ -1,4 +1,21 @@
-export const lightColors = ['blue', 'purple', 'green', 'salmon', 'yellow', 'indigo', 'cyan', 'pink']
+export const lightColors = [
+    'navy',
+    'blue',
+    'cyan',
+    'orange',
+    'yellow',
+    'olive',
+    'green',
+    'lime',
+    'mint',
+    'maroon',
+    'brown',
+    'apricot',
+    'pink',
+    'salmon',
+    'indigo',
+    'purple',
+]
 
 const getColorVar = (variable: string): string => getComputedStyle(document.body).getPropertyValue('--' + variable)
 
@@ -86,19 +103,14 @@ export function getChartColors(backgroundColor: string): string[] {
     return darkWhites
 }
 
-export function getBarColorFromStatus(status: string): string {
-    if (status === 'new') {
-        return cssHSL(214, 100, 80)
-    }
-    if (status === 'returning') {
-        return cssHSL(115, 35, 57)
-    }
-    if (status === 'resurrecting') {
-        return cssHSL(291, 48, 64)
-    }
-    if (status === 'dormant') {
-        return cssHSL(14, 94, 59)
-    } else {
-        return 'black'
+export function getBarColorFromStatus(status: string, hover?: boolean): string {
+    switch (status) {
+        case 'new':
+        case 'returning':
+        case 'resurrecting':
+        case 'dormant':
+            return getColorVar(`lifecycle-${status}${hover ? '-hover' : ''}`)
+        default:
+            return 'black'
     }
 }

@@ -7,22 +7,30 @@ const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrengt
 interface PasswordInputProps extends FormItemProps {
     showStrengthIndicator?: boolean
     label?: string
+    style?: React.CSSProperties
+    validateMinLength?: boolean
 }
 
 export function PasswordInput({
     label = 'Password',
     showStrengthIndicator,
+    validateMinLength,
+    style,
     ...props
 }: PasswordInputProps): JSX.Element {
     return (
-        <>
+        <div style={style}>
             <Form.Item
                 name="password"
                 label={label}
                 rules={[
                     {
                         required: true,
-                        message: 'Please enter your password to continue',
+                        message: `Please enter your password to continue`,
+                    },
+                    {
+                        min: validateMinLength ? 8 : undefined,
+                        message: `Your password must be at least 8 characters long`,
                     },
                 ]}
                 style={showStrengthIndicator ? { marginBottom: 0 } : undefined}
@@ -39,6 +47,6 @@ export function PasswordInput({
                     )}
                 </Form.Item>
             )}
-        </>
+        </div>
     )
 }

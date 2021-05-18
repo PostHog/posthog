@@ -95,7 +95,7 @@ export function ProjectSettings(): JSX.Element {
                 following snippet in your&nbsp;website's&nbsp;HTML. Ideally, put it just above the&nbsp;
                 <code>{'<head>'}</code>&nbsp;tag.
                 <br />
-                For more guidance, including on identying users,{' '}
+                For more guidance, including on identifying users,{' '}
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
                 {currentTeamLoading && !currentTeam ? loadingComponent : <JSSnippet />}
                 <p>
@@ -160,13 +160,16 @@ export function ProjectSettings(): JSX.Element {
                 </h2>
                 <p>
                     Increase the quality of your analytics results by filtering out events from internal sources, such
-                    as team members, test accounts, or development environments. The data be saved nonetheless, however
-                    you'll be able to exclude it from queries with the "Filter out internal and test users" setting
-                    during analysis.
+                    as team members, test accounts, or development environments.
+                </p>
+                <p>
+                    <b>Events will still be ingested and saved</b> (and will count towards any totals), they will
+                    however be excluded from consideration on any queries where the "Filter out internal and test users"
+                    toggle is set.
                 </p>
                 <p>
                     Example filters to use below: <i>email ∌ yourcompany.com</i> to exclude all events from your
-                    company's employees, or <i>Host ∌ localhost</i> to exclude all events from local development
+                    company's team members, or <i>Host ∌ localhost</i> to exclude all events from local development
                     environments.
                 </p>
                 <TestAccountFiltersConfig />
@@ -175,8 +178,8 @@ export function ProjectSettings(): JSX.Element {
                     Permitted Domains/URLs
                 </h2>
                 <p>
-                    These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's
-                    also where you'll be able to create Actions and record sessions.
+                    These are the domains and URLs where the <b>Toolbar will automatically launch</b> (if you're logged
+                    in) and where we'll <a href="#session-recording">record sessions</a> (if enabled).
                 </p>
                 <EditAppUrls />
                 <Divider />

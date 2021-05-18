@@ -74,6 +74,9 @@ if DEBUG:
 else:
     JS_URL = os.getenv("JS_URL", "")
 
+PLUGINS_PREINSTALLED_URLS: List[str] = os.getenv(
+    "PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip"
+).split(",") if not TEST else []
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
@@ -157,7 +160,12 @@ if CLICKHOUSE_SECURE:
     _clickhouse_http_protocol = "https://"
     _clickhouse_http_port = "8443"
 
-CLICKHOUSE_HTTP_URL = _clickhouse_http_protocol + CLICKHOUSE_HOST + ":" + _clickhouse_http_port + "/"
+CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
+
+_clickhouse_hosts = get_from_env("CLICKHOUSE_MIGRATION_HOSTS", CLICKHOUSE_HOST).split(",")
+CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS = [
+    f"{_clickhouse_http_protocol}{host}:{_clickhouse_http_port}/" for host in _clickhouse_hosts
+]
 
 IS_HEROKU = get_from_env("IS_HEROKU", False, type_cast=strtobool)
 
@@ -175,12 +183,6 @@ except ValueError:
 
 EE_AVAILABLE = False
 
-PLUGIN_SERVER_INGESTION = get_from_env("PLUGIN_SERVER_INGESTION", not TEST, type_cast=strtobool)
-
-# True if ingesting with the plugin server into Postgres, as it's then not possible to calculate the mapping on the fly
-ASYNC_EVENT_ACTION_MAPPING = PRIMARY_DB == RDBMS.POSTGRES and get_from_env(
-    "ASYNC_EVENT_ACTION_MAPPING", True, type_cast=strtobool
-)
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
 ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", False, type_cast=strtobool)
@@ -206,6 +208,9 @@ ALLOWED_HOSTS = get_list(os.getenv("ALLOWED_HOSTS", "*"))
 STATSD_HOST = os.getenv("STATSD_HOST")
 STATSD_PORT = os.getenv("STATSD_PORT", 8125)
 STATSD_PREFIX = os.getenv("STATSD_PREFIX", "")
+STATSD_TELEGRAF = True
+STATSD_CLIENT = "statshog"
+STATSD_SEPARATOR = "_"
 
 # django-axes settings to lockout after too many attempts
 AXES_ENABLED = get_from_env("AXES_ENABLED", True, type_cast=strtobool)
@@ -507,7 +512,7 @@ REST_FRAMEWORK = {
 }
 
 EXCEPTIONS_HOG = {
-    "EXCEPTION_REPORTING": "posthog.utils.exception_reporting",
+    "EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting",
 }
 
 # Email
@@ -558,15 +563,6 @@ if DEBUG and not TEST:
         )
     )
 
-    # Load debug_toolbar if we can
-    try:
-        import debug_toolbar  # noqa: F401
-    except ImportError:
-        pass
-    else:
-        INSTALLED_APPS.append("debug_toolbar")
-        MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
-
 if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
     print_warning(
         (
@@ -586,10 +582,6 @@ def show_toolbar(request):
         or request.path.startswith("/__debug__")
     )
 
-
-DEBUG_TOOLBAR_CONFIG = {
-    "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
-}
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

@@ -13,10 +13,11 @@ from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
 from rest_framework.exceptions import AuthenticationFailed
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.email import is_email_available
 from posthog.models import User
 from posthog.utils import (
+    get_plugin_server_job_queues,
     get_redis_info,
     get_redis_queue_depth,
     get_table_approx_count,
@@ -34,6 +35,8 @@ from .utils import (
     get_celery_heartbeat,
     get_plugin_server_version,
 )
+
+ROBOTS_TXT_CONTENT = "User-agent: *\nDisallow: /"
 
 
 def noop(*args, **kwargs) -> None:
@@ -79,6 +82,10 @@ def stats(request):
     return JsonResponse(stats_response)
 
 
+def robots_txt(request):
+    return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
+
+
 @never_cache
 @login_required
 def system_status(request):
@@ -100,15 +107,7 @@ def system_status(request):
         {
             "key": "analytics_database",
             "metric": "Analytics database in use",
-            "value": "ClickHouse" if is_ee_enabled() else "Postgres",
-        }
-    )
-
-    metrics.append(
-        {
-            "key": "ingestion_server",
-            "metric": "Event ingestion via",
-            "value": "Plugin Server" if settings.PLUGIN_SERVER_INGESTION else "Django",
+            "value": "ClickHouse" if is_clickhouse_enabled() else "Postgres",
         }
     )
 
@@ -118,6 +117,15 @@ def system_status(request):
             "key": "plugin_sever_version",
             "metric": "Plugin server version",
             "value": get_plugin_server_version() or "unknown",
+        }
+    )
+
+    plugin_server_queues = get_plugin_server_job_queues()
+    metrics.append(
+        {
+            "key": "plugin_sever_job_queues",
+            "metric": "Job queues enabled in plugin server",
+            "value": ", ".join([q.capitalize() for q in plugin_server_queues]) if plugin_server_queues else "unknown",
         }
     )
 
@@ -131,27 +139,36 @@ def system_status(request):
                 "value": f"{postgres_version // 10000}.{(postgres_version // 100) % 100}.{postgres_version % 100}",
             }
         )
-        event_table_count = get_table_approx_count(Event._meta.db_table)
-        event_table_size = get_table_size(Event._meta.db_table)
 
-        element_table_count = get_table_approx_count(Element._meta.db_table)
-        element_table_size = get_table_size(Element._meta.db_table)
+        if not is_clickhouse_enabled():
+            event_table_count = get_table_approx_count(Event._meta.db_table)
+            event_table_size = get_table_size(Event._meta.db_table)
 
-        session_recording_event_table_count = get_table_approx_count(SessionRecordingEvent._meta.db_table)
-        session_recording_event_table_size = get_table_size(SessionRecordingEvent._meta.db_table)
+            element_table_count = get_table_approx_count(Element._meta.db_table)
+            element_table_size = get_table_size(Element._meta.db_table)
 
-        metrics.append(
-            {"metric": "Postgres elements table size", "value": f"{element_table_count} rows (~{element_table_size})"}
-        )
-        metrics.append(
-            {"metric": "Postgres events table size", "value": f"{event_table_count} rows (~{event_table_size})"}
-        )
-        metrics.append(
-            {
-                "metric": "Postgres session recording table size",
-                "value": f"{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
-            }
-        )
+            session_recording_event_table_count = get_table_approx_count(SessionRecordingEvent._meta.db_table)
+            session_recording_event_table_size = get_table_size(SessionRecordingEvent._meta.db_table)
+
+            metrics.append(
+                {
+                    "metric": "Postgres elements table size",
+                    "value": f"{element_table_count} rows (~{element_table_size})",
+                }
+            )
+            metrics.append(
+                {"metric": "Postgres events table size", "value": f"{event_table_count} rows (~{event_table_size})"}
+            )
+            metrics.append(
+                {
+                    "metric": "Postgres session recording table size",
+                    "value": f"{session_recording_event_table_count} rows (~{session_recording_event_table_size})",
+                }
+            )
+    if is_clickhouse_enabled():
+        from ee.clickhouse.system_status import system_status
+
+        metrics.extend(list(system_status()))
 
     metrics.append({"key": "redis_alive", "metric": "Redis alive", "value": redis_alive})
     if redis_alive:
@@ -201,7 +218,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         response = {
             **response,
             "ee_available": settings.EE_AVAILABLE,
-            "ee_enabled": is_ee_enabled(),
+            "is_clickhouse_enabled": is_clickhouse_enabled(),
             "db_backend": settings.PRIMARY_DB.value,
             "available_timezones": get_available_timezones_with_offsets(),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),
@@ -209,8 +226,8 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "email_service_available": is_email_available(with_absolute_urls=True),
             "is_debug": settings.DEBUG,
             "is_event_property_usage_enabled": settings.ASYNC_EVENT_PROPERTY_USAGE,
-            "is_async_event_action_mapping_enabled": settings.ASYNC_EVENT_ACTION_MAPPING,
             "licensed_users_available": get_licensed_users_available(),
+            "site_url": settings.SITE_URL,
         }
 
     return JsonResponse(response)

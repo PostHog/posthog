@@ -1,4 +1,5 @@
 import random
+import uuid
 from unittest.mock import patch
 
 from django.core import mail
@@ -24,6 +25,21 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             )
 
         return payload
+
+    # Listing invites
+
+    def test_cant_list_invites_for_an_alien_organization(self):
+        org = Organization.objects.create(name="Alien Org")
+        invite = OrganizationInvite.objects.create(target_email="siloed@posthog.com", organization=org)
+
+        response = self.client.get(f"/api/organizations/{org.id}/invites/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
+
+        # Even though there's no retrieve for invites, permissions are validated first
+        response = self.client.get(f"/api/organizations/{org.id}/invites/{invite.id}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
 
     # Creating invites
 
@@ -219,6 +235,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.organization_membership.save()
         invite = OrganizationInvite.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
-        self.assertIsNone(response.data)
+        self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(OrganizationInvite.objects.exists())

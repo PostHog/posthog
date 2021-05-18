@@ -7,10 +7,10 @@ import {
     CheckOutlined,
     CloudDownloadOutlined,
     LoadingOutlined,
+    UnorderedListOutlined,
     SettingOutlined,
     WarningOutlined,
     InfoCircleOutlined,
-    MessageOutlined,
     DownOutlined,
     GlobalOutlined,
 } from '@ant-design/icons'
@@ -25,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { endWithPunctation } from '../../../lib/utils'
 import { canInstallPlugins } from '../access'
 import { LinkButton } from '../../../lib/components/LinkButton'
+import { PluginUpdateButton } from './PluginUpdateButton'
 
 export function ExtraPluginButtons({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -33,12 +34,6 @@ export function ExtraPluginButtons({ url, disabled = false }: { url: string; dis
                 <InfoCircleOutlined />
                 <span className="show-over-500">About</span>
             </LinkButton>
-            {url.includes('github') && (
-                <LinkButton to={`${url}/issues/new`} target="_blank" rel="noopener noreferrer" disabled={disabled}>
-                    <MessageOutlined />
-                    <span className="show-over-500">Feedback</span>
-                </LinkButton>
-            )}
         </Space>
     )
 }
@@ -81,10 +76,10 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, updatePlugin, rearrange } = useActions(
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } = useActions(
         pluginsLogic
     )
-    const { loading, installingPluginUrl, checkingForUpdates, updatingPlugin } = useValues(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
 
     return (
@@ -186,32 +181,33 @@ export function PluginCard({
                         <Space>
                             {url && <ExtraPluginButtons url={url} disabled={rearranging} />}
                             {showUpdateButton && pluginId ? (
-                                <Button
-                                    type={updateStatus?.updated ? 'default' : 'primary'}
-                                    className="padding-under-500"
-                                    onClick={() =>
-                                        updateStatus?.updated ? editPlugin(pluginId) : updatePlugin(pluginId)
-                                    }
-                                    loading={!!updatingPlugin}
-                                    icon={updateStatus?.updated ? <CheckOutlined /> : <CloudDownloadOutlined />}
-                                    disabled={rearranging}
-                                    data-attr="plugin-update"
-                                >
-                                    <span className="show-over-500">
-                                        {updateStatus?.updated ? 'Updated' : 'Update'}
-                                    </span>
-                                </Button>
+                                <PluginUpdateButton
+                                    updateStatus={updateStatus}
+                                    pluginId={pluginId}
+                                    rearranging={rearranging}
+                                />
                             ) : pluginId ? (
-                                <Button
-                                    type="primary"
-                                    className="padding-under-500"
-                                    disabled={rearranging}
-                                    onClick={() => editPlugin(pluginId)}
-                                    data-attr="plugin-configure"
-                                >
-                                    <SettingOutlined />
-                                    <span className="show-over-500">Configure</span>
-                                </Button>
+                                <>
+                                    <Button
+                                        className="padding-under-500"
+                                        disabled={rearranging}
+                                        onClick={() => showPluginLogs(pluginId)}
+                                        data-attr="plugin-logs"
+                                    >
+                                        <UnorderedListOutlined />
+                                        <span className="show-over-500">Logs</span>
+                                    </Button>
+                                    <Button
+                                        type="primary"
+                                        className="padding-under-500"
+                                        disabled={rearranging}
+                                        onClick={() => editPlugin(pluginId)}
+                                        data-attr="plugin-configure"
+                                    >
+                                        <SettingOutlined />
+                                        <span className="show-over-500">Configure</span>
+                                    </Button>
+                                </>
                             ) : !pluginId ? (
                                 <Button
                                     type="primary"

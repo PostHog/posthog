@@ -16,10 +16,8 @@ import {
     PlaySquareOutlined,
 } from '@ant-design/icons'
 import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
-import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { SessionsPlay } from './SessionsPlay'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
@@ -67,7 +65,6 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
     const { fetchNextSessions, previousDay, nextDay, setFilters, applyFilters } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const enableSessionRecordingCTA = (
         <>
@@ -102,14 +99,14 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             render: function RenderDuration(session: SessionType) {
                 return <span>{session.event_count}</span>
             },
-            span: 1.5,
+            span: 2,
         },
         {
             title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
                 return <span>{humanFriendlyDuration(session.length)}</span>
             },
-            span: 1.5,
+            span: 2,
         },
         {
             title: 'Start Time',
@@ -132,7 +129,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
-            span: 3,
+            span: 4,
         },
         {
             title: 'End Point',
@@ -143,7 +140,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 return <span>{url ? stripHTTP(url) : 'N/A'}</span>
             },
             ellipsis: true,
-            span: 3,
+            span: 4,
         },
         {
             title: (
@@ -193,18 +190,10 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 <Button onClick={nextDay} icon={<CaretRightOutlined />} data-attr="sessions-next-date" />
             </Space>
 
-            {featureFlags['filter_by_session_props'] && (
-                <>
-                    <SearchAllBox />
-                    <SessionsFilterBox selector="new" />
-                </>
-            )}
+            <SearchAllBox />
+            <SessionsFilterBox selector="new" />
 
-            {featureFlags['filter_by_session_props'] ? (
-                <EditFiltersPanel onSubmit={applyFilters} />
-            ) : (
-                <PropertyFilters pageKey={'sessions-' + (personIds && JSON.stringify(personIds))} endpoint="sessions" />
-            )}
+            <EditFiltersPanel onSubmit={applyFilters} />
 
             <div className="text-right mb mt">
                 <Tooltip title={playAllCTA}>

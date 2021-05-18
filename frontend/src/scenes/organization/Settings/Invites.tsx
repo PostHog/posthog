@@ -110,6 +110,7 @@ export function Invites(): JSX.Element {
                 pagination={false}
                 loading={invitesLoading}
                 style={{ marginTop: '1rem' }}
+                data-attr="invites-table"
                 locale={{
                     emptyText: function InvitesTableCTA() {
                         return <CreateInviteModalWithButton />

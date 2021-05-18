@@ -8,7 +8,7 @@
     "cloud": false,
     "available_social_auth_providers": { "google-oauth2": false, "github": false, "gitlab": false },
     "ee_available": true,
-    "ee_enabled": false,
+    "is_clickhouse_enabled": false,
     "db_backend": "postgres",
     "available_timezones": {
         "Africa/Abidjan": 0.0,
@@ -455,6 +455,5 @@
     "posthog_version": "1.23.1",
     "email_service_available": false,
     "is_debug": 1,
-    "is_event_property_usage_enabled": false,
-    "is_async_event_action_mapping_enabled": true
+    "is_event_property_usage_enabled": false
 }

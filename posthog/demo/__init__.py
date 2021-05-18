@@ -1,9 +1,11 @@
+from typing import cast
+
 from rest_framework.request import Request
 
 from posthog.demo.app_data_generator import AppDataGenerator
 from posthog.demo.revenue_data_generator import RevenueDataGenerator
 from posthog.demo.web_data_generator import WebDataGenerator
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.models import Organization, Team, User
 from posthog.utils import render_template
 
@@ -12,12 +14,17 @@ TEAM_NAME = "HogFlix Demo App"
 
 
 def demo(request: Request):
-    user = request.user
+    user = cast(User, request.user)
     organization = user.organization
+
+    if not organization:
+        raise AttributeError("This user has no organization.")
+
     try:
         team = organization.teams.get(is_demo=True)
     except Team.DoesNotExist:
         team = create_demo_team(organization, user, request)
+
     user.current_team = team
     user.save()
 
@@ -26,7 +33,7 @@ def demo(request: Request):
         team.event_names_with_usage.append({"event": "$pageview", "usage_count": None, "volume": None})
         team.save()
 
-    if is_ee_enabled():  # :TRICKY: Lazily backfill missing event data.
+    if is_clickhouse_enabled():  # :TRICKY: Lazily backfill missing event data.
         from ee.clickhouse.models.event import get_events_by_team
 
         result = get_events_by_team(team_id=team.pk)
@@ -36,7 +43,7 @@ def demo(request: Request):
     return render_template("demo.html", request=request, context={"api_token": team.api_token})
 
 
-def create_demo_team(organization: Organization, user: User, request: Request) -> Team:
+def create_demo_team(organization: Organization, *args) -> Team:
     team = Team.objects.create_with_data(
         default_dashboards=False,
         organization=organization,

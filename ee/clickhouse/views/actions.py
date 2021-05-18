@@ -8,23 +8,28 @@ from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter, format_entity_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.trends.util import get_active_user_params
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_SQL,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL,
+    PEOPLE_SQL,
     PEOPLE_THROUGH_DISTINCT_SQL,
     PERSON_STATIC_COHORT_TABLE,
     PERSON_TREND_SQL,
 )
+from ee.clickhouse.sql.trends.volume import PERSONS_ACTIVE_USER_SQL
 from posthog.api.action import ActionSerializer, ActionViewSet
 from posthog.api.utils import get_target_entity
+from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
@@ -41,10 +46,14 @@ class ClickhouseActionSerializer(ActionSerializer):
             query, params = format_action_filter(action)
             if query == "":
                 return None
-            return sync_execute(
-                "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query),
-                {"team_id": action.team_id, **params},
-            )[0][0]
+            try:
+                return sync_execute(
+                    "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query),
+                    {"team_id": action.team_id, **params},
+                )[0][0]
+            except Exception as e:
+                capture_exception(e)
+                return None
         return None
 
     def get_is_calculating(self, action: Action) -> bool:
@@ -137,14 +146,26 @@ def _process_content_sql(team: Team, entity: Entity, filter: Filter):
     )
     params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
 
-    content_sql = PERSON_TREND_SQL.format(
-        entity_filter=f"AND {entity_sql}",
-        parsed_date_from=parsed_date_from,
-        parsed_date_to=parsed_date_to,
-        filters=prop_filters,
-        breakdown_filter="",
-        person_filter=person_filter,
-    )
+    if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+        active_user_params = get_active_user_params(filter, entity, team.pk)
+        content_sql = PERSONS_ACTIVE_USER_SQL.format(
+            entity_query=f"AND {entity_sql}",
+            parsed_date_from=parsed_date_from,
+            parsed_date_to=parsed_date_to,
+            filters=prop_filters,
+            breakdown_filter="",
+            person_filter=person_filter,
+            **active_user_params,
+        )
+    else:
+        content_sql = PERSON_TREND_SQL.format(
+            entity_filter=f"AND {entity_sql}",
+            parsed_date_from=parsed_date_from,
+            parsed_date_to=parsed_date_to,
+            filters=prop_filters,
+            breakdown_filter="",
+            person_filter=person_filter,
+        )
     return content_sql, {**params, **person_filter_params}
 
 
@@ -152,7 +173,7 @@ def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
     content_sql, params = _process_content_sql(team, entity, filter)
 
     people = sync_execute(
-        PEOPLE_THROUGH_DISTINCT_SQL.format(
+        (PEOPLE_SQL if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] else PEOPLE_THROUGH_DISTINCT_SQL).format(
             content_sql=content_sql,
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
             latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,

@@ -3,10 +3,12 @@ import React, { useMemo } from 'react'
 import { IconPerson } from 'lib/components/icons'
 import './PersonHeader.scss'
 
-export function PersonHeader({ person }: { person: Partial<PersonType> }): JSX.Element {
-    const customIdentifier = person?.properties
+export function PersonHeader({ person }: { person?: Partial<PersonType> | null }): JSX.Element {
+    const propertyIdentifier = person?.properties
         ? person.properties.email || person.properties.name || person.properties.username
         : null
+    const customIdentifier =
+        typeof propertyIdentifier === 'object' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
     const displayId = useMemo(() => {
         if (!person?.distinct_ids?.length) {

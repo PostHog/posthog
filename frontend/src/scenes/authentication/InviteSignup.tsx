@@ -5,7 +5,7 @@ import { SceneLoading } from 'lib/utils'
 import './InviteSignup.scss'
 import { StarryBackground } from 'lib/components/StarryBackground'
 import { userLogic } from 'scenes/userLogic'
-import { Button, Row, Col, Input } from 'antd'
+import { Button, Row, Col, Input, Space } from 'antd'
 import { ArrowLeftOutlined, ArrowRightOutlined, ArrowDownOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { PrevalidatedInvite } from '~/types'
@@ -131,27 +131,27 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
 
     return (
         <div className="authenticated-invite">
-            <div className="inner">
-                <div>
+            <Space className="inner" direction="vertical" align="center">
+                <Row>
                     <h1 className="page-title">You have been invited to join {invite.organization_name}</h1>
-                </div>
-                <div>
-                    You will accept the invite under your <b>existing PostHog account</b> ({user?.email})
-                </div>
-                <Row className="mt text-muted">
-                    <Col span={24} md={12} style={{ textAlign: 'left' }}>
-                        You can change organizations at any time by clicking on the dropdown at the top right corner of
-                        the navigation bar.
-                    </Col>
-                    <Col md={12} span={0}>
-                        {user && (
-                            <div className="whoami-mock">
-                                <div className="whoami-inner-container">
-                                    <WhoAmI user={user} />
-                                </div>
+                </Row>
+                <Row>
+                    <span>
+                        You will accept the invite under your <b>existing PostHog account</b> ({user?.email})
+                    </span>
+                </Row>
+                {user && (
+                    <Row>
+                        <div className="whoami-mock">
+                            <div className="whoami-inner-container">
+                                <WhoAmI user={user} />
                             </div>
-                        )}
-                    </Col>
+                        </div>
+                    </Row>
+                )}
+                <Row>
+                    You can change organizations at any time by clicking on the dropdown at the top right corner of the
+                    navigation bar.
                 </Row>
                 <div>
                     {!acceptedInvite ? (
@@ -176,7 +176,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                         </Button>
                     )}
                 </div>
-            </div>
+            </Space>
         </div>
     )
 }

@@ -7,10 +7,13 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from '../lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export enum Scene {
     Dashboards = 'dashboards',
     Dashboard = 'dashboard',
+    DashboardInsight = 'dashboardInsight',
     Insights = 'insights',
     Cohorts = 'cohorts',
     Events = 'events',
@@ -38,6 +41,7 @@ export enum Scene {
     Personalization = 'personalization',
     Ingestion = 'ingestion',
     OnboardingSetup = 'onboardingSetup',
+    Home = 'home',
 }
 
 interface LoadedScene {
@@ -52,6 +56,8 @@ interface Params {
 export const scenes: Record<Scene, () => any> = {
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
+    [Scene.DashboardInsight]: () =>
+        import(/* webpackChunkName: 'dashboardInsight' */ './dashboard-insight/DashboardInsight'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './persons/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
@@ -80,6 +86,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
     [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
     [Scene.Login]: () => import(/* webpackChunkName: 'login' */ './authentication/Login'),
+    [Scene.Home]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/Home'),
 }
 
 interface SceneConfig {
@@ -143,6 +150,7 @@ export const redirects: Record<string, string | ((params: Params) => any)> = {
 export const routes: Record<string, Scene> = {
     '/dashboard': Scene.Dashboards,
     '/dashboard/:id': Scene.Dashboard,
+    '/dashboard_insight/:id': Scene.DashboardInsight,
     '/action/:id': Scene.Action,
     '/action': Scene.Action,
     '/insights': Scene.Insights,
@@ -174,6 +182,7 @@ export const routes: Record<string, Scene> = {
     '/ingestion': Scene.Ingestion,
     '/ingestion/*': Scene.Ingestion,
     '/setup': Scene.OnboardingSetup,
+    '/home': Scene.Home,
 }
 
 export const sceneLogic = kea<sceneLogicType>({
@@ -236,6 +245,11 @@ export const sceneLogic = kea<sceneLogicType>({
         ],
     },
     urlToAction: ({ actions }) => {
+        featureFlagLogic.mount() // Otherwise logic is not loaded before this
+        if (featureFlagLogic && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
+            redirects['/'] = '/home'
+        }
+
         const mapping: Record<string, (params: Params) => any> = {}
 
         for (const [paths, redirect] of Object.entries(redirects)) {
@@ -244,12 +258,12 @@ export const sceneLogic = kea<sceneLogicType>({
                     router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
-
         for (const [paths, scene] of Object.entries(routes)) {
             for (const path of paths.split('|')) {
                 mapping[path] = (params) => actions.loadScene(scene, params)
             }
         }
+
         mapping['/*'] = () => actions.loadScene('404', {})
 
         return mapping

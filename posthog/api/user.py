@@ -19,7 +19,7 @@ from rest_framework import mixins, permissions, serializers, viewsets
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
@@ -30,7 +30,6 @@ from posthog.version import VERSION
 
 class UserSerializer(serializers.ModelSerializer):
 
-    id = serializers.SerializerMethodField()
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
@@ -43,7 +42,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id",
+            "uuid",
             "distinct_id",
             "first_name",
             "email",
@@ -60,14 +59,12 @@ class UserSerializer(serializers.ModelSerializer):
             "set_current_team",
             "password",
             "current_password",  # used when changing current password
+            "events_column_config",
         ]
         extra_kwargs = {
             "is_staff": {"read_only": True},
             "password": {"write_only": True},
         }
-
-    def get_id(self, instance: User) -> str:
-        return str(instance.uuid)
 
     def get_has_password(self, instance: User) -> bool:
         return instance.has_usable_password()
@@ -289,13 +286,12 @@ def user(request):
             "posthog_version": VERSION,
             "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
             "ee_available": settings.EE_AVAILABLE,
-            "ee_enabled": is_ee_enabled(),
+            "is_clickhouse_enabled": is_clickhouse_enabled(),
             "email_service_available": is_email_available(with_absolute_urls=True),
             "is_debug": getattr(settings, "DEBUG", False),
             "is_staff": user.is_staff,
             "is_impersonated": is_impersonated_session(request),
             "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
-            "is_async_event_action_mapping_enabled": getattr(settings, "ASYNC_EVENT_ACTION_MAPPING", False),
         }
     )
 
