@@ -56,7 +56,7 @@ function InsightPane({
             {loading && <Loading />}
             {data &&
                 data.map((insight: DashboardItemType, index: number) => (
-                    <Col xs={24} sm={8} key={insight.id} style={{ height: 270 }}>
+                    <Col xs={24} sm={data.length > 1 ? 8 : 12} key={insight.id} style={{ height: 270 }}>
                         <DashboardItem
                             item={{ ...insight, color: null }}
                             key={insight.id + '_user'}
