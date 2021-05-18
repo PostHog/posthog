@@ -125,7 +125,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ displa
     const { reportInsightHistoryItemClicked } = useActions(eventUsageLogic)
 
     const [activeTab, setActiveTab] = useState(
-        insights?.length < 3 && teamInsights?.length > insights?.length
+        !insightsLoading && insights?.length < 3 && teamInsights?.length > insights?.length
             ? InsightHistoryType.TEAM
             : InsightHistoryType.RECENT
     )
