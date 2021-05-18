@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Avatar, Card, Divider, List, Space, Tooltip, Typography, Collapse, Skeleton } from 'antd'
+import { Avatar, Card, Divider, List, Tooltip, Typography, Collapse } from 'antd'
 
 const { Panel } = Collapse
 
@@ -166,14 +166,7 @@ function RecentInsightList(): JSX.Element {
 }
 
 export function DiscoverInsightsModule(): JSX.Element {
-    const {
-        insights,
-        insightsLoading,
-        teamInsights,
-        teamInsightsLoading,
-        savedInsights,
-        savedInsightsLoading,
-    } = useValues(insightHistoryLogic)
+    const { insights, teamInsights, savedInsights } = useValues(insightHistoryLogic)
     const { loadInsights, loadTeamInsights, loadSavedInsights } = useActions(insightHistoryLogic)
 
     useEffect(() => {
@@ -188,23 +181,8 @@ export function DiscoverInsightsModule(): JSX.Element {
                 Discover Insights
             </Title>
             <Divider />
-            <Skeleton
-                loading={
-                    insightsLoading &&
-                    insights.length === 0 &&
-                    teamInsightsLoading &&
-                    teamInsights.length === 0 &&
-                    savedInsightsLoading &&
-                    savedInsights.length === 0
-                }
-            >
-                <Space direction={'vertical'} className={'home-page'} size={'small'}>
-                    {(insights.length > 0 || teamInsights.length > 0 || savedInsights.length > 0) && (
-                        <RecentInsightList />
-                    )}
-                    <CreateAnalysisSection />
-                </Space>
-            </Skeleton>
+            <CreateAnalysisSection />
+            {(insights.length > 0 || teamInsights.length > 0 || savedInsights.length > 0) && <RecentInsightList />}
         </Card>
     )
 }
