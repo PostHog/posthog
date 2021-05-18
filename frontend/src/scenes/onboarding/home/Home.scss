@@ -106,6 +106,7 @@
         display: block;
         &:hover {
             cursor: pointer;
+            border: 1px solid $primary;
         }
     }
 
