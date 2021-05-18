@@ -10,4 +10,4 @@ class Migration(migrations.Migration):
         ("posthog", "0154_version"),
     ]
 
-    operations = [] #type: ignore
+    operations = []  # type: ignore
