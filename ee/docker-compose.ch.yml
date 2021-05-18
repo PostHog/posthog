@@ -26,17 +26,32 @@ services:
             - ./idl:/idl
             - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ../../clickhouse-backup/clickhouse-backup:/usr/bin/clickhouse-backup
+            - ../../clickhouse-backup/config.yml:/etc/clickhouse-backup/config.yml
     zookeeper:
         image: wurstmeister/zookeeper
     kafka:
         image: wurstmeister/kafka
         depends_on:
             - zookeeper
+            - s3
         ports:
             - '9092:9092'
         environment:
             KAFKA_ADVERTISED_HOST_NAME: kafka
             KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+            REMOTE_STORAGE: 's3'
+            LOG_LEVEL: 'debug'
+            S3_ENDPOINT: 'http://s3:9090'
+            S3_ACCESS_KEY: 'AKIAIOSFODNN7EXAMPLE'
+            S3_SECRET_KEY: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+            S3_BUCKET: 'posthog-ch-backups-test'
+            S3_COMPRESSION_LEVEL: '1'
+            S3_COMPRESSION_FORMAT: 'tar'
+            S3_ACL: 'private'
+            S3_FORCE_PATH_STYLE: 'true'
+            S3_PATH: 'backup'
+            S3_DISABLE_SSL: 'true'
     worker: &worker
         build:
             context: ../
@@ -102,7 +117,9 @@ services:
             API_LISTEN: '0.0.0.0:7171'
             REMOTE_STORAGE: 's3'
             LOG_LEVEL: 'debug'
+            BACKUPS_TO_KEEP_LOCAL: '5'
             CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_FREEZE_BY_PART: 'true'
             S3_ENDPOINT: 'http://s3:9090'
             S3_ACCESS_KEY: 'AKIAIOSFODNN7EXAMPLE'
             S3_SECRET_KEY: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
