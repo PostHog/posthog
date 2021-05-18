@@ -28,17 +28,18 @@ const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): 
     return 'Add filters'
 }
 
-interface ActionFilterRowProps {
+export interface ActionFilterRowProps {
     logic: typeof entityFilterLogic
     filter: ActionFilter
     index: number
     hideMathSelector?: boolean
-    hidePropertySelector?: boolean
+    hidePropertySelector?: boolean // DEPRECATED: Out of use in the new horizontal UI
     singleFilter?: boolean
     showOr?: boolean
     letter?: string | null
     horizontalUI?: boolean
     filterCount: number
+    customRowPrefix?: string | JSX.Element // Custom prefix element to show in each row
 }
 
 export function ActionFilterRow({
@@ -52,6 +53,7 @@ export function ActionFilterRow({
     letter,
     horizontalUI = false,
     filterCount,
+    customRowPrefix,
 }: ActionFilterRowProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
@@ -91,8 +93,6 @@ export function ActionFilterRow({
     const dropDownCondition = Boolean(
         selectedFilter && selectedFilter?.type === filter.type && selectedFilter?.index === index
     )
-
-    const separatorWord = math === 'dau' ? 'who did' : 'of' // Separator between property and value.
 
     const onClick = (): void => {
         if (dropDownCondition) {
@@ -139,36 +139,10 @@ export function ActionFilterRow({
                         <span>{letter}</span>
                     </Col>
                 )}
-                {horizontalUI && !hideMathSelector && (
-                    <>
-                        <Col>Showing</Col>
-                        <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
-                            <MathSelector
-                                math={math}
-                                index={index}
-                                onMathSelect={onMathSelect}
-                                areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
-                                style={{ maxWidth: '100%', width: 'initial' }}
-                            />
-                        </Col>
-                        {MATHS[math || '']?.onProperty && (
-                            <>
-                                <Col>of</Col>
-                                <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
-                                    <MathPropertySelector
-                                        name={name}
-                                        math={math}
-                                        mathProperty={mathProperty}
-                                        index={index}
-                                        onMathPropertySelect={onMathPropertySelect}
-                                        properties={numericalPropertyNames}
-                                        horizontalUI={horizontalUI}
-                                    />
-                                </Col>
-                            </>
-                        )}
-                        <Col>{separatorWord}</Col>
-                    </>
+                {customRowPrefix !== undefined ? (
+                    <>{customRowPrefix && <Col>{customRowPrefix}</Col>}</>
+                ) : (
+                    <>{horizontalUI && <Col>Showing</Col>}</>
                 )}
                 <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
                     <Button
@@ -189,9 +163,10 @@ export function ActionFilterRow({
                         onClose={() => selectFilter(null)}
                     />
                 </Col>
-                {!horizontalUI && (
-                    <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
-                        {!hideMathSelector && (
+                {!hideMathSelector && (
+                    <>
+                        <Col>counted by</Col>
+                        <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
                             <MathSelector
                                 math={math}
                                 index={index}
@@ -199,8 +174,24 @@ export function ActionFilterRow({
                                 areEventPropertiesNumericalAvailable={!!numericalPropertyNames.length}
                                 style={{ maxWidth: '100%', width: 'initial' }}
                             />
+                        </Col>
+                        {MATHS[math || '']?.onProperty && (
+                            <>
+                                <Col>on property</Col>
+                                <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
+                                    <MathPropertySelector
+                                        name={name}
+                                        math={math}
+                                        mathProperty={mathProperty}
+                                        index={index}
+                                        onMathPropertySelect={onMathPropertySelect}
+                                        properties={numericalPropertyNames}
+                                        horizontalUI={horizontalUI}
+                                    />
+                                </Col>
+                            </>
                         )}
-                    </Col>
+                    </>
                 )}
                 {horizontalUI && (
                     <Col>
@@ -235,18 +226,6 @@ export function ActionFilterRow({
                 )}
                 {horizontalUI && filterCount > 1 && index < filterCount - 1 && showOr && orLabel}
             </Row>
-            {!horizontalUI && !hideMathSelector && MATHS[math || '']?.onProperty && (
-                <Row align="middle">
-                    <MathPropertySelector
-                        name={name}
-                        math={math}
-                        mathProperty={mathProperty}
-                        index={index}
-                        onMathPropertySelect={onMathPropertySelect}
-                        properties={numericalPropertyNames}
-                    />
-                </Row>
-            )}
             {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) && !horizontalUI && (
                 <div style={{ paddingTop: 6 }}>
                     <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>

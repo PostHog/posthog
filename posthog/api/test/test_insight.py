@@ -6,6 +6,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.constants import INSIGHT_STICKINESS
 from posthog.ee import is_clickhouse_enabled
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event

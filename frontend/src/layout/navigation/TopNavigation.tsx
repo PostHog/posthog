@@ -30,9 +30,9 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
 import { UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
-import MD5 from 'crypto-js/md5'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import md5 from 'md5'
 
 export interface ProfilePictureProps {
     name?: string
@@ -42,7 +42,7 @@ export interface ProfilePictureProps {
 export function ProfilePicture({ name, email }: ProfilePictureProps): JSX.Element {
     const [didImageError, setDidImageError] = useState(false)
     if (email && !didImageError) {
-        const emailHash = MD5(email.trim().toLowerCase()).toString()
+        const emailHash = md5(email.trim().toLowerCase())
         const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
         return (
             <img

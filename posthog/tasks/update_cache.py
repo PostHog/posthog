@@ -17,6 +17,7 @@ from posthog.constants import (
     INSIGHT_PATHS,
     INSIGHT_RETENTION,
     INSIGHT_SESSIONS,
+    INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
     TRENDS_STICKINESS,
 )
@@ -80,7 +81,7 @@ def get_cache_type(filter: FilterType) -> CacheType:
         filter.insight == INSIGHT_TRENDS
         and isinstance(filter, StickinessFilter)
         and filter.shown_as == TRENDS_STICKINESS
-    ):
+    ) or filter.insight == INSIGHT_STICKINESS:
         return CacheType.STICKINESS
     else:
         return CacheType.TRENDS
