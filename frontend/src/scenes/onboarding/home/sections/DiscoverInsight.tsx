@@ -166,11 +166,12 @@ function RecentInsightList(): JSX.Element {
 }
 
 export function DiscoverInsightsModule(): JSX.Element {
-    const { insights, insightsLoading } = useValues(insightHistoryLogic)
-    const { loadInsights } = useActions(insightHistoryLogic)
+    const { insights, insightsLoading, teamInsights, teamInsightsLoading } = useValues(insightHistoryLogic)
+    const { loadInsights, loadTeamInsights } = useActions(insightHistoryLogic)
 
     useEffect(() => {
         loadInsights()
+        loadTeamInsights()
     }, [])
 
     return (
@@ -179,9 +180,13 @@ export function DiscoverInsightsModule(): JSX.Element {
                 Discover Insights
             </Title>
             <Divider />
-            <Skeleton loading={insightsLoading && insights.length === 0}>
+            <Skeleton
+                loading={
+                    (insightsLoading && insights.length === 0) || (teamInsightsLoading && teamInsights.length === 0)
+                }
+            >
                 <Space direction={'vertical'} className={'home-page'} size={'small'}>
-                    {insights.length > 0 && <RecentInsightList />}
+                    {(insights.length > 0 || teamInsights.length > 0) && <RecentInsightList />}
                     <CreateAnalysisSection />
                 </Space>
             </Skeleton>
