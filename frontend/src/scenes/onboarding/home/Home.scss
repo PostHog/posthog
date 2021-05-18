@@ -154,7 +154,8 @@
     }
 
     .history-panel-container {
-        max-height: 700px;
+        height: 100%;
+        max-height: 750px;
         width: fit-content;
         max-width: 1000px;
         overflow: scroll;
