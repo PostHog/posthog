@@ -385,34 +385,34 @@ export const eventUsageLogic = kea<
                 posthog.capture('event searched', { searchTerm, ...extraProps })
             }
         },
-        reportInsightFilterUpdated: ({ type, index, name }) => {
+        reportInsightFilterUpdated: async ({ type, index, name }) => {
             posthog.capture('filter updated', { type, index, name })
         },
-        reportInsightFilterPropertyUpdated: ({ index }) => {
+        reportInsightFilterPropertyUpdated: async ({ index }) => {
             posthog.capture('filter property updated', { index })
         },
-        reportInsightFilterMathUpdated: ({ index, math, mathProperty }) => {
+        reportInsightFilterMathUpdated: async ({ index, math, mathProperty }) => {
             posthog.capture('filter math updated', { math, mathProperty, index })
         },
-        reportInsightFilterRemoved: ({ index }) => {
+        reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
         },
-        reportInsightFilterAdded: ({ newLength }) => {
+        reportInsightFilterAdded: async ({ newLength }) => {
             posthog.capture('filter added', { newLength })
         },
-        reportInsightFilterSet: ({ filters }) => {
+        reportInsightFilterSet: async ({ filters }) => {
             posthog.capture('filters set', { filters })
         },
-        reportEntityFilterVisibilitySet: ({ index, visible }) => {
+        reportEntityFilterVisibilitySet: async ({ index, visible }) => {
             posthog.capture('entity filter visbility set', { index, visible })
         },
-        reportPropertySelectOpened: () => {
+        reportPropertySelectOpened: async () => {
             posthog.capture('property select toggle opened')
         },
-        reportCreatedDashboardFromModal: () => {
+        reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
         },
-        reportSavedInsightToDashboard: () => {
+        reportSavedInsightToDashboard: async () => {
             posthog.capture('saved insight to dashboard')
         },
     },

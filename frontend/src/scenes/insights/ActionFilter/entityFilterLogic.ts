@@ -18,18 +18,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 export type LocalFilter = EntityFilter & { order: number; properties?: PropertyFilter[] }
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
-const unmount = eventUsageLogic.mount()
-
-const {
-    reportInsightFilterUpdated,
-    reportInsightFilterPropertyUpdated,
-    reportInsightFilterMathUpdated,
-    reportInsightFilterRemoved,
-    reportInsightFilterAdded,
-    reportInsightFilterSet,
-    reportEntityFilterVisibilitySet,
-} = eventUsageLogic.actions
-
 export function toLocalFilters(filters: FilterType): LocalFilter[] {
     return [
         ...(filters[EntityTypes.ACTIONS] || []),
@@ -137,33 +125,33 @@ export const entityFilterLogic = kea<
     },
 
     listeners: ({ actions, values, props }) => ({
-        updateFilter: ({ type, index, name, id }) => {
-            reportInsightFilterUpdated(index, name)
+        updateFilter: async ({ type, index, name, id }) => {
+            eventUsageLogic.actions.reportInsightFilterUpdated(index, name)
             actions.setFilters(
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, id, name, type } : filter))
             )
             !props.singleMode && actions.selectFilter(null)
         },
-        updateFilterProperty: ({ properties, index }) => {
-            reportInsightFilterPropertyUpdated(index)
+        updateFilterProperty: async ({ properties, index }) => {
+            eventUsageLogic.actions.reportInsightFilterPropertyUpdated(index)
             actions.setFilters(
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, properties } : filter))
             )
         },
-        updateFilterMath: ({ math, math_property, index }) => {
-            reportInsightFilterMathUpdated(index, { math, mathProperty: math_property })
+        updateFilterMath: async ({ math, math_property, index }) => {
+            eventUsageLogic.actions.reportInsightFilterMathUpdated(index, { math, mathProperty: math_property })
             actions.setFilters(
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, math, math_property } : filter))
             )
         },
-        removeLocalFilter: ({ index }) => {
-            reportInsightFilterRemoved(index)
+        removeLocalFilter: async ({ index }) => {
+            eventUsageLogic.actions.reportInsightFilterRemoved(index)
             actions.setFilters(values.localFilters.filter((_, i) => i !== index))
         },
-        addFilter: () => {
+        addFilter: async () => {
             const previousLength = values.localFilters.length
             const newLength = previousLength + 1
-            reportInsightFilterAdded(newLength)
+            eventUsageLogic.actions.reportInsightFilterAdded(newLength)
             if (values.localFilters.length > 0) {
                 const lastFilter: LocalFilter = values.localFilters[previousLength - 1]
                 const order = lastFilter.order + 1
@@ -180,15 +168,15 @@ export const entityFilterLogic = kea<
                 ])
             }
         },
-        setFilters: ({ filters }) => {
+        setFilters: async ({ filters }) => {
             const sanitizedFilters = filters?.map(({ id, type }) => ({ id, type }))
-            reportInsightFilterSet(sanitizedFilters)
+            eventUsageLogic.actions.reportInsightFilterSet(sanitizedFilters)
             if (typeof props.setFilters === 'function') {
                 props.setFilters(toFilters(filters))
             }
         },
-        setEntityFilterVisibility: ({ index, value }) => {
-            reportEntityFilterVisibilitySet(index, value)
+        setEntityFilterVisibility: async ({ index, value }) => {
+            eventUsageLogic.actions.reportEntityFilterVisibilitySet(index, value)
         },
     }),
     events: ({ actions, props, values }) => ({
@@ -201,5 +189,3 @@ export const entityFilterLogic = kea<
         },
     }),
 })
-
-unmount()
