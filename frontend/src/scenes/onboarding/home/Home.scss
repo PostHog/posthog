@@ -166,5 +166,8 @@
         @media only screen and (max-width: $sm) {
             max-width: 315px;
         }
+        @media only screen and (max-height: $lg) {
+            max-height: 450px;
+        }
     }
 }
