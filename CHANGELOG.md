@@ -6,9 +6,9 @@
 
 We have increased our free volume on [PostHog Cloud](app.posthog.com) to 1 million events per month for free, instead of the previous 10k.
 
-That means your next PostHog bill will be up to 225$/month cheaper!
- 
-It's important to us that you have enough room to determine if PostHog is the right fit for you, before committing to the platform. 
+That means your next PostHog Cloud bill will be up to 225$/month cheaper!
+
+It's important to us that you have enough room to determine if PostHog is the right fit for you, before committing to the platform.
 
 This change is also retroactive, so existing PostHog users have already had this change applied to their accounts. 
 
@@ -956,7 +956,7 @@ Keep the tickets coming!
 As an open core company, we have to conciliate our open source efforts with our ability to generate revenue. Generating revenue is how we're able to continue to sustain our extensive work in the open source space. 
 
 Thus, after a lot of brainstorming and [calls with the likes of Sid Sijbrandij](https://posthog.com/blog/a-chat-with-sid), CEO of multibillion dollar [open core company GitLab](https://about.gitlab.com/install/ce-or-ee/), we settled on a business model that allows PostHog to be a sustainable company in the open source space. 
-
+c
 This led to the creation of two key things: an `ee` subdirectory on our [main repo](https://github.com/PostHog/posthog), and a new repository called [posthog-foss](https://github.com/PostHog/posthog-foss). We'll be explaining these in more detail in the future, but, for now, you should know that to run fully MIT-licensed software, you can either clone the main repo and delete the `ee` subdirectory (without any consequences), or clone our posthog-foss repo, which is a mirror of the main repository without proprietary code.
 
 In addition, if you're an enterprise customer looking for added functionality and improved performance, contact us at sales@posthog.com to discuss the license for using our proprietary features. 
