@@ -25,7 +25,7 @@ import { PropertyFilterInternalProps } from './PropertyFilter'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 import './UnifiedPropertyFilter.scss'
-import posthog from 'posthog-js'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function FilterDropdown({ open, children }: { open: boolean; children: React.ReactNode }): JSX.Element | null {
     return open ? <div>{children}</div> : null
@@ -92,6 +92,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
 
     const { cohorts } = useValues(cohortsModel)
     const { setFilter } = useActions(logic)
+    const { reportPropertySelectOpened } = useActions(eventUsageLogic)
     const { key, value, operator, type } = filters[index]
     const [open, setOpen] = useState(false)
     const selectBoxToggleRef = useRef<HTMLElement>(null)
@@ -204,7 +205,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
     const onClick = (e: React.SyntheticEvent): void => {
         e.preventDefault()
         if (!open) {
-            posthog.capture('property select toggle opened')
+            reportPropertySelectOpened()
         }
         setOpen(!open)
     }

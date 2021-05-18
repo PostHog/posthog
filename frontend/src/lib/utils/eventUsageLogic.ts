@@ -119,6 +119,7 @@ export const eventUsageLogic = kea<
         reportInsightFilterAdded: (newLength: number) => ({ newLength }),
         reportInsightFilterSet: (filters: Array<{ id: string | number | null; type?: EntityType }>) => ({ filters }),
         reportEntityFilterVisibilitySet: (index: number, visible: boolean) => ({ index, visible }),
+        reportPropertySelectOpened: true,
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -402,6 +403,9 @@ export const eventUsageLogic = kea<
         },
         reportEntityFilterVisibilitySet: ({ index, visible }) => {
             posthog.capture('entity filter visbility set', { index, visible })
+        },
+        reportPropertySelectOpened: () => {
+            posthog.capture('property select toggle opened')
         },
     },
 })
