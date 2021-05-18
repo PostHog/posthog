@@ -1,5 +1,70 @@
 # Changelog
 
+### 1.25.0 - Thursday 13 May 2021
+
+- 100x more, for free
+
+We have increased our free volume on [PostHog Cloud](app.posthog.com) to 1 million events per month for free, instead of the previous 10k.
+
+That means your next PostHog bill will be up to 225$/month cheaper!
+ 
+It's important to us that you have enough room to determine if PostHog is the right fit for you, before committing to the platform. 
+
+This change is also retroactive, so existing PostHog users have already had this change applied to their accounts. 
+
+Enjoy!
+
+- [Legends for charts in 'Trends'](https://github.com/PostHog/posthog/pull/3434)
+
+![Legends](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/legends.png)
+
+This feature isn't new to all of you, because we've been testing it out with a [feature flag](https://posthog.com/docs/tutorials/feature-flags). However, legends for charts in 'Trends' are now enabled for everyone!
+
+With legends, you're able to determine with more clarity the different sections/lines you see on a graph, see the exact values for each datapoint, and disable sections with one click. You can find them under your graph in 'Trends'.
+
+- [Plugin Logs](https://github.com/PostHog/posthog/pull/3482)
+
+![Plugin Logs](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/plugin-logs.png)
+
+Plugins are now able to use the JavaScript `console` API to specify errors that will be shown to users in the PostHog UI. This makes it easier to both debug your own plugins as a developer, and understand what's wrong about your configuration as a plugin user.
+
+- [Lifecycle Toggles](https://github.com/PostHog/posthog/pull/3961)
+
+![Lifecycle Toggles](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/lifecycle-toggles.png)
+
+Li joined us this cycle and started making an impact from day 1! 
+
+As a result of her work, you can now toggle different sections of lifecycle graphs on and off, in order to dig into the metrics that matter most to you. 
+
+This change also came with an addition of more in-product hints about the lifecycle functionality.
+
+- [Resizable Table Columns](https://github.com/PostHog/posthog/pull/3927)
+
+![Resizable Columns](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/resizable-columns.png)
+
+Sam is another one of our new team members who's been smashing it from the moment he joined!
+
+This cycle, in addition to picking up a variety of product fixes and improvements, he also shipped resizable columns for our tables, allowing you to easily get more details from an event, session, or feature flag without having to click on it.
+
+- [Job queues for plugins](https://github.com/PostHog/plugin-server/pull/325)
+
+Plugins keep getting more and more powerful every new release, and this cycle was no exception.
+
+Plugin developers can now leverage job queues to implement a variety of asynchronous tasks, including retry mechanisms. 
+
+In addition, plugins can now leverage have two more functions: `onEvent` and `onSnapshot`.
+
+These are read-only functions that run on processed events and are particularly useful for export plugins. `onSnapshot` handles session recording events while `onEvent` handles all other events.
+
+For more information about this, check our [_Building Your Own Plugin_ page](https://posthog.com/docs/plugins/build).
+
+- [Fuzzy search for properties](https://github.com/PostHog/posthog/pull/4091)
+
+In addition to making significant changes to improve the experience of users with massive amounts of event names and properties, we have also implemented fuzzy search for properties.
+
+This means that to find a property on a filter, you no longer have to type an exact subset of its name, as our search mechanism will still be able to identify what you mean even if you have a few typos or forgot the _exact_ name of the property.
+
+
 ### 1.24.0 - Wednesday 14 April 2021
 
 > If you're self-hosting and want to upgrade for a better experience and new features, remember to [update your PostHog instance](/docs/configuring-posthog/upgrading-posthog).
