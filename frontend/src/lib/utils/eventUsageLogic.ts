@@ -95,6 +95,11 @@ export const eventUsageLogic = kea<
             extraProps?: Record<string, string | boolean | number | undefined>
         ) => ({ module, item, extraProps }),
         reportProjectHomeSeen: (teamHasData: boolean) => ({ teamHasData }),
+        reportInsightHistoryItemClicked: (itemType: string, displayLocation?: string) => ({
+            itemType,
+            displayLocation,
+        }),
+
         reportEventSearched: (searchTerm: string, extraProps?: Record<string, number>) => ({
             searchTerm,
             extraProps,
@@ -355,6 +360,20 @@ export const eventUsageLogic = kea<
         reportProjectHomeSeen: async ({ teamHasData }) => {
             posthog.capture('project home seen', { team_has_data: teamHasData })
         },
+
+        reportInsightHistoryItemClicked: async ({ itemType, displayLocation }) => {
+            posthog.capture('insight history item clicked', { item_type: itemType, display_location: displayLocation })
+            if (displayLocation === 'project home') {
+                // Special case to help w/ project home reporting.
+                posthog.capture('project home item clicked', {
+                    module: 'insights',
+                    item: 'recent_analysis',
+                    item_type: itemType,
+                    display_location: displayLocation,
+                })
+            }
+        },
+
         reportEventSearched: async ({ searchTerm, extraProps }) => {
             // This event is only captured on PostHog Cloud
             if (preflightLogic.values.realm === 'cloud') {
