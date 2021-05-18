@@ -11,6 +11,7 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { router } from 'kea-router'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { ViewType } from '../insightLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 dayjs.extend(relativeTime)
 
 const InsightHistoryType = {
@@ -23,6 +24,7 @@ const { TabPane } = Tabs
 
 interface InsightHistoryPanelProps {
     onChange?: () => void
+    displayLocation?: string
 }
 
 function InsightPane({
@@ -31,12 +33,14 @@ function InsightPane({
     loadMore,
     loadingMore,
     footer,
+    reportOnClick,
 }: {
     data: DashboardItemType[]
     loading: boolean
     loadMore?: () => void
     loadingMore: boolean
     footer: (item: DashboardItemType) => JSX.Element
+    reportOnClick?: () => void
 }): JSX.Element {
     const { loadTeamInsights, loadSavedInsights, loadInsights, updateInsight } = useActions(insightHistoryLogic)
     const { duplicateDashboardItem } = useActions(dashboardItemsModel)
@@ -52,7 +56,7 @@ function InsightPane({
             {loading && <Loading />}
             {data &&
                 data.map((insight: DashboardItemType, index: number) => (
-                    <Col xs={8} key={insight.id} style={{ height: 270 }}>
+                    <Col xs={24} sm={8} key={insight.id} style={{ height: 270 }}>
                         <DashboardItem
                             item={{ ...insight, color: null }}
                             key={insight.id + '_user'}
@@ -63,6 +67,9 @@ function InsightPane({
                             }}
                             saveDashboardItem={updateInsight}
                             onClick={() => {
+                                if (reportOnClick) {
+                                    reportOnClick()
+                                }
                                 const _type: DisplayedType =
                                     insight.filters.insight === ViewType.RETENTION
                                         ? 'RetentionContainer'
@@ -99,7 +106,7 @@ function InsightPane({
     )
 }
 
-export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
+export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ displayLocation }) => {
     const {
         insights,
         insightsLoading,
@@ -115,6 +122,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
         teamInsightsNext,
     } = useValues(insightHistoryLogic)
     const { loadNextInsights, loadNextSavedInsights, loadNextTeamInsights } = useActions(insightHistoryLogic)
+    const { reportInsightHistoryItemClicked } = useActions(eventUsageLogic)
 
     const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
 
@@ -139,23 +147,31 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                         loadingMore={loadingMoreInsights}
                         footer={(item) => <>Ran query {dayjs(item.created_at).fromNow()}</>}
                         loading={insightsLoading}
+                        reportOnClick={() => {
+                            reportInsightHistoryItemClicked(InsightHistoryType.RECENT, displayLocation)
+                        }}
                     />
                 </TabPane>
+                {savedInsights?.length > 0 && (
+                    <TabPane
+                        tab={<span data-attr="insight-saved-tab">Saved</span>}
+                        key={InsightHistoryType.SAVED}
+                        data-attr="insight-saved-pane"
+                    >
+                        <InsightPane
+                            data={savedInsights}
+                            loadMore={savedInsightsNext ? loadNextSavedInsights : undefined}
+                            loadingMore={loadingMoreSavedInsights}
+                            footer={(item) => <>Saved {dayjs(item.created_at).fromNow()}</>}
+                            loading={savedInsightsLoading}
+                            reportOnClick={() => {
+                                reportInsightHistoryItemClicked(InsightHistoryType.SAVED, displayLocation)
+                            }}
+                        />
+                    </TabPane>
+                )}
                 <TabPane
-                    tab={<span data-attr="insight-saved-tab">Saved</span>}
-                    key={InsightHistoryType.SAVED}
-                    data-attr="insight-saved-pane"
-                >
-                    <InsightPane
-                        data={savedInsights}
-                        loadMore={savedInsightsNext ? loadNextSavedInsights : undefined}
-                        loadingMore={loadingMoreSavedInsights}
-                        footer={(item) => <>Saved {dayjs(item.created_at).fromNow()}</>}
-                        loading={savedInsightsLoading}
-                    />
-                </TabPane>
-                <TabPane
-                    tab={<span data-attr="insight-saved-tab">Team</span>}
+                    tab={<span data-attr="insight-saved-tab">Dashboard Insights</span>}
                     key={InsightHistoryType.TEAM}
                     data-attr="insight-team-panel"
                 >
@@ -170,6 +186,9 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = () => {
                             </>
                         )}
                         loading={teamInsightsLoading}
+                        reportOnClick={() => {
+                            reportInsightHistoryItemClicked(InsightHistoryType.TEAM, displayLocation)
+                        }}
                     />
                 </TabPane>
             </Tabs>

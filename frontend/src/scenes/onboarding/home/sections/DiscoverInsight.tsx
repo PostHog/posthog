@@ -1,5 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { Avatar, Card, Carousel, CarouselProps, Divider, List, Space, Tooltip, Typography, Skeleton, Spin } from 'antd'
+import { Avatar, Card, Divider, List, Space, Tooltip, Typography, Collapse, Skeleton } from 'antd'
+
+const { Panel } = Collapse
+
+const { Title } = Typography
 import {
     FallOutlined,
     FieldTimeOutlined,
@@ -11,12 +15,9 @@ import {
 } from '@ant-design/icons'
 import React, { useEffect } from 'react'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
-import { ViewType } from 'scenes/insights/insightLogic'
-import { router } from 'kea-router'
-import dayjs from 'dayjs'
+
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { CarouselArrow } from 'scenes/onboarding/home/sections/CarouselArrow'
+import { InsightHistoryPanel } from 'scenes/insights/InsightHistoryPanel'
 
 const { Paragraph } = Typography
 
@@ -77,175 +78,113 @@ const insightsTypes = [
 ]
 
 const ANALYTICS_MODULE_KEY = 'insights'
+
 function CreateAnalysisSection(): JSX.Element {
     const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
 
     return (
         <div className={'home-page'}>
-            <h3>Start an analysis</h3>
-            <Paragraph>
-                Each chart type is built to answer specific types of questions. Hover over each to learn more about the
-                kinds of questions it can help answer.
-            </Paragraph>
-
-            <List
-                style={{ overflowY: 'scroll' }}
-                grid={{}}
-                dataSource={insightsTypes}
-                renderItem={(insight) => (
-                    <a
-                        href={insight.target}
-                        onClick={() => {
-                            reportProjectHomeItemClicked(ANALYTICS_MODULE_KEY, insight.name.toLowerCase())
-                        }}
-                    >
-                        <Tooltip
-                            color="var(--bg-charcoal)"
-                            title={insight.questions.map((question, idx) => (
-                                <Paragraph
-                                    style={{ color: 'var(--text-light)', padding: '3px' }}
-                                    key={`${insight.name}_${idx}`}
+            <Collapse defaultActiveKey="create-analysis" ghost>
+                <Panel key="create-analysis" header={<Title level={5}>Start an analysis</Title>}>
+                    <Card bordered={false} style={{ marginTop: -30 }} size="small">
+                        <Divider />
+                        <Paragraph>
+                            Each chart type is built to answer specific types of questions. Hover over each chart to
+                            learn more.
+                        </Paragraph>
+                        <List
+                            style={{ overflowY: 'scroll', marginBottom: -20 }}
+                            grid={{}}
+                            dataSource={insightsTypes}
+                            renderItem={(insight) => (
+                                <a
+                                    href={insight.target}
+                                    onClick={() => {
+                                        reportProjectHomeItemClicked(ANALYTICS_MODULE_KEY, insight.name.toLowerCase())
+                                    }}
                                 >
-                                    {`•` + question}
-                                </Paragraph>
-                            ))}
-                        >
-                            <List.Item className="insight-container" key={insight.name}>
-                                <div>
-                                    <Avatar
-                                        size={100}
-                                        shape={'square'}
-                                        className={'thumbnail-tile-default'}
-                                        icon={insight.icon}
+                                    <Tooltip
+                                        color="var(--bg-charcoal)"
+                                        title={insight.questions.map((question, idx) => (
+                                            <Paragraph
+                                                style={{ color: 'var(--text-light)', padding: '3px' }}
+                                                key={`${insight.name}_${idx}`}
+                                            >
+                                                {`•` + question}
+                                            </Paragraph>
+                                        ))}
                                     >
-                                        {insight.name}
-                                    </Avatar>
-                                    <h4 className={'insight-text'}>{insight.name}</h4>
-                                </div>
-                            </List.Item>
-                        </Tooltip>
-                    </a>
-                )}
-            />
+                                        <List.Item className="insight-container" key={insight.name}>
+                                            <div>
+                                                <Avatar
+                                                    size={60}
+                                                    shape={'square'}
+                                                    className={'thumbnail-tile-default'}
+                                                    icon={insight.icon}
+                                                >
+                                                    {insight.name}
+                                                </Avatar>
+                                                <h4 className={'insight-text'}>{insight.name}</h4>
+                                            </div>
+                                        </List.Item>
+                                    </Tooltip>
+                                </a>
+                            )}
+                        />
+                    </Card>
+                </Panel>
+            </Collapse>
         </div>
     )
 }
 
-function InsightPane(): JSX.Element {
-    const { loadInsights } = useActions(insightHistoryLogic)
-    const { reportProjectHomeItemClicked } = useActions(eventUsageLogic)
+function RecentInsightList(): JSX.Element {
+    return (
+        <>
+            <Collapse defaultActiveKey={'team-analyses'} ghost>
+                <Panel
+                    forceRender={true}
+                    key={'team-analyses'}
+                    header={
+                        <>
+                            <Title level={5}>Recent analyses across your team</Title>
+                        </>
+                    }
+                >
+                    <React.Fragment>
+                        <Card className="history-panel-container" bordered={false} style={{ marginTop: '-30px' }}>
+                            <Divider />
+                            <Paragraph>Jump back into recent work or an analysis from one of your teammates.</Paragraph>
+
+                            <InsightHistoryPanel displayLocation="project home" />
+                        </Card>
+                    </React.Fragment>
+                </Panel>
+            </Collapse>
+        </>
+    )
+}
+
+export function DiscoverInsightsModule(): JSX.Element {
     const { insights, insightsLoading } = useValues(insightHistoryLogic)
+    const { loadInsights } = useActions(insightHistoryLogic)
 
     useEffect(() => {
         loadInsights()
     }, [])
 
-    const settings: CarouselProps = {
-        dots: true,
-        slidesToShow: 4,
-        slidesToScroll: 3,
-        arrows: true,
-        nextArrow: <CarouselArrow direction="next" />,
-        prevArrow: <CarouselArrow direction="prev" />,
-        vertical: false,
-        centerMode: false,
-        centerPadding: '10px',
-        responsive: [
-            {
-                breakpoint: 1200,
-                settings: {
-                    vertical: false,
-                    slidesToShow: 3,
-                    centerPadding: '5px',
-                },
-            },
-            {
-                breakpoint: 1000,
-                settings: {
-                    vertical: false,
-                    slidesToShow: 2,
-                    slidesToScroll: 2,
-                },
-            },
-            {
-                breakpoint: 700,
-                settings: {
-                    vertical: false,
-                    slidesToShow: 1,
-                    slidesToScroll: 1,
-                },
-            },
-        ],
-    }
-
-    return (
-        <React.Fragment>
-            <h3>Recent analyses across your team</h3>
-            <Paragraph>Not sure where to start? Jump back into a recent analysis.</Paragraph>
-
-            <Spin spinning={insightsLoading}>
-                <Skeleton loading={insightsLoading}>
-                    {insights.length > 0 && (
-                        <React.Fragment>
-                            <div className="carousel-container">
-                                <Carousel {...settings}>
-                                    {insights.map((insight, idx) => (
-                                        <Card key={insight.id} bordered={false} className={'insight-chart-tile'}>
-                                            <DashboardItem
-                                                item={{ ...insight, color: null }}
-                                                key={insight.id}
-                                                onClick={() => {
-                                                    reportProjectHomeItemClicked(
-                                                        ANALYTICS_MODULE_KEY,
-                                                        'recent analysis',
-                                                        { insight_type: insight.filters.insight }
-                                                    )
-                                                    const _type: DisplayedType =
-                                                        insight.filters.insight === ViewType.RETENTION
-                                                            ? 'RetentionContainer'
-                                                            : insight.filters.display
-                                                    router.actions.push(displayMap[_type].link(insight))
-                                                }}
-                                                preventLoading={false}
-                                                footer={
-                                                    <div className="dashboard-item-footer">
-                                                        {<>Ran query {dayjs(insight.created_at).fromNow()}</>}
-                                                    </div>
-                                                }
-                                                index={idx}
-                                                isOnEditMode={false}
-                                            />
-                                        </Card>
-                                    ))}
-                                </Carousel>
-                            </div>
-                        </React.Fragment>
-                    )}
-
-                    {!insightsLoading && insights.length === 0 && (
-                        <Space direction={'vertical'}>
-                            <Paragraph style={{ marginTop: 5 }}>
-                                There are no recent analyses. Time to get to work!
-                            </Paragraph>
-                        </Space>
-                    )}
-                </Skeleton>
-            </Spin>
-        </React.Fragment>
-    )
-}
-
-export function DiscoverInsightsModule(): JSX.Element {
     return (
         <Card className="home-page section-card">
-            <h2 id="name" className="subtitle">
+            <Title level={4} id="name" className="subtitle">
                 Discover Insights
-            </h2>
+            </Title>
             <Divider />
-            <Space direction={'vertical'} className={'home-page'}>
-                <CreateAnalysisSection />
-                <InsightPane />
-            </Space>
+            <Skeleton loading={insightsLoading && insights.length === 0}>
+                <Space direction={'vertical'} className={'home-page'} size={'small'}>
+                    {insights.length > 0 && <RecentInsightList />}
+                    <CreateAnalysisSection />
+                </Space>
+            </Skeleton>
         </Card>
     )
 }
