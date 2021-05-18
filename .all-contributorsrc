@@ -1221,6 +1221,15 @@
         "code",
         "plugin"
       ]
+    },
+    {
+      "login": "avorio",
+      "name": "André Avorio",
+      "avatar_url": "https://avatars.githubusercontent.com/u/649020?v=4",
+      "profile": "http://avor.io",
+      "contributions": [
+        "bug"
+      ]
     }
   ],
   "contributorsPerLine": 7,
