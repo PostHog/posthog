@@ -105,6 +105,7 @@ test('getPluginRows', async () => {
             url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
             created_at: expect.anything(),
             updated_at: expect.anything(),
+            capabilities: {},
         },
     ]
 
