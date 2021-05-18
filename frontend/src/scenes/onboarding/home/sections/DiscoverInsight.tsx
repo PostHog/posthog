@@ -166,12 +166,20 @@ function RecentInsightList(): JSX.Element {
 }
 
 export function DiscoverInsightsModule(): JSX.Element {
-    const { insights, insightsLoading, teamInsights, teamInsightsLoading } = useValues(insightHistoryLogic)
-    const { loadInsights, loadTeamInsights } = useActions(insightHistoryLogic)
+    const {
+        insights,
+        insightsLoading,
+        teamInsights,
+        teamInsightsLoading,
+        savedInsights,
+        savedInsightsLoading,
+    } = useValues(insightHistoryLogic)
+    const { loadInsights, loadTeamInsights, loadSavedInsights } = useActions(insightHistoryLogic)
 
     useEffect(() => {
         loadInsights()
         loadTeamInsights()
+        loadSavedInsights()
     }, [])
 
     return (
@@ -181,10 +189,19 @@ export function DiscoverInsightsModule(): JSX.Element {
             </Title>
             <Divider />
             <Skeleton
-                loading={insightsLoading && insights.length === 0 && teamInsightsLoading && teamInsights.length === 0}
+                loading={
+                    insightsLoading &&
+                    insights.length === 0 &&
+                    teamInsightsLoading &&
+                    teamInsights.length === 0 &&
+                    savedInsightsLoading &&
+                    savedInsights.length === 0
+                }
             >
                 <Space direction={'vertical'} className={'home-page'} size={'small'}>
-                    {(insights.length > 0 || teamInsights.length > 0) && <RecentInsightList />}
+                    {(insights.length > 0 || teamInsights.length > 0 || savedInsights.length > 0) && (
+                        <RecentInsightList />
+                    )}
                     <CreateAnalysisSection />
                 </Space>
             </Skeleton>
