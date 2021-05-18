@@ -163,6 +163,12 @@
         .dashboard-item {
             border: 0.2px solid $border-light;
         }
+        @media only screen and (max-width: $lg) {
+            max-width: 900px;
+        }
+        @media only screen and (max-width: $md) {
+            max-width: 650px;
+        }
         @media only screen and (max-width: $sm) {
             max-width: 315px;
         }
