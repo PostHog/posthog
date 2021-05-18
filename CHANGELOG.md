@@ -6,9 +6,9 @@
 
 We have increased our free volume on [PostHog Cloud](app.posthog.com) to 1 million events per month for free, instead of the previous 10k.
 
-That means your next PostHog bill will be up to 225$/month cheaper!
- 
-It's important to us that you have enough room to determine if PostHog is the right fit for you, before committing to the platform. 
+That means your next PostHog Cloud bill will be up to 225$/month cheaper!
+
+It's important to us that you have enough room to determine if PostHog is the right fit for you, before committing to the platform.
 
 This change is also retroactive, so existing PostHog users have already had this change applied to their accounts. 
 
@@ -66,8 +66,6 @@ This means that to find a property on a filter, you no longer have to type an ex
 
 
 ### 1.24.0 - Wednesday 14 April 2021
-
-> If you're self-hosting and want to upgrade for a better experience and new features, remember to [update your PostHog instance](/docs/configuring-posthog/upgrading-posthog).
 
 - [GeoIP plugin for all](https://github.com/PostHog/posthog/pull/3894)
 
@@ -184,7 +182,7 @@ Oh, and don't we all love gravatars?
 
 Well, if you have one set for your email, PostHog will now display it on your profile and the 'Organization Settings' page.
 
-- [First Time Event Tracker Plugin](/plugins/first-time-event-tracker)
+- [First Time Event Tracker Plugin](https://posthog.com/plugins/first-time-event-tracker)
 
 ![](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/first-time-plugin.png)
 
@@ -355,7 +353,7 @@ Get your Bitbucket release tags into PostHog as annotations on your graphs, so y
 
 ### 1.20.0 - Tuesday 19 January 2021
 
-- [Plugins, Plugins, and more Plugins](/plugins)
+- [Plugins, Plugins, and more Plugins](https://posthog.com/plugins)
 
 ![Plugin Library Screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/plugin-library.png)
 
@@ -365,7 +363,7 @@ Besides a whole bunch work to deliver performance improvements and mature the Po
 
 **A shiny new plugin library**
 
-We have released a [plugin library](/plugins) where you can browse through all the plugins built by our core team and community, and made sure the library is populated with plugins! Thus, we now have integrations that support getting data from GitHub and GitLab, or sending data over to BigQuery and Hubspot, for example. 
+We have released a [plugin library](https://posthog.com/plugins) where you can browse through all the plugins built by our core team and community, and made sure the library is populated with plugins! Thus, we now have integrations that support getting data from GitHub and GitLab, or sending data over to BigQuery and Hubspot, for example. 
 
 We're working to make plugins available on Cloud, but, in the meanwhile, if you're self-hosting, do check out our plugins and let us know what you think!
 
@@ -445,7 +443,7 @@ By using gzip-based compression, we have now significantly improved performance 
 
 ![New Actions UX Screenshot](https://posthog.com/static/1f931cd359d1238e8ecba8d72a0be0c4/8c557/actions-ux.png)
 
-This might not be news to all of you, since we have been experimenting with our actions UX using [feature flags](/docs/features/feature-flags). However, we're now rolling out a new UX for creating actions to all PostHog users, so try it out let us know what you think!
+This might not be news to all of you, since we have been experimenting with our actions UX using [feature flags](https://posthog.com/docs/features/feature-flags). However, we're now rolling out a new UX for creating actions to all PostHog users, so try it out let us know what you think!
 
 - [New operations for numerical properties](https://github.com/PostHog/posthog/pull/2630)
 
@@ -957,8 +955,8 @@ Keep the tickets coming!
 
 As an open core company, we have to conciliate our open source efforts with our ability to generate revenue. Generating revenue is how we're able to continue to sustain our extensive work in the open source space. 
 
-Thus, after a lot of brainstorming and [calls with the likes of Sid Sijbrandij](/blog/a-chat-with-sid), CEO of multibillion dollar [open core company GitLab](https://about.gitlab.com/install/ce-or-ee/), we settled on a business model that allows PostHog to be a sustainable company in the open source space. 
-
+Thus, after a lot of brainstorming and [calls with the likes of Sid Sijbrandij](https://posthog.com/blog/a-chat-with-sid), CEO of multibillion dollar [open core company GitLab](https://about.gitlab.com/install/ce-or-ee/), we settled on a business model that allows PostHog to be a sustainable company in the open source space. 
+c
 This led to the creation of two key things: an `ee` subdirectory on our [main repo](https://github.com/PostHog/posthog), and a new repository called [posthog-foss](https://github.com/PostHog/posthog-foss). We'll be explaining these in more detail in the future, but, for now, you should know that to run fully MIT-licensed software, you can either clone the main repo and delete the `ee` subdirectory (without any consequences), or clone our posthog-foss repo, which is a mirror of the main repository without proprietary code.
 
 In addition, if you're an enterprise customer looking for added functionality and improved performance, contact us at sales@posthog.com to discuss the license for using our proprietary features. 
@@ -1022,7 +1020,7 @@ You can find more information about this on our ['Securing PostHog' page](https:
 
 ### 1.13.0 – Thursday 13 August
 
-- [PostHog is Now Available on Segment!](/blog/posthog-segment-integration)
+- [PostHog is Now Available on Segment!](https://posthog.com/blog/posthog-segment-integration)
 
 ![](https://raw.githubusercontent.com/posthog/posthog.com/b1b5c23/contents/images/posthog-segment.png)
 
