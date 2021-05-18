@@ -8,8 +8,8 @@ from django.http.request import HttpRequest
 from django.utils.timezone import now
 
 from posthog.models import Filter, Team, User
-from posthog.models.dashboard_item import DashboardItem
 from posthog.models.filters.utils import get_filter
+from posthog.models.insight import Insight
 from posthog.settings import TEMP_CACHE_RESULTS_TTL
 from posthog.utils import generate_cache_key
 
@@ -52,8 +52,8 @@ def cached_function():
                     cache_key, {"result": result["result"], "last_refresh": now()}, TEMP_CACHE_RESULTS_TTL,
                 )
                 if filter:
-                    dashboard_items = DashboardItem.objects.filter(team_id=team.pk, filters_hash=cache_key)
-                    dashboard_items.update(last_refresh=now())
+                    insights = Insight.objects.filter(team_id=team.pk, filters_hash=cache_key)
+                    insights.update(last_refresh=now())
             return result
 
         return wrapper

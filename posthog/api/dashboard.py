@@ -19,7 +19,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, DashboardItem, Team
+from posthog.models import Dashboard, Insight, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.utils import get_safe_cache, render_template
 
@@ -65,7 +65,7 @@ class DashboardSerializer(serializers.ModelSerializer):
 
         elif request.data.get("items"):
             for item in request.data["items"]:
-                DashboardItem.objects.create(
+                Insight.objects.create(
                     **{key: value for key, value in item.items() if key not in ("id", "deleted", "dashboard", "team")},
                     dashboard=dashboard,
                     team=team,
@@ -98,7 +98,7 @@ class DashboardSerializer(serializers.ModelSerializer):
             return None
         items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})
-        return DashboardItemSerializer(items, many=True, context=self.context).data
+        return InsightSerializer(items, many=True, context=self.context).data
 
 
 class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -120,7 +120,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
         queryset = queryset.prefetch_related(
-            Prefetch("items", queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),)
+            Prefetch("items", queryset=Insight.objects.filter(deleted=False).order_by("order"),)
         )
         if self.request.GET.get("share_token"):
             return queryset.filter(share_token=self.request.GET["share_token"])
@@ -146,13 +146,13 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return {"team_id": self.request.user.team.id}
 
 
-class DashboardItemSerializer(serializers.ModelSerializer):
+class InsightSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField()
     _get_result: Optional[Dict[str, Any]] = None
 
     class Meta:
-        model = DashboardItem
+        model = Insight
         fields = [
             "id",
             "name",
@@ -173,46 +173,44 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "created_by",
         ]
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
+    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
-        validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
+        validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if insight is duplicated
 
         if not validated_data.get("dashboard", None):
-            dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
-            return dashboard_item
+            insight = Insight.objects.create(team=team, created_by=request.user, **validated_data)
+            return insight
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
-            dashboard_item = DashboardItem.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, **validated_data
-            )
-            return dashboard_item
+            insight = Insight.objects.create(team=team, last_refresh=now(), created_by=created_by, **validated_data)
+            return insight
         else:
             raise serializers.ValidationError("Dashboard not found")
 
-    def update(self, instance: Model, validated_data: Dict, **kwargs) -> DashboardItem:
+    def update(self, instance: Model, validated_data: Dict, **kwargs) -> Insight:
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data.setdefault("is_sample", False)
         return super().update(instance, validated_data)
 
-    def get_result(self, dashboard_item: DashboardItem):
+    def get_result(self, insight: Insight):
         # If it's more than a day old, don't return anything
-        if dashboard_item.last_refresh and (now() - dashboard_item.last_refresh).days > 0:
+        if insight.last_refresh and (now() - insight.last_refresh).days > 0:
             return None
 
-        if not dashboard_item.filters_hash:
+        if not insight.filters_hash:
             return None
 
-        result = get_safe_cache(dashboard_item.filters_hash)
+        result = get_safe_cache(insight.filters_hash)
         if not result or result.get("task_id", None):
             return None
         return result.get("result")
 
-    def get_last_refresh(self, dashboard_item: DashboardItem):
-        if self.get_result(dashboard_item):
-            return dashboard_item.last_refresh
-        dashboard_item.last_refresh = None
-        dashboard_item.save()
+    def get_last_refresh(self, insight: Insight):
+        if self.get_result(insight):
+            return insight.last_refresh
+        insight.last_refresh = None
+        insight.save()
         return None
 
     def to_representation(self, instance):
@@ -221,11 +219,11 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         return representation
 
 
-class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class InsightsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
 
-    queryset = DashboardItem.objects.all()
-    serializer_class = DashboardItemSerializer
+    queryset = Insight.objects.all()
+    serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:

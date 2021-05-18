@@ -26,7 +26,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "content",
             "date_marker",
             "creation_type",
-            "dashboard_item",
+            "insight",
             "created_by",
             "created_at",
             "updated_at",
@@ -76,14 +76,14 @@ class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             elif key == "before":
                 queryset = queryset.filter(created_at__lt=request.GET["before"])
             elif key == "dashboardItemId":
-                queryset = queryset.filter(dashboard_item_id=request.GET["dashboardItemId"])
+                queryset = queryset.filter(insight_id=request.GET["dashboardItemId"])
             elif key == "scope":
                 queryset = queryset.filter(scope=request.GET["scope"])
             elif key == "apply_all":
                 queryset_method = (
                     queryset.exclude if bool(strtobool(str(request.GET["apply_all"]))) else queryset.filter
                 )
-                queryset = queryset_method(scope="dashboard_item")
+                queryset = queryset_method(scope="insight")
             elif key == "deleted":
                 queryset = queryset.filter(deleted=bool(strtobool(str(request.GET["deleted"]))))
 

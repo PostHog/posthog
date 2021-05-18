@@ -10,7 +10,7 @@ from posthog.models.filters.utils import get_filter
 from posthog.utils import generate_cache_key
 
 
-class DashboardItem(models.Model):
+class Insight(models.Model):
     dashboard: models.ForeignKey = models.ForeignKey(
         "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True
     )
@@ -50,12 +50,12 @@ class DashboardItem(models.Model):
 @receiver(pre_save, sender=Dashboard)
 def dashboard_saved(sender, instance: Dashboard, **kwargs):
     for item in instance.items.all():
-        dashboard_item_saved(sender, item, dashboard=instance, **kwargs)
+        insight_saved(sender, item, dashboard=instance, **kwargs)
         item.save()
 
 
-@receiver(pre_save, sender=DashboardItem)
-def dashboard_item_saved(sender, instance: DashboardItem, dashboard=None, **kwargs):
+@receiver(pre_save, sender=Insight)
+def insight_saved(sender, instance: Insight, dashboard=None, **kwargs):
     if instance.filters and instance.filters != {}:
         filter = get_filter(data=instance.dashboard_filters(dashboard=dashboard), team=instance.team)
 

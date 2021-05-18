@@ -23,7 +23,7 @@ from posthog.constants import (
     TRENDS_STICKINESS,
 )
 from posthog.decorators import CacheType, cached_function
-from posthog.models import DashboardItem, Event, Filter, Team
+from posthog.models import Event, Filter, Insight, Team
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
@@ -39,7 +39,7 @@ class InsightSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
-        model = DashboardItem
+        model = Insight
         fields = [
             "id",
             "name",
@@ -62,27 +62,25 @@ class InsightSerializer(serializers.ModelSerializer):
             "created_at",
         )
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
+    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
-        validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
+        validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if insight is duplicated
 
         if not validated_data.get("dashboard", None):
-            dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
-            return dashboard_item
+            insight = Insight.objects.create(team=team, created_by=request.user, **validated_data)
+            return insight
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
-            dashboard_item = DashboardItem.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, **validated_data
-            )
-            return dashboard_item
+            insight = Insight.objects.create(team=team, last_refresh=now(), created_by=created_by, **validated_data)
+            return insight
         else:
             raise serializers.ValidationError("Dashboard not found")
 
-    def get_result(self, dashboard_item: DashboardItem):
-        if not dashboard_item.filters:
+    def get_result(self, insight: Insight):
+        if not insight.filters:
             return None
-        result = get_safe_cache(dashboard_item.filters_hash)
+        result = get_safe_cache(insight.filters_hash)
         if not result or result.get("task_id", None):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
@@ -97,7 +95,7 @@ class InsightSerializer(serializers.ModelSerializer):
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
 
-    queryset = DashboardItem.objects.all()
+    queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
@@ -146,7 +144,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # /insight/trend
     #
     # params:
-    # - from_dashboard: (string) determines trend is being retrieved from dashboard item to update dashboard_item metadata
+    # - from_dashboard: (string) determines trend is being retrieved from dashboard item to update insight metadata
     # - shown_as: (string: Volume, Stickiness) specifies the trend aggregation type
     # - **shared filter types
     # ******************************************
@@ -197,7 +195,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     #
     # params:
     # - refresh: (dict) specifies cache to force refresh or poll
-    # - from_dashboard: (dict) determines funnel is being retrieved from dashboard item to update dashboard_item metadata
+    # - from_dashboard: (dict) determines funnel is being retrieved from dashboard item to update insight metadata
     # - **shared filter types
     # ******************************************
     @action(methods=["GET"], detail=False)
@@ -279,4 +277,4 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def _refresh_dashboard(self, request) -> None:
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())
+            Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())

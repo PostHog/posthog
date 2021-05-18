@@ -8,8 +8,8 @@ from django.utils.timezone import now
 
 from posthog.ee import is_clickhouse_enabled
 from posthog.models import Team
-from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
+from posthog.models.insight import Insight
 
 
 def calculate_event_property_usage() -> None:
@@ -33,7 +33,7 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
 
     event_properties = {key: {"key": key, "usage_count": 0} for key in team.event_properties}
 
-    for item in DashboardItem.objects.filter(team=team, created_at__gt=now() - timedelta(days=30)):
+    for item in Insight.objects.filter(team=team, created_at__gt=now() - timedelta(days=30)):
         for event in item.filters.get("events", []):
             if event["id"] in event_names:
                 event_names[event["id"]]["usage_count"] += 1

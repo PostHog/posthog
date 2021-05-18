@@ -5,7 +5,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Dashboard, DashboardItem, Filter, User
+from posthog.models import Dashboard, Filter, Insight, User
 from posthog.test.base import APIBaseTest
 from posthog.utils import generate_cache_key
 
@@ -66,10 +66,10 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(dashboard.name, "dashboard new name")
         self.assertEqual(dashboard.tags, ["official", "engineering"])
 
-    def test_create_dashboard_item(self):
+    def test_create_insight(self):
         dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
         response = self.client.post(
-            "/api/dashboard_item/",
+            "/api/insight/",
             {
                 "dashboard": dashboard.pk,
                 "name": "dashboard item",
@@ -77,8 +77,8 @@ class TestDashboard(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        dashboard_item = DashboardItem.objects.get()
-        self.assertEqual(dashboard_item.name, "dashboard item")
+        insight = Insight.objects.get()
+        self.assertEqual(insight.name, "dashboard item")
 
     def test_token_auth(self):
         self.client.logout()
@@ -121,8 +121,8 @@ class TestDashboard(APIBaseTest):
         }
         filter = Filter(data=filter_dict)
 
-        item = DashboardItem.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
-        DashboardItem.objects.create(
+        item = Insight.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
+        Insight.objects.create(
             dashboard=dashboard, filters=filter.to_dict(), team=self.team,
         )
         response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
@@ -134,7 +134,7 @@ class TestDashboard(APIBaseTest):
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         self.assertEqual(response.status_code, 200)
-        item = DashboardItem.objects.get(pk=item.pk)
+        item = Insight.objects.get(pk=item.pk)
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
 
@@ -153,7 +153,7 @@ class TestDashboard(APIBaseTest):
 
         with freeze_time("2020-01-04T13:00:01Z"):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
-            DashboardItem.objects.create(
+            Insight.objects.create(
                 dashboard=dashboard, filters=Filter(data=filter_dict).to_dict(), team=self.team, last_refresh=now()
             )
 
@@ -184,10 +184,10 @@ class TestDashboard(APIBaseTest):
         response = self.client.get("/api/dashboard/").json()
         self.assertEqual(len(response["results"]), 0)
 
-    def test_dashboard_items(self):
+    def test_insights(self):
         dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team, filters={"date_from": "-14d"})
         self.client.post(
-            "/api/dashboard_item/",
+            "/api/insight/",
             {"filters": {"hello": "test", "date_from": "-7d"}, "dashboard": dashboard.pk, "name": "some_item"},
             format="json",
         )
@@ -196,44 +196,44 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response["items"][0]["name"], "some_item")
         self.assertEqual(response["items"][0]["filters"]["date_from"], "-14d")
 
-        item_response = self.client.get("/api/dashboard_item/").json()
+        item_response = self.client.get("/api/insight/").json()
         self.assertEqual(item_response["results"][0]["name"], "some_item")
 
         # delete
-        self.client.patch("/api/dashboard_item/{}/".format(item_response["results"][0]["id"]), {"deleted": "true"})
-        items_response = self.client.get("/api/dashboard_item/").json()
+        self.client.patch("/api/insight/{}/".format(item_response["results"][0]["id"]), {"deleted": "true"})
+        items_response = self.client.get("/api/insight/").json()
         self.assertEqual(len(items_response["results"]), 0)
 
-    def test_dashboard_items_history_per_user(self):
+    def test_insights_history_per_user(self):
         test_user = User.objects.create_and_join(self.organization, "test@test.com", None)
 
-        DashboardItem.objects.create(filters={"hello": "test"}, team=self.team, created_by=test_user)
+        Insight.objects.create(filters={"hello": "test"}, team=self.team, created_by=test_user)
 
         # Make sure the endpoint works with and without the trailing slash
-        self.client.post("/api/dashboard_item", {"filters": {"hello": "test"}}, format="json").json()
+        self.client.post("/api/insight", {"filters": {"hello": "test"}}, format="json").json()
 
-        response = self.client.get("/api/dashboard_item/?user=true").json()
+        response = self.client.get("/api/insight/?user=true").json()
         self.assertEqual(response["count"], 1)
 
-    def test_dashboard_items_history_saved(self):
+    def test_insights_history_saved(self):
 
-        self.client.post("/api/dashboard_item/", {"filters": {"hello": "test"}, "saved": True}, format="json").json()
+        self.client.post("/api/insight/", {"filters": {"hello": "test"}, "saved": True}, format="json").json()
 
-        self.client.post("/api/dashboard_item/", {"filters": {"hello": "test"}}, format="json").json()
+        self.client.post("/api/insight/", {"filters": {"hello": "test"}}, format="json").json()
 
-        response = self.client.get("/api/dashboard_item/?user=true&saved=true").json()
+        response = self.client.get("/api/insight/?user=true&saved=true").json()
         self.assertEqual(response["count"], 1)
 
-    def test_dashboard_item_layout(self):
+    def test_insight_layout(self):
         dashboard = Dashboard.objects.create(name="asdasd", pinned=True, team=self.team)
         response = self.client.post(
-            "/api/dashboard_item/",
+            "/api/insight/",
             {"filters": {"hello": "test"}, "dashboard": dashboard.pk, "name": "another"},
             format="json",
         ).json()
 
         self.client.patch(
-            "/api/dashboard_item/layouts/",
+            "/api/insight/layouts/",
             {
                 "items": [
                     {
@@ -249,13 +249,13 @@ class TestDashboard(APIBaseTest):
             },
             format="json",
         )
-        items_response = self.client.get("/api/dashboard_item/{}/".format(response["id"])).json()
+        items_response = self.client.get("/api/insight/{}/".format(response["id"])).json()
         self.assertTrue("lg" in items_response["layouts"])
 
     def test_dashboard_from_template(self):
         response = self.client.post("/api/dashboard/", {"name": "another", "use_template": "DEFAULT_APP"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertGreater(DashboardItem.objects.count(), 1)
+        self.assertGreater(Insight.objects.count(), 1)
         self.assertEqual(response.json()["creation_mode"], "template")
 
     def test_return_cached_results_dashboard_has_filters(self):
@@ -268,8 +268,8 @@ class TestDashboard(APIBaseTest):
         }
         filter = Filter(data=filter_dict)
 
-        item = DashboardItem.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
-        DashboardItem.objects.create(
+        item = Insight.objects.create(dashboard=dashboard, filters=filter_dict, team=self.team,)
+        Insight.objects.create(
             dashboard=dashboard, filters=filter.to_dict(), team=self.team,
         )
         self.client.get(
@@ -287,7 +287,7 @@ class TestDashboard(APIBaseTest):
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         self.assertEqual(response.status_code, 200)
-        item = DashboardItem.objects.get(pk=item.pk)
+        item = Insight.objects.get(pk=item.pk)
         # Expecting this to only have one day as per the dashboard filter
         response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
         self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)  # type: ignore

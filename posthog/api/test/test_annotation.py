@@ -5,7 +5,7 @@ import pytz
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models import Annotation, Dashboard, DashboardItem, Organization, User
+from posthog.models import Annotation, Dashboard, Insight, Organization, User
 from posthog.test.base import APIBaseTest
 
 
@@ -34,15 +34,15 @@ class TestAnnotation(APIBaseTest):
         self.assertEqual(response["results"][0]["content"], "hello world!")
 
     @patch("posthoganalytics.capture")
-    def test_creating_and_retrieving_annotations_by_dashboard_item(self, mock_capture):
+    def test_creating_and_retrieving_annotations_by_insight(self, mock_capture):
 
         dashboard = Dashboard.objects.create(name="Default", pinned=True, team=self.team,)
 
-        dashboardItem = DashboardItem.objects.create(
+        dashboardItem = Insight.objects.create(
             team=self.team, dashboard=dashboard, name="Pageviews this week", last_refresh=timezone.now(),
         )
         Annotation.objects.create(
-            team=self.team, created_by=self.user, content="hello", dashboard_item=dashboardItem,
+            team=self.team, created_by=self.user, content="hello", insight=dashboardItem,
         )
         response = self.client.get("/api/annotation/?dashboardItemId=1").json()
 
@@ -51,7 +51,7 @@ class TestAnnotation(APIBaseTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user.distinct_id, "annotation created", {"scope": "dashboard_item", "date_marker": None},
+            self.user.distinct_id, "annotation created", {"scope": "insight", "date_marker": None},
         )
 
     def test_query_annotations_by_datetime(self):
@@ -131,5 +131,5 @@ class TestAnnotation(APIBaseTest):
 
         # Assert analytics are sent (notice the event is sent on the user that executed the deletion, not the creator)
         mock_capture.assert_called_once_with(
-            new_user.distinct_id, "annotation deleted", {"scope": "dashboard_item", "date_marker": None},
+            new_user.distinct_id, "annotation deleted", {"scope": "insight", "date_marker": None},
         )

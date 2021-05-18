@@ -2,7 +2,7 @@ from typing import Callable
 
 from freezegun import freeze_time
 
-from posthog.models import DashboardItem, Event, Organization, Team
+from posthog.models import Event, Insight, Organization, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import BaseTest
 
@@ -16,7 +16,7 @@ def calculate_event_property_usage_test_factory(create_event: Callable) -> Calla
             team2 = Organization.objects.bootstrap(None)[2]
             with freeze_time("2020-08-01"):
                 # ignore stuff older than 30 days
-                DashboardItem.objects.create(
+                Insight.objects.create(
                     team=self.team,
                     filters={
                         "events": [{"id": "$pageview"}],
@@ -30,27 +30,27 @@ def calculate_event_property_usage_test_factory(create_event: Callable) -> Calla
                     properties={"$current_url": "https://posthog.com"},
                 )
             with freeze_time("2020-10-01"):
-                DashboardItem.objects.create(
+                Insight.objects.create(
                     team=self.team,
                     filters={
                         "events": [{"id": "$pageview"}],
                         "properties": [{"key": "$current_url", "value": "https://posthog.com"}],
                     },
                 )
-                DashboardItem.objects.create(
+                Insight.objects.create(
                     team=self.team,
                     filters={
                         "events": [{"id": "$pageview"}],
                         "properties": [{"key": "$current_url", "value": "https://posthog2.com"}],
                     },
                 )
-                DashboardItem.objects.create(
+                Insight.objects.create(
                     team=self.team,
                     filters={"events": [{"id": "custom event"}], "properties": [{"key": "team_id", "value": "3"}]},
                 )
-                DashboardItem.objects.create(team=self.team, filters={"events": [{"id": "event that doesnt exist"}]})
+                Insight.objects.create(team=self.team, filters={"events": [{"id": "event that doesnt exist"}]})
                 # broken dashboard item
-                DashboardItem.objects.create(team=self.team, filters={})
+                Insight.objects.create(team=self.team, filters={})
                 create_event(
                     distinct_id="test",
                     team=self.team,
@@ -72,7 +72,7 @@ def calculate_event_property_usage_test_factory(create_event: Callable) -> Calla
                     event="$pageview",
                     properties={"$current_url": "https://posthog.com"},
                 )
-                DashboardItem.objects.create(
+                Insight.objects.create(
                     team=team2,
                     filters={
                         "events": [{"id": "$pageview"}],

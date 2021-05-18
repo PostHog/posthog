@@ -23,7 +23,7 @@ from posthog.constants import (
 )
 from posthog.decorators import CacheType
 from posthog.ee import is_clickhouse_enabled
-from posthog.models import DashboardItem, Filter, Team
+from posthog.models import Filter, Insight, Team
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -91,7 +91,7 @@ def update_cached_items() -> None:
 
     tasks = []
     items = (
-        DashboardItem.objects.filter(
+        Insight.objects.filter(
             Q(Q(dashboard__is_shared=True) | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
         )
         .exclude(dashboard__deleted=True)
@@ -100,7 +100,7 @@ def update_cached_items() -> None:
         .distinct("filters_hash")
     )
 
-    for item in DashboardItem.objects.filter(
+    for item in Insight.objects.filter(
         pk__in=Subquery(items.filter(filters__isnull=False).exclude(filters={}).distinct("filters").values("pk"))
     ).order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_DASHBOARD_ITEM_CACHE]:
         filter = get_filter(data=item.dashboard_filters(), team=item.team)
@@ -120,8 +120,8 @@ def import_from(module: str, name: str) -> Any:
 
 
 def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type: CacheType) -> List[Dict[str, Any]]:
-    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
-    dashboard_items.update(refreshing=True)
+    insights = Insight.objects.filter(team_id=team_id, filters_hash=key)
+    insights.update(refreshing=True)
 
     if is_clickhouse_enabled():
         insight_class_path = CH_TYPE_TO_IMPORT[cache_type]
@@ -130,13 +130,13 @@ def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type:
 
     insight_class = import_from(insight_class_path[0], insight_class_path[1])
     result = insight_class().run(filter, Team(pk=team_id))
-    dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
+    insights.update(last_refresh=timezone.now(), refreshing=False)
     return result
 
 
 def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, Any]]:
-    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
-    dashboard_items.update(refreshing=True)
+    insights = Insight.objects.filter(team_id=team_id, filters_hash=key)
+    insights.update(refreshing=True)
 
     if is_clickhouse_enabled():
         insight_class = import_from("ee.clickhouse.queries.clickhouse_funnel", "ClickhouseFunnel")
@@ -144,5 +144,5 @@ def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, 
         insight_class = import_from("posthog.queries.funnel", "Funnel")
 
     result = insight_class(filter=filter, team=Team(pk=team_id)).run()
-    dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
+    insights.update(last_refresh=timezone.now(), refreshing=False)
     return result

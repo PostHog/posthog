@@ -8,9 +8,9 @@ from rest_framework import status
 
 from posthog.constants import INSIGHT_STICKINESS
 from posthog.ee import is_clickhouse_enabled
-from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
 from posthog.models.filters import Filter
+from posthog.models.insight import Insight
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
@@ -27,12 +27,10 @@ def insight_test_factory(event_factory, person_factory):
                 "properties": [{"key": "$browser", "value": "Mac OS X"}],
             }
 
-            DashboardItem.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user
-            )
+            Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user)
 
             # create without user
-            DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+            Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
             response = self.client.get("/api/insight/", data={"user": "true"}).json()
 
@@ -44,17 +42,15 @@ def insight_test_factory(event_factory, person_factory):
                 "properties": [{"key": "$browser", "value": "Mac OS X"}],
             }
 
-            DashboardItem.objects.create(
+            Insight.objects.create(
                 filters=Filter(data=filter_dict).to_dict(), saved=True, team=self.team, created_by=self.user
             )
 
             # create without saved
-            DashboardItem.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user
-            )
+            Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user)
 
             # create without user
-            DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+            Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
             response = self.client.get("/api/insight/", data={"saved": "true", "user": "true",},).json()
 
@@ -73,7 +69,7 @@ def insight_test_factory(event_factory, person_factory):
                 },
             ).json()
 
-            response = DashboardItem.objects.all()
+            response = Insight.objects.all()
             self.assertEqual(len(response), 1)
             self.assertEqual(response[0].filters["events"][0]["id"], "$pageview")
             self.assertEqual(response[0].filters["date_from"], "-90d")
