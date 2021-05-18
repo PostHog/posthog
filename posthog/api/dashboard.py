@@ -1,18 +1,14 @@
 import secrets
-from distutils.util import strtobool
 from typing import Any, Dict, Optional
 
 import posthoganalytics
 from django.db.models import Model, Prefetch, QuerySet
-from django.db.models.query_utils import Q
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import authentication, response, serializers, viewsets
-from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed, NotFound
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -20,7 +16,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, Insight, Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.utils import get_safe_cache, render_template
 
 
@@ -217,54 +212,6 @@ class InsightSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
         return representation
-
-
-class InsightsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
-    queryset = Insight.objects.all()
-    serializer_class = InsightSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
-
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-        if self.action == "list":
-            queryset = queryset.filter(deleted=False)
-            queryset = self._filter_request(self.request, queryset)
-
-        order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("order")
-
-        return queryset
-
-    def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
-        filters = request.GET.dict()
-
-        for key in filters:
-            if key == "saved":
-                if strtobool(str(request.GET["saved"])):
-                    queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
-                else:
-                    queryset = queryset.filter(Q(saved=False))
-            elif key == "user":
-                queryset = queryset.filter(created_by=request.user)
-            elif key == "insight":
-                queryset = queryset.filter(filters__insight=request.GET["insight"])
-
-        return queryset
-
-    @action(methods=["patch"], detail=False)
-    def layouts(self, request, **kwargs):
-        team_id = self.team_id
-
-        for data in request.data["items"]:
-            self.queryset.filter(team_id=team_id, pk=data["id"]).update(layouts=data["layouts"])
-
-        serializer = self.get_serializer(self.queryset.filter(team_id=team_id), many=True)
-        return response.Response(serializer.data)
 
 
 @xframe_options_exempt

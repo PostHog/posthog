@@ -5,7 +5,7 @@ from django.core.cache import cache
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
 from django.utils.timezone import now
-from rest_framework import request, serializers, viewsets
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -278,3 +278,13 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
             Insight.objects.filter(pk=dashboard_id).update(last_refresh=now())
+
+    @action(methods=["patch"], detail=False)
+    def layouts(self, request, **kwargs):
+        team_id = self.team_id
+
+        for data in request.data["items"]:
+            self.queryset.filter(team_id=team_id, pk=data["id"]).update(layouts=data["layouts"])
+
+        serializer = self.get_serializer(self.queryset.filter(team_id=team_id), many=True)
+        return response.Response(serializer.data)

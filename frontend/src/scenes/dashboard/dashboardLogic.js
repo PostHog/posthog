@@ -293,7 +293,7 @@ export const dashboardLogic = kea({
         },
         saveLayouts: async (_, breakpoint) => {
             await breakpoint(300)
-            await api.update(`api/dashboard_item/layouts`, {
+            await api.update(`api/insight/layouts`, {
                 items: values.items.map((item) => {
                     const layouts = {}
                     Object.entries(item.layouts).forEach(([layoutKey, layout]) => {

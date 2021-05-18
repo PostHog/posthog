@@ -14,7 +14,7 @@ export const dashboardInsightLogic = kea<dashboardInsightLogicType>({
             null as DashboardItemType | null,
             {
                 loadDashboardInsight: async (id: number): Promise<DashboardItemType> => {
-                    const response = await api.get(`api/dashboard_item/${id}`)
+                    const response = await api.get(`api/insight/${id}`)
                     return response
                 },
                 setDashboardInsight: (dashboardInsight: DashboardItemType) => dashboardInsight,
@@ -36,7 +36,7 @@ export const dashboardInsightLogic = kea<dashboardInsightLogicType>({
             if (!Object.entries(payload).length) {
                 return
             }
-            const response = await api.update(`api/dashboard_item/${id}`, payload)
+            const response = await api.update(`api/insight/${id}`, payload)
             actions.setDashboardInsightMode(null)
             actions.setDashboardInsight(response)
         },
