@@ -61,6 +61,10 @@
                     "value": "graphile"
                 },
                 {
+                    "name": "JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS",
+                    "value": "True"
+                },
+                {
                     "name": "CRASH_IF_NO_PERSISTENT_JOB_QUEUE",
                     "value": "0"
                 }
