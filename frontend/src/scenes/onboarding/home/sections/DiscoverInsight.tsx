@@ -181,9 +181,7 @@ export function DiscoverInsightsModule(): JSX.Element {
             </Title>
             <Divider />
             <Skeleton
-                loading={
-                    (insightsLoading && insights.length === 0) || (teamInsightsLoading && teamInsights.length === 0)
-                }
+                loading={insightsLoading && insights.length === 0 && teamInsightsLoading && teamInsights.length === 0}
             >
                 <Space direction={'vertical'} className={'home-page'} size={'small'}>
                     {(insights.length > 0 || teamInsights.length > 0) && <RecentInsightList />}
