@@ -1,5 +1,3 @@
-from typing import Dict
-
 from rest_framework import permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -20,12 +18,6 @@ class VersionSerializer(serializers.ModelSerializer):
             "created_by",
             "previous_state",
         ]
-
-    def create(self, validated_data: Dict, **kwargs) -> Version:
-        request = self.context["request"]
-        created_by = validated_data.pop("created_by", request.user)
-        version = Version.objects.create(created_by=created_by, **validated_data)
-        return version
 
 
 class VersionsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

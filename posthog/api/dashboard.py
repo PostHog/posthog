@@ -19,7 +19,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, DashboardItem, Team
+from posthog.models import Dashboard, DashboardItem, Team, Version
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.utils import get_safe_cache, render_template
 
@@ -180,12 +180,14 @@ class DashboardItemSerializer(serializers.ModelSerializer):
 
         if not validated_data.get("dashboard", None):
             dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
+            Version.objects.create(created_by=request.user, instance_key=dashboard_item, previous_state={})
             return dashboard_item
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
             dashboard_item = DashboardItem.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, **validated_data
+                team=team, last_refresh=now(), created_by=created_by, **validated_data,
             )
+            Version.objects.create(created_by=created_by, instance_key=dashboard_item, previous_state={})
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")

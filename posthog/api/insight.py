@@ -23,7 +23,7 @@ from posthog.constants import (
     TRENDS_STICKINESS,
 )
 from posthog.decorators import CacheType, cached_function
-from posthog.models import DashboardItem, Event, Filter, Team
+from posthog.models import DashboardItem, Event, Filter, Team, Version
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
@@ -69,15 +69,29 @@ class InsightSerializer(serializers.ModelSerializer):
 
         if not validated_data.get("dashboard", None):
             dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
+            Version.objects.create(created_by=request.user, instance_key=dashboard_item, previous_state={})
             return dashboard_item
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
             dashboard_item = DashboardItem.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, **validated_data
+                team=team, last_refresh=now(), created_by=created_by, **validated_data,
             )
+            Version.objects.create(created_by=created_by, instance_key=dashboard_item, previous_state={})
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
+
+    def update(self, instance: DashboardItem, validated_data: Dict) -> DashboardItem:
+        request = self.context["request"]
+        previous_state = {
+            "filters": instance.filters,
+            "name": instance.name,
+            "description": instance.description,
+            "saved": instance.saved,
+        }
+        Version.objects.create(created_by=request.user, instance_key=instance, previous_state=previous_state)
+
+        return super().update(instance, validated_data)
 
     def get_result(self, dashboard_item: DashboardItem):
         if not dashboard_item.filters:
