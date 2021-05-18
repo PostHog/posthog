@@ -122,6 +122,7 @@ export const eventUsageLogic = kea<
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
+        reportInsightsTabReset: true,
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -414,6 +415,9 @@ export const eventUsageLogic = kea<
         },
         reportSavedInsightToDashboard: async () => {
             posthog.capture('saved insight to dashboard')
+        },
+        reportInsightsTabReset: async () => {
+            posthog.capture('insights tab reset')
         },
     },
 })
