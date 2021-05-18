@@ -101,9 +101,17 @@
 
     .lesson-image {
         border-radius: 6px;
-        border: 1px solid $hc_navy;
+        border: 1px solid $border_light;
         height: 100%;
         display: block;
+        &:hover {
+            cursor: pointer;
+            border: 1px solid $primary;
+        }
+    }
+
+    .lesson-list-item {
+        margin: 5px 10px !important;
     }
 
     .lesson-image-holder {
@@ -118,7 +126,8 @@
 
     .insight-text {
         text-align: center;
-        color: $text_muted_alt;
+        color: $text-default;
+        margin-top: 3px;
     }
     .thumbnail-tile-install {
         background-image: $sky;
@@ -136,12 +145,26 @@
     }
 
     .thumbnail-tile-default {
-        background-image: $night_sky;
+        background-color: $primary;
         border-radius: 6px;
 
         &:hover {
-            background-image: $sky;
+            background-color: $primary-alt;
             cursor: pointer;
+        }
+    }
+
+    .history-panel-container {
+        height: 100%;
+        max-height: 750px;
+        width: fit-content;
+        max-width: 1000px;
+        overflow: scroll;
+        .dashboard-item {
+            border: 0.2px solid $border-light;
+        }
+        @media only screen and (max-width: $sm) {
+            max-width: 315px;
         }
     }
 }
