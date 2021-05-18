@@ -48,6 +48,7 @@ export const plugin60: Plugin = {
     is_preinstalled: false,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
+    capabilities: {},
 }
 
 export const pluginAttachment1: PluginAttachmentDB = {
