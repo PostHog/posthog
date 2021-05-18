@@ -21,6 +21,7 @@ CREATE TABLE {table_name}
     team_id Int64,
     properties VARCHAR,
     is_identified Boolean
+    deleted UInt8
     {extra_fields}
 ) ENGINE = {engine} 
 """
@@ -50,6 +51,7 @@ created_at,
 team_id,
 properties,
 is_identified,
+deleted,
 _timestamp,
 _offset
 FROM kafka_{table_name} 
