@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { DashboardOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 
-export function InsightTitle(): JSX.Element {
+export function InsightTitle({ actionBar = null }: { actionBar?: JSX.Element | null }): JSX.Element {
     const [{ fromItemName, fromDashboard }] = useState(router.values.hashParams)
     return (
         <>
@@ -14,6 +14,7 @@ export function InsightTitle(): JSX.Element {
                     />
                 )}
                 {fromItemName || 'Unsaved query'}
+                {actionBar}
             </h3>
         </>
     )

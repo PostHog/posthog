@@ -23,9 +23,11 @@ export function SessionTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX
     return (
         <Row gutter={16}>
             <Col md={16} xs={24}>
-                <Row>
-                    <InsightTitle />
-                </Row>
+                <InsightTitle
+                    actionBar={
+                        <InsightActionBar filters={filters} annotations={annotationsToCreate} insight="SESSIONS" />
+                    }
+                />
                 <Row gutter={8} align="middle" className="mb">
                     <Col>Showing</Col>
                     <Col>
@@ -44,7 +46,6 @@ export function SessionTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX
                     horizontalUI
                     customRowPrefix=""
                 />
-                <InsightActionBar filters={filters} annotations={annotationsToCreate} insight="SESSIONS" />
             </Col>
             <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                 <h4 className="secondary">Global Filters</h4>

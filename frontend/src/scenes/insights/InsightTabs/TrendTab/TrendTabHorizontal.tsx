@@ -44,7 +44,15 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
         <>
             <Row gutter={16}>
                 <Col md={16} xs={24}>
-                    <InsightTitle />
+                    <InsightTitle
+                        actionBar={
+                            <InsightActionBar
+                                filters={filters}
+                                annotations={annotationsToCreate}
+                                insight={filters.insight}
+                            />
+                        }
+                    />
                     {filtersLoading ? (
                         <Skeleton active />
                     ) : (
@@ -66,7 +74,6 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                             }
                         />
                     )}
-                    <InsightActionBar filters={filters} annotations={annotationsToCreate} insight={filters.insight} />
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     {filters.insight === ViewType.LIFECYCLE && (
