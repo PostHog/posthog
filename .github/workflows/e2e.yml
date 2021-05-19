@@ -48,15 +48,14 @@ jobs:
               uses: actions/setup-python@v2
               with:
                   python-version: 3.8
-            - uses: actions/cache@v1
-              name: Cache pip dependencies
-              id: pip-cache
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-virtualenv
               with:
-                  path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
+                  requirement_files: requirements.txt # this is optional
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-virtualenv.outputs.cache-hit != 'true'
             - name: Install python dependencies
+              if: steps.cache-virtualenv.outputs.cache-hit != 'true'
               run: |
                   python -m pip install --upgrade pip
                   python -m pip install $(grep -ivE "psycopg2" requirements.txt | cut -d'#' -f1) --no-cache-dir --compile
