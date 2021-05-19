@@ -316,9 +316,9 @@ WHERE team_id = %(team_id)s
 AND person_id IN
 (
     SELECT id
-    FROM person JOIN (
-        SELECT id, max(_timestamp) as _timestamp FROM person WHERE team_id = %(team_id)s GROUP BY id
-    ) as person_max ON person.id = person_max.id AND person._timestamp = person_max._timestamp
+    FROM (
+        SELECT id, argMax(properties, person._timestamp) as properties FROM person WHERE team_id = %(team_id)s GROUP BY id
+    )
     WHERE team_id = %(team_id)s {filters}
 )
 """
