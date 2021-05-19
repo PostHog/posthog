@@ -28,11 +28,13 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "is_expired",
             "created_by",
             "created_at",
+            "updated_at",
         ]
         read_only_fields = [
             "id",
-            "created_at",
             "emailing_attempt_made",
+            "created_at",
+            "updated_at",
         ]
         extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
 
@@ -78,7 +80,11 @@ class OrganizationInviteViewSet(
     ordering = "-created_at"
 
     def get_queryset(self):
-        return self.filter_queryset_by_parents_lookups(super().get_queryset()).order_by(self.ordering)
+        return (
+            self.filter_queryset_by_parents_lookups(super().get_queryset())
+            .select_related("created_by")
+            .order_by(self.ordering)
+        )
 
     @action(methods=["POST"], detail=False)
     def bulk(self, request: request.Request, **kwargs) -> response.Response:

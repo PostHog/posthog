@@ -138,7 +138,9 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         template_name="member_join",
         template_context={"invitee": invitee, "organization": organization},
     )
-    for user in organization.members.all():
-        if user.uuid != invitee_uuid:  # Don't send this email to the new member themselves
+    # Don't send this email to the new member themselves
+    members_to_email = tuple(organization.members.exclude(email=invitee.email))
+    if members_to_email:
+        for user in members_to_email:
             message.add_recipient(email=user.email, name=user.first_name)
-    message.send()
+        message.send()
