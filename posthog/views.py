@@ -16,6 +16,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from posthog.ee import is_clickhouse_enabled
 from posthog.email import is_email_available
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
+from posthog.backup import get_backup_info
 from posthog.models import User
 from posthog.utils import (
     get_plugin_server_job_queues,
@@ -198,7 +199,7 @@ def system_status(request):
                 {"metric": "Redis metrics", "value": f"Redis connected but then failed to return metrics: {e}"}
             )
 
-    return JsonResponse({"results": {"overview": metrics, "internal_metrics": get_internal_metrics_dashboards()}})
+    return JsonResponse({"results": {"overview": metrics, "internal_metrics": get_internal_metrics_dashboards(), "backup": get_backup_info()}})
 
 
 @never_cache

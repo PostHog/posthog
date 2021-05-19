@@ -10,6 +10,16 @@ export type TabName = 'overview' | 'clickhouse'
 export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus, SystemStatusRow, TabName>>({
     actions: {
         setTab: (tab: TabName) => ({ tab }),
+        createBackup: (name: string) => ({ name }),
+        restoreFromBackup: (name: string) => ({ name }),
+    },
+    listeners: {
+        createBackup: async ({ name }) => {
+            console.log(`In createBackup listener with ${name}`)
+        },
+        restoreFromBackup: async ({ name }) => {
+            console.log(`In restore listener with ${name}`)
+        },
     },
     loaders: {
         systemStatus: [

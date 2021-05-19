@@ -9,6 +9,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconExternalLink } from 'lib/components/icons'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
+import { BackupTab } from 'scenes/instance/SystemStatus/BackupTab'
 
 export function SystemStatus(): JSX.Element {
     const { tab, error, systemStatus } = useValues(systemStatusLogic)
@@ -60,18 +61,19 @@ export function SystemStatus(): JSX.Element {
                 />
             )}
 
-            {systemStatus?.internal_metrics.clickhouse ? (
-                <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(key) => setTab(key as TabName)}>
-                    <Tabs.TabPane tab="Overview" key="overview">
-                        <OverviewTab />
-                    </Tabs.TabPane>
+            <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(key) => setTab(key as TabName)}>
+                <Tabs.TabPane tab="Overview" key="overview">
+                    <OverviewTab />
+                </Tabs.TabPane>
+                {systemStatus?.internal_metrics.clickhouse ? (
                     <Tabs.TabPane tab="Internal metrics" key="internal_metrics">
                         <InternalMetricsTab />
                     </Tabs.TabPane>
-                </Tabs>
-            ) : (
-                <OverviewTab />
-            )}
+                ) : null}
+                <Tabs.TabPane tab="Backup" key="backup">
+                    <BackupTab />
+                </Tabs.TabPane>
+            </Tabs>
         </div>
     )
 }
