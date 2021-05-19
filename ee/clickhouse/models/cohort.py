@@ -107,3 +107,41 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
         for person_uuid in person_uuids
     )
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+
+
+def recalculate_cohortpeople(cohort: Cohort):
+    cohort_filter, cohort_params = format_person_query(cohort)
+
+    INSERT_PEOPLE_MATCHING_COHORT_ID_SQL = """
+    INSERT INTO cohortpeople
+        SELECT person_id, %(cohort_id)s as cohort_id, 1 as _sign
+        FROM (
+            SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
+        ) as person
+        LEFT JOIN cohortpeople ON (person.id = cohortpeople.person_id)
+        WHERE cohortpeople.person_id is NULL
+        AND person.is_deleted = 0
+        AND {cohort_filter}
+    """.format(
+        cohort_filter
+    )
+
+    sync_execute(INSERT_PERSON_STATIC_COHORT, {**cohort_params, "cohort_id": cohort.pk})
+
+    REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL = """
+    INSERT INTO cohortpeople
+    SELECT person_id, cohort_id, -1 as _sign
+    FROM cohortpeople
+    JOIN (
+        SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
+    ) as person ON (person.id = cohortpeople.person_id)
+    WHERE cohort_id = %(cohort_id)s
+    AND 
+        (
+            person.is_deleted = 1 OR NOT ({cohort_filter})
+        )
+    """.format(
+        cohort_filter
+    )
+
+    sync_execute(REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL, {**cohort_params, "cohort_id": cohort.pk})
