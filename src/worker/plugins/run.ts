@@ -3,6 +3,14 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { PluginConfig, PluginsServer, PluginTaskType } from '../../types'
 import { processError } from '../../utils/db/error'
 
+export class IllegalOperationError extends Error {
+    name = 'IllegalOperationError'
+
+    constructor(operation: string) {
+        super(operation)
+    }
+}
+
 export async function runOnEvent(server: PluginsServer, event: PluginEvent): Promise<void> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
 
@@ -59,8 +67,8 @@ export async function runProcessEvent(server: PluginsServer, event: PluginEvent)
             try {
                 returnedEvent = (await processEvent(returnedEvent)) || null
                 if (returnedEvent.team_id != teamId) {
-                    returnedEvent = null // don't try to ingest events with modified teamIDs
-                    throw new Error('Illegal Operation: Plugin tried to change teamID')
+                    returnedEvent.team_id = teamId
+                    throw new IllegalOperationError('Plugin tried to change event.team_id')
                 }
                 pluginsSucceeded.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
             } catch (error) {
@@ -115,6 +123,16 @@ export async function runProcessEventBatch(server: PluginsServer, batch: PluginE
             if (processEventBatch && returnedEvents.length > 0) {
                 try {
                     returnedEvents = (await processEventBatch(returnedEvents)) || []
+                    let wasChangedTeamIdFound = false
+                    for (const returnedEvent of returnedEvents) {
+                        if (returnedEvent.team_id != teamId) {
+                            returnedEvent.team_id = teamId
+                            wasChangedTeamIdFound = true
+                        }
+                    }
+                    if (wasChangedTeamIdFound) {
+                        throw new IllegalOperationError('Plugin tried to change event.team_id')
+                    }
                     pluginsSucceeded.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
                 } catch (error) {
                     await processError(server, pluginConfig, error, returnedEvents[0])
