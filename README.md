@@ -78,63 +78,56 @@ Courtesy of GitHub Actions.
 
 The story begins with `pluginServer.ts -> startPluginServer`, which is the main thread of the plugin server.
 
-This main thread spawns 4 worker threads, managed using Piscina. Each worker thread runs 10 tasks.<sup>[1](#f1)</sup>
+This main thread spawns `WORKER_CONCURRENCY` worker threads, managed using Piscina. Each worker thread runs `TASKS_PER_WORKER` tasks ([concurrentTasksPerWorker](https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)).
 
-### The main thread
+### Main thread
 
 Let's talk about the main thread first. This has:
 
-1. `pubSub`: a Redis powered pubSub mechanism for reloading plugins whenever a message is published by the main PostHog app.
+1. `pubSub` – Redis powered pub-sub mechanism for reloading plugins whenever a message is published by the main PostHog app.
 
-2. `server`: sets up connections to required DBs and queues(clickhouse, Kafka, Postgres, Redis), via `server.ts -> createServer`. This is a shared setup between the main and worker threads
+2. `server` – Handler of connections to required DBs and queues (ClickHouse, Kafka, Postgres, Redis), created via `server.ts -> createServer`. Every thread has its own instance.
 
-3. `fastifyInstance`: sets up a web server. Unused for now, but may be used for enabling webhooks in the future.
+3. `fastifyInstance` – Web server. Unused for now.
 
-4. `piscina`: this is the thread manager. `makePiscina` creates the manager, while `createWorker` creates the worker threads.
+4. `piscina` – Manager of tasks delegated to threads. `makePiscina` creates the manager, while `createWorker` creates the worker threads.
 
-5. `scheduleControl`: The scheduled job controller. Responsible for adding piscina tasks for scheduled jobs, when the time comes.
-   The schedule information makes it into `server.pluginSchedule` via `vm.ts -> createPluginConfigVM -> __tasks`, which parses for `runEvery*` tasks, and
-   then used in `src/workers/plugins/setup.ts -> loadSchedule`. More about the vm internals in a bit.
+5. `scheduleControl` – Controller of scheduled jobs. Responsible for adding Piscina tasks for scheduled jobs, when the time comes. The schedule information makes it into the controller when plugin VMs are created.
+
+    Scheduled tasks are controlled with [Redlock](https://redis.io/topics/distlock) (redis-based distributed lock), and run on only one plugin server instance in the entire cluster.
 
 6. `jobQueueConsumer`: The internal job queue consumer. This enables retries, scheduling jobs in the future (once) (Note: this is the difference between `scheduleControl` and this internal `jobQueue`). While `scheduleControl` is triggered via `runEveryMinute`, `runEveryHour` tasks, the `jobQueueConsumer` deals with `meta.jobs.doX(event).runAt(new Date())`.
+   The job queue consumer is also controlled with [Redlock](https://redis.io/topics/distlock), and runs on only one plugin server instance in the entire cluster.
 
-    Enqueuing jobs is managed by `job-queue-manager.ts`, which is backed by a Graphile-worker (`graphile-queue.ts`)
+    Jobs are enqueued by `job-queue-manager.ts`, which is backed by Postgres-based [Graphile-worker](https://github.com/graphile/worker) (`graphile-queue.ts`).
 
-7. `queue`: Wait, another queue?
+7. `queue`: Event ingestion queue. This is a Celery (backed by Redis) or Kafka queue, depending on the setup (EE/Cloud is Kafka due to high volume). These are consumed by the `queue` above, and sent off to the Piscina workers (`src/main/ingestion-queues/queue.ts -> ingestEvent`). Since all of the actual ingestion happens inside worker threads, you'll find the specific ingestion code there (`src/worker/ingestion/ingest-event.ts`). There the data is saved into Postgres (and ClickHouse via Kafka on EE/Cloud).
 
-Side Note about Queues:
-
-Yes, there are a LOT of queues. Each of them serve a separate function. The one we've seen already is the graphile job queue. This is the internal one dealing with `job.runAt()` tasks.
-
-Then, there's the main ingestion queue, which sends events from PostHog to the plugin server. This is a Celery (backed by Redis) or Kafka queue, depending on the setup (Enterprise/high event volume is Kafka). These are consumed by the `queue` above, and sent off to the Piscina workers (`src/main/ingestion-queues/queue.ts -> ingestEvent`). Since all of the "real" stuff happens inside the worker threads, you'll find the specific ingestion code there (`src/worker/ingestion/ingest-event.ts`). This finally writes things into Postgres.
-
-It's also a good idea to see the producer side of this ingestion queue, which comes from `Posthog/posthog/api/capture.py`. There's several tasks in this queue, and our plugin server is only interested in one kind of task: `posthog.tasks.process_event.process_event_with_plugins`.
+    It's also a good idea to see the producer side of this ingestion queue, which comes from `Posthog/posthog/api/capture.py`. The plugin server gets `posthog.tasks.process_event.process_event_with_plugins` via Celery from there, in the Postgres pipeline.
 
 ### Worker threads
 
-That's all for the main thread. Onto the workers now: It all begins with `worker.ts` and `createWorker()`
+This begins with `worker.ts` and `createWorker()`.
 
-`server` is the same DB connections setup as in the main thread.
+`server` is the same setup as in the main thread.
 
-What's new here is `setupPlugins` and `createTaskRunner`.
+New functions called here are:
 
-1. `setupPlugins`: Does `loadPluginsFromDB` and then `loadPlugins` (which creates VMs lazily for each plugin+team). TeamID represents a company using plugins, and each team can have it's own set of plugins enabled. The PluginConfig shows which team the config belongs to, the plugin to run, and the VM to run it in.
+1. `setupPlugins` – Loads plugins and prepares them for lazy VM initialization.
 
-2. `createTaskRunner`: There's some excellent wizardry happening here. `makePiscina` of `piscina.js` sets up the workers to run the existing file itself (using `__filename` in the setup config, returning `createWorker()`. This `createWorker()` is a function returning `createTaskRunner`, which is a [curried function](https://javascript.info/currying-partials), which given `{task, args}`, returns `workerTasks[task](server, args)`. These worker tasks are available in `src/worker/tasks.ts`.
+2. `createTaskRunner` – Creates a Piscina task runner that allows to operate on plugin VMs.
 
-### Worker Lifecycle
-
-TODO: what happens with getPLuginRows, getPluginConfigRows and SetupPlugins.
-
-Q: Where is teamID populated? At event creation time? (in posthog/posthog? row.pk)
-
-### VM Internals
+### Worker lifecycle
 
 TODO
 
-### End Notes
+### VMs
 
-<a name="f1">1</a>: What are tasks? - TASKS_PER_WORKER - a Piscina setting (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions) -> concurrentTasksPerWorker
+TODO
+
+### Plugins vs. plugin configs
+
+An `organization_id` is tied to a _company_ and its _installed plugins_, a `team_id` is tied to a _project_ and its _plugin configs_ (enabled/disabled+extra config).
 
 ## Questions?
 
