@@ -11,11 +11,12 @@ from .event import Event
 from .event_definition import EventDefinition
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
+from .insight_comment import InsightComment
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .person import Person, PersonDistinctId
 from .personal_api_key import PersonalAPIKey
-from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry
+from .plugin import Plugin, PluginAttachment, PluginConfig
 from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
@@ -38,7 +39,7 @@ __all__ = [
     "EventDefinition",
     "FeatureFlag",
     "Filter",
-    "RetentionFilter",
+    "InsightComment",
     "MessagingRecord",
     "Organization",
     "OrganizationInvite",
@@ -51,6 +52,7 @@ __all__ = [
     "PluginConfig",
     "Property",
     "PropertyDefinition",
+    "RetentionFilter",
     "SessionRecordingEvent",
     "SessionsFilter",
     "Team",

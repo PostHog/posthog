@@ -14,6 +14,7 @@ from . import (
     event_definition,
     feature_flag,
     insight,
+    insight_comment,
     organization,
     organization_invite,
     organization_member,
@@ -46,6 +47,7 @@ router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"plugin_config", plugin.PluginConfigViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"sessions_filter", sessions_filter.SessionsFilterViewSet)
+router.register(r"insight_comments", insight_comment.InsightCommentsViewSet)
 
 # Nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet)
