@@ -66,10 +66,12 @@ jobs:
             - uses: actions/cache@v2
               id: node-modules-cache
               with:
-                  path: '**/node_modules'
-                  key: ${{ runner.os }}-modules-${{ hashFiles('**/yarn.lock') }}
+                  path: |
+                      **/node_modules
+                      ~/.cache/Cypress
+                  key: ${{ runner.os }}-modules-cypress-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-modules-
+                      ${{ runner.os }}-modules-cypress-
             - name: Yarn install deps
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
               run: |
