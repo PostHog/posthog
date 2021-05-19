@@ -4,6 +4,8 @@ import { Select } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { SelectOption } from '~/types'
+import { useActions } from 'kea'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface Props {
     optionGroups: Array<PropertyOptionGroup>
@@ -59,6 +61,7 @@ export function PropertySelect({
     dropdownMatchSelectWidth = true,
 }: Props): JSX.Element {
     const [search, setSearch] = useState(false as string | false)
+    const { reportPropertySelectOpened } = useActions(eventUsageLogic)
     return (
         <SelectGradientOverflow
             showSearch
@@ -81,6 +84,11 @@ export function PropertySelect({
             }}
             style={{ width: '100%' }}
             dropdownMatchSelectWidth={dropdownMatchSelectWidth}
+            onDropdownVisibleChange={(open) => {
+                if (open) {
+                    reportPropertySelectOpened()
+                }
+            }}
         >
             {optionGroups.map(
                 (group) =>

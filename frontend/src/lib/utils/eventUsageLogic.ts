@@ -4,7 +4,16 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
-import { AnnotationType, FilterType, DashboardType, PersonType, DashboardMode, HotKeys, GlobalHotKeys } from '~/types'
+import {
+    AnnotationType,
+    FilterType,
+    DashboardType,
+    PersonType,
+    DashboardMode,
+    HotKeys,
+    GlobalHotKeys,
+    EntityType,
+} from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import dayjs from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -104,6 +113,15 @@ export const eventUsageLogic = kea<
             searchTerm,
             extraProps,
         }),
+        reportInsightFilterUpdated: (index: number, name: string | null, type?: EntityType) => ({ type, index, name }),
+        reportInsightFilterRemoved: (index: number) => ({ index }),
+        reportInsightFilterAdded: (newLength: number) => ({ newLength }),
+        reportInsightFilterSet: (filters: Array<{ id: string | number | null; type?: EntityType }>) => ({ filters }),
+        reportEntityFilterVisibilitySet: (index: number, visible: boolean) => ({ index, visible }),
+        reportPropertySelectOpened: true,
+        reportCreatedDashboardFromModal: true,
+        reportSavedInsightToDashboard: true,
+        reportInsightsTabReset: true,
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -380,6 +398,33 @@ export const eventUsageLogic = kea<
                 // Triggered when a search is executed for an action/event (mainly for use on insights)
                 posthog.capture('event searched', { searchTerm, ...extraProps })
             }
+        },
+        reportInsightFilterUpdated: async ({ type, index, name }) => {
+            posthog.capture('filter updated', { type, index, name })
+        },
+        reportInsightFilterRemoved: async ({ index }) => {
+            posthog.capture('local filter removed', { index })
+        },
+        reportInsightFilterAdded: async ({ newLength }) => {
+            posthog.capture('filter added', { newLength })
+        },
+        reportInsightFilterSet: async ({ filters }) => {
+            posthog.capture('filters set', { filters })
+        },
+        reportEntityFilterVisibilitySet: async ({ index, visible }) => {
+            posthog.capture('entity filter visbility set', { index, visible })
+        },
+        reportPropertySelectOpened: async () => {
+            posthog.capture('property select toggle opened')
+        },
+        reportCreatedDashboardFromModal: async () => {
+            posthog.capture('created new dashboard from modal')
+        },
+        reportSavedInsightToDashboard: async () => {
+            posthog.capture('saved insight to dashboard')
+        },
+        reportInsightsTabReset: async () => {
+            posthog.capture('insights tab reset')
         },
     },
 })
