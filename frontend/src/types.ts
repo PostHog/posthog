@@ -562,6 +562,10 @@ export interface SystemStatus {
             share_token: string
         }
     }
+    backup: {
+        is_enabled: boolean
+        existing_bk_names: string[]
+    }
 }
 
 export type QuerySummary = { duration: string } & Record<string, string>

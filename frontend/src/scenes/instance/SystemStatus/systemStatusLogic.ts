@@ -13,6 +13,8 @@ export const systemStatusLogic = kea<
     actions: {
         setTab: (tab: TabName) => ({ tab }),
         setOpenSections: (sections: string[]) => ({ sections }),
+        createBackup: (name: string) => ({ name }),
+        restoreFromBackup: (name: string) => ({ name }),
     },
     loaders: {
         systemStatus: [
@@ -67,6 +69,12 @@ export const systemStatusLogic = kea<
             if (tab === 'internal_metrics') {
                 actions.loadQueries()
             }
+        },
+        createBackup: async ({ name }) => {
+            console.log(`In createBackup listener with ${name}`)
+        },
+        restoreFromBackup: async ({ name }) => {
+            console.log(`In restore listener with ${name}`)
         },
     }),
 
