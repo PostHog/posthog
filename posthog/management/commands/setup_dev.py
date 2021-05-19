@@ -35,6 +35,9 @@ class Command(BaseCommand):
             PropertyDefinition.objects.create(team=team, name="$current_url")
             PropertyDefinition.objects.create(team=team, name="$browser")
             PropertyDefinition.objects.create(team=team, name="$os")
+            PropertyDefinition.objects.create(team=team, name="usage_count", is_numerical=True)
+            PropertyDefinition.objects.create(team=team, name="volume", is_numerical=True)
+            PropertyDefinition.objects.create(team=team, name="is_first_movie")
 
             PersonalAPIKey.objects.create(user=user, label="e2e_demo_api_key key", value="e2e_demo_api_key")
             if not options["no_data"]:
