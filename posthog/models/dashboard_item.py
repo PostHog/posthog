@@ -12,7 +12,10 @@ from posthog.utils import generate_cache_key
 
 class DashboardItem(models.Model):
     dashboard: models.ForeignKey = models.ForeignKey(
-        "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True
+        "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True,
+    )
+    parent: models.ForeignKey = models.ForeignKey(
+        "self", related_name="children", on_delete=models.CASCADE, null=True, blank=True,
     )
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)

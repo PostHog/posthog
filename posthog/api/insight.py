@@ -42,6 +42,7 @@ class InsightSerializer(serializers.ModelSerializer):
         model = DashboardItem
         fields = [
             "id",
+            "parent",
             "name",
             "filters",
             "filters_hash",
@@ -55,6 +56,7 @@ class InsightSerializer(serializers.ModelSerializer):
             "result",
             "created_at",
             "saved",
+            "children",
             "created_by",
         ]
         read_only_fields = (
@@ -78,6 +80,18 @@ class InsightSerializer(serializers.ModelSerializer):
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
+
+    def update(self, instance: DashboardItem, validated_data: Dict) -> DashboardItem:
+        saved_pk = instance.pk
+        instance.pk = None
+        instance.id = None
+
+        new_instance = DashboardItem.objects.get(pk=saved_pk)
+
+        instance.parent = new_instance  # set cloned dashboard item's parent to the original dashboard item
+        instance.save()  # create new dashboard item to store previous dashboard item's state
+
+        return super().update(new_instance, validated_data)
 
     def get_result(self, dashboard_item: DashboardItem):
         if not dashboard_item.filters:
