@@ -64,30 +64,15 @@ jobs:
             - uses: actions/setup-node@v1
               with:
                   node-version: 14
-            - name: Get yarn cache directory path
-              id: yarn-dep-cache-dir-path
-              run: echo "::set-output name=dir::$(yarn cache dir)"
-            - uses: actions/cache@v1
-              name: Setup Yarn dep cache
-              id: yarn-dep-cache
+            - uses: actions/cache@v2
               with:
-                  path: ${{ steps.yarn-dep-cache-dir-path.outputs.dir }}
-                  key: ${{ runner.os }}-yarn-dep-${{ hashFiles('**/yarn.lock') }}
+                  path: '**/node_modules'
+                  key: ${{ runner.os }}-modules-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-yarn-dep-
+                      ${{ runner.os }}-modules-
             - name: Yarn install deps
               run: |
                   yarn install --frozen-lockfile
-            - uses: actions/cache@v1
-              name: Setup cypress dep cache
-              id: cypress-dep-cache
-              with:
-                  path: ${{ steps.cypress-dep-cache-dir-path.outputs.dir }}
-                  key: ${{ runner.os }}-cypress-dep
-                  restore-keys: |
-                      ${{ runner.os }}-cypress-dep-
-            - name: Cypress install deps
-              run: |
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
             - uses: actions/cache@v1
               name: Setup Yarn build cache
