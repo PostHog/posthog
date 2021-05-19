@@ -67,19 +67,16 @@ jobs:
               id: node-modules-cache
               with:
                   path: |
-                      **/node_modules
                       ~/.cache/Cypress
-                  key: ${{ runner.os }}-modules-cypress-${{ hashFiles('**/yarn.lock') }}
+                      node_modules
+                  key: ${{ runner.os }}-node-cypress-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-modules-cypress-
+                      ${{ runner.os }}-node-cypress-
             - name: Yarn install deps
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
-            - name: test
-              run: |
-                  ls node_modules/
             - uses: actions/cache@v1
               name: Setup Yarn build cache
               id: yarn-build-cache
