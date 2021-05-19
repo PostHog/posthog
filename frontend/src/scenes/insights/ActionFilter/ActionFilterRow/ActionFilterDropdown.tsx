@@ -65,6 +65,7 @@ export function ActionFilterDropdown({
             onSelect={callUpdateFilter}
             items={[
                 {
+                    key: 'suggested',
                     name: 'Suggested for you',
                     header: function suggestionHeader(label: string) {
                         return (
@@ -104,6 +105,7 @@ export function ActionFilterDropdown({
                     getLabel: (item: SelectedItem) => item.name || '',
                 },
                 {
+                    key: 'actions',
                     name: 'Actions',
                     header: function actionHeader(label: string) {
                         return (
@@ -125,6 +127,7 @@ export function ActionFilterDropdown({
                     getLabel: (item: SelectedItem) => item.action?.name || '',
                 },
                 {
+                    key: 'events',
                     name: 'Events',
                     header: function eventHeader(label: string) {
                         return (

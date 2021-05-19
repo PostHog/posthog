@@ -18,7 +18,7 @@ interface FunnelTabProps extends BaseTabProps {
     newUI: boolean
 }
 
-export function FunnelTab({ annotationsToCreate, newUI }: FunnelTabProps): JSX.Element {
+export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
     useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic())
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
@@ -36,7 +36,7 @@ export function FunnelTab({ annotationsToCreate, newUI }: FunnelTabProps): JSX.E
         <div data-attr="funnel-tab">
             {newUI && (
                 <Row>
-                    <InsightTitle annotations={annotationsToCreate} filters={filters} />
+                    <InsightTitle />
                 </Row>
             )}
             <form

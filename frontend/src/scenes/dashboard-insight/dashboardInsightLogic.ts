@@ -9,7 +9,7 @@ export const dashboardInsightLogic = kea<dashboardInsightLogicType>({
         setDashboardInsightMode: (mode: DashboardItemMode) => ({ mode }),
     }),
 
-    reducers: () => ({
+    loaders: () => ({
         dashboardInsight: [
             null as DashboardItemType | null,
             {
@@ -20,6 +20,9 @@ export const dashboardInsightLogic = kea<dashboardInsightLogicType>({
                 setDashboardInsight: (dashboardInsight: DashboardItemType) => dashboardInsight,
             },
         ],
+    }),
+
+    reducers: () => ({
         dashboardInsightMode: [
             null as DashboardItemMode | null,
             {

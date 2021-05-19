@@ -293,6 +293,7 @@ class TestPluginAPI(APIBaseTest):
                 "is_global": False,
                 "organization_id": response.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
+                "capabilities": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -326,6 +327,7 @@ class TestPluginAPI(APIBaseTest):
                 "is_global": False,
                 "organization_id": response.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
+                "capabilities": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -360,6 +362,7 @@ class TestPluginAPI(APIBaseTest):
                 "is_global": False,
                 "organization_id": response2.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
+                "capabilities": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -470,6 +473,7 @@ class TestPluginAPI(APIBaseTest):
                 "is_global": False,
                 "organization_id": response.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
+                "capabilities": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)

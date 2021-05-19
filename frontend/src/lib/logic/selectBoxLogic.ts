@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import { SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
 import { selectBoxLogicType } from './selectBoxLogicType'
 import Fuse from 'fuse.js'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const scrollUpIntoView = (key: string): void => {
     const searchList = document.querySelector('.search-list')
@@ -81,6 +82,23 @@ export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem
                 )
             },
         ],
+        data: [
+            (s) => [s.search],
+            (search): SelectBoxItem[] => {
+                if (!search) {
+                    return props.items
+                }
+                const newItems: SelectBoxItem[] = []
+                for (const item of props.items) {
+                    newItems.push({
+                        ...item,
+                        dataSource: searchItems(item.dataSource, search),
+                        metadata: { search },
+                    })
+                }
+                return newItems
+            },
+        ],
     }),
     listeners: ({ props, values, actions }) => ({
         clickSelectedItem: ({ item, group }: { item: SelectedItem; group: SelectBoxItem }) => {
@@ -119,6 +137,19 @@ export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem
             }
             e.stopPropagation()
             e.preventDefault()
+        },
+        setSearch: async ({ search }, breakpoint) => {
+            await breakpoint(700)
+            if (values.data[0].metadata?.search === search) {
+                const extraProps = {} as Record<string, number>
+                for (const item of values.data) {
+                    extraProps[`count_${item.key}`] = item.dataSource.length
+                    if (item.key === 'events') {
+                        extraProps.count_posthog_events = item.dataSource.filter((item) => item.name[0] === '$').length
+                    }
+                }
+                eventUsageLogic.actions.reportEventSearched(search, extraProps)
+            }
         },
     }),
 })

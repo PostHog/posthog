@@ -3,6 +3,8 @@ import { errorToast, objectsEqual, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import dayjs from 'dayjs'
+import { userLogic } from 'scenes/userLogic'
+import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 
 const POLL_TIMEOUT = 5000
 
@@ -47,6 +49,8 @@ export const eventsTableLogic = kea({
 
     actions: () => ({
         setProperties: (properties) => ({ properties }),
+        setColumnConfig: (columnConfig) => ({ columnConfig }),
+        setColumnConfigSaving: (saving) => ({ saving }), // Type: boolean
         fetchEvents: (nextParams = null) => ({ nextParams }),
         fetchEventsSuccess: (events, hasNext = false, isNext = false) => ({ events, hasNext, isNext }),
         fetchNextEvents: true,
@@ -142,6 +146,12 @@ export const eventsTableLogic = kea({
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
         ],
+        columnConfigSaving: [
+            false,
+            {
+                setColumnConfigSaving: (_, { saving }) => saving,
+            },
+        ],
     }),
 
     selectors: ({ selectors, props }) => ({
@@ -159,6 +169,7 @@ export const eventsTableLogic = kea({
             () => [selectors.events, selectors.newEvents],
             (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
         ],
+        columnConfig: [() => [userLogic.selectors.user], (user) => user?.events_column_config?.active || 'DEFAULT'],
     }),
 
     events: ({ values }) => ({
@@ -194,6 +205,10 @@ export const eventsTableLogic = kea({
     }),
 
     listeners: ({ actions, values, props }) => ({
+        setColumnConfig: ({ columnConfig }) => {
+            actions.setColumnConfigSaving(true)
+            userLogic.actions.updateUser({ user: { events_column_config: { active: columnConfig } } })
+        },
         setProperties: () => actions.fetchEvents(),
         flipSort: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),
@@ -284,6 +299,13 @@ export const eventsTableLogic = kea({
                 error.detail,
                 error.code
             )
+        },
+        [userLogic.actionTypes.updateUserSuccess]: () => {
+            actions.setColumnConfigSaving(false)
+            tableConfigLogic.actions.setState(null)
+        },
+        [userLogic.actionTypes.updateUserFailure]: () => {
+            actions.setColumnConfigSaving(false)
         },
     }),
 })

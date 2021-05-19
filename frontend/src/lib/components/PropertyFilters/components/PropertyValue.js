@@ -88,7 +88,7 @@ export function PropertyValue({
 
     return (
         <>
-            {isOperatorRegex(operator) ? (
+            {!isOperatorMulti(operator) ? (
                 <AutoComplete
                     {...commonInputProps}
                     onChange={(val) => {
