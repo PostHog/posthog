@@ -1,9 +1,9 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { PropertySelect } from 'lib/components/PropertyFilters/PropertySelect'
+import { PropertySelect } from 'lib/components/PropertyFilters/components/PropertySelect'
 import { EventTypePropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
+import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 

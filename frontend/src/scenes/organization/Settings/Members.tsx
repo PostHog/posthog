@@ -74,8 +74,9 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
 
     const { level } = member
 
-    function generateHandleClick(listLevel: OrganizationMembershipLevel): () => void {
-        return function handleClick() {
+    function generateHandleClick(listLevel: OrganizationMembershipLevel): (event: React.MouseEvent) => void {
+        return function handleClick(event: React.MouseEvent) {
+            event.preventDefault()
             if (!user) {
                 throw Error
             }
@@ -98,7 +99,10 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     }
 
     const levelButton = (
-        <Button icon={level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}>
+        <Button
+            data-attr="change-membership-level"
+            icon={level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}
+        >
             {organizationMembershipLevelToName.get(level) ?? `unknown (${level})`}
         </Button>
     )
@@ -116,7 +120,7 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
                 <Menu>
                     {allowedLevels.map((listLevel) => (
                         <Menu.Item key={`${member.user.uuid}-level-${listLevel}`}>
-                            <a href="#" onClick={generateHandleClick(listLevel)}>
+                            <a href="#" onClick={generateHandleClick(listLevel)} data-test-level={listLevel}>
                                 {listLevel === OrganizationMembershipLevel.Owner ? (
                                     <>
                                         <CrownFilled style={{ marginRight: '0.5rem' }} />
@@ -183,7 +187,7 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
     return (
         <div>
             {allowDeletion && (
-                <a className="text-danger" onClick={handleClick}>
+                <a className="text-danger" onClick={handleClick} data-attr="delete-org-membership">
                     {member.user.uuid !== user.uuid ? (
                         <DeleteOutlined title="Remove Member" />
                     ) : (

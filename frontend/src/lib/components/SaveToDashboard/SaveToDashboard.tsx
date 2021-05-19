@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 
 interface Props {
     item: DashboardItemAttributes
+    displayComponent?: JSX.Element // Show custom component instead of default `Add to dashboard` button
 }
 
 interface DashboardItemAttributes {
@@ -21,10 +22,10 @@ interface FunnelPayload {
     name: string
 }
 
-export function SaveToDashboard(props: Props): JSX.Element {
-    const { item } = props
+export function SaveToDashboard({ item, displayComponent }: Props): JSX.Element {
     const [openModal, setOpenModal] = useState<boolean>(false)
     const [{ fromItem, fromItemName, fromDashboard }] = useState(router.values.hashParams)
+
     let _name: string = ''
     let _filters: Record<string, any> | null = null
     let _annotations: Array<Record<string, any>> | null = null
@@ -40,7 +41,7 @@ export function SaveToDashboard(props: Props): JSX.Element {
         <span className="save-to-dashboard">
             {openModal && (
                 <SaveToDashboardModal
-                    closeModal={(): void => setOpenModal(false)}
+                    closeModal={() => setOpenModal(false)}
                     name={_name}
                     filters={_filters}
                     fromItem={fromItem}
@@ -49,9 +50,13 @@ export function SaveToDashboard(props: Props): JSX.Element {
                     annotations={_annotations}
                 />
             )}
-            <Button onClick={(): void => setOpenModal(true)} type="primary" data-attr="save-to-dashboard-button">
-                {fromItem ? 'Update Dashboard' : 'Add to dashboard'}
-            </Button>
+            {displayComponent ? (
+                <span onClick={() => setOpenModal(true)}>{displayComponent}</span>
+            ) : (
+                <Button onClick={() => setOpenModal(true)} type="primary" data-attr="save-to-dashboard-button">
+                    {fromItem ? 'Update Dashboard' : 'Add to dashboard'}
+                </Button>
+            )}
         </span>
     )
 }

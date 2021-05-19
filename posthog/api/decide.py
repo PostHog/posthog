@@ -7,6 +7,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
@@ -84,7 +85,8 @@ def get_decide(request: HttpRequest):
         except RequestParsingError as error:
             capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
             return cors_response(
-                request, generate_exception_response(f"Malformed request data: {error}", code="malformed_data"),
+                request,
+                generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
             )
         token = _get_token(data, request)
         team = Team.objects.get_team_from_token(token)
@@ -95,6 +97,7 @@ def get_decide(request: HttpRequest):
                 return cors_response(
                     request,
                     generate_exception_response(
+                        "decide",
                         "Project API key invalid. You can find your project API key in PostHog project settings.",
                         code="invalid_api_key",
                         type="authentication_error",
@@ -107,6 +110,7 @@ def get_decide(request: HttpRequest):
                 return cors_response(
                     request,
                     generate_exception_response(
+                        "decide",
                         "Invalid Personal API key.",
                         code="invalid_personal_key",
                         type="authentication_error",
@@ -118,4 +122,5 @@ def get_decide(request: HttpRequest):
             response["featureFlags"] = get_active_feature_flags(team, data["distinct_id"])
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
+    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide",})
     return cors_response(request, JsonResponse(response))

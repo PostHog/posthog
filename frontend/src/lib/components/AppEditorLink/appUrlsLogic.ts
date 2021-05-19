@@ -10,6 +10,9 @@ import { teamLogic } from 'scenes/teamLogic'
 const defaultValue = 'https://'
 
 export const appUrlsLogic = kea<appUrlsLogicType<TrendResult>>({
+    connect: {
+        values: [teamLogic, ['currentTeam']],
+    },
     actions: () => ({
         setAppUrls: (appUrls: string[]) => ({ appUrls }),
         addUrl: (value: string) => ({ value }),
@@ -56,8 +59,13 @@ export const appUrlsLogic = kea<appUrlsLogicType<TrendResult>>({
             },
         },
     }),
-    events: ({ actions }) => ({
-        afterMount: actions.loadSuggestions,
+    events: ({ actions, values }) => ({
+        afterMount: () => {
+            actions.loadSuggestions()
+            if (values.currentTeam) {
+                actions.setAppUrls(values.currentTeam.app_urls)
+            }
+        },
     }),
     reducers: () => ({
         appUrls: [

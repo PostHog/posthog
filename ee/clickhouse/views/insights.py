@@ -12,7 +12,7 @@ from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSession
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.api.insight import InsightViewSet
-from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_SESSIONS, TRENDS_STICKINESS
+from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_SESSIONS, INSIGHT_STICKINESS, TRENDS_STICKINESS
 from posthog.decorators import cached_function
 from posthog.models import Event
 from posthog.models.filters import Filter
@@ -28,7 +28,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         team = self.team
         filter = Filter(request=request)
 
-        if filter.shown_as == TRENDS_STICKINESS:
+        if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
             stickiness_filter = StickinessFilter(
                 request=request, team=team, get_earliest_timestamp=get_earliest_timestamp
             )

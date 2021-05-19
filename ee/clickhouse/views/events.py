@@ -148,6 +148,16 @@ class ClickhouseEventsViewSet(EventViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not request.GET.get("session_recording_id"):
+            return Response(
+                {
+                    "detail": "The query parameter session_recording_id is required for this endpoint.",
+                    "type": "validation_error",
+                    "code": "invalid",
+                },
+                status=400,
+            )
+
         session_recording = SessionRecording().run(
             team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
         )

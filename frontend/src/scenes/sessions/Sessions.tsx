@@ -15,7 +15,7 @@ export function Sessions(): JSX.Element {
                 <Divider type="vertical" className="sessions-divider" />
             </div>
             <div className="sessions-with-filters">
-                <SessionsView />
+                <SessionsView key="global" />
             </div>
         </div>
     )

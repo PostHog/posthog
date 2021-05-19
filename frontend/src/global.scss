@@ -42,10 +42,14 @@ style files without adding already imported styles. */
     --apricot: #ffd8b1;
     --brown: #9a6324;
     // Lifecycle series
-    --lifecycle-new: #99c5ff;
-    --lifecycle-returning: #71b96b;
-    --lifecycle-resurrecting: #c277cf;
-    --lifecycle-dormant: #f86234;
+    --lifecycle-new: #{$lifecycle_new};
+    --lifecycle-returning: #{$lifecycle_returning};
+    --lifecycle-resurrecting: #{$lifecycle_resurrecting};
+    --lifecycle-dormant: #{$lifecycle_dormant};
+    --lifecycle-new-hover: #{darken($lifecycle_new, 20%)};
+    --lifecycle-returning-hover: #{darken($lifecycle_returning, 20%)};
+    --lifecycle-resurrecting-hover: #{darken($lifecycle_resurrecting, 20%)};
+    --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
 }
 
 // Text styles

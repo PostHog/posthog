@@ -19,6 +19,8 @@ export enum ViewType {
     PATHS = 'PATHS',
 }
 
+export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
+
 /*
 InsightLogic maintains state for changing between insight features
 This includes handling the urls and view state
