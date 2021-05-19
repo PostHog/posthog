@@ -4,6 +4,7 @@ import * as AWS from 'aws-sdk'
 import crypto from 'crypto'
 import * as genericPool from 'generic-pool'
 import fetch from 'node-fetch'
+import * as pg from 'pg'
 import snowflake from 'snowflake-sdk'
 import * as zlib from 'zlib'
 
@@ -18,6 +19,7 @@ export const imports = {
     '@google-cloud/bigquery': { BigQuery },
     '@posthog/plugin-contrib': contrib,
     'aws-sdk': AWS,
+    pg: pg,
     ...(process.env.NODE_ENV === 'test'
         ? {
               'test-utils/write-to-file': writeToFile,
