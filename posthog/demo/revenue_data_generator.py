@@ -6,19 +6,16 @@ from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.demo.data_generator import DataGenerator
-from posthog.models import Action, ActionStep, Dashboard, DashboardItem, Person
+from posthog.models import Action, ActionStep, Dashboard, DashboardItem, EventDefinition, Person, PropertyDefinition
 
 
 class RevenueDataGenerator(DataGenerator):
     def create_missing_events_and_properties(self):
-        self.add_if_not_contained(self.team.event_names, "purchase")
-        self.add_if_not_contained(self.team.event_names, "entered_free_trial")
-        self.add_if_not_contained(self.team.event_properties, "plan")
-        self.add_if_not_contained(self.team.event_properties, "first_visit")
-        self.add_if_not_contained(self.team.event_properties_numerical, "purchase_value")
-        self.add_if_not_contained(
-            self.team.event_properties, "purchase_value",
-        )  # numerical properties must also be declared here
+        EventDefinition.objects.get_or_create(team=self.team, event="purchase")
+        EventDefinition.objects.get_or_create(team=self.team, event="entered_free_trial")
+        PropertyDefinition.objects.get_or_create(team=self.team, key="plan")
+        PropertyDefinition.objects.get_or_create(team=self.team, key="first_visit")
+        PropertyDefinition.objects.get_or_create(team=self.team, key="purchase_value", is_numerical=True)
 
     def populate_person_events(self, person: Person, distinct_id: str, index: int):
         if random.randint(0, 10) <= 4:
