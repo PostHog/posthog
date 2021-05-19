@@ -96,14 +96,15 @@ Let's talk about the main thread first. This has:
 
     Scheduled tasks are controlled with [Redlock](https://redis.io/topics/distlock) (redis-based distributed lock), and run on only one plugin server instance in the entire cluster.
 
-6. `jobQueueConsumer`: The internal job queue consumer. This enables retries, scheduling jobs in the future (once) (Note: this is the difference between `scheduleControl` and this internal `jobQueue`). While `scheduleControl` is triggered via `runEveryMinute`, `runEveryHour` tasks, the `jobQueueConsumer` deals with `meta.jobs.doX(event).runAt(new Date())`.
-   The job queue consumer is also controlled with [Redlock](https://redis.io/topics/distlock), and runs on only one plugin server instance in the entire cluster.
+6. `jobQueueConsumer` – The internal job queue consumer. This enables retries, scheduling jobs in the future (once) (Note: this is the difference between `scheduleControl` and this internal `jobQueue`). While `scheduleControl` is triggered via `runEveryMinute`, `runEveryHour` tasks, the `jobQueueConsumer` deals with `meta.jobs.doX(event).runAt(new Date())`.
 
     Jobs are enqueued by `job-queue-manager.ts`, which is backed by Postgres-based [Graphile-worker](https://github.com/graphile/worker) (`graphile-queue.ts`).
 
-7. `queue`: Event ingestion queue. This is a Celery (backed by Redis) or Kafka queue, depending on the setup (EE/Cloud is Kafka due to high volume). These are consumed by the `queue` above, and sent off to the Piscina workers (`src/main/ingestion-queues/queue.ts -> ingestEvent`). Since all of the actual ingestion happens inside worker threads, you'll find the specific ingestion code there (`src/worker/ingestion/ingest-event.ts`). There the data is saved into Postgres (and ClickHouse via Kafka on EE/Cloud).
+7. `queue` – Event ingestion queue. This is a Celery (backed by Redis) or Kafka queue, depending on the setup (EE/Cloud is Kafka due to high volume). These are consumed by the `queue` above, and sent off to the Piscina workers (`src/main/ingestion-queues/queue.ts -> ingestEvent`). Since all of the actual ingestion happens inside worker threads, you'll find the specific ingestion code there (`src/worker/ingestion/ingest-event.ts`). There the data is saved into Postgres (and ClickHouse via Kafka on EE/Cloud).
 
-    It's also a good idea to see the producer side of this ingestion queue, which comes from `Posthog/posthog/api/capture.py`. The plugin server gets `posthog.tasks.process_event.process_event_with_plugins` via Celery from there, in the Postgres pipeline.
+    It's also a good idea to see the producer side of this ingestion queue, which comes from `Posthog/posthog/api/capture.py`. The plugin server gets the `process_event_with_plugins` Celery task from there, in the Postgres pipeline. The ClickHouse via Kafka pipeline gets the data by way of Kafka topic `events_plugin_ingestion`.
+
+8. `mmdbServer` – TCP server, which works as an interface between the GeoIP MMDB data reader located in main thread memory and plugins ran in worker threads of the same plugin server instance. This way the GeoIP reader is only loaded in one thread and can be used in all. Additionally this mechanism ensures that `mmdbServer` is ready before ingestion is started (database downloaded from [http-mmdb](https://github.com/PostHog/http-mmdb) and read), and keeps the database up to date in the background.
 
 ### Worker threads
 
