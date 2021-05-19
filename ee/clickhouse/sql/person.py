@@ -319,6 +319,6 @@ AND person_id IN
     FROM (
         SELECT id, argMax(properties, person._timestamp) as properties FROM person WHERE team_id = %(team_id)s GROUP BY id
     )
-    WHERE team_id = %(team_id)s {filters}
+    WHERE 1 = 1 {filters}
 )
 """
