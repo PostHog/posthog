@@ -64,12 +64,14 @@ jobs:
               with:
                   node-version: 14
             - uses: actions/cache@v2
+              id: node-modules-cache
               with:
                   path: '**/node_modules'
                   key: ${{ runner.os }}-modules-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
                       ${{ runner.os }}-modules-
             - name: Yarn install deps
+              if: steps.node-modules-cache.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
