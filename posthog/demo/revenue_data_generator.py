@@ -11,11 +11,11 @@ from posthog.models import Action, ActionStep, Dashboard, DashboardItem, EventDe
 
 class RevenueDataGenerator(DataGenerator):
     def create_missing_events_and_properties(self):
-        EventDefinition.objects.get_or_create(team=self.team, event="purchase")
-        EventDefinition.objects.get_or_create(team=self.team, event="entered_free_trial")
-        PropertyDefinition.objects.get_or_create(team=self.team, key="plan")
-        PropertyDefinition.objects.get_or_create(team=self.team, key="first_visit")
-        PropertyDefinition.objects.get_or_create(team=self.team, key="purchase_value", is_numerical=True)
+        EventDefinition.objects.get_or_create(team=self.team, name="purchase")
+        EventDefinition.objects.get_or_create(team=self.team, name="entered_free_trial")
+        PropertyDefinition.objects.get_or_create(team=self.team, name="plan")
+        PropertyDefinition.objects.get_or_create(team=self.team, name="first_visit")
+        PropertyDefinition.objects.get_or_create(team=self.team, name="purchase_value", is_numerical=True)
 
     def populate_person_events(self, person: Person, distinct_id: str, index: int):
         if random.randint(0, 10) <= 4:

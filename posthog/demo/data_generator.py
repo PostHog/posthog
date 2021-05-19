@@ -71,10 +71,6 @@ class DataGenerator:
     def add_event(self, **kw):
         self.events.append(kw)
 
-    def add_if_not_contained(self, array, value):
-        if value not in array:
-            array.append(value)
-
 
 def _recalculate(team: Team) -> None:
     actions = Action.objects.filter(team=team)
