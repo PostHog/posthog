@@ -172,7 +172,6 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "saved",
             "created_at",
             "created_by",
-            "children",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:

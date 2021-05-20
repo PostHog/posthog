@@ -56,7 +56,6 @@ class InsightSerializer(serializers.ModelSerializer):
             "result",
             "created_at",
             "saved",
-            "children",
             "created_by",
         ]
         read_only_fields = (

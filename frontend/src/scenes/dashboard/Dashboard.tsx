@@ -14,6 +14,7 @@ import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { Link } from 'lib/components/Link'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+import { ActivityHistory } from 'lib/components/ActivityHistory/ActivityHistory'
 
 interface Props {
     id: string
@@ -102,6 +103,7 @@ function DashboardView(): JSX.Element {
 
     return (
         <div className="dashboard">
+            <ActivityHistory />
             {dashboardMode !== DashboardMode.Public && <DashboardHeader />}
             {items && items.length ? (
                 <div>

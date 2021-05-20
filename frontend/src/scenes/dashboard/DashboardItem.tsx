@@ -25,6 +25,7 @@ import {
     BarChartOutlined,
     SaveOutlined,
     ReloadOutlined,
+    HistoryOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
@@ -39,6 +40,7 @@ import { DashboardItemType, DashboardType, DisplayType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
+import { activityHistoryLogic } from 'lib/components/ActivityHistory/activityHistoryLogic'
 
 dayjs.extend(relativeTime)
 
@@ -213,6 +215,7 @@ export function DashboardItem({
     const { dashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const otherDashboards: DashboardType[] = dashboards.filter((d: DashboardType) => d.id !== dashboardId)
+    const { setShowActivityHistory } = useActions(activityHistoryLogic)
 
     const longPressProps = useLongPress(setEditMode, {
         ms: 500,
@@ -323,6 +326,18 @@ export function DashboardItem({
                                     onClick={() => loadResults(true)}
                                 />
                             </Tooltip>
+                            {/* {activityHistory &&  */}
+                            <Tooltip title="Show activity history">
+                                <Button
+                                    onClick={() => setShowActivityHistory(true)}
+                                    style={{marginLeft: 10, background: '#f1f2f3'}}
+                                    size="small"
+                                    shape="circle"
+                                >
+                                    <HistoryOutlined style={{margin: 0, padding: 0}} />
+                                </Button>
+                            </Tooltip>
+                            {/* } */}
                             <Dropdown
                                 placement="bottomRight"
                                 trigger={['click']}
