@@ -125,6 +125,8 @@ jobs:
                   record: true
                   parallel: true
                   group: 'PostHog Frontend'
+                  # We're already installing cypress above
+                  install: false
                   # We already install cypress separately, we don't need to install it again here
                   install-command: echo "no"
               env:
