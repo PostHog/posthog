@@ -71,7 +71,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(crontab(minute=0, hour="*/4"), delete_old_plugin_logs.s())
 
     # sync all Organization.available_features every hour
-    sync_all_organization_available_features.apply_async()  # run once on launch in case plans changed
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sender.add_periodic_task(
