@@ -48,6 +48,14 @@ export function InternalMetricsTab(): JSX.Element {
                     </div>
                     <QueryTable queries={postgresQueries} loading={queriesLoading} />
                 </Collapse.Panel>
+                <Collapse.Panel header="Clickhouse - currently running queries" key="2">
+                    <div className="mb float-right">
+                        <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
+                            <ReloadOutlined /> Reload Queries
+                        </Button>
+                    </div>
+                    <QueryTable queries={queries?.clickhouse_running} loading={queriesLoading} />
+                </Collapse.Panel>
             </Collapse>
         </Card>
     )
@@ -87,8 +95,9 @@ function QueryTable(props: {
             loading={props.loading}
             pagination={{ pageSize: 30, hideOnSinglePage: true }}
             size="small"
-            emptyText="No queries found"
             bordered
+            style={{ overflowX: 'auto', overflowY: 'auto' }}
+            locale={{ emptyText: 'No queries found' }}
         />
     )
 }

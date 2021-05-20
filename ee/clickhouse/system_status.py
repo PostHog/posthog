@@ -1,4 +1,4 @@
-from typing import Dict, Generator
+from typing import Dict, Generator, List
 
 from ee.clickhouse.client import sync_execute
 
@@ -58,3 +58,21 @@ def is_alive() -> bool:
         return True
     except:
         return False
+
+
+def get_clickhouse_running_queries() -> List[Dict]:
+    return query_with_columns(
+        "SELECT elapsed as duration, query, * FROM system.processes", ["address", "initial_address"]
+    )
+
+
+def query_with_columns(query, columns_to_remove=[]) -> List[Dict]:
+    *metrics, types = sync_execute(query, with_column_types=True)
+    type_names = [key for key, _type in types]
+
+    rows = [dict(zip(type_names, row[0])) for row in metrics]
+    for row in rows:
+        for key in columns_to_remove:
+            row.pop(key)
+
+    return rows

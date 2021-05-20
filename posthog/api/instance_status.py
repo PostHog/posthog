@@ -145,6 +145,11 @@ class InstanceStatusViewSet(viewsets.ViewSet):
     def queries(self, request: Request) -> Response:
         queries = {"postgres_running": self.get_postgres_running_queries()}
 
+        if is_clickhouse_enabled():
+            from ee.clickhouse.system_status import get_clickhouse_running_queries
+
+            queries["clickhouse_running"] = get_clickhouse_running_queries()
+
         return Response({"results": queries})
 
     def get_postgres_running_queries(self):
@@ -157,7 +162,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
             FROM pg_stat_activity
             WHERE query NOT LIKE '%pg_stat_activity%'
               AND query != ''
-              AND now() - query_start > INTERVAL '10 seconds'
+              AND now() - query_start > INTERVAL '3 seconds'
             ORDER BY state, duration DESC
         """
         )
