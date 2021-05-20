@@ -40,4 +40,4 @@ class ActivityHistoryViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         parent = self.request.query_params["parent"]
-        return DashboardItem.objects.filter(parent=parent)
+        return DashboardItem.objects.filter(parent=parent)  # type: ignore

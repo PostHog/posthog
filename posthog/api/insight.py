@@ -83,7 +83,7 @@ class InsightSerializer(serializers.ModelSerializer):
     def update(self, instance: DashboardItem, validated_data: Dict) -> DashboardItem:
         saved_pk = instance.pk
         instance.pk = None
-        instance.id = None
+        instance.id = None  # type: ignore
         instance.dashboard = None
 
         new_instance = DashboardItem.objects.get(pk=saved_pk)
