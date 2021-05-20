@@ -4,6 +4,7 @@ describe('Trends', () => {
     })
 
     it('Insight History Panel Rendered', () => {
+        cy.get('.insights-page').should('exist')
         cy.get('[data-attr=insight-history-button]').click()
         cy.get('[data-attr=insight-history-panel]').should('exist')
     })
