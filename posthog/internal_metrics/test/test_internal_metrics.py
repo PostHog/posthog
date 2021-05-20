@@ -20,12 +20,13 @@ from posthog.models.dashboard import Dashboard
 def mock_capture_internal(mocker: MockerFixture):
     get_internal_metrics_team_id.cache_clear()
     get_internal_metrics_dashboards.cache_clear()
-
     mocker.patch.object(settings, "CAPTURE_INTERNAL_METRICS", True)
     mocker.patch("posthog.utils.get_machine_id", return_value="machine_id")
     yield mocker.patch("posthog.api.capture.capture_internal")
 
     mocker.patch.object(settings, "CAPTURE_INTERNAL_METRICS", False)
+    get_internal_metrics_team_id.cache_clear()
+    get_internal_metrics_dashboards.cache_clear()
 
 
 def test_methods_capture_enabled(db, mock_capture_internal):
