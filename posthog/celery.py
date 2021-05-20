@@ -135,9 +135,8 @@ CLICKHOUSE_TABLES = [
 @app.task(ignore_result=True)
 def clickhouse_lag():
     if is_clickhouse_enabled() and settings.EE_AVAILABLE:
-        from statshog.defaults.django import statsd
-
         from ee.clickhouse.client import sync_execute
+        from posthog.internal_metrics import gauge
 
         for table in CLICKHOUSE_TABLES:
             try:
@@ -146,7 +145,7 @@ def clickhouse_lag():
                 )
                 query = QUERY.format(table=table)
                 lag = sync_execute(query)[0][2]
-                statsd.gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
+                gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
             except:
                 pass
     else:
@@ -156,16 +155,15 @@ def clickhouse_lag():
 @app.task(ignore_result=True)
 def clickhouse_row_count():
     if is_clickhouse_enabled() and settings.EE_AVAILABLE:
-        from statshog.defaults.django import statsd
-
         from ee.clickhouse.client import sync_execute
+        from posthog.internal_metrics import gauge
 
         for table in CLICKHOUSE_TABLES:
             try:
                 QUERY = """select count(1) freq from {table};"""
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
-                statsd.gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
+                gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
             except:
                 pass
     else:
@@ -175,9 +173,8 @@ def clickhouse_row_count():
 @app.task(ignore_result=True)
 def clickhouse_part_count():
     if is_clickhouse_enabled() and settings.EE_AVAILABLE:
-        from statshog.defaults.django import statsd
-
         from ee.clickhouse.client import sync_execute
+        from posthog.internal_metrics import gauge
 
         QUERY = """
             select table, count(1) freq
@@ -187,7 +184,7 @@ def clickhouse_part_count():
         """
         rows = sync_execute(QUERY)
         for (table, parts) in rows:
-            statsd.gauge(f"posthog_celery_clickhouse_table_parts_count", parts, tags={"table": table})
+            gauge(f"posthog_celery_clickhouse_table_parts_count", parts, tags={"table": table})
     else:
         pass
 
@@ -195,9 +192,8 @@ def clickhouse_part_count():
 @app.task(ignore_result=True)
 def clickhouse_mutation_count():
     if is_clickhouse_enabled() and settings.EE_AVAILABLE:
-        from statshog.defaults.django import statsd
-
         from ee.clickhouse.client import sync_execute
+        from posthog.internal_metrics import gauge
 
         QUERY = """
             SELECT
@@ -209,18 +205,18 @@ def clickhouse_mutation_count():
         """
         rows = sync_execute(QUERY)
         for (table, muts) in rows:
-            statsd.gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
+            gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
     else:
         pass
 
 
 @app.task(ignore_result=True)
 def redis_celery_queue_depth():
-    from statshog.defaults.django import statsd
+    from posthog.internal_metrics import gauge
 
     try:
         llen = get_client().llen("celery")
-        statsd.gauge(f"posthog_celery_queue_depth", llen)
+        gauge(f"posthog_celery_queue_depth", llen)
     except:
         # if we can't connect to statsd don't complain about it.
         # not every installation will have statsd available

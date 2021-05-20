@@ -139,11 +139,7 @@ export function ActionFilterRow({
                         <span>{letter}</span>
                     </Col>
                 )}
-                {customRowPrefix !== undefined ? (
-                    <>{customRowPrefix && <Col>{customRowPrefix}</Col>}</>
-                ) : (
-                    <>{horizontalUI && <Col>Showing</Col>}</>
-                )}
+                {customRowPrefix ? <Col>{customRowPrefix}</Col> : <>{horizontalUI && <Col>Showing</Col>}</>}
                 <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
                     <Button
                         data-attr={'trend-element-subject-' + index}
@@ -165,7 +161,7 @@ export function ActionFilterRow({
                 </Col>
                 {!hideMathSelector && (
                     <>
-                        <Col>counted by</Col>
+                        {horizontalUI && <Col>counted by</Col>}
                         <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
                             <MathSelector
                                 math={math}
@@ -177,7 +173,7 @@ export function ActionFilterRow({
                         </Col>
                         {MATHS[math || '']?.onProperty && (
                             <>
-                                <Col>on property</Col>
+                                {horizontalUI && <Col>on property</Col>}
                                 <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
                                     <MathPropertySelector
                                         name={name}
