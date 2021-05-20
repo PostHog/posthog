@@ -72,7 +72,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # sync all Organization.available_features every hour
     sync_all_organization_available_features.apply_async()  # run once on launch in case plans changed
-    sender.add_periodic_task(crontab(minute=0, hour="*"), sync_all_organization_available_features.s())
+    sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sender.add_periodic_task(
         UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
