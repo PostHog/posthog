@@ -1,10 +1,12 @@
-from typing import Any, ClassVar, List, Optional, cast
+from typing import Any, List, Optional, cast
 
 import requests
 from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils import timezone
 from rest_framework import exceptions, status
+
+DEFAULT_USER_LIMIT = 3
 
 
 class LicenseError(exceptions.APIException):
@@ -70,11 +72,10 @@ def get_max_users() -> Optional[int]:
     Returns the maximum number of users allowed.
     Examines all available valid licenses and returns the max users available.
     """
-    licenses = License.objects.filter(valid_until__gte=timezone.now())
-    if len(licenses) > 0:
-        return max([l.max_users for l in licenses])
-    else:
+    user_limits = [l.max_users for l in License.objects.filter(valid_until__gte=timezone.now())]
+    if None in user_limits:
         return None
+    return max(user_limits, default=DEFAULT_USER_LIMIT)
 
 
 def get_licensed_users_available() -> Optional[int]:
@@ -87,9 +88,8 @@ def get_licensed_users_available() -> Optional[int]:
     max_users = get_max_users()
     from posthog.models import OrganizationInvite
 
-    if license:
-        if max_users is None:
-            return None
+    if max_users is None:
+        return None
 
-        users_left = max_users - get_user_model().objects.count() - OrganizationInvite.objects.count()
-        return max(users_left, 0)
+    users_left = max_users - get_user_model().objects.count() - OrganizationInvite.objects.count()
+    return max(users_left, 0)
