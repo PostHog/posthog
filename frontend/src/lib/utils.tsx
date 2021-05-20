@@ -308,7 +308,7 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     return JSON.stringify(obj1) === JSON.stringify(obj2)
 }
 
-export function idToKey(array: Record<string, any>[], keyField: string = 'id'): any {
+export function idToKey(array: Record<string, any>[], keyField: string = 'id'): Record<string, any> {
     const object: Record<string, any> = {}
     for (const element of array) {
         object[element[keyField]] = element
