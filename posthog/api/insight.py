@@ -84,6 +84,7 @@ class InsightSerializer(serializers.ModelSerializer):
         saved_pk = instance.pk
         instance.pk = None
         instance.id = None
+        instance.dashboard = None
 
         new_instance = DashboardItem.objects.get(pk=saved_pk)
 

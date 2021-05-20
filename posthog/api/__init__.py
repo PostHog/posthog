@@ -5,6 +5,7 @@ from posthog.ee import is_clickhouse_enabled
 
 from . import (
     action,
+    activity_history,
     annotation,
     authentication,
     cohort,
@@ -14,7 +15,6 @@ from . import (
     event_definition,
     feature_flag,
     insight,
-    insight_comment,
     organization,
     organization_invite,
     organization_member,
@@ -47,7 +47,7 @@ router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"plugin_config", plugin.PluginConfigViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"sessions_filter", sessions_filter.SessionsFilterViewSet)
-router.register(r"insight_comments", insight_comment.InsightCommentsViewSet)
+router.register(r"activity_history", activity_history.ActivityHistoryViewSet)
 
 # Nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet)
