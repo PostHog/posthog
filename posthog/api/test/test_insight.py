@@ -78,6 +78,27 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response[0].filters["events"][0]["id"], "$pageview")
             self.assertEqual(response[0].filters["date_from"], "-90d")
 
+        def test_update_insight(self):
+            filter_dict = {
+                "events": [{"id": "$pageview"}],
+                "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            }
+
+            insight = DashboardItem.objects.create(
+                filters=Filter(data=filter_dict).to_dict(), saved=True, team=self.team, created_by=self.user
+            )
+            response = self.client.patch(
+                f"/api/insight/{insight.id}",
+                {
+                    "name": "updated insight name",
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_data = response.json()
+            self.assertEqual(response_data["name"], "updated insight name")
+            insight.refresh_from_db()
+            self.assertEqual(insight.name, "updated insight name")
+
         # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
         def test_insight_trends_basic(self):
