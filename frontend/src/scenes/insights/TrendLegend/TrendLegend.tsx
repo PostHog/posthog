@@ -9,14 +9,21 @@ import { cohortsModel } from '~/models'
 import { CohortType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { maybeAddCommasToInteger } from 'lib/utils'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
-function formatLabel(item: IndexedTrendResult): string {
-    const name = item.action?.name || item.label
+function formatLabel(item: IndexedTrendResult): JSX.Element {
+    const name = <PropertyKeyInfo value={item.action?.name || item.label} disableIcon />
     const math = item.action?.math
     const mathLabel = math ? MATHS[math].name : ''
     const propNum = item.action?.properties.length
     const propLabel = propNum ? propNum + (propNum === 1 ? ' property' : ' properties') : ''
-    return name + (mathLabel ? ' — ' + mathLabel : '') + (propLabel ? ' — ' + propLabel : '')
+    return (
+        <>
+            {name}
+            {mathLabel ? ' — ' + mathLabel : ''}
+            {propLabel ? ' — ' + propLabel : ''}
+        </>
+    )
 }
 
 function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {

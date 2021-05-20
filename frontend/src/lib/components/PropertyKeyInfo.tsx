@@ -457,12 +457,14 @@ interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
     disablePopover?: boolean
+    disableIcon?: boolean
 }
 
 export function PropertyKeyInfo({
     value,
     type = 'event',
     disablePopover = false,
+    disableIcon = false,
 }: PropertyKeyInfoInterface): JSX.Element {
     value = `${value}` // convert to string
     let data = null
@@ -478,6 +480,13 @@ export function PropertyKeyInfo({
         return (
             <Typography.Text ellipsis={true} style={{ color: 'inherit', maxWidth: 400 }} title={value}>
                 {value}
+            </Typography.Text>
+        )
+    }
+    if (disableIcon) {
+        return (
+            <Typography.Text ellipsis={true} style={{ color: 'inherit', maxWidth: 400 }} title={data.label}>
+                {data.label}
             </Typography.Text>
         )
     }
