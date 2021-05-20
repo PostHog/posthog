@@ -236,4 +236,5 @@ export const FEATURE_FLAGS: Record<string, string> = {
     PROJECT_HOME: 'project-home-exp-5',
     QUERY_UX_V2: '4050-query-ui-optB',
     EVENT_COLUMN_CONFIG: '4141-event-columns',
+    ACTIVITY_HISTORY: 'activity-history',
 }

@@ -383,6 +383,7 @@ export interface PlanInterface {
 export interface DashboardItemType {
     id: number
     name: string
+    parent?: number
     description?: string
     filters: Record<string, any>
     filters_hash: string
