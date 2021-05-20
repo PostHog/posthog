@@ -23,7 +23,9 @@ def mock_capture_internal(mocker: MockerFixture):
 
     mocker.patch.object(settings, "CAPTURE_INTERNAL_METRICS", True)
     mocker.patch("posthog.utils.get_machine_id", return_value="machine_id")
-    return mocker.patch("posthog.api.capture.capture_internal")
+    yield mocker.patch("posthog.api.capture.capture_internal")
+
+    mocker.patch.object(settings, "CAPTURE_INTERNAL_METRICS", False)
 
 
 def test_methods_capture_enabled(db, mock_capture_internal):
