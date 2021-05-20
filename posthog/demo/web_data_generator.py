@@ -19,6 +19,8 @@ SCREEN_OPTIONS = ("settings", "profile", "movies", "downloads")
 
 class WebDataGenerator(DataGenerator):
     def create_missing_events_and_properties(self):
+        self.add_if_not_contained(self.team.event_properties_numerical, "purchase")
+        self.add_if_not_contained(self.team.event_properties, "purchase")
         PropertyDefinition.objects.get_or_create(team=self.team, name="purchase", is_numerical=True)
 
     def create_actions_dashboards(self):
