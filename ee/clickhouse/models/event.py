@@ -89,11 +89,6 @@ def create_event(
     return str(event_uuid)
 
 
-def get_events():
-    events = sync_execute(GET_EVENTS_SQL)
-    return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
-
-
 def get_events_by_team(team_id: Union[str, int]):
     events = sync_execute(GET_EVENTS_BY_TEAM_SQL, {"team_id": str(team_id)})
     return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
