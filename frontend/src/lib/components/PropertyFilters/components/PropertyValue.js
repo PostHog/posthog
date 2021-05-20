@@ -17,7 +17,8 @@ export function PropertyValue({
     operator,
     outerOptions = undefined,
 }) {
-    const [input, setInput] = useState(value || '')
+    const isMultiSelect = isOperatorMulti(operator)
+    const [input, setInput] = useState((!isMultiSelect && value) || '')
     const [optionsCache, setOptionsCache] = useState({})
     const [options, setOptions] = useState({})
 
@@ -66,7 +67,7 @@ export function PropertyValue({
     const commonInputProps = {
         autoFocus: !value && !isMobile(),
         style: { width: '100%', ...style },
-        value: input || placeholder,
+        value: (isMultiSelect ? value : input) || placeholder,
         loading: optionsCache[input] === 'loading',
         onSearch: (newInput) => {
             setInput(newInput)
@@ -83,7 +84,7 @@ export function PropertyValue({
             if (e.key === 'Escape') {
                 e.target.blur()
             }
-            if (e.key === 'Enter') {
+            if (!isMultiSelect && e.key === 'Enter') {
                 setValue(input)
             }
         },
@@ -91,7 +92,7 @@ export function PropertyValue({
 
     return (
         <>
-            {!isOperatorMulti(operator) ? (
+            {!isMultiSelect ? (
                 <AutoComplete
                     {...commonInputProps}
                     onChange={(val) => {
@@ -123,10 +124,10 @@ export function PropertyValue({
             ) : (
                 <SelectGradientOverflow
                     {...commonInputProps}
-                    mode={isOperatorMulti(operator) ? 'multiple' : undefined}
+                    mode={isMultiSelect ? 'multiple' : undefined}
                     showSearch
                     onChange={(val, payload) => {
-                        if (isOperatorMulti(operator) && payload.length > 0) {
+                        if (isMultiSelect && payload.length > 0) {
                             setValue(val)
                         } else {
                             setValue(payload?.value ?? null)
