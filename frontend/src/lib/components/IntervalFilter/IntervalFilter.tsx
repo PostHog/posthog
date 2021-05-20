@@ -4,33 +4,28 @@ import { intervalFilterLogic } from './intervalFilterLogic'
 import { useValues, useActions } from 'kea'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { disableHourFor, disableMinuteFor } from 'lib/utils'
-import { CalendarOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import { CalendarOutlined } from '@ant-design/icons'
 
 const intervals = {
     minute: {
         label: 'Minute',
         newDateFrom: 'dStart',
-        icon: <ClockCircleOutlined />,
     },
     hour: {
         label: 'Hourly',
         newDateFrom: 'dStart',
-        icon: <ClockCircleOutlined />,
     },
     day: {
         label: 'Daily',
         newDateFrom: undefined,
-        icon: <ClockCircleOutlined />,
     },
     week: {
         label: 'Weekly',
         newDateFrom: '-30d',
-        icon: <CalendarOutlined />,
     },
     month: {
         label: 'Monthly',
         newDateFrom: '-90d',
-        icon: <CalendarOutlined />,
     },
 }
 
@@ -46,14 +41,17 @@ interface InvertalFilterProps {
 export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Element {
     const interval: IntervalKeyType = useValues(intervalFilterLogic).interval
     const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic)
-    const options = Object.entries(intervals).map(([key, { label, icon }]) => ({
+    const options = Object.entries(intervals).map(([key, { label }]) => ({
         key,
         value: key,
-        label: (
-            <>
-                {icon} {label}
-            </>
-        ),
+        label:
+            key === interval ? (
+                <>
+                    <CalendarOutlined /> {label}
+                </>
+            ) : (
+                label
+            ),
         disabled: (key === 'minute' || key === 'hour') && view === ViewType.SESSIONS,
     }))
     return (
