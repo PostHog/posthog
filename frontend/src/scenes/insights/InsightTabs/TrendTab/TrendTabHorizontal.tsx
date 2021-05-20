@@ -17,6 +17,7 @@ import './TrendTab.scss'
 import { TrendTabProps } from './TrendTab'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { InsightTitle } from '../InsightTitle'
+import { InsightActionBar } from '../InsightActionBar'
 
 export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
@@ -36,14 +37,22 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
     const formulaAvailable =
         (!filters.insight || filters.insight === ViewType.TRENDS) &&
         featureFlags['3275-formulas'] &&
-        preflight?.ee_enabled
+        preflight?.is_clickhouse_enabled
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
 
     return (
         <>
             <Row gutter={16}>
                 <Col md={16} xs={24}>
-                    <InsightTitle annotations={annotationsToCreate} filters={filters} />
+                    <InsightTitle
+                        actionBar={
+                            <InsightActionBar
+                                filters={filters}
+                                annotations={annotationsToCreate}
+                                insight={filters.insight}
+                            />
+                        }
+                    />
                     {filtersLoading ? (
                         <Skeleton active />
                     ) : (
@@ -55,7 +64,14 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                             buttonCopy="Add graph series"
                             showLetters={isUsingFormulas}
                             singleFilter={filters.insight === ViewType.LIFECYCLE}
-                            hidePropertySelector={filters.insight === ViewType.LIFECYCLE}
+                            hideMathSelector={filters.insight === ViewType.LIFECYCLE}
+                            customRowPrefix={
+                                filters.insight === ViewType.LIFECYCLE ? (
+                                    <>
+                                        Showing <b>Unique users</b> who did
+                                    </>
+                                ) : undefined
+                            }
                         />
                     )}
                 </Col>

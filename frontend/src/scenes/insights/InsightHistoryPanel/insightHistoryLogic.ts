@@ -39,7 +39,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
                     'api/insight/?' +
                         toParams({
                             order: '-created_at',
-                            limit: 20,
+                            limit: 25,
                             user: true,
                         })
                 )
@@ -55,7 +55,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
                         toParams({
                             order: '-created_at',
                             saved: true,
-                            limit: 100,
+                            limit: 25,
                             user: true,
                         })
                 )
@@ -71,7 +71,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
                         toParams({
                             order: '-created_at',
                             saved: true,
-                            limit: 100,
+                            limit: 25,
                         })
                 )
                 actions.setTeamInsightsNext(response.next)

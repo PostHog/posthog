@@ -16,6 +16,7 @@ import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { BaseTabProps } from '../Insights'
 import { InsightTitle } from './InsightTitle'
+import { InsightActionBar } from './InsightActionBar'
 
 export function PathTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsLogic)
@@ -28,9 +29,9 @@ export function PathTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.El
     return (
         <Row gutter={16}>
             <Col md={16} xs={24}>
-                <Row>
-                    <InsightTitle annotations={annotationsToCreate} filters={filter} />
-                </Row>
+                <InsightTitle
+                    actionBar={<InsightActionBar filters={filter} annotations={annotationsToCreate} insight="PATHS" />}
+                />
                 <Row gutter={8} align="middle" className="mt">
                     <Col>Showing paths from</Col>
                     <Col>

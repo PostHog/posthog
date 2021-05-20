@@ -464,6 +464,7 @@ export function PropertyKeyInfo({
     type = 'event',
     disablePopover = false,
 }: PropertyKeyInfoInterface): JSX.Element {
+    value = `${value}` // convert to string
     let data = null
     if (value in keyMapping[type]) {
         data = { ...keyMapping[type][value] }
@@ -475,7 +476,7 @@ export function PropertyKeyInfo({
         }
     } else {
         return (
-            <Typography.Text ellipsis={true} style={{ maxWidth: 400 }} title={value}>
+            <Typography.Text ellipsis={true} style={{ color: 'inherit', maxWidth: 400 }} title={value}>
                 {value}
             </Typography.Text>
         )

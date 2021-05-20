@@ -281,7 +281,7 @@ export function DashboardItem({
                             {saveDashboardItem &&
                                 (!item.saved && item.dashboard ? (
                                     <Link to={'/dashboard/' + item.dashboard}>
-                                        <small>dashboard</small>
+                                        <small>View dashboard</small>
                                     </Link>
                                 ) : (
                                     <Tooltip title="Save insight">

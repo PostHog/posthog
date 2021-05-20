@@ -29,7 +29,7 @@ const LESSONS = [
     {
         title: 'Safely Roll Out New Features',
         hover: "A walk-through on how you can roll-out and learn from features using PostHog's feature flags.",
-        target: `https://posthog.com/docs/tutorials/feature-flag?utm_content=project-homes${UTM_TAGS}`,
+        target: `https://posthog.com/docs/tutorials/feature-flags?utm_content=project-homes${UTM_TAGS}`,
         imgSrc: rollOutFeatures,
     },
     {

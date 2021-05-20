@@ -25,11 +25,15 @@ export type AvailableFeatures =
     | 'dashboard_collaboration'
     | 'clickhouse'
 
+export interface ColumnConfig {
+    active: string[] | 'DEFAULT'
+}
 export interface UserType {
     uuid: string
     first_name: string
     email: string
     email_opt_in: boolean
+    events_column_config: ColumnConfig
     anonymize_data: boolean
     distinct_id: string
     toolbar_mode: 'disabled' | 'toolbar'
@@ -353,12 +357,6 @@ export interface SessionType {
     matching_events: Array<number | string>
 }
 
-export interface FormattedNumber {
-    // :TODO: DEPRECATED, formatting will now happen client-side
-    value: number
-    formatted: string
-}
-
 export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean
@@ -548,12 +546,22 @@ export interface SystemStatusSubrows {
     rows: string[][]
 }
 
-export interface SystemStatus {
+export interface SystemStatusRow {
     metric: string
     value: string
     key?: string
     description?: string
     subrows?: SystemStatusSubrows
+}
+
+export interface SystemStatus {
+    overview: SystemStatusRow[]
+    internal_metrics: {
+        clickhouse?: {
+            id: number
+            share_token: string
+        }
+    }
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>
@@ -648,7 +656,7 @@ export interface PreflightStatus {
     cloud: boolean
     celery: boolean
     ee_available?: boolean
-    ee_enabled?: boolean
+    is_clickhouse_enabled?: boolean
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
@@ -666,6 +674,10 @@ export enum DashboardMode { // Default mode is null
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
     Public = 'public', // When viewing the dashboard publicly via a shareToken
+}
+
+export enum DashboardItemMode {
+    Edit = 'edit',
 }
 
 // Reserved hotkeys globally available

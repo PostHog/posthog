@@ -38,11 +38,11 @@ services:
             - redis:redis
         ports:
             - '8000:8000'
-    #frontend:
-    #<<: *backend
-    #command: ./bin/docker-frontend
-    #ports:
-    #- '8234:8234'
+    frontend:
+        <<: *backend
+        command: ./bin/docker-frontend
+        ports:
+            - '8234:8234'
     worker:
         <<: *backend
         command: ./bin/docker-worker
