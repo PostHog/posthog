@@ -18,7 +18,7 @@ export function PropertyValue({
     outerOptions = undefined,
 }) {
     const isMultiSelect = isOperatorMulti(operator)
-    const [input, setInput] = useState((!isMultiSelect && value) || '')
+    const [input, setInput] = useState(isMultiSelect ? '' : value)
     const [optionsCache, setOptionsCache] = useState({})
     const [options, setOptions] = useState({})
 
