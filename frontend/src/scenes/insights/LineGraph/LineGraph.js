@@ -10,6 +10,7 @@ import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import dayjs from 'dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import './LineGraph.scss'
 
 //--Chart Style Options--//
@@ -20,7 +21,6 @@ Chart.defaults.global.elements.line.tension = 0
 //--Chart Style Options--//
 
 const noop = () => {}
-
 export function LineGraph({
     datasets,
     visibilityMap = null,
@@ -37,6 +37,8 @@ export function LineGraph({
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newUI = featureFlags['4156-new-graph-ui']
     const [left, setLeft] = useState(0)
     const [holdLeft, setHoldLeft] = useState(0)
     const [enabled, setEnabled] = useState(false)
@@ -59,6 +61,26 @@ export function LineGraph({
     const size = useWindowSize()
 
     const annotationsCondition = type === 'line' && datasets.length > 0 && !datasets[0].compare && !inSharedMode
+    let colors = {
+        axisLabel: color === 'white' ? '#333' : 'rgba(255,255,255,0.8)',
+        axisLine: color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)',
+        axis: color === 'white' ? '#999' : 'rgba(255,255,255,0.6)',
+        tooltipBackground: '#1dc9b7',
+        tooltipTitle: '#fff',
+        tooltipBody: '#fff',
+        annotationColor: color === 'white' ? null : 'white',
+        annotationAccessoryColor: color === 'white' ? null : 'black',
+        tooltipBorder: null,
+    }
+    if (newUI) {
+        colors = {
+            ...colors,
+            tooltipBackground: '#fff',
+            tooltipTitle: '#2d2d2d',
+            tooltipBody: '#2d2d2d',
+            tooltipBorder: '#ddd',
+        }
+    }
 
     useEscapeKey(() => setFocused(false), [focused])
 
@@ -126,7 +148,7 @@ export function LineGraph({
             hoverBackgroundColor: hoverColor,
             backgroundColor: (type === 'bar' || type === 'doughnut') && borderColor,
             fill: false,
-            borderWidth: 2,
+            borderWidth: newUI ? 2 : 1,
             pointRadius: 0,
             pointHitRadius: 8,
             ...dataset,
@@ -135,10 +157,6 @@ export function LineGraph({
 
     function buildChart() {
         const myChartRef = chartRef.current.getContext('2d')
-
-        const axisLabelColor = color === 'white' ? '#333' : 'rgba(255,255,255,0.8)'
-        const axisLineColor = color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)'
-        const axisColor = color === 'white' ? '#999' : 'rgba(255,255,255,0.6)'
 
         if (typeof myLineChart.current !== 'undefined') {
             myLineChart.current.destroy()
@@ -202,8 +220,12 @@ export function LineGraph({
                 xPadding: 10,
                 caretPadding: 0,
                 displayColors: false,
-                backgroundColor: '#1dc9b7',
-                titleFontColor: '#ffffff',
+                backgroundColor: colors.tooltipBackground,
+                titleFontColor: colors.tooltipTitle,
+                bodyFontColor: colors.tooltipBody,
+                footerFontColor: colors.tooltipBody,
+                borderColor: colors.tooltipBorder,
+                borderWidth: newUI ? 1 : undefined,
                 labelFontSize: 23,
                 cornerRadius: 4,
                 fontSize: 12,
@@ -273,12 +295,12 @@ export function LineGraph({
 
         if (type === 'bar') {
             options.scales = {
-                xAxes: [{ stacked: true, ticks: { fontColor: axisLabelColor } }],
+                xAxes: [{ stacked: true, ticks: { fontColor: colors.axisLabel } }],
                 yAxes: [
                     {
                         stacked: true,
                         ticks: {
-                            fontColor: axisLabelColor,
+                            fontColor: colors.axisLabel,
                             callback: (value) => {
                                 return maybeAddCommasToInteger(value)
                             },
@@ -291,7 +313,7 @@ export function LineGraph({
                 autoSkip: true,
                 beginAtZero: true,
                 min: 0,
-                fontColor: axisLabelColor,
+                fontColor: colors.axisLabel,
                 precision: 0,
             }
 
@@ -299,7 +321,7 @@ export function LineGraph({
                 xAxes: [
                     {
                         display: true,
-                        gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
+                        gridLines: { lineWidth: 0, color: colors.axisLine, zeroLineColor: colors.axis },
                         ticks: {
                             ...tickOptions,
                             padding: annotationsLoading || !annotationInRange ? 0 : 35,
@@ -309,7 +331,7 @@ export function LineGraph({
                 yAxes: [
                     {
                         display: true,
-                        gridLines: { color: axisLineColor, zeroLineColor: axisColor },
+                        gridLines: { color: colors.axisLine, zeroLineColor: colors.axis },
                         ticks: percentage
                             ? {
                                   callback: function (value) {
@@ -340,7 +362,7 @@ export function LineGraph({
                 ],
                 yAxes: [
                     {
-                        ticks: { fontColor: axisLabelColor },
+                        ticks: { fontColor: colors.axisLabel },
                     },
                 ],
             }
@@ -415,8 +437,8 @@ export function LineGraph({
                     }}
                     onClose={() => setAnnotationsFocused(false)}
                     graphColor={color}
-                    color={color === 'white' ? null : 'white'}
-                    accessoryColor={color === 'white' ? null : 'black'}
+                    color={colors.annotationColor}
+                    accessoryColor={colors.annotationAccessoryColor}
                 />
             )}
             {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
@@ -445,9 +467,9 @@ export function LineGraph({
                     left={(focused ? holdLeft : left) - 12.5}
                     top={topExtent}
                     label={'Add Note'}
-                    color={color === 'white' ? null : 'white'}
                     graphColor={color}
-                    accessoryColor={color === 'white' ? null : 'black'}
+                    color={colors.annotationColor}
+                    accessoryColor={colors.annotationAccessoryColor}
                 />
             )}
         </div>
