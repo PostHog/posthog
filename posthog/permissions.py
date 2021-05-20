@@ -54,7 +54,7 @@ class UninitiatedOrCloudOnly(BasePermission):
         return settings.MULTI_TENANCY or not User.objects.exists()
 
 
-class IsMultiTenancyAdmin(BasePermission):
+class SingleTenancyOrAdmin(BasePermission):
     """
     Allows access to only staff users on cloud.
     """

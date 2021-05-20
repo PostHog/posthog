@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from posthog.ee import is_clickhouse_enabled
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
-from posthog.permissions import IsMultiTenancyAdmin
+from posthog.permissions import SingleTenancyOrAdmin
 from posthog.utils import (
     get_plugin_server_job_queues,
     get_plugin_server_version,
@@ -29,7 +29,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
     Show info about instance for this user
     """
 
-    permission_classes = [IsAuthenticated, IsMultiTenancyAdmin]
+    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
 
     def list(self, request: Request) -> Response:
         redis_alive = is_redis_alive()
