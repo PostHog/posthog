@@ -146,9 +146,10 @@ class InstanceStatusViewSet(viewsets.ViewSet):
         queries = {"postgres_running": self.get_postgres_running_queries()}
 
         if is_clickhouse_enabled():
-            from ee.clickhouse.system_status import get_clickhouse_running_queries
+            from ee.clickhouse.system_status import get_clickhouse_running_queries, get_clickhouse_slow_log
 
             queries["clickhouse_running"] = get_clickhouse_running_queries()
+            queries["clickhouse_slow_log"] = get_clickhouse_slow_log()
 
         return Response({"results": queries})
 

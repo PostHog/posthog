@@ -1,6 +1,11 @@
 from typing import Dict, Generator, List
 
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
+
 from ee.clickhouse.client import sync_execute
+
+SLOW_THRESHOLD = 10000
 
 SystemStatusRow = Dict
 
@@ -62,15 +67,38 @@ def is_alive() -> bool:
 
 def get_clickhouse_running_queries() -> List[Dict]:
     return query_with_columns(
-        "SELECT elapsed as duration, query, * FROM system.processes", ["address", "initial_address"]
+        "SELECT elapsed as duration, query, * FROM system.processes ORDER BY duration DESC",
+        columns_to_remove=["address", "initial_address", "elapsed"],
     )
 
 
-def query_with_columns(query, columns_to_remove=[]) -> List[Dict]:
-    *metrics, types = sync_execute(query, with_column_types=True)
+def get_clickhouse_slow_log() -> List[Dict]:
+    return query_with_columns(
+        f"""
+            SELECT query_duration_ms as duration, query, *
+            FROM system.query_log
+            WHERE query_duration_ms > {SLOW_THRESHOLD}
+              AND event_time > %(after)s
+            ORDER BY duration DESC
+            LIMIT 200
+        """,
+        {"after": timezone.now() - relativedelta(hours=6)},
+        columns_to_remove=["address", "initial_address", "query_duration_ms"],
+    )
+
+
+def query_with_columns(query, args=None, columns_to_remove=[]) -> List[Dict]:
+    metrics, types = sync_execute(query, args, with_column_types=True)
     type_names = [key for key, _type in types]
 
-    rows = [dict(zip(type_names, row[0])) for row in metrics]
+    import pprint
+
+    pprint.pprint(metrics)
+    import pprint
+
+    pprint.pprint(type_names)
+
+    rows = [dict(zip(type_names, row)) for row in metrics]
     for row in rows:
         for key in columns_to_remove:
             row.pop(key)
