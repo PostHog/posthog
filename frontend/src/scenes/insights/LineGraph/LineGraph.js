@@ -61,7 +61,7 @@ export function LineGraph({
     const size = useWindowSize()
 
     const annotationsCondition = type === 'line' && datasets.length > 0 && !datasets[0].compare && !inSharedMode
-    let colors = {
+    const colors = {
         axisLabel: color === 'white' ? '#333' : 'rgba(255,255,255,0.8)',
         axisLine: color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)',
         axis: color === 'white' ? '#999' : 'rgba(255,255,255,0.6)',
@@ -70,16 +70,6 @@ export function LineGraph({
         tooltipBody: '#fff',
         annotationColor: color === 'white' ? null : 'white',
         annotationAccessoryColor: color === 'white' ? null : 'black',
-        tooltipBorder: null,
-    }
-    if (newUI) {
-        colors = {
-            ...colors,
-            tooltipBackground: '#fff',
-            tooltipTitle: '#2d2d2d',
-            tooltipBody: '#2d2d2d',
-            tooltipBorder: '#ddd',
-        }
     }
 
     useEscapeKey(() => setFocused(false), [focused])
@@ -203,57 +193,111 @@ export function LineGraph({
             datasets = datasets.filter((data) => visibilityMap[data.id])
         }
 
+        const tooltipOptions = newUI
+            ? {
+                  enabled: false, // disable builtin tooltip (use custom markup)
+                  custom: function (tooltipModel) {
+                      var tooltipEl = document.getElementById('chartjs-tooltip')
+                      // Create element on first render
+                      if (!tooltipEl) {
+                          tooltipEl = document.createElement('div')
+                          tooltipEl.id = 'chartjs-tooltip'
+                          tooltipEl.innerHTML = '<table></table>'
+                          document.body.appendChild(tooltipEl)
+                      }
+                      if (tooltipModel.opacity === 0) {
+                          tooltipEl.style.opacity = 0
+                          return
+                      }
+                      // Set caret position
+                      tooltipEl.classList.remove('above', 'below', 'no-transform')
+                      tooltipEl.classList.add(tooltipModel.yAlign || 'no-transform')
+
+                      if (tooltipModel.body) {
+                          var titleLines = tooltipModel.title || []
+                          var bodyLines = tooltipModel.body.map(({ lines }) => lines)
+                          var innerHtml = '<thead>'
+                          titleLines.forEach(function (title) {
+                              innerHtml += '<tr><th>' + title + '</th></tr>'
+                          })
+                          innerHtml += '</thead><tbody>'
+
+                          bodyLines.forEach(function (body, i) {
+                              var colors = tooltipModel.labelColors[i]
+                              var style = 'background:' + colors.backgroundColor
+                              style += ' border-color:' + colors.borderColor
+                              style += ' border-width: 2px'
+                              var span = '<span style="' + style + '"></span>'
+                              innerHtml += '<tr><td>' + span + body + '</td></tr>'
+                          })
+                          innerHtml += '</tbody>'
+
+                          var tableRoot = tooltipEl.querySelector('table')
+                          tableRoot.innerHTML = innerHtml
+                      }
+
+                      var position = chartRef.current.getBoundingClientRect()
+                      tooltipEl.style.opacity = 1
+                      tooltipEl.style.position = 'absolute'
+                      tooltipEl.style.left = position.left + window.pageXOffset + tooltipModel.caretX + 'px'
+                      tooltipEl.style.top = position.top + window.pageYOffset + tooltipModel.caretY + 'px'
+                      tooltipEl.style.padding = tooltipModel.padding + 'px ' + tooltipModel.padding + 'px'
+                      tooltipEl.style.pointerEvents = 'none'
+                  },
+              }
+            : {
+                  enabled: true,
+                  intersect: false,
+                  mode: 'nearest',
+                  // If bar, we want to only show the tooltip for what we're hovering over
+                  // to avoid confusion
+                  axis: { bar: 'x', horizontalBar: 'y' }[type],
+                  bodySpacing: 5,
+                  position: 'nearest',
+                  yPadding: 10,
+                  xPadding: 10,
+                  caretPadding: 0,
+                  displayColors: false,
+                  backgroundColor: colors.tooltipBackground,
+                  titleFontColor: colors.tooltipTitle,
+                  bodyFontColor: colors.tooltipBody,
+                  footerFontColor: colors.tooltipBody,
+                  borderColor: colors.tooltipBorder,
+                  borderWidth: newUI ? 1 : undefined,
+                  labelFontSize: 23,
+                  cornerRadius: 4,
+                  fontSize: 12,
+                  footerSpacing: 0,
+                  titleSpacing: 0,
+                  footerFontStyle: 'italic',
+                  callbacks: {
+                      label: function (tooltipItem, data) {
+                          let entityData = data.datasets[tooltipItem.datasetIndex]
+                          if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
+                              return null
+                          }
+                          const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
+                          const action =
+                              entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
+                          const formattedLabel = action ? formatLabel(label, action) : label
+
+                          let value = tooltipItem.yLabel.toLocaleString()
+                          if (type === 'horizontalBar') {
+                              const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
+                              value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
+                          }
+                          return (formattedLabel ? formattedLabel + ' — ' : '') + value + (percentage ? '%' : '')
+                      },
+                      footer: () => (dashboardItemId || !onClick ? '' : 'Click to see users related to the datapoint'),
+                  },
+                  itemSort: (a, b) => b.yLabel - a.yLabel,
+              }
+
         let options = {
             responsive: true,
             maintainAspectRatio: false,
             scaleShowHorizontalLines: false,
-            tooltips: {
-                enabled: true,
-                intersect: false,
-                mode: 'nearest',
-                // If bar, we want to only show the tooltip for what we're hovering over
-                // to avoid confusion
-                axis: { bar: 'x', horizontalBar: 'y' }[type],
-                bodySpacing: 5,
-                position: 'nearest',
-                yPadding: 10,
-                xPadding: 10,
-                caretPadding: 0,
-                displayColors: false,
-                backgroundColor: colors.tooltipBackground,
-                titleFontColor: colors.tooltipTitle,
-                bodyFontColor: colors.tooltipBody,
-                footerFontColor: colors.tooltipBody,
-                borderColor: colors.tooltipBorder,
-                borderWidth: newUI ? 1 : undefined,
-                labelFontSize: 23,
-                cornerRadius: 4,
-                fontSize: 12,
-                footerSpacing: 0,
-                titleSpacing: 0,
-                footerFontStyle: 'italic',
-                callbacks: {
-                    label: function (tooltipItem, data) {
-                        let entityData = data.datasets[tooltipItem.datasetIndex]
-                        if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
-                            return null
-                        }
-                        const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
-                        const action =
-                            entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
-                        const formattedLabel = action ? formatLabel(label, action) : label
-
-                        let value = tooltipItem.yLabel.toLocaleString()
-                        if (type === 'horizontalBar') {
-                            const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
-                            value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
-                        }
-                        return (formattedLabel ? formattedLabel + ' — ' : '') + value + (percentage ? '%' : '')
-                    },
-                    footer: () => (dashboardItemId || !onClick ? '' : 'Click to see users related to the datapoint'),
-                },
-                itemSort: (a, b) => b.yLabel - a.yLabel,
-            },
+            tooltips: tooltipOptions,
             hover: {
                 mode: 'nearest',
                 onHover(evt) {
