@@ -37,6 +37,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardItemHeader } from 'scenes/dashboard/DashboardItemHeader'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
+import { HotkeyButton } from 'lib/components/HotkeyButton'
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -74,33 +75,32 @@ export function Insights(): JSX.Element {
         reportHotkeyNavigation('insights', hotkey)
     }
 
-    useKeyboardHotkeys(
-        featureFlags['hotkeys-3740']
-            ? {
-                  t: {
-                      action: () => handleHotkeyNavigation(ViewType.TRENDS, 't'),
-                  },
-                  f: {
-                      action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
-                  },
-                  s: {
-                      action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
-                  },
-                  r: {
-                      action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
-                  },
-                  p: {
-                      action: () => handleHotkeyNavigation(ViewType.PATHS, 'p'),
-                  },
-                  k: {
-                      action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'k'),
-                  },
-                  l: {
-                      action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
-                  },
-              }
-            : {}
-    )
+    useKeyboardHotkeys({
+        t: {
+            action: () => handleHotkeyNavigation(ViewType.TRENDS, 't'),
+        },
+        f: {
+            action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
+        },
+        s: {
+            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
+        },
+        r: {
+            action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
+        },
+        p: {
+            action: () => handleHotkeyNavigation(ViewType.PATHS, 'p'),
+        },
+        k: {
+            action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'k'),
+        },
+        l: {
+            action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
+        },
+        h: {
+            action: () => setActiveView('history'),
+        },
+    })
 
     return (
         <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>
@@ -117,13 +117,14 @@ export function Insights(): JSX.Element {
                         animated={false}
                         tabBarExtraContent={{
                             right: (
-                                <Button
+                                <HotkeyButton
                                     type={activeView === 'history' ? 'primary' : undefined}
                                     data-attr="insight-history-button"
                                     onClick={() => setActiveView('history')}
+                                    hotkey="h"
                                 >
                                     History
-                                </Button>
+                                </HotkeyButton>
                             ),
                         }}
                     >
