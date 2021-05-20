@@ -76,9 +76,11 @@ jobs:
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
-                  yarn add cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
+                  yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
             - name: Install cypress
-              run: yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
+              run: |
+                  yarn run cypress install
+                  yarn run cypress install
             - uses: actions/cache@v1
               name: Setup Yarn build cache
               id: yarn-build-cache
