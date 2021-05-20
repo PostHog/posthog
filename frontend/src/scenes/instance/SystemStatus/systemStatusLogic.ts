@@ -2,14 +2,17 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import { systemStatusLogicType } from './systemStatusLogicType'
 import { userLogic } from 'scenes/userLogic'
-import { SystemStatus, SystemStatusRow } from '~/types'
+import { SystemStatus, SystemStatusRow, SystemStatusQueriesResult } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
-export type TabName = 'overview' | 'clickhouse'
+export type TabName = 'overview' | 'internal_metrics'
 
-export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus, SystemStatusRow, TabName>>({
+export const systemStatusLogic = kea<
+    systemStatusLogicType<SystemStatus, SystemStatusRow, SystemStatusQueriesResult, TabName>
+>({
     actions: {
         setTab: (tab: TabName) => ({ tab }),
+        setOpenSections: (sections: string[]) => ({ sections }),
     },
     loaders: {
         systemStatus: [
@@ -21,6 +24,12 @@ export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus, SystemS
                     }
                     return (await api.get('api/instance_status')).results
                 },
+            },
+        ],
+        queries: [
+            null as SystemStatusQueriesResult | null,
+            {
+                loadQueries: async () => (await api.get('api/instance_status/queries')).results,
             },
         ],
     },
@@ -37,6 +46,13 @@ export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus, SystemS
                 loadSystemStatusFailure: (_, { error }) => error,
             },
         ],
+        openSections: [
+            ['0', '1'] as string[],
+            { persist: true },
+            {
+                setOpenSections: (_, { sections }) => sections,
+            },
+        ],
     },
 
     selectors: () => ({
@@ -44,6 +60,14 @@ export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus, SystemS
             (s) => [s.systemStatus],
             (status: SystemStatus | null): SystemStatusRow[] => (status ? status.overview : []),
         ],
+    }),
+
+    listeners: ({ actions }) => ({
+        setTab: ({ tab }: { tab: TabName }) => {
+            if (tab === 'internal_metrics') {
+                actions.loadQueries()
+            }
+        },
     }),
 
     events: ({ actions }) => ({

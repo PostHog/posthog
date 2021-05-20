@@ -564,6 +564,12 @@ export interface SystemStatus {
     }
 }
 
+export type QuerySummary = { duration: string } & Record<string, string>
+
+export interface SystemStatusQueriesResult {
+    postgres_running: QuerySummary[]
+}
+
 export type PersonalizationData = Record<string, string | string[] | null>
 
 interface EnabledSetupState {

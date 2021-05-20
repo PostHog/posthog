@@ -2,6 +2,7 @@ from typing import Dict, List, Union
 
 from django.db import connection
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -11,6 +12,7 @@ from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
 from posthog.permissions import SingleTenancyOrAdmin
 from posthog.utils import (
+    dict_from_cursor_fetchall,
     get_plugin_server_job_queues,
     get_plugin_server_version,
     get_redis_info,
@@ -138,3 +140,26 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 )
 
         return Response({"results": {"overview": metrics, "internal_metrics": get_internal_metrics_dashboards()}})
+
+    @action(methods=["GET"], detail=False)
+    def queries(self, request: Request) -> Response:
+        queries = {"postgres_running": self.get_postgres_running_queries()}
+
+        return Response({"results": queries})
+
+    def get_postgres_running_queries(self):
+        from django.db import connection
+
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT now() - query_start as duration, state, query, query_start
+            FROM pg_stat_activity
+            WHERE query NOT LIKE '%pg_stat_activity%'
+              AND query != ''
+              AND now() - query_start > INTERVAL '10 seconds'
+            ORDER BY state, duration DESC
+        """
+        )
+
+        return dict_from_cursor_fetchall(cursor)
