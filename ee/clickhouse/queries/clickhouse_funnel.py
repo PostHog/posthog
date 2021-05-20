@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Match, Tuple
 import pytz
 from django.utils import timezone
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import format_sql, sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
@@ -97,7 +97,6 @@ class ClickhouseFunnel(Funnel):
         return sync_execute(query, self.params)
 
     def _get_trends(self) -> List[Dict[str, Any]]:
-        serialized: Dict[str, Any] = {"count": 0, "data": [], "days": [], "labels": []}
         prop_filters, prop_filter_params = parse_prop_clauses(
             self._filter.properties,
             self._team.pk,
@@ -122,7 +121,14 @@ class ClickhouseFunnel(Funnel):
             within_time="86400000000",
             latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         )
+        raw_sql = format_sql(funnel_query, self.params)
+        print(raw_sql)
         results = sync_execute(funnel_query, self.params)
+        serialized = self._transform_trends_with_dates(results)
+        return [serialized]
+
+    def _transform_trends_with_dates(self, results):
+        serialized: Dict[str, Any] = {"count": 0, "data": [], "days": [], "labels": []}
         parsed_results = []
 
         for result in results:
@@ -170,7 +176,8 @@ class ClickhouseFunnel(Funnel):
             serialized["days"].append(data_item[0])
             serialized["data"].append(data_item[1])
             serialized["labels"].append(format_label_date(data_item[0], self._filter.interval))
-        return [serialized]
+
+        return serialized
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
         if len(self._filter.entities) == 0:
