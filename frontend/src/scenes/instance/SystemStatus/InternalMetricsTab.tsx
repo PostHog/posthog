@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 
-export function ClickhouseTab(): JSX.Element {
+export function InternalMetricsTab(): JSX.Element {
     const { systemStatus } = useValues(systemStatusLogic)
 
     const dashboard = systemStatus?.internal_metrics.clickhouse
