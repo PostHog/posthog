@@ -48,22 +48,26 @@ export function InternalMetricsTab(): JSX.Element {
                     </div>
                     <QueryTable queries={postgresQueries} loading={queriesLoading} />
                 </Collapse.Panel>
-                <Collapse.Panel header="Clickhouse - currently running queries" key="2">
-                    <div className="mb float-right">
-                        <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
-                            <ReloadOutlined /> Reload Queries
-                        </Button>
-                    </div>
-                    <QueryTable queries={queries?.clickhouse_running} loading={queriesLoading} />
-                </Collapse.Panel>
-                <Collapse.Panel header="Clickhouse - slow query log (past 6 hours)" key="3">
-                    <div className="mb float-right">
-                        <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
-                            <ReloadOutlined /> Reload Queries
-                        </Button>
-                    </div>
-                    <QueryTable queries={queries?.clickhouse_slow_log} loading={queriesLoading} />
-                </Collapse.Panel>
+                {queries?.clickhouse_running != undefined ? (
+                    <Collapse.Panel header="Clickhouse - currently running queries" key="2">
+                        <div className="mb float-right">
+                            <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
+                                <ReloadOutlined /> Reload Queries
+                            </Button>
+                        </div>
+                        <QueryTable queries={queries?.clickhouse_running} loading={queriesLoading} />
+                    </Collapse.Panel>
+                ) : null}
+                {queries?.clickhouse_slow_log != undefined ? (
+                    <Collapse.Panel header="Clickhouse - slow query log (past 6 hours)" key="3">
+                        <div className="mb float-right">
+                            <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
+                                <ReloadOutlined /> Reload Queries
+                            </Button>
+                        </div>
+                        <QueryTable queries={queries?.clickhouse_slow_log} loading={queriesLoading} />
+                    </Collapse.Panel>
+                ) : null}
             </Collapse>
         </Card>
     )
