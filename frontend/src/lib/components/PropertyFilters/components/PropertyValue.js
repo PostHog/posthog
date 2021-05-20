@@ -17,7 +17,8 @@ export function PropertyValue({
     operator,
     outerOptions = undefined,
 }) {
-    const [input, setInput] = useState('')
+    const isMultiSelect = isOperatorMulti(operator)
+    const [input, setInput] = useState(isMultiSelect ? '' : value)
     const [optionsCache, setOptionsCache] = useState({})
     const [options, setOptions] = useState({})
 
@@ -66,7 +67,7 @@ export function PropertyValue({
     const commonInputProps = {
         autoFocus: !value && !isMobile(),
         style: { width: '100%', ...style },
-        value: value || placeholder,
+        value: (isMultiSelect ? value : input) || placeholder,
         loading: optionsCache[input] === 'loading',
         onSearch: (newInput) => {
             setInput(newInput)
@@ -83,15 +84,21 @@ export function PropertyValue({
             if (e.key === 'Escape') {
                 e.target.blur()
             }
+            if (!isMultiSelect && e.key === 'Enter') {
+                setValue(input)
+            }
         },
     }
 
     return (
         <>
-            {!isOperatorMulti(operator) ? (
+            {!isMultiSelect ? (
                 <AutoComplete
                     {...commonInputProps}
                     onChange={(val) => {
+                        setInput(val ?? null)
+                    }}
+                    onSelect={(val) => {
                         setValue(val ?? null)
                     }}
                 >
@@ -117,10 +124,10 @@ export function PropertyValue({
             ) : (
                 <SelectGradientOverflow
                     {...commonInputProps}
-                    mode={isOperatorMulti(operator) ? 'multiple' : undefined}
+                    mode={isMultiSelect ? 'multiple' : undefined}
                     showSearch
                     onChange={(val, payload) => {
-                        if (isOperatorMulti(operator) && payload.length > 0) {
+                        if (isMultiSelect && payload.length > 0) {
                             setValue(val)
                         } else {
                             setValue(payload?.value ?? null)
