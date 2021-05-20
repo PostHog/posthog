@@ -47,7 +47,7 @@ export const systemStatusLogic = kea<
             },
         ],
         openSections: [
-            ['0', '1'] as string[],
+            ['0'] as string[],
             { persist: true },
             {
                 setOpenSections: (_, { sections }) => sections,

@@ -91,13 +91,6 @@ def query_with_columns(query, args=None, columns_to_remove=[]) -> List[Dict]:
     metrics, types = sync_execute(query, args, with_column_types=True)
     type_names = [key for key, _type in types]
 
-    import pprint
-
-    pprint.pprint(metrics)
-    import pprint
-
-    pprint.pprint(type_names)
-
     rows = [dict(zip(type_names, row)) for row in metrics]
     for row in rows:
         for key in columns_to_remove:
