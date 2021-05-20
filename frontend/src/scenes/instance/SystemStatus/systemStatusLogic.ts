@@ -17,7 +17,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus, SystemS
             {
                 loadSystemStatus: async () => {
                     if (preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
-                        return []
+                        return null
                     }
                     return (await api.get('_system_status')).results
                 },
