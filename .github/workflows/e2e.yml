@@ -76,7 +76,17 @@ jobs:
               if: steps.node-modules-cache.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
+            - uses: actions/cache@v2
+              id: cypress-cache
+              with:
+                  path: |
+                      ~/.cache/Cypress
+                      node_modules/cypress
+                      node_modules/cypress-terminal-report
+                      node_modules/@cypress
+                  key: ${{ runner.os }}-cypress-6.7.0
             - name: Install cypress
+              if: steps.cypress-cache.outputs.cache-hit != 'true'
               run: |
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
                   yarn run cypress install
@@ -104,8 +114,8 @@ jobs:
                   SELF_CAPTURE: 1
                   E2E_TESTING: 1
               run: |
-                  python manage.py collectstatic --noinput
-                  ./bin/docker-migrate
+                  python manage.py collectstatic --noinput &
+                  ./bin/docker-migrate & wait
                   python manage.py setup_dev
                   mkdir -p cypress/screenshots
                   ./bin/docker-worker &
