@@ -80,12 +80,6 @@ GET_LATEST_PERSON_ID_SQL = """
     latest_person_sql=GET_LATEST_PERSON_SQL
 )
 
-GET_PERSON_SQL = """
-SELECT * FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s
-""".format(
-    latest_person_sql=GET_LATEST_PERSON_SQL
-)
-
 PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
@@ -174,14 +168,6 @@ INSERT INTO {} (id, person_id, cohort_id, team_id, _timestamp) VALUES
 # Other queries
 #
 
-GET_DISTINCT_IDS_SQL = """
-SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s
-"""
-
-GET_DISTINCT_IDS_SQL_BY_ID = """
-SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s AND person_id = %(person_id)s
-"""
-
 GET_PERSON_IDS_BY_FILTER = """
 SELECT DISTINCT p.id
 FROM ({latest_person_sql}) AS p
@@ -215,14 +201,6 @@ WHERE team_id = %(team_id)s
     latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
 )
 
-PERSON_DISTINCT_ID_EXISTS_SQL = """
-SELECT count(*) FROM person_distinct_id
-inner join (
-    SELECT arrayJoin({}) as distinct_id
-    ) as id_params ON id_params.distinct_id = person_distinct_id.distinct_id
-where person_distinct_id.team_id = %(team_id)s
-"""
-
 INSERT_PERSON_SQL = """
 INSERT INTO person SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0
 """
@@ -233,10 +211,6 @@ INSERT INTO person_distinct_id SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(
 
 UPDATE_PERSON_PROPERTIES = """
 ALTER TABLE person UPDATE properties = %(properties)s where id = %(id)s
-"""
-
-UPDATE_PERSON_ATTACHED_DISTINCT_ID = """
-ALTER TABLE person_distinct_id UPDATE person_id = %(person_id)s where distinct_id = %(distinct_id)s
 """
 
 DELETE_PERSON_BY_ID = """
@@ -253,10 +227,6 @@ AND team_id = %(team_id)s
 
 DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
 ALTER TABLE person_distinct_id DELETE where person_id = %(id)s
-"""
-
-UPDATE_PERSON_IS_IDENTIFIED = """
-ALTER TABLE person UPDATE is_identified = %(is_identified)s where id = %(id)s
 """
 
 PERSON_TREND_SQL = """

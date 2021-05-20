@@ -30,6 +30,13 @@ beforeEach(() => {
     }
 })
 
+beforeEach(() => {
+    if (Cypress.spec.specType !== 'component') {
+        // Make sure the insights page is actually loaded before running tests
+        cy.get('.insights-page').should('exist')
+    }
+})
+
 afterEach(() => {
     if (Cypress.spec.specType === 'component') {
         unmount()

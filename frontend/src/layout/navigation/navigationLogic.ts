@@ -69,7 +69,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
     selectors: {
         systemStatus: [
             () => [
-                systemStatusLogic.selectors.systemStatus,
+                systemStatusLogic.selectors.overview,
                 systemStatusLogic.selectors.systemStatusLoading,
                 preflightLogic.selectors.siteUrlMisconfigured,
             ],
