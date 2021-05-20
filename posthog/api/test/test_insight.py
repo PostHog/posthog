@@ -85,14 +85,9 @@ def insight_test_factory(event_factory, person_factory):
             }
 
             insight = DashboardItem.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), saved=True, team=self.team, created_by=self.user
+                filters=Filter(data=filter_dict).to_dict(), saved=True, team=self.team, created_by=self.user,
             )
-            response = self.client.patch(
-                f"/api/insight/{insight.id}",
-                {
-                    "name": "updated insight name",
-                },
-            )
+            response = self.client.patch(f"/api/insight/{insight.id}", {"name": "updated insight name"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
             self.assertEqual(response_data["name"], "updated insight name")

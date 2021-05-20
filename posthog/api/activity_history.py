@@ -39,5 +39,5 @@ class ActivityHistoryViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        parent = self.request.query_params['parent']
+        parent = self.request.query_params["parent"]
         return DashboardItem.objects.filter(parent=parent)
