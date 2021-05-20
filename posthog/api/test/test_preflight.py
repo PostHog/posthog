@@ -62,7 +62,7 @@ class TestPreflight(APIBaseTest):
                     "email_service_available": False,
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
-                    "licensed_users_available": None,
+                    "licensed_users_available": 2,
                     "site_url": "http://localhost:8000",
                 },
             )
