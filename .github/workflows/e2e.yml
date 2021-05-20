@@ -109,7 +109,7 @@ jobs:
                   DISABLE_SECURE_SSL_REDIRECT: 1
                   SECURE_COOKIES: 0
                   OPT_OUT_CAPTURE: 1
-                  SELF_CAPTURE: 1
+                  SELF_CAPTURE: 0
                   E2E_TESTING: 1
               run: |
                   python manage.py collectstatic --noinput &
@@ -126,6 +126,7 @@ jobs:
                   parallel: true
                   group: 'PostHog Frontend'
                   # We're already installing cypress above
+                  # We have to install it separately otherwise the tests fail.
                   install: false
                   # We already install cypress separately, we don't need to install it again here
                   install-command: echo "no"
