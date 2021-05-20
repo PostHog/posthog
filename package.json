@@ -38,6 +38,8 @@
     "dependencies": {
         "@babel/core": "^7.10.4",
         "@babel/runtime": "^7.10.4",
+        "@cypress/react": "4.16.4",
+        "@cypress/webpack-preprocessor": "5.7.0",
         "@papercups-io/chat-widget": "^1.1.5",
         "@posthog/plugin-scaffold": "0.2.12",
         "@posthog/react-rrweb-player": "^1.1.1",
@@ -51,6 +53,8 @@
         "chart.js": "^2.9.3",
         "chartjs-adapter-dayjs": "^1.0.0",
         "core-js": "3.6.5",
+        "cypress": "6.7.0",
+        "cypress-terminal-report": "2.1.0",
         "d3": "^5.15.0",
         "d3-sankey": "^0.12.3",
         "dayjs": "^1.10.4",
