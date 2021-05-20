@@ -5,6 +5,7 @@ import { FilterType, InsightType } from '~/types'
 import { SaveOutlined, ClearOutlined } from '@ant-design/icons'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface Props {
     filters: FilterType
@@ -15,6 +16,7 @@ interface Props {
 
 export function InsightActionBar({ filters, annotations, insight, onReset }: Props): JSX.Element {
     const { push } = useActions(router)
+    const { reportInsightsTabReset } = useActions(eventUsageLogic)
     return (
         <div className="insights-tab-actions">
             <Popconfirm
@@ -22,6 +24,7 @@ export function InsightActionBar({ filters, annotations, insight, onReset }: Pro
                 onConfirm={() => {
                     window.scrollTo({ top: 0 })
                     onReset ? onReset() : push(`/insights?insight=${insight}`)
+                    reportInsightsTabReset()
                 }}
             >
                 <Button type="link" icon={<ClearOutlined />} className="btn-reset">

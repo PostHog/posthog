@@ -80,10 +80,8 @@
     }
 
     .insights-tab-actions {
-        position: absolute;
-        right: 0;
-        bottom: 0;
-        text-align: right;
+        margin-left: auto;
+        padding: 0 1rem;
         .btn-reset {
             color: rgba($danger, 0.8);
         }

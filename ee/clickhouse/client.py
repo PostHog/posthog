@@ -13,10 +13,10 @@ from django.conf import settings as app_settings
 from django.core.cache import cache
 from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
-from statshog.defaults.django import statsd
 
 from posthog import redis
 from posthog.constants import RDBMS
+from posthog.internal_metrics import timing
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
     CLICKHOUSE_CA,
@@ -130,7 +130,7 @@ else:
                 raise e
             finally:
                 execution_time = time() - start_time
-                statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
+                timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
                 if app_settings.SHELL_PLUS_PRINT_SQL:
                     print(format_sql(query, args))
                     print("Execution time: %.6fs" % (execution_time,))

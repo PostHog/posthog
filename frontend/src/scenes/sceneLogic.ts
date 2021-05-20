@@ -172,6 +172,7 @@ export const routes: Record<string, Scene> = {
     '/organization/create': Scene.OrganizationCreateFirst,
     '/instance/licenses': Scene.InstanceLicenses,
     '/instance/status': Scene.SystemStatus,
+    '/instance/status/:id': Scene.SystemStatus,
     '/me/settings': Scene.MySettings,
     // Onboarding / setup routes
     '/login': Scene.Login,

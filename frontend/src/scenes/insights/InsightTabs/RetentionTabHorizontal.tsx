@@ -87,9 +87,16 @@ export function RetentionTabHorizontal({ annotationsToCreate }: BaseTabProps): J
         <div data-attr="retention-tab" className="retention-tab">
             <Row gutter={16}>
                 <Col md={16} xs={24}>
-                    <Row>
-                        <InsightTitle />
-                    </Row>
+                    <InsightTitle
+                        actionBar={
+                            <InsightActionBar
+                                filters={filters}
+                                annotations={annotationsToCreate}
+                                insight="RETENTION"
+                                onReset={() => setFilters(defaultFilters({}))}
+                            />
+                        }
+                    />
                     <Row gutter={8} align="middle">
                         <Col>
                             Showing <b>Unique users</b> who did
@@ -180,12 +187,6 @@ export function RetentionTabHorizontal({ annotationsToCreate }: BaseTabProps): J
                             </p>
                         </Col>
                     </Row>
-                    <InsightActionBar
-                        filters={filters}
-                        annotations={annotationsToCreate}
-                        insight="RETENTION"
-                        onReset={() => setFilters(defaultFilters({}))}
-                    />
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     <h4 className="secondary">Global Filters</h4>
