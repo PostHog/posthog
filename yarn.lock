@@ -10434,9 +10434,9 @@ rrweb@^0.9.14:
     mitt "^1.1.3"
     rrweb-snapshot "^1.0.3"
 
-"rrweb@git://github.com/rrweb-io/rrweb.git#e71a8d3fc34b393dd21281270c9529dc7ac1e961":
+"rrweb@git+https://github.com/rrweb-io/rrweb.git#e71a8d3fc34b393dd21281270c9529dc7ac1e961":
   version "0.9.14"
-  resolved "git://github.com/rrweb-io/rrweb.git#e71a8d3fc34b393dd21281270c9529dc7ac1e961"
+  resolved "git+https://github.com/rrweb-io/rrweb.git#e71a8d3fc34b393dd21281270c9529dc7ac1e961"
   dependencies:
     "@types/css-font-loading-module" "0.0.4"
     "@xstate/fsm" "^1.4.0"
