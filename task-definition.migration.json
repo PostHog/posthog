@@ -91,6 +91,10 @@
                 {
                     "name": "TRUST_ALL_PROXIES",
                     "value": "True"
+                },
+                {
+                    "name": "CAPTURE_INTERNAL_METRICS",
+                    "value": "True"
                 }
             ],
             "secrets": [

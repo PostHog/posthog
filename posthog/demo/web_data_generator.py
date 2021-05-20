@@ -9,7 +9,7 @@ from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.demo.data_generator import DataGenerator
-from posthog.models import Action, ActionStep, Dashboard, DashboardItem, Person
+from posthog.models import Action, ActionStep, Dashboard, DashboardItem, Person, PropertyDefinition
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
 from posthog.utils import get_absolute_path
@@ -21,6 +21,7 @@ class WebDataGenerator(DataGenerator):
     def create_missing_events_and_properties(self):
         self.add_if_not_contained(self.team.event_properties_numerical, "purchase")
         self.add_if_not_contained(self.team.event_properties, "purchase")
+        PropertyDefinition.objects.get_or_create(team=self.team, name="purchase", is_numerical=True)
 
     def create_actions_dashboards(self):
         homepage = Action.objects.create(team=self.team, name="HogFlix homepage view")
