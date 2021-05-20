@@ -85,7 +85,7 @@ describe('<Sessions />', () => {
         cy.contains('There are unapplied filters').should('not.exist')
 
         cy.wait('@api_sessions').map(helpers.getSearchParameters).should('include', {
-            filters: '[{"type":"person","key":"$browser","value":"Chrome","label":"$browser","operator":"exact"}]',
+            filters: '[{"type":"person","key":"$browser","value":["Chrome"],"label":"$browser","operator":"exact"}]',
         })
 
         cy.get('[data-attr="edit-session-filter"]').click()
