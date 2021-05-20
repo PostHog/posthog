@@ -162,7 +162,7 @@ export function BreakdownFilter({ filters, onChange }) {
                     type={breakdown ? 'primary' : 'default'}
                     disabled={insight === ViewType.STICKINESS || insight === ViewType.LIFECYCLE}
                     data-attr="add-breakdown-button"
-                    style={{ color: '#fff' }}
+                    style={label ? { color: '#fff' } : {}}
                 >
                     <PropertyKeyInfo value={label || 'Add breakdown'} />
                 </Button>
