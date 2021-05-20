@@ -1,6 +1,5 @@
 describe('Actions', () => {
     beforeEach(() => {
-        cy.get('.insights-page').should('exist')
         cy.get('[data-attr=menu-item-events]').click()
         cy.get('[data-attr=events-actions-tab]').click()
     })

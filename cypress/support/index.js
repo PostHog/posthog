@@ -30,6 +30,10 @@ beforeEach(() => {
     }
 })
 
+beforeEach(() => {
+    cy.get('.insights-page').should('exist')
+})
+
 afterEach(() => {
     if (Cypress.spec.specType === 'component') {
         unmount()

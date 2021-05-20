@@ -89,8 +89,6 @@ jobs:
               if: steps.cypress-cache.outputs.cache-hit != 'true'
               run: |
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
-                  yarn run cypress install
-                  yarn run cypress install
             - uses: actions/cache@v1
               name: Setup Yarn build cache
               id: yarn-build-cache
@@ -127,6 +125,7 @@ jobs:
                   record: true
                   parallel: true
                   group: 'PostHog Frontend'
+                  # We already install cypress separately, we don't need to install it again here
                   install-command: echo "no"
               env:
                   # pass the Dashboard record key as an environment variable
