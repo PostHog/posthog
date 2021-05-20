@@ -59,7 +59,7 @@ export function PropertyValue({
 
     let displayOptions
     displayOptions = ((options[propertyKey] && options[propertyKey].values) || []).filter(
-        (option) => input === '' || (option && option.name?.toLowerCase().indexOf(input.toLowerCase()) > -1)
+        (option) => input === '' || (option && option.name?.toLowerCase().indexOf(input?.toLowerCase()) > -1)
     )
 
     const validationError = getValidationError(operator, value)
