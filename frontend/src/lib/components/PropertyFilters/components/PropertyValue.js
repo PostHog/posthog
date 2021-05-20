@@ -17,7 +17,7 @@ export function PropertyValue({
     operator,
     outerOptions = undefined,
 }) {
-    const [input, setInput] = useState('')
+    const [input, setInput] = useState(value || '')
     const [optionsCache, setOptionsCache] = useState({})
     const [options, setOptions] = useState({})
 
@@ -66,7 +66,7 @@ export function PropertyValue({
     const commonInputProps = {
         autoFocus: !value && !isMobile(),
         style: { width: '100%', ...style },
-        value: value || placeholder,
+        value: input || placeholder,
         loading: optionsCache[input] === 'loading',
         onSearch: (newInput) => {
             setInput(newInput)
@@ -83,6 +83,9 @@ export function PropertyValue({
             if (e.key === 'Escape') {
                 e.target.blur()
             }
+            if (e.key === 'Enter') {
+                setValue(input)
+            }
         },
     }
 
@@ -92,6 +95,9 @@ export function PropertyValue({
                 <AutoComplete
                     {...commonInputProps}
                     onChange={(val) => {
+                        setInput(val ?? null)
+                    }}
+                    onSelect={(val) => {
                         setValue(val ?? null)
                     }}
                 >
