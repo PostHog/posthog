@@ -152,8 +152,14 @@ class Organization(UUIDModel):
         }
 
 
+@receiver(models.signals.pre_save, sender=Organization)
+def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
+    if instance._state.adding:
+        instance.update_available_features()
+
+
 @receiver(models.signals.pre_delete, sender=Organization)
-def organization_deleted(sender, instance, **kwargs):
+def organization_about_to_be_deleted(sender, instance, **kwargs):
     instance.teams.all().delete()
 
 
