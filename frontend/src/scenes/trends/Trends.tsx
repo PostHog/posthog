@@ -8,6 +8,7 @@ import {
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
     ACTIONS_BAR_CHART_VALUE,
+    FEATURE_FLAGS,
 } from 'lib/constants'
 
 import { ActionsPie, ActionsTable, ActionsLineGraph, ActionsBarValueGraph } from './viz'
@@ -15,13 +16,13 @@ import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { Button } from 'antd'
+import { featureFlagLogic } from '../../lib/logic/featureFlagLogic'
 
 interface Props {
     view: ViewType
 }
 
 export function TrendInsight({ view }: Props): JSX.Element {
-    const [cohortModalVisible, setCohortModalVisible] = useState(false)
     const {
         filters: _filters,
         showingPeople,
@@ -32,12 +33,18 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { saveCohortWithFilters, refreshCohort, loadMoreBreakdownValues } = useActions(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const [cohortModalVisible, setCohortModalVisible] = useState(false)
+
     return (
         <>
             {(_filters.actions || _filters.events || _filters.session) && (
                 <div
                     style={{
-                        minHeight: 'calc(90vh - 16rem)',
+                        minHeight: featureFlags[FEATURE_FLAGS.QUERY_UX_V2]
+                            ? 'calc(100vh - 40rem)'
+                            : 'calc(90vh - 16rem)',
                         position: 'relative',
                     }}
                 >
