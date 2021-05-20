@@ -1,5 +1,39 @@
+@import '~/vars';
+
 .graph-container {
     position: absolute;
     width: 100%;
     height: 100%;
+}
+.chartjs-custom-tooltip {
+    background: #fff;
+    border: 1px solid $border;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-radius: 6px;
+    padding: 8px 12px;
+
+    header {
+        font-weight: 700;
+    }
+
+    footer {
+        font-weight: 500;
+        font-size: 85%;
+        color: $text_muted;
+    }
+
+    ul {
+        list-style-type: none;
+        padding-left: 0;
+        li {
+            display: flex;
+            align-items: center;
+            .color-icon {
+                margin-right: 8px;
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+            }
+        }
+    }
 }

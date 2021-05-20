@@ -202,7 +202,7 @@ export function LineGraph({
                       if (!tooltipEl) {
                           tooltipEl = document.createElement('div')
                           tooltipEl.id = 'chartjs-tooltip'
-                          tooltipEl.innerHTML = '<table></table>'
+                          tooltipEl.classList.add('chartjs-custom-tooltip')
                           document.body.appendChild(tooltipEl)
                       }
                       if (tooltipModel.opacity === 0) {
@@ -214,26 +214,38 @@ export function LineGraph({
                       tooltipEl.classList.add(tooltipModel.yAlign || 'no-transform')
 
                       if (tooltipModel.body) {
-                          var titleLines = tooltipModel.title || []
-                          var bodyLines = tooltipModel.body.map(({ lines }) => lines)
-                          var innerHtml = '<thead>'
-                          titleLines.forEach(function (title) {
-                              innerHtml += '<tr><th>' + title + '</th></tr>'
-                          })
-                          innerHtml += '</thead><tbody>'
-
-                          bodyLines.forEach(function (body, i) {
-                              var colors = tooltipModel.labelColors[i]
-                              var style = 'background:' + colors.backgroundColor
-                              style += ' border-color:' + colors.borderColor
-                              style += ' border-width: 2px'
-                              var span = '<span style="' + style + '"></span>'
-                              innerHtml += '<tr><td>' + span + body + '</td></tr>'
-                          })
-                          innerHtml += '</tbody>'
-
-                          var tableRoot = tooltipEl.querySelector('table')
-                          tableRoot.innerHTML = innerHtml
+                          const titleLines = tooltipModel.title || []
+                          const bodyLines = tooltipModel.body.map(({ lines }) => lines)
+                          const innerHtml = `
+                                ${titleLines.map((title) => '<header>' + title + '</header>')}
+                                <ul>
+                                    ${bodyLines.map((body, i) => {
+                                        const { backgroundColor, borderColor } = tooltipModel.labelColors[i]
+                                        const iconColor = backgroundColor || borderColor
+                                        return `
+                                            <li>
+                                                <div
+                                                    class="color-icon"
+                                                    style="background: ${iconColor}"
+                                                ></div>
+                                                <div class="title">${body}</div>
+                                            </li>
+                                        `
+                                    })}
+                                </ul>
+                                <footer>Click to inspect users</footer>
+                            `
+                          // bodyLines.forEach((body, i) => {
+                          //     const labelColors = tooltipModel.labelColors[i]
+                          //     console.log('labelColors', labelColors)
+                          //     var style = 'background:' + labelColors.backgroundColor
+                          //     style += '; border-color:' + labelColors.borderColor
+                          //     style += '; border-width: 2px'
+                          //     var span = '<span style="' + style + '"></span>'
+                          //     innerHtml += '<tr><td>' + span + body + '</td></tr>'
+                          // })
+                          // innerHtml += '</tbody>'
+                          tooltipEl.innerHTML = innerHtml
                       }
 
                       var position = chartRef.current.getBoundingClientRect()
