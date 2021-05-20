@@ -1,6 +1,7 @@
 from typing import Any, List, Optional, cast
 
 import requests
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils import timezone
@@ -72,6 +73,9 @@ def get_max_users() -> Optional[int]:
     Returns the maximum number of users allowed.
     Examines all available valid licenses and returns the max users available.
     """
+    if settings.MULTI_TENANCY:
+        return None
+
     user_limits = [l.max_users for l in License.objects.filter(valid_until__gte=timezone.now())]
     if None in user_limits:
         return None

@@ -26,6 +26,7 @@ def create_license(mocker: MockerFixture):
     return _inner
 
 
+@pytest.mark.skip_on_multitenancy
 def test_default_get_licensed_users_available(db):
     assert get_licensed_users_available() == 3
 
