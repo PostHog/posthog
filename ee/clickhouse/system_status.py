@@ -83,7 +83,19 @@ def get_clickhouse_slow_log() -> List[Dict]:
             LIMIT 200
         """,
         {"after": timezone.now() - relativedelta(hours=6)},
-        columns_to_remove=["address", "initial_address", "query_duration_ms"],
+        columns_to_remove=[
+            "address",
+            "initial_address",
+            "query_duration_ms",
+            "event_time",
+            "event_date",
+            "query_start_time_microseconds",
+            "thread_ids",
+            "ProfileEvents.Names",
+            "ProfileEvents.Values",
+            "Settings.Names",
+            "Settings.Values",
+        ],
     )
 
 
@@ -91,9 +103,15 @@ def query_with_columns(query, args=None, columns_to_remove=[]) -> List[Dict]:
     metrics, types = sync_execute(query, args, with_column_types=True)
     type_names = [key for key, _type in types]
 
-    rows = [dict(zip(type_names, row)) for row in metrics]
-    for row in rows:
-        for key in columns_to_remove:
-            row.pop(key)
+    rows = []
+    for row in metrics:
+        result = {}
+        for type_name, value in zip(type_names, row):
+            if isinstance(value, list):
+                value = ", ".join(map(str, value))
+            if type_name not in columns_to_remove:
+                result[type_name] = value
+
+        rows.append(result)
 
     return rows
