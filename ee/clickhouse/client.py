@@ -20,6 +20,8 @@ from posthog.internal_metrics import timing
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
     CLICKHOUSE_CA,
+    CLICKHOUSE_CONN_POOL_MAX,
+    CLICKHOUSE_CONN_POOL_MIN,
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HOST,
     CLICKHOUSE_PASSWORD,
@@ -68,8 +70,8 @@ else:
             password=CLICKHOUSE_PASSWORD,
             ca_certs=CLICKHOUSE_CA,
             verify=CLICKHOUSE_VERIFY,
-            connections_min=20,
-            connections_max=1000,
+            connections_min=CLICKHOUSE_CONN_POOL_MIN,
+            connections_max=CLICKHOUSE_CONN_POOL_MAX,
         )
 
         @async_to_sync
@@ -98,8 +100,8 @@ else:
             password=CLICKHOUSE_PASSWORD,
             ca_certs=CLICKHOUSE_CA,
             verify=CLICKHOUSE_VERIFY,
-            connections_min=20,
-            connections_max=1000,
+            connections_min=CLICKHOUSE_CONN_POOL_MIN,
+            connections_max=CLICKHOUSE_CONN_POOL_MAX,
         )
 
         def async_execute(query, args=None, settings=None):
