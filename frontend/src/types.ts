@@ -546,12 +546,30 @@ export interface SystemStatusSubrows {
     rows: string[][]
 }
 
-export interface SystemStatus {
+export interface SystemStatusRow {
     metric: string
     value: string
     key?: string
     description?: string
     subrows?: SystemStatusSubrows
+}
+
+export interface SystemStatus {
+    overview: SystemStatusRow[]
+    internal_metrics: {
+        clickhouse?: {
+            id: number
+            share_token: string
+        }
+    }
+}
+
+export type QuerySummary = { duration: string } & Record<string, string>
+
+export interface SystemStatusQueriesResult {
+    postgres_running: QuerySummary[]
+    clickhouse_running?: QuerySummary[]
+    clickhouse_slow_log?: QuerySummary[]
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>

@@ -13,6 +13,7 @@ from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.celery import app as celery_app
+from posthog.constants import ENVIRONMENT_TEST
 from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
@@ -97,6 +98,13 @@ def _get_token(data, request) -> Optional[str]:
     return None
 
 
+# Support test_[apiKey] for users with multiple environments
+def _clean_token(token):
+    is_test_environment = token.startswith("test_")
+    token = token[5:] if is_test_environment else token
+    return token, is_test_environment
+
+
 def _get_project_id(data, request) -> Optional[int]:
     if request.GET.get("project_id"):
         return int(request.POST["project_id"])
@@ -165,6 +173,9 @@ def get_event(request):
                 status_code=status.HTTP_401_UNAUTHORIZED,
             ),
         )
+
+    token, is_test_environment = _clean_token(token)
+    assert token is not None
 
     team = Team.objects.get_team_from_token(token)
 
@@ -253,35 +264,45 @@ def get_event(request):
                 ),
             )
 
+        site_url = request.build_absolute_uri("/")[:-1]
+        ip = None if team.anonymize_ips else get_ip_address(request)
+
         if not event.get("properties"):
             event["properties"] = {}
 
+        # Support test_[apiKey] for users with multiple environments
+        if event["properties"].get("$environment") is None and is_test_environment:
+            event["properties"]["$environment"] = ENVIRONMENT_TEST
+
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
-        event_uuid = UUIDT()
-        ip = None if team.anonymize_ips else get_ip_address(request)
+        statsd.incr("posthog_cloud_plugin_server_ingestion")
+        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk)
 
-        if is_clickhouse_enabled():
-            statsd.incr("posthog_cloud_plugin_server_ingestion")
-
-            log_event(
-                distinct_id=distinct_id,
-                ip=ip,
-                site_url=request.build_absolute_uri("/")[:-1],
-                data=event,
-                team_id=team.pk,
-                now=now,
-                sent_at=sent_at,
-                event_uuid=event_uuid,
-            )
-        else:
-            task_name = "posthog.tasks.process_event.process_event_with_plugins"
-            celery_queue = settings.PLUGINS_CELERY_QUEUE
-            celery_app.send_task(
-                name=task_name,
-                queue=celery_queue,
-                args=[distinct_id, ip, request.build_absolute_uri("/")[:-1], event, team.pk, now.isoformat(), sent_at,],
-            )
     timer.stop()
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",})
     return cors_response(request, JsonResponse({"status": 1}))
+
+
+def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id):
+    event_uuid = UUIDT()
+
+    if is_clickhouse_enabled():
+        log_event(
+            distinct_id=distinct_id,
+            ip=ip,
+            site_url=site_url,
+            data=event,
+            team_id=team_id,
+            now=now,
+            sent_at=sent_at,
+            event_uuid=event_uuid,
+        )
+    else:
+        task_name = "posthog.tasks.process_event.process_event_with_plugins"
+        celery_queue = settings.PLUGINS_CELERY_QUEUE
+        celery_app.send_task(
+            name=task_name,
+            queue=celery_queue,
+            args=[distinct_id, ip, site_url, event, team_id, now.isoformat(), sent_at,],
+        )

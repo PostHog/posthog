@@ -34,7 +34,7 @@ from posthog.event_usage import report_user_signed_up
 from .api.organization import OrganizationSignupSerializer
 from .models import OrganizationInvite, Team, User
 from .utils import render_template
-from .views import health, login_required, preflight_check, robots_txt, stats, system_status
+from .views import health, login_required, preflight_check, robots_txt, stats
 
 
 def home(request, *args, **kwargs):
@@ -200,7 +200,6 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
-    opt_slash_path("_system_status", system_status),
     # admin
     path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),

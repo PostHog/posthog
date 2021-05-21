@@ -13,13 +13,15 @@ from django.conf import settings as app_settings
 from django.core.cache import cache
 from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
-from statshog.defaults.django import statsd
 
 from posthog import redis
 from posthog.constants import RDBMS
+from posthog.internal_metrics import timing
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
     CLICKHOUSE_CA,
+    CLICKHOUSE_CONN_POOL_MAX,
+    CLICKHOUSE_CONN_POOL_MIN,
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HOST,
     CLICKHOUSE_PASSWORD,
@@ -38,13 +40,13 @@ _request_information: Optional[Dict] = None
 if PRIMARY_DB != RDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
 
-    def async_execute(query, args=None, settings=None):
+    def async_execute(query, args=None, settings=None, with_column_types=False):
         return
 
-    def sync_execute(query, args=None, settings=None):
+    def sync_execute(query, args=None, settings=None, with_column_types=False):
         return
 
-    def cache_sync_execute(query, args=None, redis_client=None, ttl=None, settings=None):
+    def cache_sync_execute(query, args=None, redis_client=None, ttl=None, settings=None, with_column_types=False):
         return
 
 
@@ -68,14 +70,16 @@ else:
             password=CLICKHOUSE_PASSWORD,
             ca_certs=CLICKHOUSE_CA,
             verify=CLICKHOUSE_VERIFY,
-            connections_min=20,
-            connections_max=1000,
+            connections_min=CLICKHOUSE_CONN_POOL_MIN,
+            connections_max=CLICKHOUSE_CONN_POOL_MAX,
         )
 
         @async_to_sync
-        async def async_execute(query, args=None, settings=None):
+        async def async_execute(query, args=None, settings=None, with_column_types=False):
             loop = asyncio.get_event_loop()
-            task = loop.create_task(ch_client.execute(query, args, settings=settings))
+            task = loop.create_task(
+                ch_client.execute(query, args, settings=settings, with_column_types=with_column_types)
+            )
             return task
 
     else:
@@ -98,14 +102,14 @@ else:
             password=CLICKHOUSE_PASSWORD,
             ca_certs=CLICKHOUSE_CA,
             verify=CLICKHOUSE_VERIFY,
-            connections_min=20,
-            connections_max=1000,
+            connections_min=CLICKHOUSE_CONN_POOL_MIN,
+            connections_max=CLICKHOUSE_CONN_POOL_MAX,
         )
 
-        def async_execute(query, args=None, settings=None):
-            return sync_execute(query, args, settings=settings)
+        def async_execute(query, args=None, settings=None, with_column_types=False):
+            return sync_execute(query, args, settings=settings, with_column_types=with_column_types)
 
-    def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, settings=None):
+    def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, settings=None, with_column_types=False):
         if not redis_client:
             redis_client = redis.get_client()
         key = _key_hash(query, args)
@@ -113,17 +117,17 @@ else:
             result = _deserialize(redis_client.get(key))
             return result
         else:
-            result = sync_execute(query, args, settings=settings)
+            result = sync_execute(query, args, settings=settings, with_column_types=with_column_types)
             redis_client.set(key, _serialize(result), ex=ttl)
             return result
 
-    def sync_execute(query, args=None, settings=None):
+    def sync_execute(query, args=None, settings=None, with_column_types=False):
         with ch_pool.get_client() as client:
             start_time = time()
             tags = {}
             try:
                 sql, tags = _annotate_tagged_query(query, args)
-                result = client.execute(sql, args, settings=settings)
+                result = client.execute(sql, args, settings=settings, with_column_types=with_column_types)
                 print(result)
             except Exception as e:
                 tags["failed"] = True
@@ -131,7 +135,7 @@ else:
                 raise e
             finally:
                 execution_time = time() - start_time
-                statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
+                timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
                 if app_settings.SHELL_PLUS_PRINT_SQL:
                     print(format_sql(query, args))
                     print("Execution time: %.6fs" % (execution_time,))
