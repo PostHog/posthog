@@ -14,15 +14,16 @@ DROP TABLE person_distinct_id
 PERSONS_TABLE = "person"
 
 PERSONS_TABLE_BASE_SQL = """
-CREATE TABLE {table_name} 
+CREATE TABLE {table_name}
 (
     id UUID,
     created_at DateTime64,
     team_id Int64,
     properties VARCHAR,
-    is_identified Boolean
+    is_identified Boolean,
+    is_deleted Boolean DEFAULT 0
     {extra_fields}
-) ENGINE = {engine} 
+) ENGINE = {engine}
 """
 
 PERSONS_TABLE_SQL = (
@@ -42,17 +43,18 @@ KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
 )
 
 PERSONS_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv 
-TO {table_name} 
+CREATE MATERIALIZED VIEW {table_name}_mv
+TO {table_name}
 AS SELECT
 id,
 created_at,
 team_id,
 properties,
 is_identified,
+is_deleted,
 _timestamp,
 _offset
-FROM kafka_{table_name} 
+FROM kafka_{table_name}
 """.format(
     table_name=PERSONS_TABLE
 )
@@ -83,14 +85,14 @@ GET_LATEST_PERSON_ID_SQL = """
 PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
-CREATE TABLE {table_name} 
+CREATE TABLE {table_name}
 (
     id Int64,
     distinct_id VARCHAR,
     person_id UUID,
     team_id Int64
     {extra_fields}
-) ENGINE = {engine} 
+) ENGINE = {engine}
 """
 
 PERSONS_DISTINCT_ID_TABLE_SQL = (
@@ -110,8 +112,8 @@ KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
 )
 
 PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv 
-TO {table_name} 
+CREATE MATERIALIZED VIEW {table_name}_mv
+TO {table_name}
 AS SELECT
 id,
 distinct_id,
@@ -119,7 +121,7 @@ person_id,
 team_id,
 _timestamp,
 _offset
-FROM kafka_{table_name} 
+FROM kafka_{table_name}
 """.format(
     table_name=PERSONS_DISTINCT_ID_TABLE
 )
@@ -130,14 +132,14 @@ FROM kafka_{table_name}
 
 PERSON_STATIC_COHORT_TABLE = "person_static_cohort"
 PERSON_STATIC_COHORT_BASE_SQL = """
-CREATE TABLE {table_name} 
+CREATE TABLE {table_name}
 (
     id UUID,
     person_id UUID,
     cohort_id Int64,
     team_id Int64
     {extra_fields}
-) ENGINE = {engine} 
+) ENGINE = {engine}
 """
 
 PERSON_STATIC_COHORT_TABLE_SQL = (
@@ -159,7 +161,7 @@ DROP TABLE {}
 )
 
 INSERT_PERSON_STATIC_COHORT = """
-INSERT INTO {} (id, person_id, cohort_id, team_id, _timestamp) VALUES 
+INSERT INTO {} (id, person_id, cohort_id, team_id, _timestamp) VALUES
 """.format(
     PERSON_STATIC_COHORT_TABLE
 )
@@ -202,7 +204,7 @@ WHERE team_id = %(team_id)s
 )
 
 INSERT_PERSON_SQL = """
-INSERT INTO person SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0
+INSERT INTO person SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0, 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
@@ -261,9 +263,9 @@ SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_i
     {latest_person_sql}
 ) as person INNER JOIN (
     SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE person_id IN ({content_sql}) AND team_id = %(team_id)s
-) as pdi ON person.id = pdi.person_id 
+) as pdi ON person.id = pdi.person_id
 GROUP BY id, created_at, team_id, properties, is_identified
-LIMIT 100 OFFSET %(offset)s 
+LIMIT 100 OFFSET %(offset)s
 """
 
 INSERT_COHORT_ALL_PEOPLE_SQL = """
