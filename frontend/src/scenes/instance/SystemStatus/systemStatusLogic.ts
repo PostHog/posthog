@@ -19,7 +19,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<SystemStatus, SystemS
                     if (preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
                         return null
                     }
-                    return (await api.get('_system_status')).results
+                    return (await api.get('api/instance_status')).results
                 },
             },
         ],
