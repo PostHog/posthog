@@ -30,9 +30,9 @@ class ActionStep(models.Model):
 
 @receiver(post_save, sender=ActionStep)
 def action_step_saved(sender, instance: ActionStep, created, **kwargs):
-    get_client().publish("fetch-action", str(instance.action_id))
+    get_client().publish("reload-action", str(instance.action_id))
 
 
 @receiver(post_delete, sender=ActionStep)
 def action_step_deleted(sender, instance: ActionStep, **kwargs):
-    get_client().publish("fetch-action", str(instance.action_id))
+    get_client().publish("reload-action", str(instance.action_id))

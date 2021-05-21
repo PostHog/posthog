@@ -121,9 +121,9 @@ class Action(models.Model):
 
 @receiver(post_save, sender=Action)
 def action_saved(sender, instance: Action, created, **kwargs):
-    get_client().publish("fetch-action", str(instance.pk))
+    get_client().publish("reload-action", str(instance.pk))
 
 
 @receiver(post_delete, sender=Action)
 def action_deleted(sender, instance: Action, **kwargs):
-    get_client().publish("delete-action", str(instance.pk))
+    get_client().publish("drop-action", str(instance.pk))
