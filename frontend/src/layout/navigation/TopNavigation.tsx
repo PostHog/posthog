@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Button, Card, Dropdown, Tooltip } from 'antd'
+import { Button, Card, Dropdown, Switch, Tooltip } from 'antd'
 import {
     ProjectOutlined,
     DownOutlined,
@@ -32,6 +32,8 @@ import { UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Environments } from 'lib/constants'
 import md5 from 'md5'
 
 export interface ProfilePictureProps {
@@ -74,10 +76,17 @@ export function WhoAmI({ user }: { user: UserType }): JSX.Element {
 }
 
 export function TopNavigation(): JSX.Element {
-    const { setMenuCollapsed, setChangelogModalOpen, setInviteMembersModalOpen } = useActions(navigationLogic)
-    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen, inviteMembersModalOpen } = useValues(
+    const { setMenuCollapsed, setChangelogModalOpen, setInviteMembersModalOpen, setFilteredEnvironment } = useActions(
         navigationLogic
     )
+    const {
+        menuCollapsed,
+        systemStatus,
+        updateAvailable,
+        changelogModalOpen,
+        inviteMembersModalOpen,
+        filteredEnvironment,
+    } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { billing } = useValues(billingLogic)
@@ -88,6 +97,7 @@ export function TopNavigation(): JSX.Element {
     const { showPalette } = useActions(commandPaletteLogic)
     const [projectModalShown, setProjectModalShown] = useState(false) // TODO: Move to Kea (using useState for backwards-compatibility with TopSelectors.tsx)
     const [organizationModalShown, setOrganizationModalShown] = useState(false) // TODO: Same as above
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
@@ -309,6 +319,30 @@ export function TopNavigation(): JSX.Element {
                 </div>
                 {user && (
                     <div>
+                        {featureFlags['test-environment-3149'] && (
+                            <div className="global-environment-switch">
+                                <label
+                                    htmlFor="global-environment-switch"
+                                    className={filteredEnvironment === Environments.TEST ? 'test' : ''}
+                                >
+                                    <Tooltip title="Toggle to view only test or production data everywhere. Click to learn more.">
+                                        <a href="https://posthog.com/docs" target="_blank" rel="noopener">
+                                            <InfoCircleOutlined />
+                                        </a>
+                                    </Tooltip>
+                                    {filteredEnvironment === Environments.PRODUCTION ? 'Production' : 'Test'}
+                                </label>
+                                <Switch
+                                    // @ts-expect-error - below works even if it's not defined as a prop
+                                    id="global-environment-switch"
+                                    checked={filteredEnvironment === Environments.PRODUCTION}
+                                    defaultChecked={filteredEnvironment === Environments.PRODUCTION}
+                                    onChange={(val) =>
+                                        setFilteredEnvironment(val ? Environments.PRODUCTION : Environments.TEST)
+                                    }
+                                />
+                            </div>
+                        )}
                         <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
                             <div>
                                 <WhoAmI user={user} />

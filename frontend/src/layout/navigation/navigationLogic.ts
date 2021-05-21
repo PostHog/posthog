@@ -8,6 +8,8 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { Environments, ENVIRONMENT_LOCAL_STORAGE_KEY } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 type WarningType =
     | 'welcome'
@@ -27,6 +29,7 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
         setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
         setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
         setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
+        setFilteredEnvironment: (environment: string, pageLoad: boolean = false) => ({ environment, pageLoad }),
     },
     reducers: {
         menuCollapsed: [
@@ -63,6 +66,12 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             false,
             {
                 setHotkeyNavigationEngaged: (_, { hotkeyNavigationEngaged }) => hotkeyNavigationEngaged,
+            },
+        ],
+        filteredEnvironment: [
+            Environments.PRODUCTION.toString(),
+            {
+                setFilteredEnvironment: (_, { environment }) => environment,
             },
         ],
     },
@@ -162,9 +171,27 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
                 actions.setHotkeyNavigationEngaged(false)
             }
         },
+        setFilteredEnvironment: ({ pageLoad, environment }) => {
+            const localStorageValue = window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY)
+            const isLocalStorageValueEmpty = localStorageValue === null
+            const shouldWriteToLocalStorage = (pageLoad === true && isLocalStorageValueEmpty) || pageLoad === false
+            if (shouldWriteToLocalStorage) {
+                window.localStorage.setItem(ENVIRONMENT_LOCAL_STORAGE_KEY, environment)
+            }
+            const shouldReload = pageLoad === false && localStorageValue !== environment
+            if (shouldReload) {
+                location.reload()
+            }
+        },
     }),
     events: ({ actions }) => ({
         afterMount: () => {
+            const notSharedDashboard = location.pathname.indexOf('shared_dashboard') > -1 ? false : true
+            if (notSharedDashboard && featureFlagLogic.values.featureFlags['test-environment-3149']) {
+                const localStorageValue =
+                    window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY) || Environments.PRODUCTION
+                actions.setFilteredEnvironment(localStorageValue, true)
+            }
             actions.loadLatestVersion()
         },
     }),
