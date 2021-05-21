@@ -1,9 +1,5 @@
 @import '~/vars';
 
-.ant-card-bordered {
-    @extend .mixin-base-bordered-card;
-}
-
 .insights-page {
     .top-bar {
         .ant-tabs,
@@ -14,8 +10,13 @@
             display: none;
         }
     }
+
     hr {
         margin: 1rem 0;
+    }
+
+    .ant-card-bordered {
+        @extend .mixin-base-bordered-card;
     }
 
     .hotkey {
