@@ -11,6 +11,8 @@ class EventDefinitionSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "name",
+            "description",
+            "tags",
             "volume_30_day",
             "query_usage_30_day",
         )

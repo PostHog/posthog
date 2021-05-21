@@ -11,6 +11,8 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "name",
+            "description",
+            "tags",
             "is_numerical",
             "volume_30_day",
             "query_usage_30_day",
