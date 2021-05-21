@@ -72,6 +72,7 @@ describe('postgres parity', () => {
                 team_id: team.id,
                 properties: '{"userProp":"propValue"}',
                 is_identified: 1,
+                is_deleted: 0,
                 _timestamp: expect.any(String),
                 _offset: expect.any(Number),
             },
@@ -131,6 +132,7 @@ describe('postgres parity', () => {
         expect(postgresPersons[0].properties).toEqual({ replacedUserProp: 'propValue' })
 
         expect(clickHousePersons[0].is_identified).toEqual(1)
+        expect(clickHousePersons[0].is_deleted).toEqual(0)
         expect(clickHousePersons[0].properties).toEqual('{"replacedUserProp":"propValue"}')
 
         // update date and boolean to false

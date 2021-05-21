@@ -396,6 +396,7 @@ export interface ClickHousePerson {
     team_id: number
     properties: string
     is_identified: number
+    is_deleted: number
     timestamp: string
 }
 
