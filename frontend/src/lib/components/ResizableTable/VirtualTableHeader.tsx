@@ -15,6 +15,7 @@ interface VirtualTableHeaderProps<RecordType> {
     handleResize: (index: number) => ResizeHandler
     layoutEffect?: CallableFunction
     minColumnWidth: number
+    expandable?: boolean
 }
 
 function ResizableTitle({
@@ -65,26 +66,31 @@ function VirtualTableHeader<RecordType>({
     columns,
     handleResize,
     layoutEffect,
-    minColumnWidth,
+    minColumnWidth: defaultMinColumnWidth,
+    expandable,
 }: VirtualTableHeaderProps<RecordType>): JSX.Element {
-    const maxColumnWidth = minColumnWidth * 12
+    const defaultMaxColumnWidth = defaultMinColumnWidth * 12
     const height = 60
     useLayoutEffect(() => (typeof layoutEffect === 'function' ? layoutEffect() : undefined))
     return (
         <div className="resizable-virtual-table-header">
-            <div className="left-spacer" style={{ width: ANTD_EXPAND_BUTTON_WIDTH }} />
-            {columns.map(({ title, width }, index) => (
-                <ResizableTitle
-                    key={index}
-                    initialWidth={width ?? minColumnWidth}
-                    height={height}
-                    onResize={handleResize(index)}
-                    minConstraints={[minColumnWidth, height]}
-                    maxConstraints={[maxColumnWidth, height]}
-                >
-                    {title}
-                </ResizableTitle>
-            ))}
+            {expandable && <div className="left-spacer" style={{ width: ANTD_EXPAND_BUTTON_WIDTH }} />}
+            {columns.map(({ title, width, widthConstraints }, index) => {
+                const minColumnWidth = widthConstraints?.length ? widthConstraints[0] : defaultMinColumnWidth
+                const maxColumnWidth = widthConstraints?.length ? widthConstraints[1] : defaultMaxColumnWidth
+                return (
+                    <ResizableTitle
+                        key={index}
+                        initialWidth={width ?? minColumnWidth}
+                        height={height}
+                        onResize={handleResize(index)}
+                        minConstraints={[minColumnWidth, height]}
+                        maxConstraints={[maxColumnWidth, height]}
+                    >
+                        {title}
+                    </ResizableTitle>
+                )
+            })}
         </div>
     )
 }

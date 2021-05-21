@@ -9,6 +9,7 @@ import { ColumnsType } from 'antd/lib/table'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { eventDefinitionsLogic } from './eventDefinitionsLogic'
 import { EventDefinition, PropertyDefinition } from '~/types'
+import { PageHeader } from 'lib/components/PageHeader'
 
 type EventTableType = 'event' | 'property'
 
@@ -178,23 +179,33 @@ export function EventsVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { eventDefinitions, loaded } = useValues(eventDefinitionsLogic)
 
-    return loaded ? (
+    return (
         <>
-            {preflight && !preflight?.is_event_property_usage_enabled ? (
-                <UsageDisabledWarning tab="Events Stats" />
+            <PageHeader
+                title="Events Stats"
+                caption="See all event names that have ever been sent to this team, including the volume and how often
+        queries where made using this event."
+                style={{ marginTop: 0 }}
+            />
+            {loaded ? (
+                <>
+                    {preflight && !preflight?.is_event_property_usage_enabled ? (
+                        <UsageDisabledWarning tab="Events Stats" />
+                    ) : (
+                        eventDefinitions[0].volume_30_day === null && (
+                            <>
+                                <Alert
+                                    type="warning"
+                                    message="We haven't been able to get usage and volume data yet. Please check back later"
+                                />
+                            </>
+                        )
+                    )}
+                    <VolumeTable data={eventDefinitions} type="event" />
+                </>
             ) : (
-                eventDefinitions[0].volume_30_day === null && (
-                    <>
-                        <Alert
-                            type="warning"
-                            message="We haven't been able to get usage and volume data yet. Please check back later"
-                        />
-                    </>
-                )
+                <Skeleton active paragraph={{ rows: 5 }} />
             )}
-            <VolumeTable data={eventDefinitions} type="event" />
         </>
-    ) : (
-        <Skeleton active paragraph={{ rows: 5 }} />
     )
 }

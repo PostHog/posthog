@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.models import Action, Event, Person, PersonDistinctId, Team
 from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.models.utils import UUIDT
@@ -57,7 +57,7 @@ class DataGenerator:
         pass
 
     def bulk_import_events(self):
-        if is_ee_enabled():
+        if is_clickhouse_enabled():
             from ee.clickhouse.demo import bulk_create_events, bulk_create_session_recording_events
 
             bulk_create_events(self.events, team=self.team)
@@ -68,12 +68,12 @@ class DataGenerator:
                 [SessionRecordingEvent(**kw, team=self.team) for kw in self.snapshots]
             )
 
-    def add_event(self, **kw):
-        self.events.append(kw)
-
     def add_if_not_contained(self, array, value):
         if value not in array:
             array.append(value)
+
+    def add_event(self, **kw):
+        self.events.append(kw)
 
 
 def _recalculate(team: Team) -> None:

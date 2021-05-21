@@ -2,25 +2,11 @@ import React, { useState } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
 import { isMobile, Loading } from 'lib/utils'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { DateFilter } from './DateFilter'
-import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
-import { PageHeader } from 'lib/components/PageHeader'
-
-import { ChartFilter } from 'lib/components/ChartFilter'
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_LINE_GRAPH_CUMULATIVE,
-    ACTIONS_TABLE,
-    ACTIONS_PIE_CHART,
-    ACTIONS_BAR_CHART_VALUE,
-    FUNNEL_VIZ,
-    ShownAsValue,
-} from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, FUNNEL_VIZ, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -32,7 +18,6 @@ import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './Insigh
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
-import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
 import { ReloadOutlined } from '@ant-design/icons'
@@ -45,66 +30,18 @@ import { People } from 'scenes/funnels/People'
 import { TrendLegend } from './TrendLegend'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { TZIndicator } from 'lib/components/TimezoneAware'
-import { DisplayType, FilterType, HotKeys } from '~/types'
+import { HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
+import { PageHeader } from 'lib/components/PageHeader'
+
+export interface BaseTabProps {
+    annotationsToCreate: any[] // TODO: Type properly
+}
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
-
-const showIntervalFilter = function (activeView: ViewType, filter: FilterType): boolean {
-    switch (activeView) {
-        case ViewType.FUNNELS:
-            return filter.display === ACTIONS_LINE_GRAPH_LINEAR
-        case ViewType.RETENTION:
-        case ViewType.PATHS:
-            return false
-        case ViewType.TRENDS:
-        case ViewType.STICKINESS:
-        case ViewType.LIFECYCLE:
-        case ViewType.SESSIONS:
-        default:
-            return ![ACTIONS_PIE_CHART, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE].includes(filter.display || '') // sometimes insights aren't set for trends
-    }
-}
-
-const showChartFilter = function (activeView: ViewType, featureFlags: Record<string, boolean>): boolean {
-    switch (activeView) {
-        case ViewType.TRENDS:
-        case ViewType.STICKINESS:
-        case ViewType.SESSIONS:
-        case ViewType.RETENTION:
-            return true
-        case ViewType.FUNNELS:
-            return featureFlags['funnel-trends-1269']
-        case ViewType.LIFECYCLE:
-        case ViewType.PATHS:
-            return false
-        default:
-            return true // sometimes insights aren't set for trends
-    }
-}
-
-const showDateFilter = {
-    [`${ViewType.TRENDS}`]: true,
-    [`${ViewType.STICKINESS}`]: true,
-    [`${ViewType.LIFECYCLE}`]: true,
-    [`${ViewType.SESSIONS}`]: true,
-    [`${ViewType.FUNNELS}`]: true,
-    [`${ViewType.RETENTION}`]: false,
-    [`${ViewType.PATHS}`]: true,
-}
-
-const showComparePrevious = {
-    [`${ViewType.TRENDS}`]: true,
-    [`${ViewType.STICKINESS}`]: true,
-    [`${ViewType.LIFECYCLE}`]: false,
-    [`${ViewType.SESSIONS}`]: true,
-    [`${ViewType.FUNNELS}`]: false,
-    [`${ViewType.RETENTION}`]: false,
-    [`${ViewType.PATHS}`]: false,
-}
 
 function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
     /* Temporary element to only show hotkeys when feature flag is active */
@@ -125,7 +62,9 @@ export function Insights(): JSX.Element {
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
-    const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
+
+    const newUI = featureFlags[FEATURE_FLAGS.QUERY_UX_V2]
+    const horizontalUI = newUI && activeView !== ViewType.FUNNELS
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -161,11 +100,10 @@ export function Insights(): JSX.Element {
     )
 
     return (
-        <div className="insights-page">
+        <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>
             <PageHeader title="Insights" />
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
-                    size="large"
                     activeKey={activeView}
                     style={{
                         overflow: 'visible',
@@ -284,8 +222,8 @@ export function Insights(): JSX.Element {
                     </Col>
                 ) : (
                     <>
-                        <Col xs={24} xl={7}>
-                            <Card className="" style={{ overflow: 'visible' }}>
+                        <Col xs={24} xl={horizontalUI ? 24 : 7}>
+                            <Card className="insight-controls">
                                 <div>
                                     {/*
                                 These are insight specific filters.
@@ -293,13 +231,36 @@ export function Insights(): JSX.Element {
                                 */}
                                     {
                                         {
-                                            [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
-                                            [`${ViewType.STICKINESS}`]: <TrendTab view={ViewType.STICKINESS} />,
-                                            [`${ViewType.LIFECYCLE}`]: <TrendTab view={ViewType.LIFECYCLE} />,
-                                            [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                            [`${ViewType.FUNNELS}`]: <FunnelTab />,
-                                            [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                            [`${ViewType.PATHS}`]: <PathTab />,
+                                            [`${ViewType.TRENDS}`]: (
+                                                <TrendTab
+                                                    view={ViewType.TRENDS}
+                                                    annotationsToCreate={annotationsToCreate}
+                                                />
+                                            ),
+                                            [`${ViewType.STICKINESS}`]: (
+                                                <TrendTab
+                                                    view={ViewType.STICKINESS}
+                                                    annotationsToCreate={annotationsToCreate}
+                                                />
+                                            ),
+                                            [`${ViewType.LIFECYCLE}`]: (
+                                                <TrendTab
+                                                    view={ViewType.LIFECYCLE}
+                                                    annotationsToCreate={annotationsToCreate}
+                                                />
+                                            ),
+                                            [`${ViewType.SESSIONS}`]: (
+                                                <SessionTab annotationsToCreate={annotationsToCreate} />
+                                            ),
+                                            [`${ViewType.FUNNELS}`]: (
+                                                <FunnelTab annotationsToCreate={annotationsToCreate} newUI={newUI} />
+                                            ),
+                                            [`${ViewType.RETENTION}`]: (
+                                                <RetentionTab annotationsToCreate={annotationsToCreate} />
+                                            ),
+                                            [`${ViewType.PATHS}`]: (
+                                                <PathTab annotationsToCreate={annotationsToCreate} />
+                                            ),
                                         }[activeView]
                                     }
                                 </div>
@@ -313,59 +274,26 @@ export function Insights(): JSX.Element {
                                 </Card>
                             )}
                         </Col>
-                        <Col xs={24} xl={17}>
-                            {/*
-                        These are filters that are reused between insight features.
-                        They each have generic logic that updates the url
-                        */}
+                        <Col xs={24} xl={horizontalUI ? 24 : 17}>
+                            {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
+                            {/* These are filters that are reused between insight features. They
+                                each have generic logic that updates the url
+                            */}
                             <Card
                                 title={
-                                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                                        <TZIndicator style={{ float: 'left' }} />
-                                        <div style={{ width: '100%', textAlign: 'right' }}>
-                                            {showIntervalFilter(activeView, allFilters) && (
-                                                <IntervalFilter view={activeView} />
-                                            )}
-                                            {showChartFilter(activeView, featureFlags) && (
-                                                <ChartFilter
-                                                    onChange={(display: DisplayType) => {
-                                                        if (
-                                                            display === ACTIONS_TABLE ||
-                                                            display === ACTIONS_PIE_CHART
-                                                        ) {
-                                                            clearAnnotationsToCreate()
-                                                        }
-                                                    }}
-                                                    filters={allFilters}
-                                                    disabled={allFilters.shown_as === ShownAsValue.LIFECYCLE}
-                                                />
-                                            )}
-
-                                            {showDateFilter[activeView] && (
-                                                <DateFilter
-                                                    defaultValue="Last 7 days"
-                                                    disabled={dateFilterDisabled}
-                                                    bordered={false}
-                                                />
-                                            )}
-
-                                            {showComparePrevious[activeView] && <CompareFilter />}
-                                            <SaveToDashboard
-                                                item={{
-                                                    entity: {
-                                                        filters: allFilters,
-                                                        annotations: annotationsToCreate,
-                                                    },
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
+                                    <InsightDisplayConfig
+                                        activeView={activeView}
+                                        allFilters={allFilters}
+                                        annotationsToCreate={annotationsToCreate}
+                                        clearAnnotationsToCreate={clearAnnotationsToCreate}
+                                        horizontalUI={horizontalUI}
+                                    />
                                 }
-                                headStyle={{ backgroundColor: 'rgba(0,0,0,.03)' }}
                                 data-attr="insights-graph"
+                                className="insights-graph-container"
                             >
                                 <div>
-                                    {lastRefresh && (
+                                    {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
                                         <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
                                             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
                                             <Button
@@ -413,7 +341,7 @@ export function Insights(): JSX.Element {
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && (
-                                    <Card>
+                                    <Card style={{ marginTop: 16 }}>
                                         <FunnelPeople />
                                     </Card>
                                 )}
@@ -421,7 +349,7 @@ export function Insights(): JSX.Element {
                                 allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
                                 allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) &&
                                 (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
-                                    <Card>
+                                    <Card style={{ marginTop: 16 }}>
                                         <BindLogic
                                             logic={trendsLogic}
                                             props={{ dashboardItemId: null, view: activeView }}
@@ -436,10 +364,6 @@ export function Insights(): JSX.Element {
             </Row>
         </div>
     )
-}
-
-const isFunnelEmpty = (filters: FilterType): boolean => {
-    return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
 function FunnelInsight(): JSX.Element {

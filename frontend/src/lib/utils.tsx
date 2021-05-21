@@ -43,10 +43,10 @@ export function toParams(obj: Record<string, any>): string {
         .join('&')
 }
 
-export function fromParams(): Record<string, any> {
-    return !window.location.search
+export function fromParamsGivenUrl(url: string): Record<string, any> {
+    return !url
         ? {}
-        : window.location.search
+        : url
               .slice(1)
               .split('&')
               .reduce((paramsObject, paramString) => {
@@ -54,6 +54,10 @@ export function fromParams(): Record<string, any> {
                   paramsObject[key] = decodeURIComponent(value)
                   return paramsObject
               }, {} as Record<string, any>)
+}
+
+export function fromParams(): Record<string, any> {
+    return fromParamsGivenUrl(window.location.search)
 }
 
 export function percentage(division: number): string {
@@ -308,7 +312,7 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     return JSON.stringify(obj1) === JSON.stringify(obj2)
 }
 
-export function idToKey(array: Record<string, any>[], keyField: string = 'id'): any {
+export function idToKey(array: Record<string, any>[], keyField: string = 'id'): Record<string, any> {
     const object: Record<string, any> = {}
     for (const element of array) {
         object[element[keyField]] = element
@@ -839,4 +843,13 @@ export function resolveWebhookService(webhookUrl: string): string {
         }
     }
     return 'your webhook service'
+}
+
+export function maybeAddCommasToInteger(value: any): any {
+    const isNumber = !isNaN(value)
+    if (!isNumber) {
+        return value
+    }
+    const internationalNumberFormat = new Intl.NumberFormat('en-US')
+    return internationalNumberFormat.format(value)
 }

@@ -109,6 +109,10 @@
                 {
                     "name": "ASYNC_EVENT_PROPERTY_USAGE",
                     "value": "1"
+                },
+                {
+                    "name": "CAPTURE_INTERNAL_METRICS",
+                    "value": "True"
                 }
             ],
             "secrets": [
@@ -119,6 +123,10 @@
                 {
                     "name": "CLICKHOUSE_HOST",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_HOST::"
+                },
+                {
+                    "name": "CLICKHOUSE_MIGRATION_HOSTS",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_MIGRATION_HOSTS::"
                 },
                 {
                     "name": "CLICKHOUSE_PASSWORD",
@@ -234,7 +242,10 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-server-newrelic"]
+            "command": ["./bin/docker-server-newrelic"],
+            "linuxParameters": {
+                "initProcessEnabled": true
+            }
         }
     ],
     "requiresCompatibilities": ["FARGATE"],

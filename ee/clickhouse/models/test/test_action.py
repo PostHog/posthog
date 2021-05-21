@@ -153,3 +153,24 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         full_query = "SELECT uuid FROM events WHERE {}".format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
+
+    def test_double(self):
+        # Tests a regression where the second step properties would override those of the first step, causing issues
+        _create_event(
+            event="insight viewed", team=self.team, distinct_id="whatever", properties={"filters_count": 2},
+        )
+
+        action1 = Action.objects.create(team=self.team, name="action1")
+        step1 = ActionStep.objects.create(
+            event="insight viewed",
+            action=action1,
+            properties=[{"key": "insight", "type": "event", "value": ["RETENTION"], "operator": "exact"}],
+        )
+        step2 = ActionStep.objects.create(
+            event="insight viewed",
+            action=action1,
+            properties=[{"key": "filters_count", "type": "event", "value": "1", "operator": "gt"}],
+        )
+
+        events = query_action(action1)
+        self.assertEqual(len(events), 1)  # type: ignore

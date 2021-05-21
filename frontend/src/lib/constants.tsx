@@ -43,6 +43,7 @@ export const annotationScopeToName = new Map<string, string>([
 
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
 
+// Event constants
 export const PAGEVIEW = '$pageview'
 export const AUTOCAPTURE = '$autocapture'
 export const SCREEN = '$screen'
@@ -51,24 +52,29 @@ export const CUSTOM_EVENT = 'custom_event'
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
 
+// TODO: Deprecated; should be removed once backend is updated
 export enum ShownAsValue {
     VOLUME = 'Volume',
     STICKINESS = 'Stickiness',
     LIFECYCLE = 'Lifecycle',
 }
 
+// Retention constants
+export const RETENTION_RECURRING = 'retention_recurring'
+export const RETENTION_FIRST_TIME = 'retention_first_time'
+
+// Properties constants
 export const PROPERTY_MATH_TYPE = 'property'
 export const EVENT_MATH_TYPE = 'event'
-
 export const MATHS: Record<string, any> = {
     total: {
-        name: 'Total volume',
+        name: 'Total count',
         description: (
             <>
-                Total event volume.
+                Total event count. Number of times the user performed the event.
                 <br />
                 <br />
-                If a user performs an event 3 times in a given day/week/month, it counts as 3.
+                <i>Example: If a user performs an event 3 times in the given period, it counts as 3.</i>
             </>
         ),
         onProperty: false,
@@ -78,10 +84,12 @@ export const MATHS: Record<string, any> = {
         name: 'Unique users',
         description: (
             <>
-                Unique users who performed the event in the specified time interval.
+                Number of unique users who performed the event in the specified period.
                 <br />
                 <br />
-                If a single user performs an event 3 times in a given day/week/month, it counts only as 1.
+                <i>
+                    Example: If a single user performs an event 3 times in a given day/week/month, it counts only as 1.
+                </i>
             </>
         ),
         onProperty: false,
@@ -111,19 +119,6 @@ export const MATHS: Record<string, any> = {
         onProperty: false,
         type: EVENT_MATH_TYPE,
     },
-    sum: {
-        name: 'Sum',
-        description: (
-            <>
-                Event property sum.
-                <br />
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
     avg: {
         name: 'Average',
         description: (
@@ -132,6 +127,19 @@ export const MATHS: Record<string, any> = {
                 <br />
                 <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 14.
+            </>
+        ),
+        onProperty: true,
+        type: PROPERTY_MATH_TYPE,
+    },
+    sum: {
+        name: 'Sum',
+        description: (
+            <>
+                Event property sum.
+                <br />
+                <br />
+                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
             </>
         ),
         onProperty: true,
@@ -226,4 +234,13 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS: Record<string, string> = {
     INGESTION_GRID: 'ingestion-grid-exp-3',
     PROJECT_HOME: 'project-home-exp-5',
+    QUERY_UX_V2: '4050-query-ui-optB',
+    EVENT_COLUMN_CONFIG: '4141-event-columns',
+}
+
+export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
+
+export enum Environments {
+    PRODUCTION = 'production',
+    TEST = 'test',
 }

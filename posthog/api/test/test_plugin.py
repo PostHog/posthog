@@ -28,7 +28,7 @@ def mocked_plugin_reload(*args, **kwargs):
     pass
 
 
-@mock.patch("posthog.api.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
+@mock.patch("posthog.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
 class TestPluginAPI(APIBaseTest):
     @classmethod
@@ -293,6 +293,7 @@ class TestPluginAPI(APIBaseTest):
                 "is_global": False,
                 "organization_id": response.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
+                "capabilities": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -326,6 +327,7 @@ class TestPluginAPI(APIBaseTest):
                 "is_global": False,
                 "organization_id": response.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
+                "capabilities": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -360,6 +362,7 @@ class TestPluginAPI(APIBaseTest):
                 "is_global": False,
                 "organization_id": response2.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
+                "capabilities": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -470,6 +473,7 @@ class TestPluginAPI(APIBaseTest):
                 "is_global": False,
                 "organization_id": response.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
+                "capabilities": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -577,6 +581,7 @@ class TestPluginAPI(APIBaseTest):
                 "order": 0,
                 "config": {"bar": "moop"},
                 "error": None,
+                "team_id": self.team.pk,
             },
         )
         response = self.client.patch(
@@ -595,6 +600,7 @@ class TestPluginAPI(APIBaseTest):
                 "order": 1,
                 "config": {"bar": "soup"},
                 "error": None,
+                "team_id": self.team.pk,
             },
         )
         self.client.delete("/api/plugin_config/{}".format(plugin_config_id))
@@ -803,6 +809,7 @@ class TestPluginAPI(APIBaseTest):
                 "order": 0,
                 "config": {"bar": "**************** POSTHOG SECRET FIELD ****************"},
                 "error": None,
+                "team_id": self.team.pk,
             },
         )
 
@@ -824,6 +831,7 @@ class TestPluginAPI(APIBaseTest):
                 "order": 1,
                 "config": {"bar": ""},  # empty secret configs are returned normally
                 "error": None,
+                "team_id": self.team.pk,
             },
         )
 
@@ -843,6 +851,7 @@ class TestPluginAPI(APIBaseTest):
                 "order": 1,
                 "config": {"bar": "**************** POSTHOG SECRET FIELD ****************"},
                 "error": None,
+                "team_id": self.team.pk,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)

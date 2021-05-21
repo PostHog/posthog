@@ -29,7 +29,7 @@ const LESSONS = [
     {
         title: 'Safely Roll Out New Features',
         hover: "A walk-through on how you can roll-out and learn from features using PostHog's feature flags.",
-        target: `https://posthog.com/docs/tutorials/feature-flag?utm_content=project-homes${UTM_TAGS}`,
+        target: `https://posthog.com/docs/tutorials/feature-flags?utm_content=project-homes${UTM_TAGS}`,
         imgSrc: rollOutFeatures,
     },
     {
@@ -84,13 +84,13 @@ function Tutorials(): JSX.Element {
     const settings = {
         dots: true,
         slidesToShow: 4,
-        slidesToScroll: 2,
+        slidesToScroll: 3,
         arrows: true,
         nextArrow: <CarouselArrow direction="next" />,
         prevArrow: <CarouselArrow direction="prev" />,
         autoplay: true,
         vertical: false,
-        autoplaySpeed: 7500,
+        autoplaySpeed: 5500,
         centerMode: true,
         centerPadding: '10px',
         responsive: [
