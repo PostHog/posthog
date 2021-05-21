@@ -64,6 +64,7 @@ SELECT * FROM person JOIN (
     SELECT id, max(_timestamp) as _timestamp FROM person WHERE team_id = %(team_id)s GROUP BY id
 ) as person_max ON person.id = person_max.id AND person._timestamp = person_max._timestamp
 WHERE team_id = %(team_id)s
+  AND is_deleted = 0
 {query}
 """
 
@@ -289,7 +290,11 @@ AND person_id IN
 (
     SELECT id
     FROM (
-        SELECT id, argMax(properties, person._timestamp) as properties FROM person WHERE team_id = %(team_id)s GROUP BY id
+        SELECT id, argMax(properties, person._timestamp) as properties, argMax(is_deleted, person._timestamp) as is_deleted
+        FROM person
+        WHERE team_id = %(team_id)s
+        GROUP BY id
+        HAVING is_deleted = 0
     )
     WHERE 1 = 1 {filters}
 )
