@@ -14,6 +14,9 @@ import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { Link } from 'lib/components/Link'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+import { Button } from 'antd'
+import { ReloadOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
 
 interface Props {
     id: string
@@ -29,10 +32,11 @@ export function Dashboard({ id, shareToken }: Props): JSX.Element {
 }
 
 function DashboardView(): JSX.Element {
-    const { dashboard, itemsLoading, items, filters: dashboardFilters, dashboardMode } = useValues(dashboardLogic)
+    const { dashboard, itemsLoading, items, lastRefreshed, filters: dashboardFilters, dashboardMode } = useValues(
+        dashboardLogic
+    )
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
-
+    const { setDashboardMode, addGraph, setDates, refreshAllDashboardItems } = useActions(dashboardLogic)
     useKeyboardHotkeys(
         dashboardMode === DashboardMode.Public
             ? {}
@@ -106,7 +110,7 @@ function DashboardView(): JSX.Element {
             {items && items.length ? (
                 <div>
                     <div className="dashboard-items-actions">
-                        {/* :TODO: Bring this back when addressing https://github.com/PostHog/posthog/issues/3609
+                        {/* :TODO: Bring this back when addressing https://github.com/PostHog/posthog/issues/3609 */}
                         <div className="left-item">
                             Last updated <b>{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</b>
                             {dashboardMode !== DashboardMode.Public && (
@@ -115,7 +119,7 @@ function DashboardView(): JSX.Element {
                                 </Button>
                             )}
                         </div>
-                         */}
+
                         {dashboardMode !== DashboardMode.Public && (
                             <div
                                 style={{
