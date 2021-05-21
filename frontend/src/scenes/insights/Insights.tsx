@@ -231,11 +231,16 @@ export function Insights(): JSX.Element {
                         <Col xs={24} xl={horizontalUI ? 24 : 7}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
-                                onClick={(e) => controlsCollapsed && e.stopPropagation() && toggleControlsCollapsed()}
+                                onClick={() => controlsCollapsed && toggleControlsCollapsed()}
                             >
-                                <div className="collapse-control" onClick={() => toggleControlsCollapsed()}>
-                                    {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
-                                </div>
+                                {horizontalUI && (
+                                    <div
+                                        className="collapse-control"
+                                        onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
+                                    >
+                                        {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
+                                    </div>
+                                )}
                                 {controlsCollapsed && (
                                     <div>
                                         <h3 className="l3">Query definition</h3>
