@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import ReactDOM from 'react-dom'
 import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
 import 'chartjs-adapter-dayjs'
@@ -216,28 +217,27 @@ export function LineGraph({
                       if (tooltipModel.body) {
                           const titleLines = tooltipModel.title || []
                           const bodyLines = tooltipModel.body.map(({ lines }) => lines)
-                          const innerHtml = `
-                                ${titleLines.map((title) => '<header>' + title + '</header>')}
-                                <ul>
-                                    ${bodyLines
-                                        .map((body, i) => {
-                                            const { backgroundColor, borderColor } = tooltipModel.labelColors[i]
-                                            const iconColor = backgroundColor || borderColor
-                                            return `
-                                            <li>
-                                                <div
-                                                    class="color-icon"
-                                                    style="background: ${iconColor}"
-                                                ></div>
-                                                <div class="title">${body}</div>
-                                            </li>
-                                        `
-                                        })
-                                        .join('')}
-                                </ul>
-                                <footer>Click to inspect users</footer>
-                            `
-                          tooltipEl.innerHTML = innerHtml
+                          ReactDOM.render(
+                              <>
+                                  {titleLines.map((title, i) => (
+                                      <header key={i}>{title}</header>
+                                  ))}
+                                  <ul>
+                                      {bodyLines.map((body, i) => {
+                                          const { backgroundColor, borderColor } = tooltipModel.labelColors[i]
+                                          const iconColor = backgroundColor || borderColor
+                                          return (
+                                              <li key={i}>
+                                                  <div className="color-icon" style={{ background: iconColor }} />
+                                                  <div className="title">{body}</div>
+                                              </li>
+                                          )
+                                      })}
+                                  </ul>
+                                  <footer>Click to inspect users</footer>
+                              </>,
+                              tooltipEl
+                          )
                       }
 
                       var position = chartRef.current.getBoundingClientRect()
