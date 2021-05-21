@@ -61,10 +61,14 @@ FROM kafka_{table_name}
 
 GET_LATEST_PERSON_SQL = """
 SELECT * FROM person JOIN (
-    SELECT id, max(_timestamp) as _timestamp FROM person WHERE team_id = %(team_id)s GROUP BY id
+    SELECT id, max(_timestamp) as _timestamp, max(is_deleted) as is_deleted
+    FROM person
+    WHERE team_id = %(team_id)s
+    GROUP BY id
 ) as person_max ON person.id = person_max.id AND person._timestamp = person_max._timestamp
 WHERE team_id = %(team_id)s
-{query}
+  AND person_max.is_deleted = 0
+  {query}
 """
 
 GET_LATEST_PERSON_DISTINCT_ID_SQL = """
@@ -204,7 +208,7 @@ WHERE team_id = %(team_id)s
 )
 
 INSERT_PERSON_SQL = """
-INSERT INTO person SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0, 0
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0, 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
@@ -216,7 +220,7 @@ ALTER TABLE person UPDATE properties = %(properties)s where id = %(id)s
 """
 
 DELETE_PERSON_BY_ID = """
-ALTER TABLE person DELETE where id = %(id)s
+INSERT INTO person (id, is_deleted) SELECT %(id)s, 1
 """
 
 DELETE_PERSON_EVENTS_BY_ID = """
@@ -289,7 +293,11 @@ AND person_id IN
 (
     SELECT id
     FROM (
-        SELECT id, argMax(properties, person._timestamp) as properties FROM person WHERE team_id = %(team_id)s GROUP BY id
+        SELECT id, argMax(properties, person._timestamp) as properties, max(is_deleted) as is_deleted
+        FROM person
+        WHERE team_id = %(team_id)s
+        GROUP BY id
+        HAVING is_deleted = 0
     )
     WHERE 1 = 1 {filters}
 )
