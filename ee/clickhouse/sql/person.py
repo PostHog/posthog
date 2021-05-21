@@ -20,9 +20,9 @@ CREATE TABLE {table_name}
     created_at DateTime64,
     team_id Int64,
     properties VARCHAR,
-    is_identified Boolean,
-    is_deleted Boolean DEFAULT 0
+    is_identified Boolean
     {extra_fields}
+    , is_deleted Boolean DEFAULT 0
 ) ENGINE = {engine}
 """
 
@@ -51,9 +51,9 @@ created_at,
 team_id,
 properties,
 is_identified,
-is_deleted,
 _timestamp,
-_offset
+_offset,
+is_deleted
 FROM kafka_{table_name}
 """.format(
     table_name=PERSONS_TABLE
