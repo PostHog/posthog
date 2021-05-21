@@ -5,7 +5,8 @@ from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 
-SLOW_THRESHOLD = 10000
+SLOW_THRESHOLD_MS = 10000
+SLOW_AFTER = relativedelta(hours=6)
 
 SystemStatusRow = Dict
 
@@ -77,12 +78,12 @@ def get_clickhouse_slow_log() -> List[Dict]:
         f"""
             SELECT query_duration_ms as duration, query, *
             FROM system.query_log
-            WHERE query_duration_ms > {SLOW_THRESHOLD}
+            WHERE query_duration_ms > {SLOW_THRESHOLD_MS}
               AND event_time > %(after)s
             ORDER BY duration DESC
             LIMIT 200
         """,
-        {"after": timezone.now() - relativedelta(hours=6)},
+        {"after": timezone.now() - SLOW_AFTER},
         columns_to_remove=[
             "address",
             "initial_address",
