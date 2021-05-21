@@ -66,9 +66,13 @@ export const dashboardLogic = kea({
     }),
     reducers: ({ props }) => ({
         filters: [
-            { date_from: undefined, date_to: undefined },
+            { date_from: null, date_to: null },
             {
-                setDates: (state, { dateFrom, dateTo }) => ({ ...state, date_from: dateFrom, date_to: dateTo }),
+                setDates: (state, { dateFrom, dateTo }) => ({
+                    ...state,
+                    date_from: dateFrom || null,
+                    date_to: dateTo || null,
+                }),
             },
         ],
         allItems: {
