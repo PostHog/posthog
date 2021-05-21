@@ -20,9 +20,9 @@ CREATE TABLE {table_name}
     created_at DateTime64,
     team_id Int64,
     properties VARCHAR,
-    is_identified Boolean
+    is_identified Boolean,
+    is_deleted Boolean DEFAULT 0
     {extra_fields}
-    , is_deleted Boolean DEFAULT 0
 ) ENGINE = {engine}
 """
 
@@ -51,9 +51,9 @@ created_at,
 team_id,
 properties,
 is_identified,
+is_deleted,
 _timestamp,
-_offset,
-is_deleted
+_offset
 FROM kafka_{table_name}
 """.format(
     table_name=PERSONS_TABLE
@@ -208,7 +208,7 @@ WHERE team_id = %(team_id)s
 )
 
 INSERT_PERSON_SQL = """
-INSERT INTO person SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0, 0
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0, 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
@@ -220,7 +220,7 @@ ALTER TABLE person UPDATE properties = %(properties)s where id = %(id)s
 """
 
 DELETE_PERSON_BY_ID = """
-INSERT INTO person SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0, 1
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0, 1
 """
 
 DELETE_PERSON_EVENTS_BY_ID = """
