@@ -7,7 +7,10 @@ from django.db import models
 from django.utils import timezone
 from rest_framework import exceptions, status
 
-DEFAULT_USER_LIMIT = 3
+from posthog import ee
+
+DEFAULT_CLICKHOUSE_USER_LIMIT = 3
+DEFAULT_FREE_USER_LIMIT = None
 
 
 class LicenseError(exceptions.APIException):
@@ -79,7 +82,9 @@ def get_max_users() -> Optional[int]:
     user_limits = [l.max_users for l in License.objects.filter(valid_until__gte=timezone.now())]
     if None in user_limits:
         return None
-    return max(user_limits, default=DEFAULT_USER_LIMIT)
+
+    default = DEFAULT_CLICKHOUSE_USER_LIMIT if ee.is_clickhouse_enabled() else DEFAULT_FREE_USER_LIMIT
+    return max(user_limits, default=default)
 
 
 def get_licensed_users_available() -> Optional[int]:

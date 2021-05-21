@@ -2,6 +2,7 @@ import datetime
 from unittest.mock import Mock
 
 import pytest
+from django.conf import settings
 from django.utils import timezone
 from pytest_mock.plugin import MockerFixture
 
@@ -26,11 +27,19 @@ def create_license(mocker: MockerFixture):
     return _inner
 
 
-@pytest.mark.skip_on_multitenancy
-def test_default_get_licensed_users_available(db):
+def test_default_get_licensed_users_available(db, mocker):
+    mocker.patch.object(settings, "MULTI_TENANCY", True)
+    assert get_licensed_users_available() == None
+
+    mocker.patch.object(settings, "MULTI_TENANCY", False)
+    mocker.patch("posthog.ee.is_clickhouse_enabled", return_value=False)
+    assert get_licensed_users_available() == None
+
+    mocker.patch("posthog.ee.is_clickhouse_enabled", return_value=True)
     assert get_licensed_users_available() == 3
 
 
+@pytest.mark.skip_on_multitenancy
 def test_uses_max_value_from_license(db, create_license):
     create_license("foo", max_users=2)
     create_license("bar", max_users=4)
@@ -42,6 +51,7 @@ def test_uses_max_value_from_license(db, create_license):
     assert get_licensed_users_available() is None
 
 
+@pytest.mark.skip_on_multitenancy
 def test_get_users_available_when_users_exist(db, create_license):
     create_license("bar", max_users=4)
 

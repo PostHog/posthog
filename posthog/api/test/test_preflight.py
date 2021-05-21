@@ -37,7 +37,7 @@ class TestPreflight(APIBaseTest):
         )
 
     def test_preflight_request(self):
-        with self.settings(MULTI_TENANCY=False):
+        with self.settings(MULTI_TENANCY=False, PRIMARY_DB=RDBMS.POSTGRES):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
@@ -62,7 +62,7 @@ class TestPreflight(APIBaseTest):
                     "email_service_available": False,
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
-                    "licensed_users_available": 2,
+                    "licensed_users_available": None,
                     "site_url": "http://localhost:8000",
                 },
             )
@@ -167,6 +167,7 @@ class TestPreflight(APIBaseTest):
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
     @pytest.mark.ee
+    @pytest.mark.skip_on_multitenancy
     def test_ee_preflight_with_users_limit(self):
 
         from ee.models.license import License, LicenseManager
