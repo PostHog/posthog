@@ -1,7 +1,7 @@
 @import '~/vars';
 
 .ant-card-bordered {
-    @extend .card_style;
+    @extend .mixin-base-bordered-card;
 }
 
 .insights-page {
@@ -32,11 +32,9 @@
 
     .insight-controls {
         overflow: visible;
-        // @extend .card_style;
     }
 
     .insights-graph-container {
-        // @extend .card_style;
         .ant-card-head {
             background-color: #f9f9f9;
             border-bottom: 1px solid #e4e4e4;
