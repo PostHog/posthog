@@ -219,10 +219,11 @@ export function LineGraph({
                           const innerHtml = `
                                 ${titleLines.map((title) => '<header>' + title + '</header>')}
                                 <ul>
-                                    ${bodyLines.map((body, i) => {
-                                        const { backgroundColor, borderColor } = tooltipModel.labelColors[i]
-                                        const iconColor = backgroundColor || borderColor
-                                        return `
+                                    ${bodyLines
+                                        .map((body, i) => {
+                                            const { backgroundColor, borderColor } = tooltipModel.labelColors[i]
+                                            const iconColor = backgroundColor || borderColor
+                                            return `
                                             <li>
                                                 <div
                                                     class="color-icon"
@@ -231,20 +232,11 @@ export function LineGraph({
                                                 <div class="title">${body}</div>
                                             </li>
                                         `
-                                    })}
+                                        })
+                                        .join('')}
                                 </ul>
                                 <footer>Click to inspect users</footer>
                             `
-                          // bodyLines.forEach((body, i) => {
-                          //     const labelColors = tooltipModel.labelColors[i]
-                          //     console.log('labelColors', labelColors)
-                          //     var style = 'background:' + labelColors.backgroundColor
-                          //     style += '; border-color:' + labelColors.borderColor
-                          //     style += '; border-width: 2px'
-                          //     var span = '<span style="' + style + '"></span>'
-                          //     innerHtml += '<tr><td>' + span + body + '</td></tr>'
-                          // })
-                          // innerHtml += '</tbody>'
                           tooltipEl.innerHTML = innerHtml
                       }
 
