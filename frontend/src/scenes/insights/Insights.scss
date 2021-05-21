@@ -10,8 +10,13 @@
             display: none;
         }
     }
+
     hr {
         margin: 1rem 0;
+    }
+
+    .ant-card-bordered {
+        @extend .mixin-base-bordered-card;
     }
 
     .hotkey {
@@ -32,7 +37,8 @@
 
     .insights-graph-container {
         .ant-card-head {
-            background-color: rgba(0, 0, 0, 0.03);
+            background-color: #f9f9f9;
+            border-bottom: 1px solid #e4e4e4;
         }
     }
 
