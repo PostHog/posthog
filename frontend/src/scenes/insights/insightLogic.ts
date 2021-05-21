@@ -62,6 +62,8 @@ export const insightLogic = kea<insightLogicType>({
         setTimeout: (timeout) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
+        setControlsCollapsed: (controlsCollapsed: boolean) => ({ controlsCollapsed }),
+        toggleControlsCollapsed: true,
     }),
 
     reducers: {
@@ -133,6 +135,13 @@ export const insightLogic = kea<insightLogicType>({
             true,
             {
                 setNotFirstLoad: () => false,
+            },
+        ],
+        controlsCollapsed: [
+            false,
+            {
+                setControlsCollapsed: (_, { controlsCollapsed }) => controlsCollapsed,
+                toggleControlsCollapsed: (state) => !state,
             },
         ],
     },
