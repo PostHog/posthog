@@ -31,7 +31,7 @@ export const retentionOptionDescriptions = {
 }
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
-function defaultFilters(filters: Record<string, any>): Record<string, any> {
+export function defaultFilters(filters: Record<string, any>): Record<string, any> {
     return {
         target_entity: filters.target_entity || {
             id: '$pageview',

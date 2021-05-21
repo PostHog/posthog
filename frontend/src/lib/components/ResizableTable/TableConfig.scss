@@ -1,0 +1,40 @@
+@import '~/vars';
+
+.table-options {
+    margin-bottom: $default_spacing;
+    display: flex;
+
+    .main-actions {
+        flex-grow: 1;
+    }
+
+    .rhs-actions {
+        display: flex;
+        align-items: flex-end;
+        > * {
+            margin-left: 8px;
+        }
+    }
+}
+
+.column-configurator-modal {
+    .column-display-item {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding-left: $default_spacing / 2;
+        padding-right: $default_spacing / 2;
+        overflow: hidden;
+        border-radius: $radius;
+
+        &:hover {
+            background-color: $bg_mid;
+        }
+
+        &.disabled {
+            cursor: not-allowed;
+            color: $text_muted;
+        }
+    }
+}

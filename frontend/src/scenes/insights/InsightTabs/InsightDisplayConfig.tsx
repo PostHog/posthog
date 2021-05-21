@@ -143,7 +143,7 @@ function HorizontalDefaultInsightDisplayConfig({
     return (
         <div className="display-config-inner">
             <span className="hide-lte-md">
-                <TZIndicator style={{ float: 'left' }} />
+                <TZIndicator style={{ float: 'left', fontSize: '0.75rem', marginRight: 16 }} placement="topRight" />
             </span>
             <div style={{ width: '100%', textAlign: 'right' }}>
                 {showComparePrevious[activeView] && <CompareFilter />}

@@ -1211,6 +1211,44 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "ConradKurth",
+      "name": "Conrad",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1794593?v=4",
+      "profile": "https://github.com/ConradKurth",
+      "contributions": [
+        "code",
+        "plugin"
+      ]
+    },
+    {
+      "login": "avorio",
+      "name": "André Avorio",
+      "avatar_url": "https://avatars.githubusercontent.com/u/649020?v=4",
+      "profile": "http://avor.io",
+      "contributions": [
+        "bug"
+      ]
+    },
+    {
+      "login": "tobiastornros",
+      "name": "Tobias Törnros",
+      "avatar_url": "https://avatars.githubusercontent.com/u/17402497?v=4",
+      "profile": "https://github.com/tobiastornros",
+      "contributions": [
+        "bug",
+        "doc"
+      ]
+    },
+    {
+      "login": "abhijitghate",
+      "name": "abhijitghate",
+      "avatar_url": "https://avatars.githubusercontent.com/u/11834249?v=4",
+      "profile": "https://github.com/abhijitghate",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

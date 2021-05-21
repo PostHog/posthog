@@ -25,11 +25,15 @@ export type AvailableFeatures =
     | 'dashboard_collaboration'
     | 'clickhouse'
 
+export interface ColumnConfig {
+    active: string[] | 'DEFAULT'
+}
 export interface UserType {
     uuid: string
     first_name: string
     email: string
     email_opt_in: boolean
+    events_column_config: ColumnConfig
     anonymize_data: boolean
     distinct_id: string
     toolbar_mode: 'disabled' | 'toolbar'
@@ -353,12 +357,6 @@ export interface SessionType {
     matching_events: Array<number | string>
 }
 
-export interface FormattedNumber {
-    // :TODO: DEPRECATED, formatting will now happen client-side
-    value: number
-    formatted: string
-}
-
 export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean
@@ -548,12 +546,30 @@ export interface SystemStatusSubrows {
     rows: string[][]
 }
 
-export interface SystemStatus {
+export interface SystemStatusRow {
     metric: string
     value: string
     key?: string
     description?: string
     subrows?: SystemStatusSubrows
+}
+
+export interface SystemStatus {
+    overview: SystemStatusRow[]
+    internal_metrics: {
+        clickhouse?: {
+            id: number
+            share_token: string
+        }
+    }
+}
+
+export type QuerySummary = { duration: string } & Record<string, string>
+
+export interface SystemStatusQueriesResult {
+    postgres_running: QuerySummary[]
+    clickhouse_running?: QuerySummary[]
+    clickhouse_slow_log?: QuerySummary[]
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>

@@ -14,6 +14,7 @@ from . import (
     event_definition,
     feature_flag,
     insight,
+    instance_status,
     organization,
     organization_invite,
     organization_member,
@@ -82,6 +83,7 @@ projects_router.register(
 # General endpoints (shared across EE & FOSS)
 router.register(r"login", authentication.LoginViewSet)
 router.register(r"users", user.UserViewSet)
+router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 
 if is_clickhouse_enabled():
     try:

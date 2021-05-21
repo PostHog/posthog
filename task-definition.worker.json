@@ -103,6 +103,10 @@
                 {
                     "name": "ASYNC_EVENT_PROPERTY_USAGE",
                     "value": "1"
+                },
+                {
+                    "name": "CAPTURE_INTERNAL_METRICS",
+                    "value": "True"
                 }
             ],
             "secrets": [
