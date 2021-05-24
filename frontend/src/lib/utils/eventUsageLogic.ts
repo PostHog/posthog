@@ -122,6 +122,7 @@ export const eventUsageLogic = kea<
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
         reportInsightsTabReset: true,
+        reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -425,6 +426,9 @@ export const eventUsageLogic = kea<
         },
         reportInsightsTabReset: async () => {
             posthog.capture('insights tab reset')
+        },
+        reportInsightsControlsCollapseToggle: async ({ collapsed }) => {
+            posthog.capture('insight controls collapse toggled', { collapsed })
         },
     },
 })
