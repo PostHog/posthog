@@ -120,7 +120,7 @@ export const dashboardsModel = kea({
         ],
         dashboardsLoading: [
             () => [selectors.rawDashboardsLoading, selectors.sharedDashboardsLoading],
-            (a, b) => a || b,
+            (dashesLoading, sharedLoading) => dashesLoading || sharedLoading,
         ],
         pinnedDashboards: [() => [selectors.dashboards], (dashboards) => dashboards.filter((d) => d.pinned)],
     }),
