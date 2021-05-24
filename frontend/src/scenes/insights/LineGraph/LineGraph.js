@@ -13,6 +13,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import dayjs from 'dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import './LineGraph.scss'
+import 'chartjs-plugin-crosshair'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -49,11 +50,11 @@ export function LineGraph({
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
     const { createAnnotation, createAnnotationNow, updateDiffType, createGlobalAnnotation } = !inSharedMode
-        ? useActions(annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null }))
+        ? useActions(annotationsLogic({ pageKey: dashboardItemId || null }))
         : { createAnnotation: noop, createAnnotationNow: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
     const { annotationsList, annotationsLoading } = !inSharedMode
-        ? useValues(annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null }))
+        ? useValues(annotationsLogic({ pageKey: dashboardItemId || null }))
         : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
     const [interval, setInterval] = useState(0)
@@ -195,119 +196,143 @@ export function LineGraph({
             datasets.map((dataset, index) => processDataset(dataset, index))
         }
 
+        const shouldShowTooltipFooter = !dashboardItemId && onClick
         const tooltipOptions = newUI
             ? {
-                enabled: false, // disable builtin tooltip (use custom markup)
-                custom: function (tooltipModel) {
-                    var tooltipEl = document.getElementById('chartjs-tooltip')
-                    // Create element on first render
-                    if (!tooltipEl) {
-                        tooltipEl = document.createElement('div')
-                        tooltipEl.id = 'chartjs-tooltip'
-                        tooltipEl.classList.add('chartjs-custom-tooltip')
-                        document.body.appendChild(tooltipEl)
-                    }
-                    if (tooltipModel.opacity === 0) {
-                        tooltipEl.style.opacity = 0
-                        return
-                    }
-                    // Set caret position
-                    tooltipEl.classList.remove('above', 'below', 'no-transform')
-                    tooltipEl.classList.add(tooltipModel.yAlign || 'no-transform')
-                    const bounds = chartRef.current.getBoundingClientRect()
-                    const chartClientLeft = bounds.left + window.pageXOffset
-                    const chartClientTop = bounds.top + window.pageYOffset
-                    const tooltipCaretOffsetLeft = Math.max(
-                        chartClientLeft,
-                        chartClientLeft + tooltipModel.caretX - 50
-                    )
-                    tooltipEl.style.opacity = 1
-                    tooltipEl.style.position = 'absolute'
-                    tooltipEl.style.left = tooltipCaretOffsetLeft + 'px'
-                    tooltipEl.style.top = chartClientTop + 'px'
-                    tooltipEl.style.padding = tooltipModel.padding + 'px'
-                    tooltipEl.style.pointerEvents = 'none'
-                    if (tooltipModel.body) {
-                        const titleLines = tooltipModel.title || []
-                        const bodyLines = tooltipModel.body.map(({ lines }) => lines)
-                        ReactDOM.render(
-                            <>
-                                {titleLines.map((title, i) => (
-                                    <header key={i}>{title}</header>
-                                ))}
-                                <ul>
-                                    {bodyLines.map((body, i) => {
-                                        const { backgroundColor, borderColor } = tooltipModel.labelColors[i]
-                                        const iconColor = backgroundColor || borderColor
-                                        return (
-                                            <li key={i}>
-                                                <div className="color-icon" style={{ background: iconColor }} />
-                                                <div className="title">{body}</div>
-                                            </li>
-                                        )
-                                    })}
-                                </ul>
-                                <footer>Click to inspect users</footer>
-                            </>,
-                            tooltipEl
-                        )
-                    }
-                },
-            } : {
-                enabled: true,
-                intersect: false,
-                mode: 'nearest',
-                // If bar, we want to only show the tooltip for what we're hovering over
-                // to avoid confusion
-                axis: { bar: 'x', horizontalBar: 'y' }[type],
-                bodySpacing: 5,
-                position: 'nearest',
-                yPadding: 10,
-                xPadding: 10,
-                caretPadding: 0,
-                displayColors: false,
-                backgroundColor: colors.tooltipBackground,
-                titleFontColor: colors.tooltipTitle,
-                bodyFontColor: colors.tooltipBody,
-                footerFontColor: colors.tooltipBody,
-                borderColor: colors.tooltipBorder,
-                borderWidth: newUI ? 1 : undefined,
-                labelFontSize: 23,
-                cornerRadius: 4,
-                fontSize: 12,
-                footerSpacing: 0,
-                titleSpacing: 0,
-                footerFontStyle: 'italic',
-                callbacks: {
-                    label: function (tooltipItem, data) {
-                        let entityData = data.datasets[tooltipItem.datasetIndex]
-                        if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
-                            return null
-                        }
-                        const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
-                        const action =
-                            entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
-                        const formattedLabel = action ? formatLabel(label, action) : label
+                  enabled: false, // disable builtin tooltip (use custom markup)
+                  mode: 'interpolate',
+                  intersect: false,
+                  custom: function (tooltipModel) {
+                      var tooltipEl = document.getElementById('chartjs-tooltip')
+                      // Create element on first render
+                      if (!tooltipEl) {
+                          tooltipEl = document.createElement('div')
+                          tooltipEl.id = 'chartjs-tooltip'
+                          tooltipEl.classList.add('chartjs-custom-tooltip')
+                          document.body.appendChild(tooltipEl)
+                      }
+                      if (tooltipModel.opacity === 0) {
+                          tooltipEl.style.opacity = 0
+                          return
+                      }
+                      // Set caret position
+                      tooltipEl.classList.remove('above', 'below', 'no-transform')
+                      tooltipEl.classList.add(tooltipModel.yAlign || 'no-transform')
+                      const bounds = chartRef.current.getBoundingClientRect()
+                      const chartClientLeft = bounds.left + window.pageXOffset
+                      const chartClientTop = bounds.top + window.pageYOffset
+                      const tooltipCaretOffsetLeft = Math.max(
+                          chartClientLeft,
+                          chartClientLeft + tooltipModel.caretX - 50
+                      )
+                      tooltipEl.style.opacity = 1
+                      tooltipEl.style.position = 'absolute'
+                      tooltipEl.style.left = tooltipCaretOffsetLeft + 'px'
+                      tooltipEl.style.top = chartClientTop + 'px'
+                      tooltipEl.style.padding = tooltipModel.padding + 'px'
+                      tooltipEl.style.pointerEvents = 'none'
+                      if (tooltipModel.body) {
+                          const titleLines = tooltipModel.title || []
+                          const bodyLines = tooltipModel.body.map(({ lines }) => lines)
+                          ReactDOM.render(
+                              <>
+                                  {titleLines.map((title, i) => (
+                                      <header key={i}>{title}</header>
+                                  ))}
+                                  <ul>
+                                      {bodyLines.map((body, i) => {
+                                          const { backgroundColor, borderColor } = tooltipModel.labelColors[i]
+                                          const iconColor = backgroundColor || borderColor
+                                          return (
+                                              <li key={i}>
+                                                  <div className="color-icon" style={{ background: iconColor }} />
+                                                  <div className="title">{body}</div>
+                                              </li>
+                                          )
+                                      })}
+                                  </ul>
+                                  {shouldShowTooltipFooter && <footer>Click to inspect users</footer>}
+                              </>,
+                              tooltipEl
+                          )
+                      }
+                  },
+              }
+            : {
+                  enabled: true,
+                  intersect: false,
+                  mode: 'nearest',
+                  // If bar, we want to only show the tooltip for what we're hovering over
+                  // to avoid confusion
+                  axis: { bar: 'x', horizontalBar: 'y' }[type],
+                  bodySpacing: 5,
+                  position: 'nearest',
+                  yPadding: 10,
+                  xPadding: 10,
+                  caretPadding: 0,
+                  displayColors: false,
+                  backgroundColor: colors.tooltipBackground,
+                  titleFontColor: colors.tooltipTitle,
+                  bodyFontColor: colors.tooltipBody,
+                  footerFontColor: colors.tooltipBody,
+                  borderColor: colors.tooltipBorder,
+                  borderWidth: newUI ? 1 : undefined,
+                  labelFontSize: 23,
+                  cornerRadius: 4,
+                  fontSize: 12,
+                  footerSpacing: 0,
+                  titleSpacing: 0,
+                  footerFontStyle: 'italic',
+                  callbacks: {
+                      label: function (tooltipItem, data) {
+                          let entityData = data.datasets[tooltipItem.datasetIndex]
+                          if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
+                              return null
+                          }
+                          const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
+                          const action =
+                              entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
+                          const formattedLabel = action ? formatLabel(label, action) : label
 
-                        let value = tooltipItem.yLabel.toLocaleString()
-                        if (type === 'horizontalBar') {
-                            const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
-                            value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
-                        }
-                        return (formattedLabel ? formattedLabel + ' — ' : '') + value + (percentage ? '%' : '')
-                    },
-                    footer: () => (dashboardItemId || !onClick ? '' : 'Click to see users related to the datapoint'),
-                },
-                itemSort: (a, b) => b.yLabel - a.yLabel,
-            }
+                          let value = tooltipItem.yLabel.toLocaleString()
+                          if (type === 'horizontalBar') {
+                              const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
+                              value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
+                          }
+                          return (formattedLabel ? formattedLabel + ' — ' : '') + value + (percentage ? '%' : '')
+                      },
+                      footer: () => (shouldShowTooltipFooter ? 'Click to see users related to the datapoint' : ''),
+                  },
+                  itemSort: (a, b) => b.yLabel - a.yLabel,
+              }
 
         let options = {
             responsive: true,
             maintainAspectRatio: false,
             scaleShowHorizontalLines: false,
             tooltips: tooltipOptions,
+            plugins: newUI
+                ? {
+                      crosshair: {
+                          line: {
+                              color: colors.axis,
+                              width: 1,
+                          },
+                          snapping: {
+                              enabled: true, // Snap crosshair to data points
+                          },
+                          sync: {
+                              enabled: false, // Sync crosshairs across multiple Chartjs instances
+                          },
+                          zoom: {
+                              enabled: false, // Allow drag to zoom
+                          },
+                      },
+                  }
+                : undefined,
             hover: {
-                mode: 'nearest',
+                mode: newUI ? 'interpolate' : 'nearest',
+                intersect: newUI ? false : undefined,
                 onHover(evt) {
                     if (onClick) {
                         const point = this.getElementAtEvent(evt)
