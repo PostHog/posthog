@@ -47,7 +47,7 @@ def setup_periodic_tasks(sender, **kwargs):
     # Heartbeat every 10sec to make sure the worker is alive
     sender.add_periodic_task(10.0, redis_heartbeat.s(), name="10 sec heartbeat", priority=0)
 
-    # update events table partitions twice a week
+    # Update events table partitions twice a week
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri", hour=0, minute=0), update_event_partitions.s(),  # check twice a week
     )
@@ -55,7 +55,7 @@ def setup_periodic_tasks(sender, **kwargs):
     if getattr(settings, "MULTI_TENANCY", False) and not is_clickhouse_enabled():
         sender.add_periodic_task(crontab(minute=0, hour="*/12"), run_session_recording_retention.s())
 
-    # send weekly status report on non-PostHog Cloud instances
+    # Send weekly status report on self-hosted instances
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
 
@@ -63,7 +63,7 @@ def setup_periodic_tasks(sender, **kwargs):
     if getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
 
-    # send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
+    # Send weekly email report (~ 8:00 SF / 16:00 UK / 17:00 EU)
     sender.add_periodic_task(crontab(day_of_week="mon", hour=15, minute=0), send_weekly_email_report.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
