@@ -220,7 +220,7 @@ ALTER TABLE person UPDATE properties = %(properties)s where id = %(id)s
 """
 
 DELETE_PERSON_BY_ID = """
-INSERT INTO person (id, is_deleted) SELECT %(id)s, 1
+INSERT INTO person (id, team_id, is_deleted) SELECT %(id)s, %(team_id)s, 1
 """
 
 DELETE_PERSON_EVENTS_BY_ID = """

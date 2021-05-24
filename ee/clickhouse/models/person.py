@@ -47,7 +47,7 @@ if settings.EE_AVAILABLE and is_clickhouse_enabled():
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
-        delete_person(instance.uuid)
+        delete_person(instance.uuid, team_id=instance.team_id)
 
 
 def create_person(
@@ -104,7 +104,7 @@ def delete_person(person_id: UUID, delete_events: bool = False, team_id: int = F
     except:
         pass  # cannot delete if the table is distributed
 
-    sync_execute(DELETE_PERSON_BY_ID, {"id": person_id,})
+    sync_execute(DELETE_PERSON_BY_ID, {"id": person_id, "team_id": team_id})
     sync_execute(DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID, {"id": person_id,})
 
 

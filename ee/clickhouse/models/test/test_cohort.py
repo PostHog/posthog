@@ -1,10 +1,11 @@
 from datetime import datetime
 from uuid import uuid4
 
+import pytest
 from freezegun import freeze_time
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id
+from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id, recalculate_cohortpeople
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -248,3 +249,87 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort.insert_users_by_list(["123"])
         results = get_person_ids_by_cohort_id(self.team, cohort.id)
         self.assertEqual(len(results), 3)
+
+    def test_cohortpeople_basic(self):
+        p1 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+        p2 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["2"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": {"$some_prop": "something", "$another_prop": "something"}}],
+            name="cohort1",
+        )
+
+        cohort1.calculate_people_ch()
+
+        results = sync_execute("SELECT person_id FROM cohortpeople")
+        self.assertEqual(len(results), 2)
+
+    def test_cohortpeople_deleted_person(self):
+        p1 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+        p2 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["2"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": {"$some_prop": "something", "$another_prop": "something"}}],
+            name="cohort1",
+        )
+
+        cohort1.calculate_people_ch()
+        p2.delete()
+        cohort1.calculate_people_ch()
+
+    @pytest.mark.timeout(5)
+    def test_cohortpeople_prop_changed(self):
+        p1 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+        p2 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["2"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": {"$some_prop": "something", "$another_prop": "something"}}],
+            name="cohort1",
+        )
+
+        cohort1.calculate_people_ch()
+        p2.properties = {"$some_prop": "another", "$another_prop": "another"}
+        p2.save()
+        leng = 2
+        while leng == 2:
+            leng = 2
+
+        cohort1.calculate_people_ch()
+
+        leng = 2
+        while leng == 2:
+            leng = sync_execute("SELECT person_id FROM cohortpeople")
+
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0"
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0][0], p1.uuid)
