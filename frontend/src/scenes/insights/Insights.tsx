@@ -234,20 +234,25 @@ export function Insights(): JSX.Element {
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
                             >
                                 {horizontalUI && (
-                                    <div
-                                        className="collapse-control"
-                                        onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
-                                    >
-                                        {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
-                                    </div>
-                                )}
-                                {controlsCollapsed && (
-                                    <div>
-                                        <h3 className="l3">Query definition</h3>
-                                        <span className="text-small text-muted">
-                                            Click here to view and change the query events, filters and other settings.
-                                        </span>
-                                    </div>
+                                    <>
+                                        <div
+                                            role="button"
+                                            title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
+                                            className="collapse-control"
+                                            onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
+                                        >
+                                            {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
+                                        </div>
+                                        {controlsCollapsed && (
+                                            <div>
+                                                <h3 className="l3">Query definition</h3>
+                                                <span className="text-small text-muted">
+                                                    Click here to view and change the query events, filters and other
+                                                    settings.
+                                                </span>
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                                 <div className="tabs-inner">
                                     {/* These are insight specific filters. They each have insight specific logics */}
