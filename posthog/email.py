@@ -1,3 +1,4 @@
+import sys
 from typing import Dict, List, Optional
 
 import lxml
@@ -93,13 +94,14 @@ def _send_email(
         except Exception as err:
             # Handle exceptions gracefully to avoid breaking the entire task for all teams
             # but make sure they're tracked on Sentry.
+            print("Could not send email:", err, file=sys.stderr)
             capture_exception(err)
         finally:
-            # ensure that connection has been closed
+            # Ensure that connection has been closed
             try:
                 connection.close()  # type: ignore
-            except Exception:
-                pass
+            except Exception as err:
+                print("Could not close email connection (this can be ignored):", err, file=sys.stderr)
 
 
 class EmailMessage:
@@ -128,7 +130,6 @@ class EmailMessage:
         self.to.append({"recipient": f'"{name}" <{email}>' if name else email, "raw_email": email})
 
     def send(self, send_async: bool = True) -> None:
-
         if not self.to:
             raise ValueError("No recipients provided! Use EmailMessage.add_recipient() first!")
 

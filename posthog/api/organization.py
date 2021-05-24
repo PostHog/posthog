@@ -4,7 +4,7 @@ import posthoganalytics
 from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from django.urls.base import reverse
@@ -310,12 +310,17 @@ class OrganizationInviteSignupSerializer(serializers.Serializer):
         with transaction.atomic():
             if not user:
                 is_new_user = True
-                user = User.objects.create_user(
-                    invite.target_email,
-                    validated_data.pop("password"),
-                    validated_data.pop("first_name"),
-                    **validated_data,
-                )
+                try:
+                    user = User.objects.create_user(
+                        invite.target_email,
+                        validated_data.pop("password"),
+                        validated_data.pop("first_name"),
+                        **validated_data,
+                    )
+                except IntegrityError:
+                    raise serializers.ValidationError(
+                        f"There already exists an account with email address {invite.target_email}. Please log in instead."
+                    )
 
             try:
                 invite.use(user)
