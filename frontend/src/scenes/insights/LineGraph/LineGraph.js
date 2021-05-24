@@ -115,15 +115,15 @@ export function LineGraph({
     }, [myLineChart.current, size, type, annotationsCondition])
 
     function calculateBoundaries() {
-        const leftExtent = myLineChart.current.scales['x-axis-0'].left
-        const rightExtent = myLineChart.current.scales['x-axis-0'].right
+        const _leftExtent = myLineChart.current.scales['x-axis-0'].left
+        const _rightExtent = myLineChart.current.scales['x-axis-0'].right
+        const _topExtent = myLineChart.current.scales['x-axis-0'].top + 8
         const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
-        const delta = rightExtent - leftExtent
-        const interval = delta / (ticks - 1)
-        const topExtent = myLineChart.current.scales['x-axis-0'].top + 8
-        setLeftExtent(leftExtent)
-        setInterval(interval)
-        setTopExtent(topExtent)
+        const delta = _rightExtent - leftExtent
+        const _interval = delta / (ticks - 1)
+        setLeftExtent(_leftExtent)
+        setTopExtent(_topExtent)
+        setInterval(_interval)
     }
 
     function processDataset(dataset, index) {
@@ -154,44 +154,45 @@ export function LineGraph({
         }
         // if chart is line graph, make duplicate lines and overlay to show dotted lines
         const isLineGraph = type === 'line'
-        datasets = isLineGraph
-            ? [
-                  ...datasets.map((dataset, index) => {
-                      let datasetCopy = Object.assign({}, dataset)
-                      let data = [...dataset.data]
-                      let _labels = [...dataset.labels]
-                      let days = [...dataset.days]
-                      data.pop()
-                      _labels.pop()
-                      days.pop()
-                      datasetCopy.data = data
-                      datasetCopy.labels = _labels
-                      datasetCopy.days = days
-                      return processDataset(datasetCopy, index)
-                  }),
-                  ...datasets.map((dataset, index) => {
-                      let datasetCopy = Object.assign({}, dataset)
-                      let datasetLength = datasetCopy.data.length
-                      datasetCopy.dotted = true
+        if (isLineGraph) {
+            datasets = [
+                ...datasets.map((dataset, index) => {
+                    let datasetCopy = Object.assign({}, dataset)
+                    let data = [...dataset.data]
+                    let _labels = [...dataset.labels]
+                    let days = [...dataset.days]
+                    data.pop()
+                    _labels.pop()
+                    days.pop()
+                    datasetCopy.data = data
+                    datasetCopy.labels = _labels
+                    datasetCopy.days = days
+                    return processDataset(datasetCopy, index)
+                }),
+                ...datasets.map((dataset, index) => {
+                    let datasetCopy = Object.assign({}, dataset)
+                    let datasetLength = datasetCopy.data.length
+                    datasetCopy.dotted = true
 
-                      // if last date is still active show dotted line
-                      if (isInProgress) {
-                          datasetCopy.borderDash = [10, 10]
-                      }
+                    // if last date is still active show dotted line
+                    if (isInProgress) {
+                        datasetCopy.borderDash = [10, 10]
+                    }
 
-                      datasetCopy.data =
-                          datasetCopy.data.length > 2
-                              ? datasetCopy.data.map((datum, idx) =>
-                                    idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
-                                )
-                              : datasetCopy.data
-                      return processDataset(datasetCopy, index)
-                  }),
-              ]
-            : datasets.map((dataset, index) => processDataset(dataset, index))
-
-        if (isLineGraph && visibilityMap) {
-            datasets = datasets.filter((data) => visibilityMap[data.id])
+                    datasetCopy.data =
+                        datasetCopy.data.length > 2
+                            ? datasetCopy.data.map((datum, idx) =>
+                                  idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
+                              )
+                            : datasetCopy.data
+                    return processDataset(datasetCopy, index)
+                }),
+            ]
+            if (visibilityMap) {
+                datasets = datasets.filter((data) => visibilityMap[data.id])
+            }
+        } else {
+            datasets.map((dataset, index) => processDataset(dataset, index))
         }
 
         const tooltipOptions = newUI
@@ -345,6 +346,14 @@ export function LineGraph({
             },
         }
 
+        const tickOptions = {
+            autoSkip: true,
+            beginAtZero: true,
+            min: 0,
+            fontColor: colors.axisLabel,
+            precision: 0,
+        }
+
         if (type === 'bar') {
             options.scales = {
                 xAxes: [{ stacked: true, ticks: { fontColor: colors.axisLabel } }],
@@ -361,14 +370,6 @@ export function LineGraph({
                 ],
             }
         } else if (type === 'line') {
-            const tickOptions = {
-                autoSkip: true,
-                beginAtZero: true,
-                min: 0,
-                fontColor: colors.axisLabel,
-                precision: 0,
-            }
-
             options.scales = {
                 xAxes: [
                     {
