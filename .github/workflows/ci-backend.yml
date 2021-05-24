@@ -166,7 +166,7 @@ jobs:
         steps:
             - name: Fetch posthog-cloud
               run: |
-                  curl -L https://github.com/posthog/posthog-cloud/tarball/4426-fix | tar --strip-components=1 -xz --
+                  curl -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
                   mkdir deploy/
 
             - name: Checkout master
