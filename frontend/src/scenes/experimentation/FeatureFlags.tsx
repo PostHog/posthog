@@ -11,6 +11,7 @@ import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { router } from 'kea-router'
 import { LinkButton } from 'lib/components/LinkButton'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
 export function FeatureFlags(): JSX.Element {
     const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
@@ -27,14 +28,18 @@ export function FeatureFlags(): JSX.Element {
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
-                    <>
-                        {!featureFlag.active && (
-                            <Tooltip title="This feature flag is disabled.">
-                                <DisconnectOutlined style={{ marginRight: 4 }} />
-                            </Tooltip>
-                        )}
-                        {featureFlag.key}
-                    </>
+                    <div onClick={(e) => e.stopPropagation()}>
+                        <CopyToClipboardInline iconPosition="start" explicitValue={featureFlag.key}>
+                            <>
+                                {!featureFlag.active && (
+                                    <Tooltip title="This feature flag is disabled.">
+                                        <DisconnectOutlined style={{ marginRight: 4 }} />
+                                    </Tooltip>
+                                )}
+                                {featureFlag.key}
+                            </>
+                        </CopyToClipboardInline>
+                    </div>
                 )
             },
         },

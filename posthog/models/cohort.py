@@ -9,7 +9,7 @@ from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 
 from .action import Action
 from .event import Event
@@ -79,7 +79,7 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people(self, use_clickhouse=is_ee_enabled()):
+    def calculate_people(self, use_clickhouse=is_clickhouse_enabled()):
         if self.is_static:
             return
         try:
@@ -116,7 +116,7 @@ class Cohort(models.Model):
             capture_exception(err)
 
     def calculate_people_ch(self):
-        if is_ee_enabled():
+        if is_clickhouse_enabled():
             from ee.clickhouse.models.cohort import recalculate_cohortpeople
 
             recalculate_cohortpeople(self)
@@ -126,7 +126,7 @@ class Cohort(models.Model):
         Items can be distinct_id or email
         """
         batchsize = 1000
-        use_clickhouse = is_ee_enabled()
+        use_clickhouse = is_clickhouse_enabled()
         if use_clickhouse:
             from ee.clickhouse.models.cohort import insert_static_cohort
         try:

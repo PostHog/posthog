@@ -61,10 +61,14 @@ FROM kafka_{table_name}
 
 GET_LATEST_PERSON_SQL = """
 SELECT * FROM person JOIN (
-    SELECT id, max(_timestamp) as _timestamp FROM person WHERE team_id = %(team_id)s GROUP BY id
+    SELECT id, max(_timestamp) as _timestamp, max(is_deleted) as is_deleted
+    FROM person
+    WHERE team_id = %(team_id)s
+    GROUP BY id
 ) as person_max ON person.id = person_max.id AND person._timestamp = person_max._timestamp
 WHERE team_id = %(team_id)s
-{query}
+  AND person_max.is_deleted = 0
+  {query}
 """
 
 GET_LATEST_PERSON_DISTINCT_ID_SQL = """
@@ -78,12 +82,6 @@ GET_LATEST_PERSON_ID_SQL = """
 (select id from (
     {latest_person_sql}
 ))
-""".format(
-    latest_person_sql=GET_LATEST_PERSON_SQL
-)
-
-GET_PERSON_SQL = """
-SELECT * FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL
 )
@@ -176,14 +174,6 @@ INSERT INTO {} (id, person_id, cohort_id, team_id, _timestamp) VALUES
 # Other queries
 #
 
-GET_DISTINCT_IDS_SQL = """
-SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s
-"""
-
-GET_DISTINCT_IDS_SQL_BY_ID = """
-SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s AND person_id = %(person_id)s
-"""
-
 GET_PERSON_IDS_BY_FILTER = """
 SELECT DISTINCT p.id
 FROM ({latest_person_sql}) AS p
@@ -217,16 +207,8 @@ WHERE team_id = %(team_id)s
     latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
 )
 
-PERSON_DISTINCT_ID_EXISTS_SQL = """
-SELECT count(*) FROM person_distinct_id
-inner join (
-    SELECT arrayJoin({}) as distinct_id
-    ) as id_params ON id_params.distinct_id = person_distinct_id.distinct_id
-where person_distinct_id.team_id = %(team_id)s
-"""
-
 INSERT_PERSON_SQL = """
-INSERT INTO person SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0, 0
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0, 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
@@ -237,12 +219,8 @@ UPDATE_PERSON_PROPERTIES = """
 ALTER TABLE person UPDATE properties = %(properties)s where id = %(id)s
 """
 
-UPDATE_PERSON_ATTACHED_DISTINCT_ID = """
-ALTER TABLE person_distinct_id UPDATE person_id = %(person_id)s where distinct_id = %(distinct_id)s
-"""
-
 DELETE_PERSON_BY_ID = """
-ALTER TABLE person DELETE where id = %(id)s
+INSERT INTO person (id, is_deleted) SELECT %(id)s, 1
 """
 
 DELETE_PERSON_EVENTS_BY_ID = """
@@ -255,10 +233,6 @@ AND team_id = %(team_id)s
 
 DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
 ALTER TABLE person_distinct_id DELETE where person_id = %(id)s
-"""
-
-UPDATE_PERSON_IS_IDENTIFIED = """
-ALTER TABLE person UPDATE is_identified = %(is_identified)s where id = %(id)s
 """
 
 PERSON_TREND_SQL = """
@@ -318,7 +292,13 @@ WHERE team_id = %(team_id)s
 AND person_id IN
 (
     SELECT id
-    FROM person
-    WHERE team_id = %(team_id)s {filters}
+    FROM (
+        SELECT id, argMax(properties, person._timestamp) as properties, max(is_deleted) as is_deleted
+        FROM person
+        WHERE team_id = %(team_id)s
+        GROUP BY id
+        HAVING is_deleted = 0
+    )
+    WHERE 1 = 1 {filters}
 )
 """

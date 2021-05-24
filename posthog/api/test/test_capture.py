@@ -12,6 +12,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.constants import ENVIRONMENT_TEST
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import BaseTest
@@ -81,6 +82,40 @@ class TestCapture(BaseTest):
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
                 "data": data,
+                "team_id": self.team.pk,
+            },
+        )
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_test_api_key(self, patch_process_event_with_plugins):
+        api_token = "test_" + self.team.api_token
+        data: Dict[str, Any] = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": 2,
+                "token": api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                ],
+            },
+        }
+        now = timezone.now()
+        with freeze_time(now):
+            with self.assertNumQueries(2):
+                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
+        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
+        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments.pop("now")  # can't compare fakedate
+        arguments.pop("sent_at")  # can't compare fakedate
+        self.assertDictEqual(
+            arguments,
+            {
+                "distinct_id": "2",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "data": {**data, "properties": {**data["properties"], "$environment": ENVIRONMENT_TEST}},
                 "team_id": self.team.pk,
             },
         )
@@ -336,7 +371,7 @@ class TestCapture(BaseTest):
     def test_batch_gzip_header(self, patch_process_event_with_plugins):
         data = {
             "api_key": self.team.api_token,
-            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
+            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2",}],
         }
 
         response = self.client.generic(

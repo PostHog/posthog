@@ -9,7 +9,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from posthog.constants import INSIGHT_STICKINESS
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.models import Cohort
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ def calculate_cohorts() -> None:
         .order_by(F("last_calculation").asc(nulls_first=True))[0:PARALLEL_COHORTS]
     ):
         calculate_cohort.delay(cohort.id)
-        if is_ee_enabled():
+        if is_clickhouse_enabled():
             calculate_cohort_ch.delay(cohort.id)
 
 
@@ -47,7 +47,7 @@ def calculate_cohort(cohort_id: int) -> None:
 
 @shared_task(ignore_result=True, max_retries=2)
 def calculate_cohort_ch(cohort_id: int) -> None:
-    if is_ee_enabled():
+    if is_clickhouse_enabled():
         cohort = Cohort.objects.get(pk=cohort_id)
         cohort.calculate_people_ch()
 
@@ -65,7 +65,7 @@ def calculate_cohort_from_list(cohort_id: int, items: List[str]) -> None:
 def insert_cohort_from_query(
     cohort_id: int, insight_type: str, filter_data: Dict[str, Any], entity_data: Dict[str, Any]
 ) -> None:
-    if is_ee_enabled():
+    if is_clickhouse_enabled():
         from ee.clickhouse.queries.clickhouse_stickiness import insert_stickiness_people_into_cohort
         from ee.clickhouse.queries.util import get_earliest_timestamp
         from ee.clickhouse.views.actions import insert_entity_people_into_cohort

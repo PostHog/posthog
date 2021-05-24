@@ -4,7 +4,7 @@ import { Col, Row, Input } from 'antd'
 import { List } from 'antd'
 import { DownOutlined, RightOutlined } from '@ant-design/icons'
 import { ActionType, CohortType } from '~/types'
-import { selectBoxLogic, searchItems } from 'lib/logic/selectBoxLogic'
+import { selectBoxLogic } from 'lib/logic/selectBoxLogic'
 import './SelectBox.scss'
 import { selectBoxLogicType } from 'lib/logic/selectBoxLogicType'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -16,11 +16,13 @@ import { ListRowProps, ListRowRenderer } from 'react-virtualized'
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
     renderInfo({ item }: { item: SelectedItem }): JSX.Element
+    key: string
     name: string
     header: (label: string) => JSX.Element
     type: string
     getValue: (item: SelectedItem) => string | number
     getLabel: (item: SelectedItem) => string
+    metadata?: Record<string, any> // Used to store additional data (e.g. search term)
 }
 
 export interface SelectedItem {
@@ -35,17 +37,6 @@ export interface SelectedItem {
     is_numerical?: boolean // Only for properties
     category?: string
     cohort?: CohortType
-}
-
-const searchGroupItems = (items: SelectBoxItem[], search: string): SelectBoxItem[] => {
-    const newItems: SelectBoxItem[] = []
-    for (const item of items) {
-        newItems.push({
-            ...item,
-            dataSource: searchItems(item.dataSource, search),
-        })
-    }
-    return newItems
 }
 
 export function SelectBox({
@@ -65,7 +56,7 @@ export function SelectBox({
 }): JSX.Element {
     const dropdownRef = useRef<HTMLDivElement>(null)
     const dropdownLogic = selectBoxLogic({ updateFilter: onSelect, items })
-    const { selectedItem, selectedGroup, search } = useValues(dropdownLogic)
+    const { selectedItem, selectedGroup, data } = useValues(dropdownLogic)
     const { setSearch, setSelectedItem, onKeyDown } = useActions(dropdownLogic)
 
     const deselect = (e: MouseEvent): void => {
@@ -74,8 +65,6 @@ export function SelectBox({
         }
         onDismiss(e)
     }
-
-    const data = !search ? items : searchGroupItems(items, search)
 
     useEffect(() => {
         if (selectedItemKey) {
@@ -102,9 +91,7 @@ export function SelectBox({
                     <Input
                         placeholder={inputPlaceholder || 'Search events'}
                         autoFocus
-                        onChange={(e) => {
-                            setSearch(e.target.value)
-                        }}
+                        onChange={(e) => setSearch(e.target.value)}
                         onKeyDown={(e) => {
                             e.key === 'Tab' && onDismiss() // Close select box when input blurs via Tab
                         }}

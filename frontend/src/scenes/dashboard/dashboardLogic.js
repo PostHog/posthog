@@ -148,8 +148,11 @@ export const dashboardLogic = kea({
             },
         ],
         dashboard: [
-            () => [dashboardsModel.selectors.dashboards],
-            (dashboards) => {
+            () => [dashboardsModel.selectors.sharedDashboards, dashboardsModel.selectors.dashboards],
+            (sharedDashboards, dashboards) => {
+                if (sharedDashboards && !!sharedDashboards[props.id]) {
+                    return sharedDashboards[props.id]
+                }
                 return dashboards.find((d) => d.id === props.id)
             },
         ],
@@ -258,7 +261,7 @@ export const dashboardLogic = kea({
             actions.loadDashboardItems()
             if (props.shareToken) {
                 actions.setDashboardMode(DashboardMode.Public, DashboardEventSource.Browser)
-                dashboardsModel.actions.loadDashboards(props.shareToken)
+                dashboardsModel.actions.loadSharedDashboard(props.shareToken)
             }
         },
         beforeUnmount: () => {

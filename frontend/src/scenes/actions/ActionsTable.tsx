@@ -15,6 +15,7 @@ import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -162,13 +163,23 @@ export function ActionsTable(): JSX.Element {
 
     return (
         <div>
+            <PageHeader
+                title="Actions"
+                caption={
+                    <>
+                        Actions can retroactively group one or more raw events to help provide consistent analytics.{' '}
+                        <a
+                            href="https://posthog.com/docs/features/actions?utm_medium=in-product&utm_campaign=actions-table"
+                            target="_blank"
+                        >
+                            <QuestionCircleOutlined />
+                        </a>
+                    </>
+                }
+                style={{ marginTop: 0 }}
+            />
             <div>
-                <div>
-                    Actions can retroactively group one or more raw events to help provide consistent analytics.{' '}
-                    <a href="https://posthog.com/docs/features/actions" target="_blank">
-                        <QuestionCircleOutlined />
-                    </a>
-                </div>
+                <div />
                 <div className="tutorial-container">
                     <div className="t-element">
                         <div>
