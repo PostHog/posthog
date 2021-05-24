@@ -97,7 +97,7 @@ def capture_event(name: str, report: Dict[str, Any], dry_run: bool) -> None:
         posthoganalytics.capture(get_machine_id(), name, {**report, "scope": "machine"})
 
         for user in User.objects.all():
-            posthoganalytics.capture(user.distinct_id, name, {**report, "scope": "user"})
+            posthoganalytics.capture(user.distinct_id, f"user {name}", {**report, "scope": "user"})
     else:
         print(name, json.dumps(report))  # noqa: T001
 
