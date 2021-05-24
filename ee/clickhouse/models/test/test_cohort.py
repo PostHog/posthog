@@ -295,37 +295,32 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         p2.delete()
         cohort1.calculate_people_ch()
 
-    @pytest.mark.timeout(5)
     def test_cohortpeople_prop_changed(self):
-        p1 = Person.objects.create(
-            team_id=self.team.pk,
-            distinct_ids=["1"],
-            properties={"$some_prop": "something", "$another_prop": "something"},
-        )
-        p2 = Person.objects.create(
-            team_id=self.team.pk,
-            distinct_ids=["2"],
-            properties={"$some_prop": "something", "$another_prop": "something"},
-        )
+        with freeze_time("2020-01-10"):
+            p1 = Person.objects.create(
+                team_id=self.team.pk,
+                distinct_ids=["1"],
+                properties={"$some_prop": "something", "$another_prop": "something"},
+            )
+            p2 = Person.objects.create(
+                team_id=self.team.pk,
+                distinct_ids=["2"],
+                properties={"$some_prop": "something", "$another_prop": "something"},
+            )
 
-        cohort1 = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": {"$some_prop": "something", "$another_prop": "something"}}],
-            name="cohort1",
-        )
+            cohort1 = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": {"$some_prop": "something", "$another_prop": "something"}}],
+                name="cohort1",
+            )
+
+            cohort1.calculate_people_ch()
+
+        with freeze_time("2020-01-11"):
+            p2.properties = {"$some_prop": "another", "$another_prop": "another"}
+            p2.save()
 
         cohort1.calculate_people_ch()
-        p2.properties = {"$some_prop": "another", "$another_prop": "another"}
-        p2.save()
-        leng = 2
-        while leng == 2:
-            leng = 2
-
-        cohort1.calculate_people_ch()
-
-        leng = 2
-        while leng == 2:
-            leng = sync_execute("SELECT person_id FROM cohortpeople")
 
         results = sync_execute(
             "SELECT person_id FROM cohortpeople GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0"
@@ -333,3 +328,42 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][0], p1.uuid)
+
+    def test_cohort_change(self):
+        with freeze_time("2020-01-10"):
+            p1 = Person.objects.create(
+                team_id=self.team.pk,
+                distinct_ids=["1"],
+                properties={"$some_prop": "something", "$another_prop": "something"},
+            )
+            p2 = Person.objects.create(
+                team_id=self.team.pk,
+                distinct_ids=["2"],
+                properties={"$some_prop": "another", "$another_prop": "another"},
+            )
+
+            cohort1 = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": {"$some_prop": "something", "$another_prop": "something"}}],
+                name="cohort1",
+            )
+            cohort1.calculate_people_ch()
+
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0"
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0][0], p1.uuid)
+
+        with freeze_time("2020-01-11"):
+            cohort1.groups = [{"properties": {"$some_prop": "another", "$another_prop": "another"}}]
+            cohort1.save()
+            cohort1.calculate_people_ch()
+
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0"
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0][0], p2.uuid)
