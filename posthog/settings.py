@@ -74,7 +74,7 @@ if DEBUG:
 else:
     JS_URL = os.getenv("JS_URL", "")
 
-DISABLE_MMDB = get_from_env("DISABLE", True, type_cast=strtobool)  # plugin server setting disabling built-in GeoIP
+DISABLE_MMDB = get_from_env("DISABLE_MMDB", False, type_cast=strtobool)  # plugin server setting disabling GeoIP feature
 PLUGINS_PREINSTALLED_URLS: List[str] = os.getenv(
     "PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip"
 ).split(",") if not DISABLE_MMDB and not TEST else []
