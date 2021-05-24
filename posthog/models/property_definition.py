@@ -10,7 +10,7 @@ class PropertyDefinition(UUIDModel):
         Team, on_delete=models.CASCADE, related_name="property_definitions", related_query_name="team",
     )
     name: models.CharField = models.CharField(max_length=400)
-    description: models.CharField = models.CharField(max_length=400)
+    description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
     is_numerical: models.BooleanField = models.BooleanField(
         default=False,

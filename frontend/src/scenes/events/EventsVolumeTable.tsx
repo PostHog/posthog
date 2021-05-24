@@ -10,6 +10,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { eventDefinitionsLogic } from './eventDefinitionsLogic'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
+import { ObjectTags } from 'lib/components/ObjectTags'
 
 type EventTableType = 'event' | 'property'
 
@@ -151,8 +152,33 @@ export function VolumeTable({
                 size="small"
                 style={{ marginBottom: '4rem' }}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                expandable={{
+                    expandedRowRender: function renderExpand(item) {
+                        return <VolumeTableDetail event={item.eventOrProp} />
+                    },
+                    rowExpandable: (item) => !!item,
+                    expandRowByClick: true,
+                }}
             />
         </>
+    )
+}
+
+export function VolumeTableDetail({ event }: { event: EventDefinition }): JSX.Element {
+    console.log('EVENT DEF', event)
+    return (
+        <div>
+            <ObjectTags
+                tags={event.tags}
+                onTagSave={() => {}}
+                onTagDelete={() => {}}
+                saving={false}
+            />
+
+            {event.description && (
+                <div>Description: {event?.description}</div>
+            )}
+        </div>
     )
 }
 

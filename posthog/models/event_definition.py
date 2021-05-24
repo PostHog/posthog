@@ -10,7 +10,7 @@ class EventDefinition(UUIDModel):
         Team, on_delete=models.CASCADE, related_name="event_definitions", related_query_name="team",
     )
     name: models.CharField = models.CharField(max_length=400)
-    description: models.CharField = models.CharField(max_length=400)
+    description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
     volume_30_day: models.IntegerField = models.IntegerField(
         default=None, null=True,
