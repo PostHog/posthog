@@ -43,7 +43,6 @@ class PropertyDefinitionViewSet(
     serializer_class = PropertyDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
-    ordering = "name"
     filter_backends = [NumericalFilter, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
     ordering_fields = ["name", "volume_30_day", "query_usage_30_day"]  # User can filter by any of these attributes
