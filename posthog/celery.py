@@ -40,10 +40,9 @@ UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOAR
 
 
 @app.on_after_configure.connect
-def setup_periodic_tasks(sender, **kwargs):
+def setup_periodic_tasks(sender: Celery, **kwargs):
     if not settings.DEBUG:
         sender.add_periodic_task(1.0, redis_celery_queue_depth.s(), name="1 sec queue probe", priority=0)
-
     # Heartbeat every 10sec to make sure the worker is alive
     sender.add_periodic_task(10.0, redis_heartbeat.s(), name="10 sec heartbeat", priority=0)
 
@@ -70,6 +69,9 @@ def setup_periodic_tasks(sender, **kwargs):
 
     # delete old plugin logs every 4 hours
     sender.add_periodic_task(crontab(minute=0, hour="*/4"), delete_old_plugin_logs.s())
+
+    # sync all Organization.available_features every hour
+    sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sender.add_periodic_task(
         UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
@@ -316,3 +318,10 @@ def delete_old_plugin_logs():
     from posthog.tasks.delete_old_plugin_logs import delete_old_plugin_logs
 
     delete_old_plugin_logs()
+
+
+@app.task(ignore_result=True)
+def sync_all_organization_available_features():
+    from posthog.tasks.sync_all_organization_available_features import sync_all_organization_available_features
+
+    sync_all_organization_available_features()
