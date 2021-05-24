@@ -7,8 +7,7 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { DashboardItemType, FilterType } from '~/types'
-import api from 'lib/api'
+import { FilterType } from '~/types'
 
 export enum ViewType {
     TRENDS = 'TRENDS',
@@ -20,7 +19,7 @@ export enum ViewType {
     PATHS = 'PATHS',
 }
 
-export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
+export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 
 /*
 InsightLogic maintains state for changing between insight features
@@ -48,7 +47,6 @@ export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type) => ({ type }),
-        setDashboardItem: (dashboardItem: DashboardItemType) => ({ dashboardItem }), // Used for identifying when an insight is a dashboard item (and add relevant UI indicators)
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: true,
@@ -64,7 +62,7 @@ export const insightLogic = kea<insightLogicType>({
         setTimeout: (timeout) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
-        setIsFromDashboardItem: (isFromDashboardItem: boolean) => ({ isFromDashboardItem }),
+        toggleControlsCollapsed: true,
     }),
 
     reducers: {
@@ -138,17 +136,11 @@ export const insightLogic = kea<insightLogicType>({
                 setNotFirstLoad: () => false,
             },
         ],
-        dashboardItem: [
-            null as DashboardItemType | null,
+        controlsCollapsed: [
+            false,
             {
-                setDashboardItem: (_, { dashboardItem }) => dashboardItem,
+                toggleControlsCollapsed: (state) => !state,
             },
-        ],
-    },
-    selectors: {
-        fromDashboardItem: [
-            (selectors) => [selectors.dashboardItem],
-            (dashboardItem: DashboardItemType) => !!dashboardItem,
         ],
     },
     listeners: ({ actions, values }) => ({
@@ -191,6 +183,9 @@ export const insightLogic = kea<insightLogicType>({
             actions.setShowErrorMessage(false)
             clearTimeout(values.timeout || undefined)
         },
+        toggleControlsCollapsed: async () => {
+            eventUsageLogic.actions.reportInsightsControlsCollapseToggle(values.controlsCollapsed)
+        },
     }),
     actionToUrl: ({ actions, values }) => ({
         setActiveView: ({ type }: { type: string }) => {
@@ -215,17 +210,9 @@ export const insightLogic = kea<insightLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/insights': (_: any, searchParams: Record<string, any>) => {
-            if ((searchParams.insight && searchParams.insight !== values.activeView) || values.dashboardItem) {
+            if (searchParams.insight && searchParams.insight !== values.activeView) {
                 actions.updateActiveView(searchParams.insight)
             }
-            actions.setDashboardItem(null)
-            actions.setIsFromDashboardItem(false)
-        },
-        '/insights/dashboard_item/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
-            const dashboardItem = await api.get(`api/dashboard_item/${dashboardItemId}`)
-            actions.setDashboardItem(dashboardItem)
-            actions.updateActiveView(dashboardItem.filters.insight)
-            actions.setIsFromDashboardItem(true)
         },
     }),
     events: ({ values }) => ({

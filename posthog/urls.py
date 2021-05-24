@@ -34,7 +34,7 @@ from posthog.event_usage import report_user_signed_up
 from .api.organization import OrganizationSignupSerializer
 from .models import OrganizationInvite, Team, User
 from .utils import render_template
-from .views import health, login_required, preflight_check, stats, system_status
+from .views import health, login_required, preflight_check, robots_txt, stats
 
 
 def home(request, *args, **kwargs):
@@ -200,7 +200,6 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
-    opt_slash_path("_system_status", system_status),
     # admin
     path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),
@@ -247,6 +246,10 @@ urlpatterns = [
     path("accounts/", include("django.contrib.auth.urls")),
 ]
 
+# Allow crawling on PostHog Cloud, disable for all self-hosted installations
+if not settings.MULTI_TENANCY:
+    urlpatterns.append(opt_slash_path("robots.txt", robots_txt))
+
 if settings.TEST:
 
     @csrf_exempt
@@ -258,11 +261,10 @@ if settings.TEST:
 
     urlpatterns.append(path("delete_events/", delete_events))
 
+
 # Routes added individually to remove login requirement
 frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*", "login"]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 
-urlpatterns += [
-    re_path(r"^.*", login_required(home)),
-]
+urlpatterns.append(re_path(r"^.*", login_required(home)))

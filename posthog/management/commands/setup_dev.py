@@ -3,6 +3,8 @@ from django.db import transaction
 
 from posthog.demo import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
 from posthog.models import PersonalAPIKey, User
+from posthog.models.event_definition import EventDefinition
+from posthog.models.property_definition import PropertyDefinition
 
 
 class Command(BaseCommand):
@@ -30,6 +32,14 @@ class Command(BaseCommand):
                     "event_properties": ["$current_url", "$browser", "$os"],
                 },
             )
+            EventDefinition.objects.create(team=team, name="$pageview")
+            EventDefinition.objects.create(team=team, name="$autocapture")
+            PropertyDefinition.objects.create(team=team, name="$current_url")
+            PropertyDefinition.objects.create(team=team, name="$browser")
+            PropertyDefinition.objects.create(team=team, name="$os")
+            PropertyDefinition.objects.create(team=team, name="usage_count", is_numerical=True)
+            PropertyDefinition.objects.create(team=team, name="volume", is_numerical=True)
+            PropertyDefinition.objects.create(team=team, name="is_first_movie")
 
             PersonalAPIKey.objects.create(user=user, label="e2e_demo_api_key key", value="e2e_demo_api_key")
             if not options["no_data"]:

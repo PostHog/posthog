@@ -207,9 +207,6 @@ export const funnelLogic = kea({
     }),
     actionToUrl: ({ actions, values, props }) => ({
         [actions.setSteps]: () => {
-            if (insightLogic.values.fromDashboardItem) {
-                return
-            }
             if (!props.dashboardItemId) {
                 return ['/insights', values.propertiesForUrl]
             }
@@ -247,12 +244,6 @@ export const funnelLogic = kea({
                 if (!objectsEqual(_filters, paramsToCheck)) {
                     actions.setFilters(cleanFunnelParams(searchParams), !isStepsEmpty(paramsToCheck))
                 }
-            }
-        },
-        '/insights/dashboard_item/(:dashboardItemId)': () => {
-            const dashboardItem = insightLogic.values.dashboardItem
-            if (dashboardItem && dashboardItem.filters.insight === ViewType.FUNNELS) {
-                actions.setFilters(cleanFunnelParams(dashboardItem.filters), true)
             }
         },
     }),

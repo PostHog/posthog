@@ -65,8 +65,8 @@
                     "value": "0"
                 },
                 {
-                    "name": "ENABLE_PERSISTENT_CONSOLE",
-                    "value": "1"
+                    "name": "CAPTURE_INTERNAL_METRICS",
+                    "value": "True"
                 }
             ],
             "secrets": [

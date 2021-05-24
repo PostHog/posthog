@@ -1,6 +1,12 @@
-from typing import Dict, Generator
+from typing import Dict, Generator, List
+
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
+
+SLOW_THRESHOLD_MS = 10000
+SLOW_AFTER = relativedelta(hours=6)
 
 SystemStatusRow = Dict
 
@@ -58,3 +64,55 @@ def is_alive() -> bool:
         return True
     except:
         return False
+
+
+def get_clickhouse_running_queries() -> List[Dict]:
+    return query_with_columns(
+        "SELECT elapsed as duration, query, * FROM system.processes ORDER BY duration DESC",
+        columns_to_remove=["address", "initial_address", "elapsed"],
+    )
+
+
+def get_clickhouse_slow_log() -> List[Dict]:
+    return query_with_columns(
+        f"""
+            SELECT query_duration_ms as duration, query, *
+            FROM system.query_log
+            WHERE query_duration_ms > {SLOW_THRESHOLD_MS}
+              AND event_time > %(after)s
+            ORDER BY duration DESC
+            LIMIT 200
+        """,
+        {"after": timezone.now() - SLOW_AFTER},
+        columns_to_remove=[
+            "address",
+            "initial_address",
+            "query_duration_ms",
+            "event_time",
+            "event_date",
+            "query_start_time_microseconds",
+            "thread_ids",
+            "ProfileEvents.Names",
+            "ProfileEvents.Values",
+            "Settings.Names",
+            "Settings.Values",
+        ],
+    )
+
+
+def query_with_columns(query, args=None, columns_to_remove=[]) -> List[Dict]:
+    metrics, types = sync_execute(query, args, with_column_types=True)
+    type_names = [key for key, _type in types]
+
+    rows = []
+    for row in metrics:
+        result = {}
+        for type_name, value in zip(type_names, row):
+            if isinstance(value, list):
+                value = ", ".join(map(str, value))
+            if type_name not in columns_to_remove:
+                result[type_name] = value
+
+        rows.append(result)
+
+    return rows

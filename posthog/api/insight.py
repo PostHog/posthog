@@ -14,7 +14,14 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import format_next_url
 from posthog.celery import update_cache_item_task
-from posthog.constants import FROM_DASHBOARD, INSIGHT, INSIGHT_FUNNELS, INSIGHT_PATHS, TRENDS_STICKINESS
+from posthog.constants import (
+    FROM_DASHBOARD,
+    INSIGHT,
+    INSIGHT_FUNNELS,
+    INSIGHT_PATHS,
+    INSIGHT_STICKINESS,
+    TRENDS_STICKINESS,
+)
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Event, Filter, Team
 from posthog.models.filters import RetentionFilter
@@ -154,7 +161,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request)
-        if filter.shown_as == TRENDS_STICKINESS:
+        if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
             earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
             stickiness_filter = StickinessFilter(
                 request=request, team=team, get_earliest_timestamp=earliest_timestamp_func

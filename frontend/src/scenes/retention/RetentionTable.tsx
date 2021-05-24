@@ -59,10 +59,9 @@ export function RetentionTable({
     ]
 
     if (!resultsLoading && results) {
-        if (results.length === 0 || !results[0].values) {
+        if (results.length === 0) {
             return null
         }
-
         results[0].values.forEach((_: any, dayIndex: number) => {
             columns.push({
                 title: results[dayIndex].label,
@@ -110,7 +109,7 @@ export function RetentionTable({
             {results && (
                 <Modal
                     visible={modalVisible}
-                    closable={false}
+                    closable={true}
                     onCancel={dismissModal}
                     footer={<Button onClick={dismissModal}>Close</Button>}
                     style={{
@@ -136,7 +135,7 @@ export function RetentionTable({
                                                         .map((data, index) => <th key={index}>{data.label}</th>)}
                                             </tr>
                                             <tr>
-                                                <td />
+                                                <td>user_id</td>
                                                 {results &&
                                                     results[selectedRow]?.values.map((data: any, index: number) => (
                                                         <td key={index}>

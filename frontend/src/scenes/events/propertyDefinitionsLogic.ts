@@ -30,7 +30,7 @@ export const propertyDefinitionsLogic = kea<
                     const propertyStorage = await api.get(url)
                     return {
                         count: propertyStorage.count,
-                        results: [...values.propertyStorage.results, ...propertyStorage.results],
+                        results: [...(values.propertyStorage.results || []), ...(propertyStorage.results || [])],
                         next: propertyStorage.next,
                     }
                 },

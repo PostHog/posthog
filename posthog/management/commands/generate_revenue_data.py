@@ -6,7 +6,6 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
 
-from ee.clickhouse.models.clickhouse import generate_clickhouse_uuid
 from ee.clickhouse.models.event import create_event
 from posthog.models import Event, Organization, Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
@@ -84,7 +83,7 @@ class Command(BaseCommand):
     def _generate_ch_data(self, team, n_events, n_days):
         distinct_ids = []
         for i in range(0, n_events):
-            distinct_id = generate_clickhouse_uuid()
+            distinct_id = str(UUIDT())
             distinct_ids.append(distinct_id)
             Person.objects.create(team=team, distinct_ids=[distinct_id], properties={"is_demo": True})
 

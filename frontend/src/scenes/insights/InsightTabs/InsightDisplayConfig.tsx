@@ -11,6 +11,7 @@ import { DisplayType, FilterType } from '~/types'
 import { ViewType } from '../insightLogic'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
+import { RetentionDatePicker } from '../RetentionDatePicker'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -142,7 +143,7 @@ function HorizontalDefaultInsightDisplayConfig({
     return (
         <div className="display-config-inner">
             <span className="hide-lte-md">
-                <TZIndicator style={{ float: 'left' }} />
+                <TZIndicator style={{ float: 'left', fontSize: '0.75rem', marginRight: 16 }} placement="topRight" />
             </span>
             <div style={{ width: '100%', textAlign: 'right' }}>
                 {showComparePrevious[activeView] && <CompareFilter />}
@@ -157,8 +158,10 @@ function HorizontalDefaultInsightDisplayConfig({
                         disabled={allFilters.insight === ViewType.LIFECYCLE}
                     />
                 )}
-
                 {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
+
+                {activeView === ViewType.RETENTION && <RetentionDatePicker />}
+
                 {showDateFilter[activeView] && (
                     <>
                         <InsightDateFilter
