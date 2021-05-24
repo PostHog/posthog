@@ -81,7 +81,7 @@ class Organization(UUIDModel):
         default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
         choices=PluginsAccessLevel.choices,
     )
-    available_features = ArrayField(models.CharField(max_length=64, null=False, blank=False), blank=True, default=list)
+    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
 
     objects: OrganizationManager = OrganizationManager()
