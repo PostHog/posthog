@@ -44,9 +44,7 @@ dayjs.extend(relativeTime)
 const { TabPane } = Tabs
 
 function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
-    /* Temporary element to only show hotkeys when feature flag is active */
-    const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags['hotkeys-3740'] && !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
+    return !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
 }
 
 export function Insights(): JSX.Element {
@@ -98,9 +96,6 @@ export function Insights(): JSX.Element {
         },
         l: {
             action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
-        },
-        h: {
-            action: () => setActiveView('history'),
         },
     })
 
