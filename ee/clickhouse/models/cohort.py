@@ -123,7 +123,7 @@ def recalculate_cohortpeople(cohort: Cohort):
         AND person.is_deleted = 0
         AND {cohort_filter}
     """.format(
-        cohort_filter
+        cohort_filter=cohort_filter
     )
 
     sync_execute(INSERT_PERSON_STATIC_COHORT, {**cohort_params, "cohort_id": cohort.pk})
@@ -141,7 +141,7 @@ def recalculate_cohortpeople(cohort: Cohort):
             person.is_deleted = 1 OR NOT ({cohort_filter})
         )
     """.format(
-        cohort_filter
+        cohort_filter=cohort_filter
     )
 
     sync_execute(REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL, {**cohort_params, "cohort_id": cohort.pk})
