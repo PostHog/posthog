@@ -12,9 +12,8 @@ def migrate(apps, schema_editor):
         exists = cursor.fetchone()
         if not exists[0]:
             cursor.execute("CREATE INDEX CONCURRENTLY posthog_eve_created_6a34ca_idx ON posthog_event(created_at)")
-            return
         else:
-            print("Skipping migration 0141 because of partitions!")
+            print("Skipping setting up posthog_eve_created_6a34ca_idx index because it already exists")
 
 
 def backwards(apps, schema_editor):
