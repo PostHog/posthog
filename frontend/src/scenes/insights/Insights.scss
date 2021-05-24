@@ -33,6 +33,28 @@
 
     .insight-controls {
         overflow: visible;
+        position: relative;
+
+        .collapse-control {
+            position: absolute;
+            right: $default_spacing / 2;
+            top: $default_spacing / 2;
+            cursor: pointer;
+            z-index: $z_raised;
+        }
+
+        &.collapsed {
+            cursor: pointer;
+            border-color: $primary !important;
+            .tabs-inner {
+                display: none;
+            }
+
+            .collapse-control {
+                top: 50%;
+                transform: translateY(-50%);
+            }
+        }
     }
 
     .insights-graph-container {
