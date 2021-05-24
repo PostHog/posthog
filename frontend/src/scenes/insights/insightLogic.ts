@@ -166,7 +166,10 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType>>({
                 setTimeout(() => {
                     if (values && view == values.activeView) {
                         actions.setShowTimeoutMessage(true)
-                        // :TODO: Add instrumentation
+                        posthog.capture('insight timeout message shown', {
+                            insight: values.activeView,
+                            scene: sceneLogic.values.scene,
+                        })
                     }
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
@@ -189,9 +192,6 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType>>({
                 }
 
                 posthog.capture('insight loaded', payload)
-                if (values.maybeShowTimeoutMessage) {
-                    posthog.capture('insight timeout message shown', payload)
-                }
                 if (values.maybeShowErrorMessage) {
                     posthog.capture('insight error message shown', payload)
                 }
