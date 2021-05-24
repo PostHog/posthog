@@ -4,7 +4,6 @@ import re
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple, Union
 
-import celery
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db import connection, models, transaction
@@ -266,7 +265,8 @@ class Event(models.Model):
         indexes = [
             models.Index(fields=["elements_hash"]),
             models.Index(fields=["timestamp", "team_id", "event"]),
-            models.Index(fields=["created_at"]),
+            # Separately managed:
+            # models.Index(fields=["created_at"]),
         ]
 
     def _can_use_cached_query(self, last_updated_action_ts):
