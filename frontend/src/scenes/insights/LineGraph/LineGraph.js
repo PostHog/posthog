@@ -200,7 +200,8 @@ export function LineGraph({
         const tooltipOptions = newUI
             ? {
                   enabled: false, // disable builtin tooltip (use custom markup)
-                  mode: 'interpolate',
+                  mode: 'nearest',
+                  axis: 'x',
                   intersect: false,
                   custom: function (tooltipModel) {
                       var tooltipEl = document.getElementById('chartjs-tooltip')
@@ -331,7 +332,8 @@ export function LineGraph({
                   }
                 : undefined,
             hover: {
-                mode: newUI ? 'interpolate' : 'nearest',
+                mode: 'nearest',
+                axis: newUI ? 'x' : undefined, // constrain the axis of nearest-point calculation
                 intersect: newUI ? false : undefined,
                 onHover(evt) {
                     if (onClick) {
