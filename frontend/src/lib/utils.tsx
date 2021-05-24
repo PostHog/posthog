@@ -43,10 +43,10 @@ export function toParams(obj: Record<string, any>): string {
         .join('&')
 }
 
-export function fromParams(): Record<string, any> {
-    return !window.location.search
+export function fromParamsGivenUrl(url: string): Record<string, any> {
+    return !url
         ? {}
-        : window.location.search
+        : url
               .slice(1)
               .split('&')
               .reduce((paramsObject, paramString) => {
@@ -54,6 +54,10 @@ export function fromParams(): Record<string, any> {
                   paramsObject[key] = decodeURIComponent(value)
                   return paramsObject
               }, {} as Record<string, any>)
+}
+
+export function fromParams(): Record<string, any> {
+    return fromParamsGivenUrl(window.location.search)
 }
 
 export function percentage(division: number): string {
@@ -308,7 +312,7 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     return JSON.stringify(obj1) === JSON.stringify(obj2)
 }
 
-export function idToKey(array: Record<string, any>[], keyField: string = 'id'): any {
+export function idToKey(array: Record<string, any>[], keyField: string = 'id'): Record<string, any> {
     const object: Record<string, any> = {}
     for (const element of array) {
         object[element[keyField]] = element
@@ -511,16 +515,16 @@ export const dateMapping: Record<string, string[]> = {
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
 export function dateFilterToText(
-    dateFrom: string | dayjs.Dayjs | undefined,
-    dateTo: string | dayjs.Dayjs | undefined,
+    dateFrom: string | dayjs.Dayjs | null | undefined,
+    dateTo: string | dayjs.Dayjs | null | undefined,
     defaultValue: string
 ): string {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
         return `${dateFrom.format('YYYY-MM-DD')} - ${dateTo.format('YYYY-MM-DD')}`
     }
-    dateFrom = dateFrom as string
-    dateTo = dateTo as string
-    if (isDate.test(dateFrom) && isDate.test(dateTo)) {
+    dateFrom = (dateFrom || undefined) as string | undefined
+    dateTo = (dateTo || undefined) as string | undefined
+    if (isDate.test(dateFrom || '') && isDate.test(dateTo || '')) {
         return `${dateFrom} - ${dateTo}`
     }
     if (dateFrom === 'dStart') {
@@ -839,4 +843,13 @@ export function resolveWebhookService(webhookUrl: string): string {
         }
     }
     return 'your webhook service'
+}
+
+export function maybeAddCommasToInteger(value: any): any {
+    const isNumber = !isNaN(value)
+    if (!isNumber) {
+        return value
+    }
+    const internationalNumberFormat = new Intl.NumberFormat('en-US')
+    return internationalNumberFormat.format(value)
 }

@@ -4,69 +4,29 @@ import { useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
-import { PlusCircleOutlined, EllipsisOutlined } from '@ant-design/icons'
-import {
-    SortableContainer as sortableContainer,
-    SortableElement as sortableElement,
-    SortableHandle as sortableHandle,
-} from 'react-sortable-hoc'
+import { PlusCircleOutlined } from '@ant-design/icons'
 import { alphabet } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ActionFilter as ActionFilterType, FilterType, Optional } from '~/types'
+import { SortableContainer, SortableActionFilterRow } from './Sortable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-const DragHandle = sortableHandle(() => (
-    <span className="action-filter-drag-handle">
-        <EllipsisOutlined />
-    </span>
-))
-
-interface SortableActionFilterRowProps {
-    logic: typeof entityFilterLogic
-    filter: ActionFilterType
-    filterIndex: number
-    hideMathSelector?: boolean
-    hidePropertySelector?: boolean
-    filterCount: number
-}
-
-const SortableActionFilterRow = sortableElement(
-    ({
-        logic,
-        filter,
-        filterIndex,
-        hideMathSelector,
-        hidePropertySelector,
-        filterCount,
-    }: SortableActionFilterRowProps) => (
-        <div className="draggable-action-filter">
-            {filterCount > 1 && <DragHandle />}
-            <ActionFilterRow
-                logic={logic}
-                filter={filter}
-                // sortableElement requires, yet eats the index prop, so passing via filterIndex here
-                index={filterIndex}
-                key={filterIndex}
-                hideMathSelector={hideMathSelector}
-                hidePropertySelector={hidePropertySelector}
-            />
-        </div>
-    )
-)
-const SortableContainer = sortableContainer(({ children }: { children: React.ReactNode }) => {
-    return <div>{children}</div>
-})
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
     filters: Optional<FilterType, 'type'>
     typeKey: string
     hideMathSelector?: boolean
     hidePropertySelector?: boolean
-    copy: string
-    disabled?: boolean
-    singleFilter?: boolean
-    sortable?: boolean
-    showLetters?: boolean
-    showOr?: boolean
+    buttonCopy: string // Text copy for the action button to add more events/actions (graph series)
+    disabled?: boolean // Whether the full control is enabled or not
+    singleFilter?: boolean // Whether it's allowed to add multiple event/action series (e.g. lifecycle only accepts one event)
+    sortable?: boolean // Whether actions/events can be sorted (used mainly for funnel step reordering)
+    showLetters?: boolean // Whether to show a letter indicator identifying each graph
+    showOr?: boolean // Whether to show the "OR" label after each filter
+    customRowPrefix?: string | JSX.Element // Custom prefix element to show in each ActionFilterRow
+    customActions?: JSX.Element // Custom actions to be added next to the add series button
+    horizontalUI?: boolean
 }
 
 export function ActionFilter({
@@ -75,14 +35,19 @@ export function ActionFilter({
     typeKey,
     hideMathSelector,
     hidePropertySelector = false,
-    copy = '',
+    buttonCopy = '',
     disabled = false,
     singleFilter = false,
     sortable = false,
     showLetters = false,
     showOr = false,
+    horizontalUI = false,
+    customRowPrefix,
+    customActions,
 }: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { localFilters } = useValues(logic)
     const { addFilter, setLocalFilters } = useActions(logic)
@@ -120,6 +85,7 @@ export function ActionFilter({
                                 hideMathSelector={hideMathSelector}
                                 hidePropertySelector={hidePropertySelector}
                                 filterCount={localFilters.length}
+                                customRowPrefix={customRowPrefix}
                             />
                         ))}
                     </SortableContainer>
@@ -135,22 +101,30 @@ export function ActionFilter({
                             hidePropertySelector={hidePropertySelector}
                             singleFilter={singleFilter}
                             showOr={showOr}
+                            horizontalUI={horizontalUI}
+                            filterCount={localFilters.length}
+                            customRowPrefix={customRowPrefix}
                         />
                     ))
                 )
             ) : null}
-            {!singleFilter && (
-                <div className="mt">
-                    <Button
-                        type="primary"
-                        onClick={() => addFilter()}
-                        style={{ marginTop: '0.5rem' }}
-                        data-attr="add-action-event-button"
-                        icon={<PlusCircleOutlined />}
-                        disabled={disabled}
-                    >
-                        {copy || 'Action or event'}
-                    </Button>
+            {(!singleFilter || customActions) && (
+                <div className="mt" style={{ display: 'flex', alignItems: 'center' }}>
+                    {!singleFilter && (
+                        <Button
+                            type={featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? 'dashed' : 'primary'}
+                            onClick={() => addFilter()}
+                            data-attr="add-action-event-button"
+                            icon={<PlusCircleOutlined />}
+                            disabled={disabled}
+                            className={`add-action-event-button${
+                                featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? ' new-ui' : ''
+                            }`}
+                        >
+                            {buttonCopy || 'Action or event'}
+                        </Button>
+                    )}
+                    {customActions}
                 </div>
             )}
         </div>

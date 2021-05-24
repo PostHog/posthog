@@ -12,7 +12,7 @@ function processEvent(event, { config }) {
         event.properties['hello'] = \`Hello \${config.name || 'world'}\`
     }
     
-    // Return the event to injest, return nothing to discard  
+    // Return the event to ingest, return nothing to discard  
     return event
 }
 
@@ -21,7 +21,7 @@ function processEvent(event, { config }) {
 // 
 // }
 
-// /* Ran once per hour on each worker instance */
+// /* Runs once every full hour */
 // function runEveryHour(meta) {
 //     const weather = await (await fetch('https://weather.example.api/?city=New+York')).json()
 //     posthog.capture('weather', { degrees: weather.deg, fahrenheit: weather.us })
@@ -77,7 +77,7 @@ export function PluginSource(): JSX.Element {
             forceRender={true}
             visible={editingSource}
             onClose={() => setEditingSource(false)}
-            width={'min(90vw, 820px)'}
+            width={'min(90vw, 64rem)'}
             title={`Coding Plugin: ${editingPlugin?.name}`}
             placement="left"
             footer={

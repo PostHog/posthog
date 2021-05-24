@@ -8,6 +8,8 @@ import {
     PAGEVIEW,
     SCREEN,
     ShownAsValue,
+    RETENTION_RECURRING,
+    RETENTION_FIRST_TIME,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
@@ -23,11 +25,15 @@ export type AvailableFeatures =
     | 'dashboard_collaboration'
     | 'clickhouse'
 
+export interface ColumnConfig {
+    active: string[] | 'DEFAULT'
+}
 export interface UserType {
     uuid: string
     first_name: string
     email: string
     email_opt_in: boolean
+    events_column_config: ColumnConfig
     anonymize_data: boolean
     distinct_id: string
     toolbar_mode: 'disabled' | 'toolbar'
@@ -351,12 +357,6 @@ export interface SessionType {
     matching_events: Array<number | string>
 }
 
-export interface FormattedNumber {
-    // :TODO: DEPRECATED, formatting will now happen client-side
-    value: number
-    formatted: string
-}
-
 export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean
@@ -446,6 +446,7 @@ export interface PluginType {
 export interface PluginConfigType {
     id?: number
     plugin: number
+    team_id: number
     enabled: boolean
     order: number
     config: Record<string, any>
@@ -458,6 +459,26 @@ export interface PluginErrorType {
     stack?: string
     name?: string
     event?: Record<string, any>
+}
+
+export enum PluginLogEntryType {
+    Debug = 'DEBUG',
+    Log = 'LOG',
+    Info = 'INFO',
+    Warn = 'WARN',
+    Error = 'ERROR',
+}
+
+export interface PluginLogEntry {
+    id: string
+    team_id: number
+    plugin_id: number
+    plugin_config_id: number
+    timestamp: string
+    type: PluginLogEntryType
+    is_system: boolean
+    message: string
+    instance_id: string
 }
 
 export interface AnnotationType {
@@ -486,7 +507,8 @@ export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PAT
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type PathType = typeof PAGEVIEW | typeof AUTOCAPTURE | typeof SCREEN | typeof CUSTOM_EVENT
-export type RetentionType = 'retention_recurring' | 'retention_first_time'
+
+export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
 export interface FilterType {
     insight?: InsightType
@@ -524,12 +546,30 @@ export interface SystemStatusSubrows {
     rows: string[][]
 }
 
-export interface SystemStatus {
+export interface SystemStatusRow {
     metric: string
     value: string
     key?: string
     description?: string
     subrows?: SystemStatusSubrows
+}
+
+export interface SystemStatus {
+    overview: SystemStatusRow[]
+    internal_metrics: {
+        clickhouse?: {
+            id: number
+            share_token: string
+        }
+    }
+}
+
+export type QuerySummary = { duration: string } & Record<string, string>
+
+export interface SystemStatusQueriesResult {
+    postgres_running: QuerySummary[]
+    clickhouse_running?: QuerySummary[]
+    clickhouse_slow_log?: QuerySummary[]
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>
@@ -624,7 +664,7 @@ export interface PreflightStatus {
     cloud: boolean
     celery: boolean
     ee_available?: boolean
-    ee_enabled?: boolean
+    is_clickhouse_enabled?: boolean
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
@@ -642,6 +682,10 @@ export enum DashboardMode { // Default mode is null
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
     Public = 'public', // When viewing the dashboard publicly via a shareToken
+}
+
+export enum DashboardItemMode {
+    Edit = 'edit',
 }
 
 // Reserved hotkeys globally available

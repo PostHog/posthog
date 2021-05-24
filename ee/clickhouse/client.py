@@ -2,10 +2,9 @@ import asyncio
 import hashlib
 import json
 from time import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import sqlparse
-import statsd
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
@@ -17,9 +16,12 @@ from sentry_sdk.api import capture_exception
 
 from posthog import redis
 from posthog.constants import RDBMS
+from posthog.internal_metrics import timing
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
     CLICKHOUSE_CA,
+    CLICKHOUSE_CONN_POOL_MAX,
+    CLICKHOUSE_CONN_POOL_MIN,
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HOST,
     CLICKHOUSE_PASSWORD,
@@ -27,30 +29,24 @@ from posthog.settings import (
     CLICKHOUSE_USER,
     CLICKHOUSE_VERIFY,
     PRIMARY_DB,
-    STATSD_HOST,
-    STATSD_PORT,
-    STATSD_PREFIX,
     TEST,
 )
 from posthog.utils import get_safe_cache
 
-if STATSD_HOST is not None:
-    statsd.Connection.set_defaults(host=STATSD_HOST, port=STATSD_PORT)
-
 CACHE_TTL = 60  # seconds
 
-_save_query_user_id = False
+_request_information: Optional[Dict] = None
 
 if PRIMARY_DB != RDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
 
-    def async_execute(query, args=None, settings=None):
+    def async_execute(query, args=None, settings=None, with_column_types=False):
         return
 
-    def sync_execute(query, args=None, settings=None):
+    def sync_execute(query, args=None, settings=None, with_column_types=False):
         return
 
-    def cache_sync_execute(query, args=None, redis_client=None, ttl=None, settings=None):
+    def cache_sync_execute(query, args=None, redis_client=None, ttl=None, settings=None, with_column_types=False):
         return
 
 
@@ -74,14 +70,16 @@ else:
             password=CLICKHOUSE_PASSWORD,
             ca_certs=CLICKHOUSE_CA,
             verify=CLICKHOUSE_VERIFY,
-            connections_min=20,
-            connections_max=1000,
+            connections_min=CLICKHOUSE_CONN_POOL_MIN,
+            connections_max=CLICKHOUSE_CONN_POOL_MAX,
         )
 
         @async_to_sync
-        async def async_execute(query, args=None, settings=None):
+        async def async_execute(query, args=None, settings=None, with_column_types=False):
             loop = asyncio.get_event_loop()
-            task = loop.create_task(ch_client.execute(query, args, settings=settings))
+            task = loop.create_task(
+                ch_client.execute(query, args, settings=settings, with_column_types=with_column_types)
+            )
             return task
 
     else:
@@ -104,14 +102,14 @@ else:
             password=CLICKHOUSE_PASSWORD,
             ca_certs=CLICKHOUSE_CA,
             verify=CLICKHOUSE_VERIFY,
-            connections_min=20,
-            connections_max=1000,
+            connections_min=CLICKHOUSE_CONN_POOL_MIN,
+            connections_max=CLICKHOUSE_CONN_POOL_MAX,
         )
 
-        def async_execute(query, args=None, settings=None):
-            return sync_execute(query, args, settings=settings)
+        def async_execute(query, args=None, settings=None, with_column_types=False):
+            return sync_execute(query, args, settings=settings, with_column_types=with_column_types)
 
-    def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, settings=None):
+    def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, settings=None, with_column_types=False):
         if not redis_client:
             redis_client = redis.get_client()
         key = _key_hash(query, args)
@@ -119,23 +117,28 @@ else:
             result = _deserialize(redis_client.get(key))
             return result
         else:
-            result = sync_execute(query, args, settings=settings)
+            result = sync_execute(query, args, settings=settings, with_column_types=with_column_types)
             redis_client.set(key, _serialize(result), ex=ttl)
             return result
 
-    def sync_execute(query, args=None, settings=None):
+    def sync_execute(query, args=None, settings=None, with_column_types=False):
         with ch_pool.get_client() as client:
             start_time = time()
+            tags = {}
             try:
-                result = client.execute(query, args, settings=settings)
+                sql, tags = _annotate_tagged_query(query, args)
+                result = client.execute(sql, args, settings=settings, with_column_types=with_column_types)
+            except Exception as e:
+                tags["failed"] = True
+                tags["reason"] = str(e)
+                raise e
             finally:
                 execution_time = time() - start_time
-                g = statsd.Gauge("%s_clickhouse_sync_execution_time" % (STATSD_PREFIX,))
-                g.send("clickhouse_sync_query_time", execution_time)
+                timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
                 if app_settings.SHELL_PLUS_PRINT_SQL:
                     print(format_sql(query, args))
                     print("Execution time: %.6fs" % (execution_time,))
-                if _save_query_user_id:
+                if _request_information is not None and _request_information.get("save", False):
                     save_query(query, args, execution_time)
         return result
 
@@ -154,6 +157,17 @@ def _serialize(result: Any) -> bytes:
 def _key_hash(query: str, args: Any) -> bytes:
     key = hashlib.md5(query.encode("utf-8") + json.dumps(args).encode("utf-8")).digest()
     return key
+
+
+def _annotate_tagged_query(query, args):
+    tags = {"kind": (_request_information or {}).get("kind"), "id": (_request_information or {}).get("id")}
+    if isinstance(args, dict) and "team_id" in args:
+        tags["team_id"] = args["team_id"]
+    # Annotate the query with information on the request/task
+    if _request_information is not None:
+        query = f"/* {_request_information['kind']}:{_request_information['id'].replace('/', '_')} */ {query}"
+
+    return query, tags
 
 
 def format_sql(sql, params, colorize=True):
@@ -180,9 +194,11 @@ def save_query(sql: str, params: Dict, execution_time: float) -> None:
     """
     Save query for debugging purposes
     """
+    if _request_information is None:
+        return
 
     try:
-        key = "save_query_{}".format(_save_query_user_id)
+        key = "save_query_{}".format(_request_information["user_id"])
         queries = json.loads(get_safe_cache(key) or "[]")
 
         queries.insert(

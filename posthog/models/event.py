@@ -4,7 +4,6 @@ import re
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple, Union
 
-import celery
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db import connection, models, transaction
@@ -12,7 +11,7 @@ from django.db.models import Exists, F, OuterRef, Prefetch, Q, QuerySet, Subquer
 from django.forms.models import model_to_dict
 from django.utils import timezone
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 
 from .action import Action
 from .action_step import ActionStep
@@ -266,7 +265,8 @@ class Event(models.Model):
         indexes = [
             models.Index(fields=["elements_hash"]),
             models.Index(fields=["timestamp", "team_id", "event"]),
-            models.Index(fields=["created_at"]),
+            # Separately managed:
+            # models.Index(fields=["created_at"]),
         ]
 
     def _can_use_cached_query(self, last_updated_action_ts):

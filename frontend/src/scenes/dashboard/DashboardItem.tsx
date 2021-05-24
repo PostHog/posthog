@@ -33,7 +33,7 @@ import dayjs from 'dayjs'
 import { logicFromInsight, ViewType } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-import SaveModal from 'scenes/insights/SaveModal'
+import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { DashboardItemType, DashboardType, DisplayType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
@@ -281,7 +281,7 @@ export function DashboardItem({
                             {saveDashboardItem &&
                                 (!item.saved && item.dashboard ? (
                                     <Link to={'/dashboard/' + item.dashboard}>
-                                        <small>dashboard</small>
+                                        <small>View dashboard</small>
                                     </Link>
                                 ) : (
                                     <Tooltip title="Save insight">

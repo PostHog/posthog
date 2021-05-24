@@ -4,7 +4,7 @@ import { Col, Row, Input } from 'antd'
 import { List } from 'antd'
 import { DownOutlined, RightOutlined } from '@ant-design/icons'
 import { ActionType, CohortType } from '~/types'
-import { selectBoxLogic, searchItems } from 'lib/logic/selectBoxLogic'
+import { selectBoxLogic } from 'lib/logic/selectBoxLogic'
 import './SelectBox.scss'
 import { selectBoxLogicType } from 'lib/logic/selectBoxLogicType'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -16,11 +16,13 @@ import { ListRowProps, ListRowRenderer } from 'react-virtualized'
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
     renderInfo({ item }: { item: SelectedItem }): JSX.Element
+    key: string
     name: string
     header: (label: string) => JSX.Element
     type: string
     getValue: (item: SelectedItem) => string | number
     getLabel: (item: SelectedItem) => string
+    metadata?: Record<string, any> // Used to store additional data (e.g. search term)
 }
 
 export interface SelectedItem {
@@ -37,41 +39,32 @@ export interface SelectedItem {
     cohort?: CohortType
 }
 
-const searchGroupItems = (items: SelectBoxItem[], search: string): SelectBoxItem[] => {
-    const newItems: SelectBoxItem[] = []
-    for (const item of items) {
-        newItems.push({
-            ...item,
-            dataSource: searchItems(item.dataSource, search),
-        })
-    }
-    return newItems
-}
-
 export function SelectBox({
     items,
     selectedItemKey,
     onSelect,
     onDismiss,
+    inputPlaceholder,
+    disablePopover = false,
 }: {
     items: SelectBoxItem[]
     selectedItemKey?: string
     onSelect: (type: any, id: string | number, name: string) => void
-    onDismiss: (event: MouseEvent) => void
+    onDismiss: (event?: MouseEvent) => void
+    inputPlaceholder?: string
+    disablePopover?: boolean // Disable PropertyKeyInfo popover
 }): JSX.Element {
     const dropdownRef = useRef<HTMLDivElement>(null)
     const dropdownLogic = selectBoxLogic({ updateFilter: onSelect, items })
-    const { selectedItem, selectedGroup, search } = useValues(dropdownLogic)
+    const { selectedItem, selectedGroup, data } = useValues(dropdownLogic)
     const { setSearch, setSelectedItem, onKeyDown } = useActions(dropdownLogic)
 
     const deselect = (e: MouseEvent): void => {
         if (e.target && dropdownRef?.current?.contains(e.target as Node)) {
             return
         }
-        onDismiss && onDismiss(e)
+        onDismiss(e)
     }
-
-    const data = !search ? items : searchGroupItems(items, search)
 
     useEffect(() => {
         if (selectedItemKey) {
@@ -92,21 +85,23 @@ export function SelectBox({
         }
     }, [])
     return (
-        <div ref={dropdownRef} className="select-box" tabIndex={0}>
+        <div ref={dropdownRef} className="select-box" tabIndex={-1}>
             <Row style={{ height: '100%' }}>
                 <Col sm={14} style={{ borderRight: '1px solid rgba(0, 0, 0, 0.1)', maxHeight: '100%' }}>
                     <Input
-                        placeholder="Search events"
+                        placeholder={inputPlaceholder || 'Search events'}
                         autoFocus
-                        onChange={(e) => {
-                            setSearch(e.target.value)
+                        onChange={(e) => setSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                            e.key === 'Tab' && onDismiss() // Close select box when input blurs via Tab
                         }}
                         style={{ width: '100%', borderRadius: 0, height: '10%' }}
                     />
-                    <div style={{ width: '100%', height: '90%' }}>
+                    <div style={{ width: '100%', height: '90%' }} tabIndex={-1}>
                         <SelectUnit
                             items={Object.assign({}, ...data.map((item) => ({ [item.name]: item })))}
                             dropdownLogic={dropdownLogic}
+                            disablePopover={disablePopover}
                         />
                     </div>
                 </Col>
@@ -121,9 +116,11 @@ export function SelectBox({
 export function SelectUnit({
     dropdownLogic,
     items,
+    disablePopover = false,
 }: {
     dropdownLogic: selectBoxLogicType<SelectedItem, SelectBoxItem> & BuiltLogic
     items: Record<string, SelectBoxItem>
+    disablePopover?: boolean // Disable PropertyKeyInfo popover
 }): JSX.Element {
     const { setSelectedItem, clickSelectedItem } = useActions(dropdownLogic)
     const { selectedItem, search, blockMouseOver } = useValues(dropdownLogic)
@@ -232,7 +229,7 @@ export function SelectUnit({
                         !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
                     }
                 >
-                    <PropertyKeyInfo value={item.name} />
+                    <PropertyKeyInfo value={item.name} disablePopover={disablePopover} />
                 </List.Item>
             )
         }
@@ -253,6 +250,7 @@ export function SelectUnit({
                                         rowHeight={35}
                                         rowRenderer={renderItem}
                                         width={width}
+                                        tabIndex={-1}
                                     />
                                 )
                             }}

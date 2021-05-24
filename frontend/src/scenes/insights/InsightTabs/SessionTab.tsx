@@ -9,8 +9,17 @@ import { FilterType } from '~/types'
 import { Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../TestAccountFilter'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SessionTabHorizontal } from './SessionTabHorizontal'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { BaseTabProps } from '../Insights'
 
-export function SessionTab(): JSX.Element {
+export function SessionTab(props: BaseTabProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? <SessionTabHorizontal {...props} /> : <DefaultSessionTab />
+}
+
+function DefaultSessionTab(): JSX.Element {
     const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
 
@@ -30,7 +39,7 @@ export function SessionTab(): JSX.Element {
                 setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                 typeKey={'sessions' + ViewType.SESSIONS}
                 hideMathSelector={true}
-                copy="Add action or event"
+                buttonCopy="Add action or event"
                 showOr={true}
             />
             <hr />

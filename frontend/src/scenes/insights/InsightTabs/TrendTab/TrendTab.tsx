@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Tooltip, Row, Skeleton, Switch } from 'antd'
+import { Tooltip, Row, Skeleton, Checkbox } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined } from '@ant-design/icons'
@@ -14,12 +14,20 @@ import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
+import { TrendTabHorizontal } from './TrendTabHorizontal'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { BaseTabProps } from 'scenes/insights/Insights'
 
-interface TrendTabProps {
+export interface TrendTabProps extends BaseTabProps {
     view: string
 }
 
-export function TrendTab({ view }: TrendTabProps): JSX.Element {
+export function TrendTab(props: TrendTabProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? <TrendTabHorizontal {...props} /> : <DefaultTrendTab {...props} />
+}
+
+function DefaultTrendTab({ view }: TrendTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
@@ -45,7 +53,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     filters={filters}
                     setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                     typeKey={'trends_' + view}
-                    copy="Add graph series"
+                    buttonCopy="Add graph series"
                     showLetters={isUsingFormulas}
                     singleFilter={filters.insight === ViewType.LIFECYCLE}
                     hidePropertySelector={filters.insight === ViewType.LIFECYCLE}
@@ -64,10 +72,9 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                 <div key={idx}>
                                     {lifecycle.name}{' '}
                                     <div>
-                                        <Switch
-                                            size="small"
-                                            className={lifecycle.name}
+                                        <Checkbox
                                             defaultChecked
+                                            className={lifecycle.name}
                                             onChange={() => toggleLifecycle(lifecycle.name)}
                                         />
                                         <Tooltip title={lifecycle.tooltip}>
@@ -90,7 +97,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     <TestAccountFilter filters={filters} onChange={setFilters} />
                     {(!filters.insight || filters.insight === ViewType.TRENDS) &&
                         featureFlags['3275-formulas'] &&
-                        preflight?.ee_enabled && (
+                        preflight?.is_clickhouse_enabled && (
                             <>
                                 <hr />
                                 <h4 className="secondary">Formula</h4>

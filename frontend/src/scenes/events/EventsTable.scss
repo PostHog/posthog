@@ -1,12 +1,24 @@
 @import '~/vars';
 
 .events {
+    .ant-table-row-expand-icon-cell {
+        min-width: 0 !important;
+    }
+
     .event-day-separator {
         background-color: darken($bg_mid, 10%);
         font-weight: bold;
         text-align: center;
     }
+    thead th {
+        max-width: 360px;
+        min-width: 160px;
+    }
     .event-row {
+        td {
+            max-width: 360px;
+            min-width: 160px;
+        }
         transition: background-color 2s;
         background-color: #fff;
         cursor: pointer;

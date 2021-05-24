@@ -48,15 +48,14 @@ jobs:
               uses: actions/setup-python@v2
               with:
                   python-version: 3.8
-            - uses: actions/cache@v1
-              name: Cache pip dependencies
-              id: pip-cache
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-virtualenv
               with:
-                  path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
+                  requirement_files: requirements.txt # this is optional
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-virtualenv.outputs.cache-hit != 'true'
             - name: Install python dependencies
+              if: steps.cache-virtualenv.outputs.cache-hit != 'true'
               run: |
                   python -m pip install --upgrade pip
                   python -m pip install $(grep -ivE "psycopg2" requirements.txt | cut -d'#' -f1) --no-cache-dir --compile
@@ -64,20 +63,31 @@ jobs:
             - uses: actions/setup-node@v1
               with:
                   node-version: 14
-            - name: Get yarn cache directory path
-              id: yarn-dep-cache-dir-path
-              run: echo "::set-output name=dir::$(yarn cache dir)"
-            - uses: actions/cache@v1
-              name: Setup Yarn dep cache
-              id: yarn-dep-cache
+            - uses: actions/cache@v2
+              id: node-modules-cache
               with:
-                  path: ${{ steps.yarn-dep-cache-dir-path.outputs.dir }}
-                  key: ${{ runner.os }}-yarn-dep-${{ hashFiles('**/yarn.lock') }}
+                  path: |
+                      ~/.cache/Cypress
+                      node_modules
+                  key: ${{ runner.os }}-node-cypress-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-yarn-dep-
+                      ${{ runner.os }}-node-cypress-
             - name: Yarn install deps
+              if: steps.node-modules-cache.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
+            - uses: actions/cache@v2
+              id: cypress-cache
+              with:
+                  path: |
+                      ~/.cache/Cypress
+                      node_modules/cypress
+                      node_modules/cypress-terminal-report
+                      node_modules/@cypress
+                  key: ${{ runner.os }}-cypress-6.7.0
+            - name: Install cypress
+              if: steps.cypress-cache.outputs.cache-hit != 'true'
+              run: |
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
             - uses: actions/cache@v1
               name: Setup Yarn build cache
@@ -88,9 +98,9 @@ jobs:
                   restore-keys: |
                       ${{ runner.os }}-yarn-build-
             - name: Yarn build
+              if: steps.yarn-build-cache.outputs.cache-hit != 'true'
               run: |
                   yarn build
-              if: steps.yarn-build-cache.outputs.cache-hit != 'true'
             - name: Boot PostHog
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -99,11 +109,11 @@ jobs:
                   DISABLE_SECURE_SSL_REDIRECT: 1
                   SECURE_COOKIES: 0
                   OPT_OUT_CAPTURE: 1
-                  SELF_CAPTURE: 1
+                  SELF_CAPTURE: 0
                   E2E_TESTING: 1
               run: |
-                  python manage.py collectstatic --noinput
-                  ./bin/docker-migrate
+                  python manage.py collectstatic --noinput &
+                  ./bin/docker-migrate & wait
                   python manage.py setup_dev
                   mkdir -p cypress/screenshots
                   ./bin/docker-worker &
@@ -115,6 +125,11 @@ jobs:
                   record: true
                   parallel: true
                   group: 'PostHog Frontend'
+                  # We're already installing cypress above
+                  # We have to install it separately otherwise the tests fail.
+                  install: false
+                  # We already install cypress separately, we don't need to install it again here
+                  install-command: echo "no"
               env:
                   # pass the Dashboard record key as an environment variable
                   CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
