@@ -332,6 +332,12 @@ export const keyMapping: KeyMappingInterface = {
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
             hide: true,
         },
+        $environment: {
+            label: 'Environment',
+            description: 'Environment used to filter results on all queries when enabled.',
+            examples: ['test', 'production'],
+            hide: true,
+        },
 
         // GeoIP
         $geoip_city_name: {
@@ -464,6 +470,7 @@ export function PropertyKeyInfo({
     type = 'event',
     disablePopover = false,
 }: PropertyKeyInfoInterface): JSX.Element {
+    value = `${value}` // convert to string
     let data = null
     if (value in keyMapping[type]) {
         data = { ...keyMapping[type][value] }
@@ -475,7 +482,7 @@ export function PropertyKeyInfo({
         }
     } else {
         return (
-            <Typography.Text ellipsis={true} style={{ maxWidth: 400 }} title={value}>
+            <Typography.Text ellipsis={true} style={{ color: 'inherit', maxWidth: 400 }} title={value}>
                 {value}
             </Typography.Text>
         )

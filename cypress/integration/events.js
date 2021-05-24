@@ -1,5 +1,16 @@
 describe('Events', () => {
     beforeEach(() => {
+        // Before each should reset the column config to DEFAULT config
+        cy.getCookie('csrftoken').then((csrftoken) => {
+            cy.request({
+                url: '/api/user/',
+                body: { user: { events_column_config: { active: 'DEFAULT' } } },
+                method: 'PATCH',
+                headers: {
+                    'X-CSRFToken': csrftoken.value,
+                },
+            })
+        })
         cy.visit('/events')
     })
 
@@ -8,7 +19,7 @@ describe('Events', () => {
     })
 
     it('Click on an event', () => {
-        cy.get('[data-attr=events-table] .event-row:first-child td:first-child').click()
+        cy.get('[data-attr=events-table] .event-row:nth-child(2) td:first-child').click()
         cy.get('[data-attr=event-details]').should('exist')
     })
 

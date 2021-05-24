@@ -7,6 +7,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { Input, Select, Modal, Radio } from 'antd'
 import { prompt } from 'lib/logic/prompt'
 import dayjs from 'dayjs'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const saveToDashboardModalLogic = kea({
     connect: {
@@ -48,7 +49,8 @@ const saveToDashboardModalLogic = kea({
             })
         },
 
-        [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
+        [dashboardsModel.actions.addDashboardSuccess]: async ({ dashboard }) => {
+            eventUsageLogic.actions.reportCreatedDashboardFromModal()
             actions.setDashboardId(dashboard.id)
         },
     }),
@@ -72,6 +74,7 @@ export function SaveToDashboardModal({
     const logic = saveToDashboardModalLogic({ fromDashboard })
     const { dashboards, dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)
+    const { reportSavedInsightToDashboard } = useActions(eventUsageLogic)
     const [name, setName] = useState(fromItemName || initialName || '')
     const [visible, setVisible] = useState(true)
     const [newItem, setNewItem] = useState(!fromItem)
@@ -100,6 +103,7 @@ export function SaveToDashboardModal({
         } else {
             await api.update(`api/insight/${fromItem}`, { filters })
         }
+        reportSavedInsightToDashboard()
         toast(
             <div data-attr="success-toast">
                 {newItem ? 'Panel added to dashboard.' : 'Panel updated!'}&nbsp;

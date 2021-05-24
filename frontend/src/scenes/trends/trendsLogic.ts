@@ -304,7 +304,7 @@ export const trendsLogic = kea<
     selectors: () => ({
         filtersLoading: [
             () => [eventDefinitionsLogic.selectors.loaded, propertyDefinitionsLogic.selectors.loaded],
-            (eventsLoaded, propertiesLoaded) => !eventsLoaded || !propertiesLoaded,
+            (eventsLoaded, propertiesLoaded): boolean => !eventsLoaded || !propertiesLoaded,
         ],
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
@@ -511,7 +511,7 @@ export const trendsLogic = kea<
 
     events: ({ actions, props }) => ({
         afterMount: () => {
-            if (props.dashboardItemId || insightLogic.values.fromDashboardItem) {
+            if (props.dashboardItemId) {
                 // loadResults gets called in urlToAction for non-dashboard insights
                 actions.loadResults()
             }
@@ -520,7 +520,7 @@ export const trendsLogic = kea<
 
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
-            if (props.dashboardItemId || insightLogic.values.fromDashboardItem) {
+            if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
             return ['/insights', values.filters, router.values.hashParams]
@@ -575,12 +575,6 @@ export const trendsLogic = kea<
                 }
 
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
-            }
-        },
-        '/insights/dashboard_item/(:dashboardItemId)': async ({ dashboardItemId }: Record<string, string>) => {
-            const dashboardItem = await api.get(`api/dashboard_item/${dashboardItemId}`)
-            if (dashboardItem && dashboardItem.filters.insight === ViewType.TRENDS) {
-                actions.setFilters(cleanFilters(dashboardItem.filters), true)
             }
         },
     }),

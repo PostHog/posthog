@@ -20,15 +20,13 @@ export const dashboardsModel = kea({
         rawDashboards: [
             {},
             {
-                loadDashboards: async (shareToken = undefined, breakpoint) => {
-                    await breakpoint(50)
-                    try {
-                        const { results } = await api.get(`api/dashboard?${toParams({ share_token: shareToken })}`)
-                        return idToKey(results)
-                    } catch {
-                        return {}
-                    }
-                },
+                loadDashboards: (_, breakpoint) => loadDashboard(undefined, breakpoint),
+            },
+        ],
+        sharedDashboards: [
+            null,
+            {
+                loadSharedDashboard: (shareToken, breakpoint) => loadDashboard(shareToken, breakpoint),
             },
         ],
         // We're not using this loader as a reducer per se, but just calling it `dashboard`
@@ -180,3 +178,13 @@ export const dashboardsModel = kea({
         '/dashboard/:id': ({ id }) => actions.setLastDashboardId(parseInt(id)),
     }),
 })
+
+async function loadDashboard(shareToken, breakpoint) {
+    await breakpoint(50)
+    try {
+        const { results } = await api.get(`api/dashboard?${toParams({ share_token: shareToken })}`)
+        return idToKey(results)
+    } catch {
+        return {}
+    }
+}

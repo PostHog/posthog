@@ -54,6 +54,17 @@ class UninitiatedOrCloudOnly(BasePermission):
         return settings.MULTI_TENANCY or not User.objects.exists()
 
 
+class SingleTenancyOrAdmin(BasePermission):
+    """
+    Allows access to only staff users on cloud.
+    """
+
+    message = "You are not an admin."
+
+    def has_permission(self, request, view):
+        return not settings.MULTI_TENANCY or request.user.is_staff
+
+
 class ProjectMembershipNecessaryPermissions(BasePermission):
     """Require organization and project membership to access endpoint."""
 

@@ -4,12 +4,12 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import celery
 import pytz
-import statsd
 from dateutil.parser import isoparse
 from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
 from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
@@ -68,7 +68,7 @@ def create_event(
         and Hook.objects.filter(event="action_performed", team=team).exists()
     ):
         try:
-            statsd.Counter("%s_posthog_cloud_hooks_send_task" % (settings.STATSD_PREFIX,)).increment()
+            statsd.incr("posthog_cloud_hooks_send_task")
             celery.current_app.send_task(
                 "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
                 (
@@ -87,11 +87,6 @@ def create_event(
             capture_exception()
 
     return str(event_uuid)
-
-
-def get_events():
-    events = sync_execute(GET_EVENTS_SQL)
-    return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
 
 
 def get_events_by_team(team_id: Union[str, int]):

@@ -91,6 +91,10 @@
                 {
                     "name": "TRUST_ALL_PROXIES",
                     "value": "True"
+                },
+                {
+                    "name": "CAPTURE_INTERNAL_METRICS",
+                    "value": "True"
                 }
             ],
             "secrets": [
@@ -216,7 +220,7 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-migrate"],
+            "command": ["./bin/docker-migrate && python manage.py migrate_clickhouse"],
             "linuxParameters": {
                 "initProcessEnabled": true
             }

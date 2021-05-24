@@ -1,12 +1,15 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.db.models.query import QuerySet
+from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
+from posthog.email import is_email_available
 from posthog.utils import mask_email_address
 
 from .utils import UUIDModel, sane_repr
@@ -42,6 +45,15 @@ class OrganizationManager(models.Manager):
 
 
 class Organization(UUIDModel):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["for_internal_metrics"],
+                condition=Q(for_internal_metrics=True),
+                name="single_for_internal_metrics",
+            ),
+        ]
+
     class PluginsAccessLevel(models.IntegerChoices):
         # None means the organization can't use plugins at all. They're hidden. Cloud default.
         NONE = 0, "none"
@@ -70,6 +82,8 @@ class Organization(UUIDModel):
         default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
         choices=PluginsAccessLevel.choices,
     )
+    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
+    for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
 
     objects: OrganizationManager = OrganizationManager()
 
@@ -102,14 +116,16 @@ class Organization(UUIDModel):
     def billing_plan(self) -> Optional[str]:
         return self._billing_plan_details[0]
 
-    @property
-    def available_features(self) -> List[str]:
+    def update_available_features(self) -> List[str]:
+        """Updates field `available_features`. Does not `save()`."""
         plan, realm = self._billing_plan_details
         if not plan:
-            return []
-        if realm == "ee":
-            return License.PLANS.get(plan, [])
-        return self.billing.available_features  # type: ignore
+            self.available_features = []
+        elif realm == "ee":
+            self.available_features = License.PLANS.get(plan, [])
+        else:
+            self.available_features = self.billing.available_features  # type: ignore
+        return self.available_features
 
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
@@ -137,8 +153,14 @@ class Organization(UUIDModel):
         }
 
 
+@receiver(models.signals.pre_save, sender=Organization)
+def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
+    if instance._state.adding:
+        instance.update_available_features()
+
+
 @receiver(models.signals.pre_delete, sender=Organization)
-def organization_deleted(sender, instance, **kwargs):
+def organization_about_to_be_deleted(sender, instance, **kwargs):
     instance.teams.all().delete()
 
 
@@ -251,6 +273,10 @@ class OrganizationInvite(UUIDModel):
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization)
+        if is_email_available(with_absolute_urls=True):
+            from posthog.tasks.email import send_member_join
+
+            send_member_join.apply_async(kwargs={"invitee_uuid": user.uuid, "organization_id": self.organization.id})
         OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:

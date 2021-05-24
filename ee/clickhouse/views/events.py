@@ -1,9 +1,10 @@
 import json
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from django.utils.timezone import now
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -25,14 +26,17 @@ from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
+from posthog.models.utils import UUIDT
 from posthog.utils import convert_property_value, flatten
 
 
 class ClickhouseEventsViewSet(EventViewSet):
+
+    serializer_class = ClickhouseEventSerializer  # type: ignore
+
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event[5] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-
         distinct_to_person: Dict[str, Person] = {}
         for person in persons:
             for distinct_id in person.distinct_ids:
@@ -108,11 +112,14 @@ class ClickhouseEventsViewSet(EventViewSet):
 
         return Response({"next": next_url, "results": result})
 
-    def retrieve(self, request: Request, pk: Optional[int] = None, *args: Any, **kwargs: Any) -> Response:
-        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk},)
-        result = ClickhouseEventSerializer(query_result[0], many=False).data
-
-        return Response(result)
+    def retrieve(self, request: Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any) -> Response:
+        if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
+            return Response({"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400)
+        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
+        if len(query_result) == 0:
+            raise NotFound(detail=f"No events exist for event UUID {pk}")
+        res = ClickhouseEventSerializer(query_result[0], many=False).data
+        return Response(res)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request, **kwargs) -> Response:
