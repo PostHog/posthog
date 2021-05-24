@@ -317,7 +317,6 @@ export const dashboardLogic = kea({
         refreshAllDashboardItems: async (_, breakpoint) => {
             await breakpoint(100)
             dashboardItemsModel.actions.refreshAllDashboardItems({})
-            setTimeout(() => actions.loadDashboardItems(), 1000)
 
             eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
         },
