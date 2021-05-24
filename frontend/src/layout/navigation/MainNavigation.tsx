@@ -64,7 +64,6 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
     const { collapseMenu, setHotkeyNavigationEngaged } = useActions(navigationLogic)
     const { push } = useActions(router)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     function activeScene(): string {
         const nominalScene: Scene = loadingScene || scene
@@ -104,7 +103,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
                         <>
                             <div className="mb-025">
                                 <b>{title}</b>
-                                {hotkey && featureFlags['hotkeys-3740'] && (
+                                {hotkey && (
                                     <>
                                         <span className="hotkey menu-tooltip-hotkey">G</span>
                                         <span className="hotkey-plus" />
@@ -231,11 +230,7 @@ export function MainNavigation(): JSX.Element {
         setCanScroll(calcCanScroll(navRef.current))
     }, [navRef])
 
-    useGlobalKeyboardHotkeys(
-        featureFlags['hotkeys-3740']
-            ? { g: { action: () => setHotkeyNavigationEngaged(!hotkeyNavigationEngaged) } }
-            : {}
-    )
+    useGlobalKeyboardHotkeys({ g: { action: () => setHotkeyNavigationEngaged(!hotkeyNavigationEngaged) } })
 
     return (
         <>
