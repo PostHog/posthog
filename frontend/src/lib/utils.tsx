@@ -470,6 +470,8 @@ export function eventToName(event: EventType): string {
         }
         if (event.elements[0].text) {
             name += ' with text "' + event.elements[0].text + '"'
+        } else if (event.elements[0].attributes['attr__aria-label']) {
+            name += ' with aria label "' + event.elements[0].attributes['attr__aria-label'] + '"'
         }
     }
     return name
