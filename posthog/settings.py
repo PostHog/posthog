@@ -74,9 +74,10 @@ if DEBUG:
 else:
     JS_URL = os.getenv("JS_URL", "")
 
+DISABLE_MMDB = get_from_env("DISABLE_MMDB", TEST, type_cast=strtobool)  # plugin server setting disabling GeoIP feature
 PLUGINS_PREINSTALLED_URLS: List[str] = os.getenv(
     "PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip"
-).split(",") if not TEST else []
+).split(",") if not DISABLE_MMDB else []
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
@@ -153,6 +154,9 @@ CLICKHOUSE_VERIFY = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=strtobool)
 CLICKHOUSE_REPLICATION = get_from_env("CLICKHOUSE_REPLICATION", False, type_cast=strtobool)
 CLICKHOUSE_ENABLE_STORAGE_POLICY = get_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False, type_cast=strtobool)
 CLICKHOUSE_ASYNC = get_from_env("CLICKHOUSE_ASYNC", False, type_cast=strtobool)
+
+CLICKHOUSE_CONN_POOL_MIN = os.getenv("CLICKHOUSE_CONN_POOL_MIN", 20)
+CLICKHOUSE_CONN_POOL_MAX = os.getenv("CLICKHOUSE_CONN_POOL_MAX", 1000)
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"

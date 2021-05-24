@@ -1,3 +1,4 @@
+import dayjs from 'dayjs'
 import {
     formatLabel,
     identifierToHuman,
@@ -7,6 +8,7 @@ import {
     compactNumber,
     pluralize,
     endWithPunctation,
+    dateFilterToText,
 } from './utils'
 
 describe('capitalizeFirstLetter()', () => {
@@ -136,5 +138,24 @@ describe('endWithPunctation()', () => {
         expect(endWithPunctation(null)).toEqual('')
         expect(endWithPunctation('   ')).toEqual('')
         expect(endWithPunctation('  Why? ')).toEqual('Why?')
+    })
+})
+
+describe('dateFilterToText()', () => {
+    it('handles dayjs dates', () => {
+        const from = dayjs('2018-04-04T16:00:00.000Z')
+        const to = dayjs('2018-04-09T15:05:00.000Z')
+
+        expect(dateFilterToText(from, to, 'custom')).toEqual('2018-04-04 - 2018-04-09')
+    })
+
+    it('handles various ranges', () => {
+        expect(dateFilterToText('dStart', null, 'default')).toEqual('Today')
+        expect(dateFilterToText('2020-01-02', '2020-01-05', 'default')).toEqual('2020-01-02 - 2020-01-05')
+        expect(dateFilterToText(null, null, 'default')).toEqual('default')
+        expect(dateFilterToText('-24h', null, 'default')).toEqual('Last 24 hours')
+        expect(dateFilterToText('-48h', undefined, 'default')).toEqual('Last 48 hours')
+        expect(dateFilterToText('-1d', 'dStart', 'default')).toEqual('Yesterday')
+        expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
     })
 })

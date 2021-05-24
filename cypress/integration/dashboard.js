@@ -37,7 +37,7 @@ describe('Dashboard', () => {
             .then((link) => {
                 cy.wait(200)
                 cy.visit(link)
-                cy.get('[data-attr="dashboard-item-title"').should('contain', 'Daily Active Users')
+                cy.get('[data-attr=dashboard-item-title]').should('contain', 'Daily Active Users')
             })
     })
 

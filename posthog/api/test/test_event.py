@@ -1,10 +1,13 @@
 import json
+import uuid
+from typing import Union
 from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
+from rest_framework import status
 
 from posthog.constants import RDBMS
 from posthog.models import Action, ActionStep, Element, Event, Organization, Person, Team
@@ -388,6 +391,36 @@ def factory_test_event_api(event_factory, person_factory, _):
                 1001,
                 "CSV export should return up to CSV_EXPORT_LIMIT events (+ headers row)",
             )
+
+        def test_get_event_by_id(self):
+            event_id: Union[str, int] = 12345
+
+            if settings.PRIMARY_DB == RDBMS.CLICKHOUSE:
+                from ee.clickhouse.models.event import create_event
+
+                event_id = "01793986-dc4b-0000-93e8-1fb646df3a93"
+                Event(
+                    pk=create_event(
+                        team=self.team,
+                        event="event",
+                        distinct_id="1",
+                        timestamp=timezone.now(),
+                        event_uuid=uuid.UUID(event_id),
+                    )
+                )
+            else:
+                event_factory(team=self.team, event="event", distinct_id="1", timestamp=timezone.now(), id=event_id)
+
+            response = self.client.get(f"/api/event/{event_id}",)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["event"], "event")
+
+            response = self.client.get(f"/api/event/123456",)
+            # EE will inform the user the ID passed is not a valid UUID
+            self.assertIn(response.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST])
+
+            response = self.client.get(f"/api/event/im_a_string_not_an_integer",)
+            self.assertIn(response.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST])
 
     return TestEvents
 

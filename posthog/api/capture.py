@@ -13,6 +13,7 @@ from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.celery import app as celery_app
+from posthog.constants import ENVIRONMENT_TEST
 from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
@@ -97,6 +98,13 @@ def _get_token(data, request) -> Optional[str]:
     return None
 
 
+# Support test_[apiKey] for users with multiple environments
+def _clean_token(token):
+    is_test_environment = token.startswith("test_")
+    token = token[5:] if is_test_environment else token
+    return token, is_test_environment
+
+
 def _get_project_id(data, request) -> Optional[int]:
     if request.GET.get("project_id"):
         return int(request.POST["project_id"])
@@ -165,6 +173,9 @@ def get_event(request):
                 status_code=status.HTTP_401_UNAUTHORIZED,
             ),
         )
+
+    token, is_test_environment = _clean_token(token)
+    assert token is not None
 
     team = Team.objects.get_team_from_token(token)
 
@@ -258,6 +269,10 @@ def get_event(request):
 
         if not event.get("properties"):
             event["properties"] = {}
+
+        # Support test_[apiKey] for users with multiple environments
+        if event["properties"].get("$environment") is None and is_test_environment:
+            event["properties"]["$environment"] = ENVIRONMENT_TEST
 
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
