@@ -161,10 +161,10 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
 
     def test_breakdown(self):
         action_response = self._run({"formula": "A - B", "breakdown": "location"})
-        self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 450.0, 0.0])
-        self.assertEqual(action_response[0]["label"], "London")
-        self.assertEqual(action_response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 250.0, 0.0, 0.0])
-        self.assertEqual(action_response[1]["label"], "Paris")
+        self.assertEqual(action_response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 450.0, 0.0])
+        self.assertEqual(action_response[1]["label"], "London")
+        self.assertEqual(action_response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 250.0, 0.0, 0.0])
+        self.assertEqual(action_response[2]["label"], "Paris")
 
     def test_breakdown_cohort(self):
         cohort = Cohort.objects.create(
