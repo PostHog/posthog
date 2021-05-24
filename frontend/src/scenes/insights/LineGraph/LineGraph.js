@@ -213,7 +213,19 @@ export function LineGraph({
                       // Set caret position
                       tooltipEl.classList.remove('above', 'below', 'no-transform')
                       tooltipEl.classList.add(tooltipModel.yAlign || 'no-transform')
-
+                      const bounds = chartRef.current.getBoundingClientRect()
+                      const chartClientLeft = bounds.left + window.pageXOffset
+                      const chartClientTop = bounds.top + window.pageYOffset
+                      const tooltipCaretOffsetLeft = Math.max(
+                          chartClientLeft,
+                          chartClientLeft + tooltipModel.caretX - 50
+                      )
+                      tooltipEl.style.opacity = 1
+                      tooltipEl.style.position = 'absolute'
+                      tooltipEl.style.left = tooltipCaretOffsetLeft + 'px'
+                      tooltipEl.style.top = chartClientTop + 'px'
+                      tooltipEl.style.padding = tooltipModel.padding + 'px'
+                      tooltipEl.style.pointerEvents = 'none'
                       if (tooltipModel.body) {
                           const titleLines = tooltipModel.title || []
                           const bodyLines = tooltipModel.body.map(({ lines }) => lines)
@@ -239,14 +251,6 @@ export function LineGraph({
                               tooltipEl
                           )
                       }
-
-                      var position = chartRef.current.getBoundingClientRect()
-                      tooltipEl.style.opacity = 1
-                      tooltipEl.style.position = 'absolute'
-                      tooltipEl.style.left = position.left + window.pageXOffset + tooltipModel.caretX + 'px'
-                      tooltipEl.style.top = position.top + window.pageYOffset + tooltipModel.caretY + 'px'
-                      tooltipEl.style.padding = tooltipModel.padding + 'px ' + tooltipModel.padding + 'px'
-                      tooltipEl.style.pointerEvents = 'none'
                   },
               }
             : {
