@@ -20,7 +20,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
-import { ReloadOutlined } from '@ant-design/icons'
+import { ReloadOutlined, DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
@@ -54,10 +54,16 @@ export function Insights(): JSX.Element {
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const { lastRefresh, isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(
-        insightLogic
-    )
-    const { setActiveView } = useActions(insightLogic)
+    const {
+        lastRefresh,
+        isLoading,
+        activeView,
+        allFilters,
+        showTimeoutMessage,
+        showErrorMessage,
+        controlsCollapsed,
+    } = useValues(insightLogic)
+    const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
@@ -223,12 +229,33 @@ export function Insights(): JSX.Element {
                 ) : (
                     <>
                         <Col xs={24} xl={horizontalUI ? 24 : 7}>
-                            <Card className="insight-controls">
-                                <div>
-                                    {/*
-                                These are insight specific filters.
-                                They each have insight specific logics
-                                */}
+                            <Card
+                                className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
+                                onClick={() => controlsCollapsed && toggleControlsCollapsed()}
+                            >
+                                {horizontalUI && (
+                                    <>
+                                        <div
+                                            role="button"
+                                            title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
+                                            className="collapse-control"
+                                            onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
+                                        >
+                                            {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
+                                        </div>
+                                        {controlsCollapsed && (
+                                            <div>
+                                                <h3 className="l3">Query definition</h3>
+                                                <span className="text-small text-muted">
+                                                    Click here to view and change the query events, filters and other
+                                                    settings.
+                                                </span>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                                <div className="tabs-inner">
+                                    {/* These are insight specific filters. They each have insight specific logics */}
                                     {
                                         {
                                             [`${ViewType.TRENDS}`]: (
