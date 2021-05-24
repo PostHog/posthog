@@ -564,7 +564,7 @@ export interface SystemStatus {
     }
     backup: {
         is_enabled: boolean
-        existing_bk_names: string[]
+        existing_backups: string[]
     }
 }
 

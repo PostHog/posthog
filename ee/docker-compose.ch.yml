@@ -58,7 +58,6 @@ services:
             PGHOST: db
             PGUSER: posthog
             PGPASSWORD: posthog
-            CAPTURE_INTERNAL_METRICS: 'true'
         depends_on:
             - db
             - redis
@@ -84,7 +83,6 @@ services:
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'
-            CAPTURE_INTERNAL_METRICS: 'true'
         depends_on:
             - db
             - redis
