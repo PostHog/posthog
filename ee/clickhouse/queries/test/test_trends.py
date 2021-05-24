@@ -469,3 +469,39 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         filter = Filter(data=data)
         result = ClickhouseTrends().run(filter, self.team,)
         self.assertEqual(result[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
+
+    def test_filter_test_accounts(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+        self.team.test_account_filters = [{"key": "name", "value": "p1", "operator": "is_not", "type": "person"}]
+        self.team.save()
+        data = {
+            "date_from": "2020-01-01T00:00:00Z",
+            "date_to": "2020-01-12T00:00:00Z",
+            "events": [{"id": "$pageview", "type": "events", "order": 0}],
+            "filter_test_accounts": "true",
+        }
+        filter = Filter(data=data)
+        filter_2 = Filter(data={**data, "filter_test_accounts": "false",})
+        filter_3 = Filter(data={**data, "breakdown": "key"})
+        result = ClickhouseTrends().run(filter, self.team,)
+        self.assertEqual(result[0]["count"], 1)
+        result = ClickhouseTrends().run(filter_2, self.team,)
+        self.assertEqual(result[0]["count"], 2)
+        result = ClickhouseTrends().run(filter_3, self.team,)
+        self.assertEqual(result[1]["count"], 1)

@@ -2026,7 +2026,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             result = trends().run(filter_2, self.team,)
             self.assertEqual(result[0]["count"], 2)
             result = trends().run(filter_3, self.team,)
-            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[0]["count"], 1)
 
         def test_bar_chart_by_value(self):
             self._create_events()
