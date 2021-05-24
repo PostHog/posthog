@@ -122,6 +122,10 @@ class Organization(UUIDModel):
             return License.PLANS.get(plan, [])
         return self.billing.available_features  # type: ignore
 
+    def update_available_features(self) -> List[str]:
+        """Dummy method to satisfy https://github.com/PostHog/posthog-cloud/pull/121 tests."""
+        return self.available_features
+
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
 
