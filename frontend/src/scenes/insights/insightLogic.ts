@@ -8,6 +8,7 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FilterType } from '~/types'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export enum ViewType {
     TRENDS = 'TRENDS',
@@ -43,14 +44,15 @@ export const logicFromInsight = (insight: string, logicProps: Record<string, any
     }
 }
 
-export const insightLogic = kea<insightLogicType>({
+export const insightLogic = kea<insightLogicType<ViewType, FilterType>>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type) => ({ type }),
         setCachedUrl: (type, url) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
-        startQuery: true,
-        endQuery: (view: string, lastRefresh: string | null, exception?: Record<string, any>) => ({
+        startQuery: (queryId: string) => ({ queryId }),
+        endQuery: (queryId: string, view: string, lastRefresh: string | null, exception?: Record<string, any>) => ({
+            queryId,
             view,
             lastRefresh,
             exception,
@@ -99,7 +101,7 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
         activeView: [
-            ViewType.TRENDS,
+            ViewType.TRENDS as ViewType,
             {
                 updateActiveView: (_, { type }) => type,
             },
@@ -140,6 +142,12 @@ export const insightLogic = kea<insightLogicType>({
             false,
             {
                 toggleControlsCollapsed: (state) => !state,
+            }
+        ],
+        queryStartTimes: [
+            {} as Record<string, number>,
+            {
+                startQuery: (state, { queryId }) => ({ ...state, [queryId]: new Date().getTime() }),
             },
         ],
     },
@@ -158,23 +166,34 @@ export const insightLogic = kea<insightLogicType>({
                 setTimeout(() => {
                     if (values && view == values.activeView) {
                         actions.setShowTimeoutMessage(true)
+                        // :TODO: Add instrumentation
                     }
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
             actions.setIsLoading(true)
         },
-        endQuery: ({ view, lastRefresh, exception }) => {
+        endQuery: ({ queryId, view, lastRefresh, exception }) => {
             clearTimeout(values.timeout || undefined)
             if (view === values.activeView) {
                 actions.setShowTimeoutMessage(values.maybeShowTimeoutMessage)
                 actions.setShowErrorMessage(values.maybeShowErrorMessage)
                 actions.setLastRefresh(lastRefresh || null)
                 actions.setIsLoading(false)
+
+                const payload = {
+                    insight: values.activeView,
+                    scene: sceneLogic.values.scene,
+                    duration: new Date().getTime() - values.queryStartTimes[queryId],
+                    success: !exception,
+                    ...exception,
+                }
+
+                posthog.capture('insight loaded', payload)
                 if (values.maybeShowTimeoutMessage) {
-                    posthog.capture('insight timeout message shown', { insight: values.activeView, ...exception })
+                    posthog.capture('insight timeout message shown', payload)
                 }
                 if (values.maybeShowErrorMessage) {
-                    posthog.capture('insight error message shown', { insight: values.activeView, ...exception })
+                    posthog.capture('insight error message shown', payload)
                 }
             }
         },
