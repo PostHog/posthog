@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, FUNNEL_VIZ } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, FUNNEL_VIZ, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -20,7 +20,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
-import { ReloadOutlined } from '@ant-design/icons'
+import { ReloadOutlined, DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
@@ -34,6 +34,11 @@ import { HotKeys } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
+import { PageHeader } from 'lib/components/PageHeader'
+
+export interface BaseTabProps {
+    annotationsToCreate: any[] // TODO: Type properly
+}
 
 dayjs.extend(relativeTime)
 const { TabPane } = Tabs
@@ -49,16 +54,23 @@ export function Insights(): JSX.Element {
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const { lastRefresh, isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(
-        insightLogic
-    )
-    const { setActiveView } = useActions(insightLogic)
+    const {
+        lastRefresh,
+        isLoading,
+        activeView,
+        allFilters,
+        showTimeoutMessage,
+        showErrorMessage,
+        controlsCollapsed,
+    } = useValues(insightLogic)
+    const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
 
-    const horizontalUI = featureFlags['4050-query-ui-optB']
+    const newUI = featureFlags[FEATURE_FLAGS.QUERY_UX_V2]
+    const horizontalUI = newUI && activeView !== ViewType.FUNNELS
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -95,6 +107,7 @@ export function Insights(): JSX.Element {
 
     return (
         <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>
+            <PageHeader title="Insights" />
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
                     activeKey={activeView}
@@ -216,12 +229,33 @@ export function Insights(): JSX.Element {
                 ) : (
                     <>
                         <Col xs={24} xl={horizontalUI ? 24 : 7}>
-                            <Card className="insight-controls">
-                                <div>
-                                    {/*
-                                These are insight specific filters.
-                                They each have insight specific logics
-                                */}
+                            <Card
+                                className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
+                                onClick={() => controlsCollapsed && toggleControlsCollapsed()}
+                            >
+                                {horizontalUI && (
+                                    <>
+                                        <div
+                                            role="button"
+                                            title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
+                                            className="collapse-control"
+                                            onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
+                                        >
+                                            {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
+                                        </div>
+                                        {controlsCollapsed && (
+                                            <div>
+                                                <h3 className="l3">Query definition</h3>
+                                                <span className="text-small text-muted">
+                                                    Click here to view and change the query events, filters and other
+                                                    settings.
+                                                </span>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                                <div className="tabs-inner">
+                                    {/* These are insight specific filters. They each have insight specific logics */}
                                     {
                                         {
                                             [`${ViewType.TRENDS}`]: (
@@ -242,10 +276,18 @@ export function Insights(): JSX.Element {
                                                     annotationsToCreate={annotationsToCreate}
                                                 />
                                             ),
-                                            [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                            [`${ViewType.FUNNELS}`]: <FunnelTab />,
-                                            [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                            [`${ViewType.PATHS}`]: <PathTab />,
+                                            [`${ViewType.SESSIONS}`]: (
+                                                <SessionTab annotationsToCreate={annotationsToCreate} />
+                                            ),
+                                            [`${ViewType.FUNNELS}`]: (
+                                                <FunnelTab annotationsToCreate={annotationsToCreate} newUI={newUI} />
+                                            ),
+                                            [`${ViewType.RETENTION}`]: (
+                                                <RetentionTab annotationsToCreate={annotationsToCreate} />
+                                            ),
+                                            [`${ViewType.PATHS}`]: (
+                                                <PathTab annotationsToCreate={annotationsToCreate} />
+                                            ),
                                         }[activeView]
                                     }
                                 </div>
@@ -278,7 +320,7 @@ export function Insights(): JSX.Element {
                                 className="insights-graph-container"
                             >
                                 <div>
-                                    {lastRefresh && (
+                                    {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
                                         <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
                                             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
                                             <Button
@@ -326,7 +368,7 @@ export function Insights(): JSX.Element {
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && (
-                                    <Card>
+                                    <Card style={{ marginTop: 16 }}>
                                         <FunnelPeople />
                                     </Card>
                                 )}
@@ -334,7 +376,7 @@ export function Insights(): JSX.Element {
                                 allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
                                 allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) &&
                                 (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
-                                    <Card>
+                                    <Card style={{ marginTop: 16 }}>
                                         <BindLogic
                                             logic={trendsLogic}
                                             props={{ dashboardItemId: null, view: activeView }}

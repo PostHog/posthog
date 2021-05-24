@@ -10,7 +10,7 @@ export function PropertyFilters({
     onChange = null,
     pageKey,
     showConditionBadge = false,
-    disablePopover = false,
+    disablePopover = false, // use bare PropertyFilter without popover
     popoverPlacement = null,
     style = {},
 }) {

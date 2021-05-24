@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions
 
 from posthog.api.routing import DefaultRouterPlusPlus
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 
 from . import (
     action,
@@ -14,6 +14,7 @@ from . import (
     event_definition,
     feature_flag,
     insight,
+    instance_status,
     organization,
     organization_invite,
     organization_member,
@@ -82,8 +83,9 @@ projects_router.register(
 # General endpoints (shared across EE & FOSS)
 router.register(r"login", authentication.LoginViewSet)
 router.register(r"users", user.UserViewSet)
+router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 
-if is_ee_enabled():
+if is_clickhouse_enabled():
     try:
         from ee.clickhouse.views.actions import ClickhouseActionsViewSet, LegacyClickhouseActionsViewSet
         from ee.clickhouse.views.cohort import ClickhouseCohortViewSet

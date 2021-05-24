@@ -3,10 +3,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models.query import QuerySet
+from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
+from posthog.email import is_email_available
 from posthog.utils import mask_email_address
 
 from .utils import UUIDModel, sane_repr
@@ -42,6 +44,15 @@ class OrganizationManager(models.Manager):
 
 
 class Organization(UUIDModel):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["for_internal_metrics"],
+                condition=Q(for_internal_metrics=True),
+                name="single_for_internal_metrics",
+            ),
+        ]
+
     class PluginsAccessLevel(models.IntegerChoices):
         # None means the organization can't use plugins at all. They're hidden. Cloud default.
         NONE = 0, "none"
@@ -70,6 +81,7 @@ class Organization(UUIDModel):
         default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
         choices=PluginsAccessLevel.choices,
     )
+    for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
 
     objects: OrganizationManager = OrganizationManager()
 
@@ -110,6 +122,10 @@ class Organization(UUIDModel):
         if realm == "ee":
             return License.PLANS.get(plan, [])
         return self.billing.available_features  # type: ignore
+
+    def update_available_features(self) -> List[str]:
+        """Dummy method to satisfy https://github.com/PostHog/posthog-cloud/pull/121 tests."""
+        return self.available_features
 
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
@@ -251,6 +267,10 @@ class OrganizationInvite(UUIDModel):
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization)
+        if is_email_available(with_absolute_urls=True):
+            from posthog.tasks.email import send_member_join
+
+            send_member_join.apply_async(kwargs={"invitee_uuid": user.uuid, "organization_id": self.organization.id})
         OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:
