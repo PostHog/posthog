@@ -226,7 +226,7 @@ class ClickhouseTrendsBreakdown:
             BREAKDOWN_PERSON_PROP_JOIN_SQL,
             breakdown_filter_params,
             "value",
-            NONE_BREAKDOWN_PERSON_PROP_JOIN_SQL,
+            None if filter.offset else NONE_BREAKDOWN_PERSON_PROP_JOIN_SQL,
         )
 
     def _breakdown_prop_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
@@ -251,7 +251,13 @@ class ClickhouseTrendsBreakdown:
             "values": [*top_elements_array, "none"],
         }
 
-        return params, BREAKDOWN_PROP_JOIN_SQL, {}, "JSONExtractRaw(properties, %(key)s)", NONE_BREAKDOWN_PROP_JOIN_SQL
+        return (
+            params,
+            BREAKDOWN_PROP_JOIN_SQL,
+            {},
+            "JSONExtractRaw(properties, %(key)s)",
+            None if filter.offset else NONE_BREAKDOWN_PROP_JOIN_SQL,
+        )
 
     def _parse_single_aggregate_result(self, filter: Filter, entity: Entity) -> Callable:
         def _parse(result: List) -> List:
