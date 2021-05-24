@@ -144,6 +144,33 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(sum(response[2]["data"]), 1)
         self.assertEqual(sum(response[3]["data"]), 1)
 
+    def test_breakdown_filtering_persons(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person3"], properties={})
+
+        _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
+        _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
+        _create_event(event="sign up", distinct_id="person3", team=self.team, properties={"key": "val"})
+        response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "-14d",
+                    "breakdown": "email",
+                    "breakdown_type": "person",
+                    "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,},],
+                }
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["label"], "sign up - none")
+        self.assertEqual(response[1]["label"], "sign up - test@gmail.com")
+        self.assertEqual(response[2]["label"], "sign up - test@posthog.com")
+
+        self.assertEqual(response[0]["count"], 1)
+        self.assertEqual(response[1]["count"], 1)
+        self.assertEqual(response[2]["count"], 1)
+
     def test_breakdown_filtering_with_properties(self):
         with freeze_time("2020-01-03T13:01:01Z"):
             _create_event(
