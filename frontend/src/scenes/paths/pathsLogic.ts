@@ -183,11 +183,14 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
             (propertiesLoaded): boolean => !propertiesLoaded,
         ],
     },
-    actionToUrl: ({ values }) => ({
+    actionToUrl: ({ props, values }) => ({
         setProperties: () => {
             return ['/insights', values.propertiesForUrl]
         },
         setFilter: () => {
+            if (props.dashboardItemId) {
+                return
+            }
             return ['/insights', values.propertiesForUrl]
         },
     }),

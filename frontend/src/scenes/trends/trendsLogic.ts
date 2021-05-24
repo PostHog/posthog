@@ -480,9 +480,9 @@ export const trendsLogic = kea<
             }
             actions.setIndexedResults(indexedResults)
         },
-        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: () => {
             if (props.dashboardItemId) {
-                actions.setFilters(filters, true)
+                actions.loadResults(true)
             }
         },
         loadMoreBreakdownValues: async () => {

@@ -103,7 +103,7 @@ export const retentionTableLogic = kea<
     },
     actions: () => ({
         // TODO: This needs to be properly typed with `FilterType`. N.B. We're currently mixing snake_case and pascalCase attribute names.
-        setFilters: (filters: Record<string, any>) => ({ filters }),
+        setFilters: (filters: Record<string, any>, refresh = false) => ({ filters, refresh }),
         loadMorePeople: true,
         updatePeople: (people) => ({ people }),
         updateRetention: (retention: RetentionTablePayload[] | RetentionTrendPayload[]) => ({ retention }),
@@ -186,7 +186,10 @@ export const retentionTableLogic = kea<
         setProperties: () => {
             actions.loadResults()
         },
-        setFilters: () => {
+        setFilters: ({ refresh }) => {
+            if (refresh) {
+                actions.loadResults(true)
+            }
             actions.loadResults()
         },
         loadResults: () => {
@@ -208,7 +211,7 @@ export const retentionTableLogic = kea<
         },
         [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: FilterType) => {
             if (props.dashboardItemId) {
-                actions.setFilters(filters)
+                actions.setFilters(filters, true)
             }
         },
     }),
