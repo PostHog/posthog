@@ -199,7 +199,7 @@ function createEntry(entry) {
             : {}),
         plugins: [
             new MonacoWebpackPlugin({
-                languages: ['json', 'javascript'],
+                languages: ['json', 'javascript', 'typescript'],
             }),
             new AntdDayjsWebpackPlugin(),
             // common plugins for all entrypoints
