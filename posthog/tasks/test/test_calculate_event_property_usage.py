@@ -13,7 +13,7 @@ from posthog.test.base import BaseTest
 
 def calculate_event_property_usage_test_factory(create_event: Callable) -> Callable:
     class Test(BaseTest):
-        def test_updating_team_events_or_related_updates_event_definitions(self):
+        def test_updating_team_events_or_related_updates_event_definitions(self) -> None:
             random.seed(900)  # ensure random data is consistent
             org = Organization.objects.create(name="Demo Org")
             team = create_demo_team(org, None, None)
@@ -52,7 +52,7 @@ def calculate_event_property_usage_test_factory(create_event: Callable) -> Calla
                 self.assertEqual(instance.volume_30_day, item["volume_30_day"], item)
                 self.assertEqual(instance.query_usage_30_day, item["query_usage_30_day"], item)
 
-        def test_updating_event_properties_or_related_updates_property_definitions(self):
+        def test_updating_event_properties_or_related_updates_property_definitions(self) -> None:
             random.seed(900)
             org = Organization.objects.create(name="Demo Org")
             team = create_demo_team(org, None, None)
