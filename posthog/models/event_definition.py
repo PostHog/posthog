@@ -1,3 +1,4 @@
+from posthog.models.user import User
 from django.contrib.postgres.fields.array import ArrayField
 from django.db import models
 
@@ -8,6 +9,9 @@ from posthog.models.utils import UUIDModel
 class EventDefinition(UUIDModel):
     team: models.ForeignKey = models.ForeignKey(
         Team, on_delete=models.CASCADE, related_name="event_definitions", related_query_name="team",
+    )
+    owner: models.ForeignKey = models.ForeignKey(
+        User, null=True, on_delete=models.CASCADE, related_name="event_definitions", related_query_name="user",
     )
     name: models.CharField = models.CharField(max_length=400)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
