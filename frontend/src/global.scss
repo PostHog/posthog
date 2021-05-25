@@ -581,6 +581,12 @@ code.code {
         background-color: $yellow_100;
         color: $primary_alt;
     }
+
+    &.pos-center-end {
+        position: absolute;
+        top: 50%;
+        left: -30px;
+    }
 }
 
 // Simple tags
@@ -626,10 +632,4 @@ code.code {
 
 .fullscreen-scroll {
     overflow-y: auto;
-}
-
-.mc-main {
-    position: absolute;
-    top: 50%;
-    left: -30px;
 }

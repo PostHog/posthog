@@ -142,7 +142,7 @@ export class ActionStep extends Component {
         return (
             <Col span={24} md={12}>
                 <Card className="action-step" style={{ overflow: 'visible' }}>
-                    {index > 0 && <div className="stateful-badge mc-main or">OR</div>}
+                    {index > 0 && <div className="stateful-badge pos-center-end or">OR</div>}
                     <div>
                         {!isOnlyStep && (
                             <div className="remove-wrapper">
