@@ -11,9 +11,9 @@ import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
+    Hub,
     Person,
     PersonDistinctId,
-    PluginsServer,
     PostgresSessionRecordingEvent,
     SessionRecordingEvent,
     Team,
@@ -30,7 +30,7 @@ import { PersonManager } from './person-manager'
 import { TeamManager } from './team-manager'
 
 export class EventsProcessor {
-    pluginsServer: PluginsServer
+    pluginsServer: Hub
     db: DB
     clickhouse: ClickHouse | undefined
     kafkaProducer: KafkaProducerWrapper | undefined
@@ -39,7 +39,7 @@ export class EventsProcessor {
     teamManager: TeamManager
     personManager: PersonManager
 
-    constructor(pluginsServer: PluginsServer) {
+    constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
         this.db = pluginsServer.db
         this.clickhouse = pluginsServer.clickhouse

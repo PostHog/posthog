@@ -1,6 +1,6 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { PluginConfig, PluginsServer, RawEventMessage } from 'types'
+import { Hub, PluginConfig, RawEventMessage } from 'types'
 
 import { Client } from '../../../utils/celery/client'
 import { UUIDT } from '../../../utils/utils'
@@ -20,7 +20,7 @@ export interface DummyPostHog {
     capture(event: string, properties?: Record<string, any>): void
 }
 
-export function createPosthog(server: PluginsServer, pluginConfig: PluginConfig): DummyPostHog {
+export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPostHog {
     const distinctId = pluginConfig.plugin?.name || `plugin-id-${pluginConfig.plugin_id}`
 
     let sendEvent: (data: InternalData) => void

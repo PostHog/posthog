@@ -2,7 +2,7 @@ import { defaultConfig } from '../src/config/config'
 import { LOCKED_RESOURCE } from '../src/main/job-queues/job-queue-consumer'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../src/types'
-import { createServer } from '../src/utils/db/server'
+import { createHub } from '../src/utils/db/hub'
 import { killProcess } from '../src/utils/kill'
 import { delay } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
@@ -66,11 +66,11 @@ describe('job queues', () => {
         testConsole.reset()
 
         // reset lock in redis
-        const [tempServer, stopTempServer] = await createServer()
-        const redis = await tempServer.redisPool.acquire()
+        const [tempHub, closeTempHub] = await createHub()
+        const redis = await tempHub.redisPool.acquire()
         await redis.del(LOCKED_RESOURCE)
-        await tempServer.redisPool.release(redis)
-        await stopTempServer()
+        await tempHub.redisPool.release(redis)
+        await closeTempHub()
 
         // reset test code
         await resetTestDatabase(testCode)
@@ -83,7 +83,7 @@ describe('job queues', () => {
     describe('fs queue', () => {
         beforeEach(async () => {
             server = await startPluginsServer(createConfig({ JOB_QUEUES: 'fs' }), makePiscina)
-            posthog = createPosthog(server.server, pluginConfig39)
+            posthog = createPosthog(server.hub, pluginConfig39)
         })
 
         test('jobs get scheduled with runIn', async () => {
@@ -121,7 +121,7 @@ describe('job queues', () => {
             beforeEach(async () => {
                 const config = await initTest({ JOB_QUEUES: 'graphile' })
                 server = await startPluginsServer(config, makePiscina)
-                posthog = createPosthog(server.server, pluginConfig39)
+                posthog = createPosthog(server.hub, pluginConfig39)
             })
 
             test('graphile job queue', async () => {
@@ -135,7 +135,7 @@ describe('job queues', () => {
             test('default connection', async () => {
                 const config = await initTest({ JOB_QUEUES: 'graphile', JOB_QUEUE_GRAPHILE_URL: '' }, true)
                 server = await startPluginsServer(config, makePiscina)
-                posthog = createPosthog(server.server, pluginConfig39)
+                posthog = createPosthog(server.hub, pluginConfig39)
                 posthog.capture('my event', { type: 'runIn' })
                 await waitForLogEntries(2)
                 expect(testConsole.read()).toEqual([['processEvent'], ['reply', 'runIn']])
@@ -169,7 +169,7 @@ describe('job queues', () => {
                         false
                     )
                     server = await startPluginsServer(config, makePiscina)
-                    posthog = createPosthog(server.server, pluginConfig39)
+                    posthog = createPosthog(server.hub, pluginConfig39)
                     posthog.capture('my event', { type: 'runIn' })
                     await waitForLogEntries(1)
                     expect(testConsole.read()).toEqual([['processEvent']])

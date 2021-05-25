@@ -1,9 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { mocked } from 'ts-jest/utils'
 
-import { LogLevel, PluginsServer, PluginTaskType } from '../src/types'
+import { Hub, LogLevel, PluginTaskType } from '../src/types'
 import { clearError, processError } from '../src/utils/db/error'
-import { createServer } from '../src/utils/db/server'
+import { createHub } from '../src/utils/db/hub'
 import { loadPlugin } from '../src/worker/plugins/loadPlugin'
 import { IllegalOperationError, runProcessEvent, runProcessEventBatch } from '../src/worker/plugins/run'
 import { loadSchedule, setupPlugins } from '../src/worker/plugins/setup'
@@ -26,15 +26,17 @@ jest.mock('../src/worker/plugins/loadPlugin', () => {
     return { loadPlugin: jest.fn().mockImplementation(loadPlugin) }
 })
 
-let mockServer: PluginsServer
-let closeServer: () => Promise<void>
+let hub: Hub
+let closeHub: () => Promise<void>
+
 beforeEach(async () => {
-    ;[mockServer, closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log })
+    ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
     console.warn = jest.fn() as any
     await resetTestDatabase()
 })
+
 afterEach(async () => {
-    await closeServer()
+    await closeHub()
 })
 
 test('setupPlugins and runProcessEvent', async () => {
@@ -42,8 +44,8 @@ test('setupPlugins and runProcessEvent', async () => {
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
 
-    await setupPlugins(mockServer)
-    const { plugins, pluginConfigs } = mockServer
+    await setupPlugins(hub)
+    const { plugins, pluginConfigs } = hub
 
     expect(getPluginRows).toHaveBeenCalled()
     expect(getPluginAttachmentRows).toHaveBeenCalled()
@@ -80,7 +82,7 @@ test('setupPlugins and runProcessEvent', async () => {
         'teardownPlugin',
     ])
 
-    expect(clearError).toHaveBeenCalledWith(mockServer, pluginConfig)
+    expect(clearError).toHaveBeenCalledWith(hub, pluginConfig)
 
     const processEvent = vm!.methods['processEvent']
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
@@ -90,7 +92,7 @@ test('setupPlugins and runProcessEvent', async () => {
 
     event.properties!['processed'] = false
 
-    const returnedEvent = await runProcessEvent(mockServer, event)
+    const returnedEvent = await runProcessEvent(hub, event)
     expect(event.properties!['processed']).toEqual(true)
     expect(returnedEvent!.properties!['processed']).toEqual(true)
 })
@@ -100,10 +102,10 @@ test('plugin returns null', async () => {
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([])
 
-    await setupPlugins(mockServer)
+    await setupPlugins(hub)
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runProcessEvent(mockServer, event)
+    const returnedEvent = await runProcessEvent(hub, event)
 
     expect(returnedEvent).toEqual(null)
 })
@@ -118,10 +120,10 @@ test('plugin meta has what it should have', async () => {
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
-    await setupPlugins(mockServer)
+    await setupPlugins(hub)
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runProcessEvent(mockServer, event)
+    const returnedEvent = await runProcessEvent(hub, event)
 
     expect(Object.keys(returnedEvent!.properties!).sort()).toEqual([
         '$plugins_failed',
@@ -154,17 +156,17 @@ test('archive plugin with broken index.js does not do much', async () => {
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
-    await setupPlugins(mockServer)
-    const { pluginConfigs } = mockServer
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
 
     const pluginConfig = pluginConfigs.get(39)!
     expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runProcessEvent(mockServer, { ...event })
+    const returnedEvent = await runProcessEvent(hub, { ...event })
     expect(returnedEvent).toEqual(event)
 
-    expect(processError).toHaveBeenCalledWith(mockServer, pluginConfig, expect.any(SyntaxError))
+    expect(processError).toHaveBeenCalledWith(hub, pluginConfig, expect.any(SyntaxError))
     const error = mocked(processError).mock.calls[0][2]! as Error
     expect(error.message).toContain(': Unexpected token, expected ","')
 })
@@ -179,17 +181,17 @@ test('local plugin with broken index.js does not do much', async () => {
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
-    await setupPlugins(mockServer)
-    const { pluginConfigs } = mockServer
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
 
     const pluginConfig = pluginConfigs.get(39)!
     expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runProcessEvent(mockServer, { ...event })
+    const returnedEvent = await runProcessEvent(hub, { ...event })
     expect(returnedEvent).toEqual(event)
 
-    expect(processError).toHaveBeenCalledWith(mockServer, pluginConfig, expect.any(SyntaxError))
+    expect(processError).toHaveBeenCalledWith(hub, pluginConfig, expect.any(SyntaxError))
     const error = mocked(processError).mock.calls[0][2]! as Error
     expect(error.message).toContain(': Unexpected token, expected ","')
 
@@ -209,11 +211,11 @@ test('plugin changing event.team_id throws error (single)', async () => {
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([])
 
-    await setupPlugins(mockServer)
-    const { pluginConfigs } = mockServer
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runProcessEvent(mockServer, event)
+    const returnedEvent = await runProcessEvent(hub, event)
 
     const expectedReturnedEvent = {
         event: '$test',
@@ -226,7 +228,7 @@ test('plugin changing event.team_id throws error (single)', async () => {
     expect(returnedEvent).toEqual(expectedReturnedEvent)
 
     expect(processError).toHaveBeenCalledWith(
-        mockServer,
+        hub,
         pluginConfigs.get(39)!,
         new IllegalOperationError('Plugin tried to change event.team_id'),
         expectedReturnedEvent
@@ -248,11 +250,11 @@ test('plugin changing event.team_id throws error (batch)', async () => {
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([])
 
-    await setupPlugins(mockServer)
-    const { pluginConfigs } = mockServer
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
 
     const events = [{ event: '$test', properties: {}, team_id: 2 } as PluginEvent]
-    const returnedEvent = await runProcessEventBatch(mockServer, events)
+    const returnedEvent = await runProcessEventBatch(hub, events)
 
     const expectedReturnedEvent = {
         event: '$test',
@@ -265,7 +267,7 @@ test('plugin changing event.team_id throws error (batch)', async () => {
     expect(returnedEvent).toEqual([expectedReturnedEvent])
 
     expect(processError).toHaveBeenCalledWith(
-        mockServer,
+        hub,
         pluginConfigs.get(39)!,
         new IllegalOperationError('Plugin tried to change event.team_id'),
         expectedReturnedEvent
@@ -287,13 +289,13 @@ test('plugin throwing error does not prevent ingestion and failure is noted in e
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
-    await setupPlugins(mockServer)
-    const { pluginConfigs } = mockServer
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
 
     expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runProcessEvent(mockServer, { ...event })
+    const returnedEvent = await runProcessEvent(hub, { ...event })
 
     const expectedReturnEvent = {
         ...event,
@@ -320,13 +322,13 @@ test('events have property $plugins_succeeded set to the plugins that succeeded'
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
-    await setupPlugins(mockServer)
-    const { pluginConfigs } = mockServer
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
 
     expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-    const returnedEvent = await runProcessEvent(mockServer, { ...event })
+    const returnedEvent = await runProcessEvent(hub, { ...event })
 
     const expectedReturnEvent = {
         ...event,
@@ -352,11 +354,11 @@ test('archive plugin with broken plugin.json does not do much', async () => {
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
-    await setupPlugins(mockServer)
-    const { pluginConfigs } = mockServer
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
 
     expect(processError).toHaveBeenCalledWith(
-        mockServer,
+        hub,
         pluginConfigs.get(39)!,
         `Can not load plugin.json for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
     )
@@ -377,11 +379,11 @@ test('local plugin with broken plugin.json does not do much', async () => {
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
-    await setupPlugins(mockServer)
-    const { pluginConfigs } = mockServer
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
 
     expect(processError).toHaveBeenCalledWith(
-        mockServer,
+        hub,
         pluginConfigs.get(39)!,
         expect.stringContaining('Could not load posthog config at ')
     )
@@ -399,12 +401,12 @@ test('plugin with http urls must have an archive', async () => {
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
-    await setupPlugins(mockServer)
-    const { pluginConfigs } = mockServer
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
 
     expect(pluginConfigs.get(39)!.plugin!.url).toContain('https://')
     expect(processError).toHaveBeenCalledWith(
-        mockServer,
+        hub,
         pluginConfigs.get(39)!,
         `Tried using undownloaded remote plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId} - global), which is not supported!`
     )
@@ -420,12 +422,12 @@ test("plugin with broken archive doesn't load", async () => {
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
-    await setupPlugins(mockServer)
-    const { pluginConfigs } = mockServer
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
 
     expect(pluginConfigs.get(39)!.plugin!.url).toContain('https://')
     expect(processError).toHaveBeenCalledWith(
-        mockServer,
+        hub,
         pluginConfigs.get(39)!,
         Error('Could not read archive as .zip or .tgz')
     )
@@ -455,8 +457,8 @@ test('plugin config order', async () => {
         { ...pluginConfig39, plugin_id: 62, id: 41, order: 3 },
     ])
 
-    await setupPlugins(mockServer)
-    const { pluginConfigsPerTeam } = mockServer
+    await setupPlugins(hub)
+    const { pluginConfigsPerTeam } = hub
 
     expect(pluginConfigsPerTeam.get(pluginConfig39.team_id)?.map((c) => [c.id, c.order])).toEqual([
         [40, 1],
@@ -466,10 +468,10 @@ test('plugin config order', async () => {
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
 
-    const returnedEvent1 = await runProcessEvent(mockServer, { ...event, properties: { ...event.properties } })
+    const returnedEvent1 = await runProcessEvent(hub, { ...event, properties: { ...event.properties } })
     expect(returnedEvent1!.properties!.plugins).toEqual([61, 60, 62])
 
-    const returnedEvent2 = await runProcessEvent(mockServer, { ...event, properties: { ...event.properties } })
+    const returnedEvent2 = await runProcessEvent(hub, { ...event, properties: { ...event.properties } })
     expect(returnedEvent2!.properties!.plugins).toEqual([61, 60, 62])
 })
 
@@ -509,14 +511,14 @@ test('reloading plugins after config changes', async () => {
         makeConfig(63, 42, 2),
     ])
 
-    await setupPlugins(mockServer)
-    await loadSchedule(mockServer)
+    await setupPlugins(hub)
+    await loadSchedule(hub)
 
     expect(loadPlugin).toHaveBeenCalledTimes(4)
-    expect(Array.from(mockServer.plugins.keys())).toEqual(expect.arrayContaining([60, 61, 62, 63]))
-    expect(Array.from(mockServer.pluginConfigs.keys())).toEqual(expect.arrayContaining([39, 40, 41, 42]))
+    expect(Array.from(hub.plugins.keys())).toEqual(expect.arrayContaining([60, 61, 62, 63]))
+    expect(Array.from(hub.pluginConfigs.keys())).toEqual(expect.arrayContaining([39, 40, 41, 42]))
 
-    expect(mockServer.pluginConfigsPerTeam.get(pluginConfig39.team_id)?.map((c) => [c.id, c.order])).toEqual([
+    expect(hub.pluginConfigsPerTeam.get(pluginConfig39.team_id)?.map((c) => [c.id, c.order])).toEqual([
         [39, 0],
         [41, 1],
         [42, 2],
@@ -532,14 +534,14 @@ test('reloading plugins after config changes', async () => {
         makeConfig(64, 43, 1),
     ])
 
-    await setupPlugins(mockServer)
-    await loadSchedule(mockServer)
+    await setupPlugins(hub)
+    await loadSchedule(hub)
 
     expect(loadPlugin).toHaveBeenCalledTimes(4 + 3)
-    expect(Array.from(mockServer.plugins.keys())).toEqual(expect.arrayContaining([60, 61, 63, 64]))
-    expect(Array.from(mockServer.pluginConfigs.keys())).toEqual(expect.arrayContaining([39, 41, 42, 43]))
+    expect(Array.from(hub.plugins.keys())).toEqual(expect.arrayContaining([60, 61, 63, 64]))
+    expect(Array.from(hub.pluginConfigs.keys())).toEqual(expect.arrayContaining([39, 41, 42, 43]))
 
-    expect(mockServer.pluginConfigsPerTeam.get(pluginConfig39.team_id)?.map((c) => [c.id, c.order])).toEqual([
+    expect(hub.pluginConfigsPerTeam.get(pluginConfig39.team_id)?.map((c) => [c.id, c.order])).toEqual([
         [39, 0],
         [43, 1],
         [42, 2],

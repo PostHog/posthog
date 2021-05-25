@@ -59,7 +59,7 @@ describe('teardown', () => {
                 await meta.storage.set('storage', 'tore down')
             }
         `)
-        const { piscina, stop, server } = await startPluginsServer(
+        const { piscina, stop, hub } = await startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
@@ -73,7 +73,7 @@ describe('teardown', () => {
 
         await delay(100)
 
-        await server.db.postgresQuery(
+        await hub.db.postgresQuery(
             'update posthog_pluginconfig set updated_at = now() where id = $1',
             [pluginConfig39.id],
             'testTag'

@@ -1,13 +1,13 @@
 import { transform } from '@babel/standalone'
 
-import { PluginsServer } from '../../../types'
+import { Hub } from '../../../types'
 import { loopTimeout } from './loop-timeout'
 import { promiseTimeout } from './promise-timeout'
 import { replaceImports } from './replace-imports'
 
 const memoize: Record<string, string> = {}
 
-export function transformCode(rawCode: string, server: PluginsServer, imports?: Record<string, any>): string {
+export function transformCode(rawCode: string, server: Hub, imports?: Record<string, any>): string {
     if (process.env.NODE_ENV === 'test' && memoize[rawCode]) {
         // Memoizing in tests for speed, not in production though due to reliability concerns
         return memoize[rawCode]

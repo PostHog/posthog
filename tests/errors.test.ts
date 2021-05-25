@@ -1,5 +1,5 @@
 import { startPluginsServer } from '../src/main/pluginsServer'
-import { LogLevel, PluginsServer, PluginsServerConfig } from '../src/types'
+import { Hub, LogLevel, PluginsServerConfig } from '../src/types'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { pluginConfig39 } from './helpers/plugins'
@@ -17,7 +17,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 }
 
 describe('error do not take down ingestion', () => {
-    let server: PluginsServer
+    let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
 
@@ -35,14 +35,14 @@ describe('error do not take down ingestion', () => {
             }
         `)
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
-        server = startResponse.server
+        hub = startResponse.hub
         stopServer = startResponse.stop
-        posthog = createPosthog(server, pluginConfig39)
+        posthog = createPosthog(hub, pluginConfig39)
 
-        const redis = await server.redisPool.acquire()
-        await redis.del(server.PLUGINS_CELERY_QUEUE)
-        await redis.del(server.CELERY_DEFAULT_QUEUE)
-        await server.redisPool.release(redis)
+        const redis = await hub.redisPool.acquire()
+        await redis.del(hub.PLUGINS_CELERY_QUEUE)
+        await redis.del(hub.CELERY_DEFAULT_QUEUE)
+        await hub.redisPool.release(redis)
     })
 
     afterEach(async () => {
@@ -50,48 +50,48 @@ describe('error do not take down ingestion', () => {
     })
 
     test('thrown errors', async () => {
-        expect((await server.db.fetchEvents()).length).toBe(0)
+        expect((await hub.db.fetchEvents()).length).toBe(0)
         expect(await getErrorForPluginConfig(pluginConfig39.id)).toBe(null)
 
         for (let i = 0; i < 4; i++) {
             posthog.capture('broken event', { crash: 'throw' })
         }
 
-        await delayUntilEventIngested(() => server.db.fetchEvents(), 4)
+        await delayUntilEventIngested(() => hub.db.fetchEvents(), 4)
 
-        expect((await server.db.fetchEvents()).length).toBe(4)
+        expect((await hub.db.fetchEvents()).length).toBe(4)
 
         const error2 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error2.message).toBe('error thrown in plugin')
     })
 
     test('unhandled promise errors', async () => {
-        expect((await server.db.fetchEvents()).length).toBe(0)
+        expect((await hub.db.fetchEvents()).length).toBe(0)
         expect(await getErrorForPluginConfig(pluginConfig39.id)).toBe(null)
 
         for (let i = 0; i < 4; i++) {
             posthog.capture('broken event', { crash: 'throw in promise' })
         }
 
-        await delayUntilEventIngested(() => server.db.fetchEvents(), 4)
+        await delayUntilEventIngested(() => hub.db.fetchEvents(), 4)
 
-        expect((await server.db.fetchEvents()).length).toBe(4)
+        expect((await hub.db.fetchEvents()).length).toBe(4)
 
         const error2 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error2.message).toBe('error thrown in plugin')
     })
 
     test('unhandled promise rejections', async () => {
-        expect((await server.db.fetchEvents()).length).toBe(0)
+        expect((await hub.db.fetchEvents()).length).toBe(0)
         expect(await getErrorForPluginConfig(pluginConfig39.id)).toBe(null)
 
         for (let i = 0; i < 4; i++) {
             posthog.capture('broken event', { crash: 'reject in promise' })
         }
 
-        await delayUntilEventIngested(() => server.db.fetchEvents(), 4)
+        await delayUntilEventIngested(() => hub.db.fetchEvents(), 4)
 
-        expect((await server.db.fetchEvents()).length).toBe(4)
+        expect((await hub.db.fetchEvents()).length).toBe(4)
 
         const error2 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error2.message).toBe('error thrown in plugin')

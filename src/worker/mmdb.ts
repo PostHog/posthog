@@ -3,9 +3,9 @@ import net from 'net'
 import { deserialize } from 'v8'
 
 import { MMDB_INTERNAL_SERVER_TIMEOUT_SECONDS, MMDBRequestStatus } from '../config/mmdb-constants'
-import { PluginsServer } from '../types'
+import { Hub } from '../types'
 
-export async function fetchIpLocationInternally(ipAddress: string, server: PluginsServer): Promise<City | null> {
+export async function fetchIpLocationInternally(ipAddress: string, server: Hub): Promise<City | null> {
     if (server.DISABLE_MMDB) {
         throw new Error(MMDBRequestStatus.ServiceUnavailable)
     }

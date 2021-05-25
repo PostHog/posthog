@@ -4,8 +4,8 @@ import * as os from 'os'
 import { performance } from 'perf_hooks'
 
 import { IEvent } from '../../src/config/idl/protos'
-import { LogLevel, PluginsServer, SessionRecordingEvent, Team } from '../../src/types'
-import { createServer } from '../../src/utils/db/server'
+import { Hub, LogLevel, SessionRecordingEvent, Team } from '../../src/types'
+import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
@@ -17,8 +17,8 @@ jest.setTimeout(600000) // 600 sec timeout
 
 describe('ingestion benchmarks', () => {
     let team: Team
-    let server: PluginsServer
-    let stopServer: () => Promise<void>
+    let hub: Hub
+    let closeHub: () => Promise<void>
     let eventsProcessor: EventsProcessor
     let now = DateTime.utc()
 
@@ -46,13 +46,13 @@ describe('ingestion benchmarks', () => {
                 return event
             }
         `)
-        ;[server, stopServer] = await createServer({
+        ;[hub, closeHub] = await createHub({
             PLUGINS_CELERY_QUEUE: 'benchmark-plugins-celery-queue',
             CELERY_DEFAULT_QUEUE: 'benchmark-celery-default-queue',
             LOG_LEVEL: LogLevel.Log,
         })
-        eventsProcessor = new EventsProcessor(server)
-        team = await getFirstTeam(server)
+        eventsProcessor = new EventsProcessor(hub)
+        team = await getFirstTeam(hub)
         now = DateTime.utc()
 
         // warmup
@@ -62,7 +62,7 @@ describe('ingestion benchmarks', () => {
     })
 
     afterEach(async () => {
-        await stopServer?.()
+        await closeHub?.()
     })
 
     test('basic sequential ingestion', async () => {

@@ -12,7 +12,7 @@ import { ConnectionOptions } from 'tls'
 
 import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
-import { PluginsServer, PluginsServerConfig } from '../../types'
+import { Hub, PluginsServerConfig } from '../../types'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { killProcess } from '../kill'
 import { status } from '../status'
@@ -22,10 +22,10 @@ import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 
 const { version } = require('../../../package.json')
 
-export async function createServer(
+export async function createHub(
     config: Partial<PluginsServerConfig> = {},
     threadId: number | null = null
-): Promise<[PluginsServer, () => Promise<void>]> {
+): Promise<[Hub, () => Promise<void>]> {
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
         ...config,
@@ -152,7 +152,7 @@ export async function createServer(
 
     const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd)
 
-    const server: Omit<PluginsServer, 'eventsProcessor'> = {
+    const hub: Omit<Hub, 'eventsProcessor'> = {
         ...serverConfig,
         instanceId,
         db,
@@ -174,25 +174,25 @@ export async function createServer(
     }
 
     // :TODO: This is only used on worker threads, not main
-    server.eventsProcessor = new EventsProcessor(server as PluginsServer)
-    server.jobQueueManager = new JobQueueManager(server as PluginsServer)
+    hub.eventsProcessor = new EventsProcessor(hub as Hub)
+    hub.jobQueueManager = new JobQueueManager(hub as Hub)
 
     try {
-        await server.jobQueueManager.connectProducer()
+        await hub.jobQueueManager.connectProducer()
     } catch (error) {
         try {
-            logOrThrowJobQueueError(server as PluginsServer, error, `Can not start job queue producer!`)
+            logOrThrowJobQueueError(hub as Hub, error, `Can not start job queue producer!`)
         } catch {
             killProcess()
         }
     }
 
-    const closeServer = async () => {
+    const closeHub = async () => {
         if (eventLoopLagInterval) {
             clearInterval(eventLoopLagInterval)
         }
-        server.mmdbUpdateJob?.cancel()
-        await server.jobQueueManager?.disconnectProducer()
+        hub.mmdbUpdateJob?.cancel()
+        await hub.jobQueueManager?.disconnectProducer()
         if (kafkaProducer) {
             clearInterval(kafkaProducer.flushInterval)
             await kafkaProducer.flush()
@@ -200,8 +200,8 @@ export async function createServer(
         }
         await redisPool.drain()
         await redisPool.clear()
-        await server.postgres.end()
+        await hub.postgres.end()
     }
 
-    return [server as PluginsServer, closeServer]
+    return [hub as Hub, closeHub]
 }

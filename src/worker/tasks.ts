@@ -1,12 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { EnqueuedJob, PluginsServer, PluginTaskType } from '../types'
+import { EnqueuedJob, Hub, PluginTaskType } from '../types'
 import { ingestEvent } from './ingestion/ingest-event'
 import { runOnEvent, runOnSnapshot, runPluginTask, runProcessEvent, runProcessEventBatch } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 
-type TaskRunner = (server: PluginsServer, args: any) => Promise<any> | any
+type TaskRunner = (server: Hub, args: any) => Promise<any> | any
 
 export const workerTasks: Record<string, TaskRunner> = {
     hello: (server, args) => {

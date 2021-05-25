@@ -1,4 +1,4 @@
-import { PluginConfig, PluginsServer } from '../../../types'
+import { Hub, PluginConfig } from '../../../types'
 
 type JobRunner = {
     runAt: (date: Date) => Promise<void>
@@ -37,7 +37,7 @@ export function durationToMs(duration: number, unit: string): number {
     return durations[unit] * duration
 }
 
-export function createJobs(server: PluginsServer, pluginConfig: PluginConfig): Jobs {
+export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
     const runJob = async (type: string, payload: Record<string, any>, timestamp: number) => {
         await server.jobQueueManager.enqueue({
             type,

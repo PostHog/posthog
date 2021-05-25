@@ -1,6 +1,6 @@
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
 
-import { PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginsServer } from '../../../types'
+import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType } from '../../../types'
 import { status } from '../../../utils/status'
 import { determineNodeEnv, NodeEnv, pluginDigest } from '../../../utils/utils'
 
@@ -16,7 +16,7 @@ function consoleFormat(...args: unknown[]): string {
         .join(' ')
 }
 
-export function createConsole(server: PluginsServer, pluginConfig: PluginConfig): ConsoleExtension {
+export function createConsole(server: Hub, pluginConfig: PluginConfig): ConsoleExtension {
     async function consolePersist(type: PluginLogEntryType, ...args: unknown[]): Promise<void> {
         if (determineNodeEnv() == NodeEnv.Development) {
             status.info('👉', `${type} in ${pluginDigest(pluginConfig.plugin!, pluginConfig.team_id)}:`, ...args)

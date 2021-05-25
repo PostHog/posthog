@@ -1,9 +1,9 @@
 import {
+    Hub,
     PluginConfig,
     PluginConfigVMReponse,
     PluginLogEntrySource,
     PluginLogEntryType,
-    PluginsServer,
     PluginTask,
     PluginTaskType,
 } from '../../types'
@@ -13,18 +13,13 @@ import { status } from '../../utils/status'
 import { createPluginConfigVM } from './vm'
 
 export class LazyPluginVM {
-    initialize?: (server: PluginsServer, pluginConfig: PluginConfig, indexJs: string, logInfo: string) => Promise<void>
+    initialize?: (server: Hub, pluginConfig: PluginConfig, indexJs: string, logInfo: string) => Promise<void>
     failInitialization?: () => void
     resolveInternalVm: Promise<PluginConfigVMReponse | null>
 
     constructor() {
         this.resolveInternalVm = new Promise((resolve) => {
-            this.initialize = async (
-                server: PluginsServer,
-                pluginConfig: PluginConfig,
-                indexJs: string,
-                logInfo = ''
-            ) => {
+            this.initialize = async (server: Hub, pluginConfig: PluginConfig, indexJs: string, logInfo = '') => {
                 try {
                     const vm = await createPluginConfigVM(server, pluginConfig, indexJs)
                     await server.db.createPluginLogEntry(

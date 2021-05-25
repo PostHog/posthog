@@ -1,9 +1,7 @@
-import { PluginsServer } from '../../../types'
+import { Hub } from '../../../types'
 import { PluginGen } from './common'
 
-export const replaceImports: PluginGen = (server: PluginsServer, imports: Record<string, any> = {}) => ({
-    types: t,
-}) => ({
+export const replaceImports: PluginGen = (server: Hub, imports: Record<string, any> = {}) => ({ types: t }) => ({
     visitor: {
         ImportDeclaration: {
             exit(path: any) {

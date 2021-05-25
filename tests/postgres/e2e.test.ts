@@ -2,7 +2,7 @@ import * as IORedis from 'ioredis'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { LogLevel } from '../../src/types'
-import { PluginsServer } from '../../src/types'
+import { Hub } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
@@ -18,8 +18,8 @@ jest.setTimeout(60000) // 60 sec timeout
 
 // TODO: merge these tests with clickhouse/e2e.test.ts
 describe('e2e postgres ingestion', () => {
-    let server: PluginsServer
-    let stopServer: () => Promise<void>
+    let hub: Hub
+    let closeHub: () => Promise<void>
     let posthog: DummyPostHog
     let redis: IORedis.Redis
 
@@ -54,31 +54,31 @@ describe('e2e postgres ingestion', () => {
             },
             makePiscina
         )
-        server = startResponse.server
-        stopServer = startResponse.stop
-        redis = await server.redisPool.acquire()
+        hub = startResponse.hub
+        closeHub = startResponse.stop
+        redis = await hub.redisPool.acquire()
 
-        await redis.del(server.PLUGINS_CELERY_QUEUE)
-        await redis.del(server.CELERY_DEFAULT_QUEUE)
+        await redis.del(hub.PLUGINS_CELERY_QUEUE)
+        await redis.del(hub.CELERY_DEFAULT_QUEUE)
 
-        posthog = createPosthog(server, pluginConfig39)
+        posthog = createPosthog(hub, pluginConfig39)
     })
 
     afterEach(async () => {
-        await server.redisPool.release(redis)
-        await stopServer()
+        await hub.redisPool.release(redis)
+        await closeHub()
     })
 
     test('event captured, processed, ingested', async () => {
-        expect((await server.db.fetchEvents()).length).toBe(0)
+        expect((await hub.db.fetchEvents()).length).toBe(0)
 
         const uuid = new UUIDT().toString()
 
         posthog.capture('custom event', { name: 'haha', uuid })
 
-        await delayUntilEventIngested(() => server.db.fetchEvents())
+        await delayUntilEventIngested(() => hub.db.fetchEvents())
 
-        const events = await server.db.fetchEvents()
+        const events = await hub.db.fetchEvents()
         await delay(1000)
 
         expect(events.length).toBe(1)
@@ -92,15 +92,15 @@ describe('e2e postgres ingestion', () => {
     })
 
     test('snapshot captured, processed, ingested', async () => {
-        expect((await server.db.fetchSessionRecordingEvents()).length).toBe(0)
+        expect((await hub.db.fetchSessionRecordingEvents()).length).toBe(0)
 
         const uuid = new UUIDT().toString()
 
         posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: 'yes way' })
 
-        await delayUntilEventIngested(() => server.db.fetchSessionRecordingEvents())
+        await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
-        const events = await server.db.fetchSessionRecordingEvents()
+        const events = await hub.db.fetchSessionRecordingEvents()
         await delay(1000)
 
         expect(events.length).toBe(1)
@@ -113,8 +113,8 @@ describe('e2e postgres ingestion', () => {
     })
 
     test('console logging is persistent', async () => {
-        const logCount = (await server.db.fetchPluginLogEntries()).length
-        const getLogsSinceStart = async () => (await server.db.fetchPluginLogEntries()).slice(logCount)
+        const logCount = (await hub.db.fetchPluginLogEntries()).length
+        const getLogsSinceStart = async () => (await hub.db.fetchPluginLogEntries()).slice(logCount)
 
         posthog.capture('custom event', { name: 'hehe', uuid: new UUIDT().toString() })
 

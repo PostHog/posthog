@@ -1,11 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/minimal'
 
-import { PluginConfig, PluginError, PluginsServer } from '../../types'
+import { Hub, PluginConfig, PluginError } from '../../types'
 import { setError } from './sql'
 
 export async function processError(
-    server: PluginsServer,
+    server: Hub,
     pluginConfig: PluginConfig | null,
     error: Error | string,
     event?: PluginEvent | null
@@ -31,7 +31,7 @@ export async function processError(
     await setError(server, errorJson, pluginConfig)
 }
 
-export async function clearError(server: PluginsServer, pluginConfig: PluginConfig): Promise<void> {
+export async function clearError(server: Hub, pluginConfig: PluginConfig): Promise<void> {
     // running this may causes weird deadlocks with piscina and vms, so avoiding if possible
     if (pluginConfig.error) {
         await setError(server, null, pluginConfig)

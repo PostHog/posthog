@@ -1,7 +1,7 @@
-import { PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginsServer } from '../../types'
+import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType } from '../../types'
 import { processError } from '../../utils/db/error'
 
-export async function teardownPlugins(server: PluginsServer, pluginConfig?: PluginConfig): Promise<void> {
+export async function teardownPlugins(server: Hub, pluginConfig?: PluginConfig): Promise<void> {
     const pluginConfigs = pluginConfig ? [pluginConfig] : server.pluginConfigs.values()
 
     const teardownPromises: Promise<void>[] = []

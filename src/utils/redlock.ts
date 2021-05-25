@@ -1,12 +1,12 @@
 import * as Sentry from '@sentry/node'
 import Redlock from 'redlock'
 
-import { PluginsServer } from '../types'
+import { Hub } from '../types'
 import { status } from './status'
 import { createRedis } from './utils'
 
 type RedlockOptions = {
-    server: PluginsServer
+    server: Hub
     resource: string
     onLock: () => Promise<void> | void
     onUnlock: () => Promise<void> | void

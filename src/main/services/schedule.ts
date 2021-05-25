@@ -1,7 +1,7 @@
 import Piscina from '@posthog/piscina'
 import * as schedule from 'node-schedule'
 
-import { PluginConfigId, PluginsServer, ScheduleControl } from '../../types'
+import { Hub, PluginConfigId, ScheduleControl } from '../../types'
 import { processError } from '../../utils/db/error'
 import { startRedlock } from '../../utils/redlock'
 import { status } from '../../utils/status'
@@ -9,11 +9,7 @@ import { delay } from '../../utils/utils'
 
 export const LOCKED_RESOURCE = 'plugin-server:locks:schedule'
 
-export async function startSchedule(
-    server: PluginsServer,
-    piscina: Piscina,
-    onLock?: () => void
-): Promise<ScheduleControl> {
+export async function startSchedule(server: Hub, piscina: Piscina, onLock?: () => void): Promise<ScheduleControl> {
     status.info('⏰', 'Starting scheduling service...')
 
     let stopped = false
@@ -71,10 +67,7 @@ export async function startSchedule(
     return { stopSchedule, reloadSchedule }
 }
 
-export async function loadPluginSchedule(
-    piscina: Piscina,
-    maxIterations = 2000
-): Promise<PluginsServer['pluginSchedule']> {
+export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000): Promise<Hub['pluginSchedule']> {
     // :TRICKY: While loadSchedule is called during the worker init process, it sometimes does not finish executing
     //  due to threading shenanigans. Nudge the plugin server to finish loading!
     void piscina.broadcastTask({ task: 'reloadSchedule' })
@@ -91,7 +84,7 @@ export async function loadPluginSchedule(
     throw new Error('Could not load plugin schedule in time')
 }
 
-export function runScheduleDebounced(server: PluginsServer, piscina: Piscina, taskName: string): void {
+export function runScheduleDebounced(server: Hub, piscina: Piscina, taskName: string): void {
     const runTask = (pluginConfigId: PluginConfigId) => piscina.runTask({ task: taskName, args: { pluginConfigId } })
 
     for (const pluginConfigId of server.pluginSchedule?.[taskName] || []) {
@@ -114,7 +107,7 @@ export function runScheduleDebounced(server: PluginsServer, piscina: Piscina, ta
     }
 }
 
-export async function waitForTasksToFinish(server: PluginsServer): Promise<any[]> {
+export async function waitForTasksToFinish(server: Hub): Promise<any[]> {
     const activePromises = Object.values(server.pluginSchedulePromises)
         .map(Object.values)
         .flat()

@@ -1,17 +1,19 @@
-import { PluginsServer } from '../src/types'
-import { createServer } from '../src/utils/db/server'
+import { Hub } from '../src/types'
+import { createHub } from '../src/utils/db/hub'
 import { code } from '../src/utils/utils'
 import { transformCode } from '../src/worker/vm/transforms'
 import { resetTestDatabase } from './helpers/sql'
 
-let server: PluginsServer
-let closeServer: () => Promise<void>
+let hub: Hub
+let closeHub: () => Promise<void>
+
 beforeEach(async () => {
-    ;[server, closeServer] = await createServer()
+    ;[hub, closeHub] = await createHub()
     await resetTestDatabase(`const processEvent = event => event`)
 })
+
 afterEach(async () => {
-    await closeServer()
+    await closeHub()
 })
 
 describe('transformCode', () => {
@@ -22,7 +24,7 @@ describe('transformCode', () => {
             }
         `
 
-        const transformedCode = transformCode(rawCode, server)
+        const transformedCode = transformCode(rawCode, hub)
 
         expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -39,7 +41,7 @@ describe('transformCode', () => {
             x.then(() => null)
         `
 
-        const transformedCode = transformCode(rawCode, server)
+        const transformedCode = transformCode(rawCode, hub)
 
         expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -57,7 +59,7 @@ describe('transformCode', () => {
             }
         `
 
-        const transformedCode = transformCode(rawCode, server)
+        const transformedCode = transformCode(rawCode, hub)
 
         expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -76,7 +78,7 @@ describe('transformCode', () => {
             for (let i = 0; i < i + 1; i++) console.log(i)
         `
 
-        const transformedCode = transformCode(rawCode, server)
+        const transformedCode = transformCode(rawCode, hub)
 
         expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -99,7 +101,7 @@ describe('transformCode', () => {
             }
         `
 
-        const transformedCode = transformCode(rawCode, server)
+        const transformedCode = transformCode(rawCode, hub)
 
         expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -130,7 +132,7 @@ describe('transformCode', () => {
             console.log(k({ a, b: 'tomato' }))
         `
 
-        const transformedCode = transformCode(rawCode, server)
+        const transformedCode = transformCode(rawCode, hub)
 
         expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -158,7 +160,7 @@ describe('transformCode', () => {
             console.log(bla, bla2, bla4, fetch1, fetch2);
         `
 
-        const transformedCode = transformCode(rawCode, server, { 'node-fetch': { bla: () => true } })
+        const transformedCode = transformCode(rawCode, hub, { 'node-fetch': { bla: () => true } })
 
         expect(transformedCode).toStrictEqual(code`
             "use strict";
@@ -179,7 +181,7 @@ describe('transformCode', () => {
         `
 
         expect(() => {
-            transformCode(rawCode, server, { 'node-fetch': { default: () => true } })
+            transformCode(rawCode, hub, { 'node-fetch': { default: () => true } })
         }).toThrow("/index.ts: Cannot import 'kea'! This package is not provided by PostHog in plugins.")
     })
 
@@ -190,7 +192,7 @@ describe('transformCode', () => {
             console.log(fetch, BigQuery);
         `
 
-        const transformedCode = transformCode(rawCode, server, {
+        const transformedCode = transformCode(rawCode, hub, {
             'node-fetch': { bla: () => true },
             '@google-cloud/bigquery': { BigQuery: () => true },
         })
@@ -213,7 +215,7 @@ describe('transformCode', () => {
         `
 
         expect(() => {
-            transformCode(rawCode, server, { 'node-fetch': { default: () => true } })
+            transformCode(rawCode, hub, { 'node-fetch': { default: () => true } })
         }).toThrow("/index.ts: Cannot import 'kea'! This package is not provided by PostHog in plugins.")
     })
 })

@@ -80,7 +80,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     STALENESS_RESTART_SECONDS: number
 }
 
-export interface PluginsServer extends PluginsServerConfig {
+export interface Hub extends PluginsServerConfig {
     instanceId: UUID
     // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
     db: DB
