@@ -19,6 +19,11 @@ class PostHogConfig(AppConfig):
         if settings.DEBUG:
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
+                # Sync all organization.available_features once on launch, in case plans changed
+                from posthog.celery import sync_all_organization_available_features
+
+                sync_all_organization_available_features()
+
                 posthoganalytics.capture(
                     get_machine_id(),
                     "development server launched",

@@ -91,6 +91,10 @@
                 {
                     "name": "TRUST_ALL_PROXIES",
                     "value": "True"
+                },
+                {
+                    "name": "CAPTURE_INTERNAL_METRICS",
+                    "value": "True"
                 }
             ],
             "secrets": [
@@ -105,6 +109,10 @@
                 {
                     "name": "CLICKHOUSE_PASSWORD",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_PASSWORD::"
+                },
+                {
+                    "name": "CLICKHOUSE_MIGRATION_HOSTS",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_MIGRATION_HOSTS::"
                 },
                 {
                     "name": "DATABASE_URL",
@@ -212,7 +220,10 @@
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-migrate"]
+            "command": ["./bin/docker-migrate && python manage.py migrate_clickhouse"],
+            "linuxParameters": {
+                "initProcessEnabled": true
+            }
         }
     ],
     "requiresCompatibilities": ["FARGATE"],

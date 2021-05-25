@@ -54,7 +54,7 @@ class TestPreflight(APIBaseTest):
                     "initiated": True,
                     "cloud": False,
                     "ee_available": settings.EE_AVAILABLE,
-                    "ee_enabled": False,
+                    "is_clickhouse_enabled": False,
                     "db_backend": "postgres",
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
                     "opt_out_capture": False,
@@ -62,8 +62,8 @@ class TestPreflight(APIBaseTest):
                     "email_service_available": False,
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
-                    "is_async_event_action_mapping_enabled": True,
                     "licensed_users_available": None,
+                    "site_url": "http://localhost:8000",
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -95,7 +95,7 @@ class TestPreflight(APIBaseTest):
     @pytest.mark.ee
     def test_cloud_preflight_request(self):
 
-        with self.settings(MULTI_TENANCY=True, PRIMARY_DB=RDBMS.CLICKHOUSE):
+        with self.settings(MULTI_TENANCY=True, PRIMARY_DB=RDBMS.CLICKHOUSE, SITE_URL="https://app.posthog.com"):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response = response.json()
@@ -112,7 +112,7 @@ class TestPreflight(APIBaseTest):
                     "initiated": True,
                     "cloud": True,
                     "ee_available": True,
-                    "ee_enabled": True,
+                    "is_clickhouse_enabled": True,
                     "db_backend": "clickhouse",
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
                     "opt_out_capture": False,
@@ -120,8 +120,8 @@ class TestPreflight(APIBaseTest):
                     "email_service_available": False,
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
-                    "is_async_event_action_mapping_enabled": True,
                     "licensed_users_available": None,
+                    "site_url": "https://app.posthog.com",
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -152,7 +152,7 @@ class TestPreflight(APIBaseTest):
                     "initiated": True,
                     "cloud": True,
                     "ee_available": True,
-                    "ee_enabled": True,
+                    "is_clickhouse_enabled": True,
                     "db_backend": "clickhouse",
                     "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False},
                     "opt_out_capture": False,
@@ -160,8 +160,8 @@ class TestPreflight(APIBaseTest):
                     "email_service_available": True,
                     "is_debug": False,
                     "is_event_property_usage_enabled": False,
-                    "is_async_event_action_mapping_enabled": True,
                     "licensed_users_available": None,
+                    "site_url": "http://localhost:8000",
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -172,7 +172,7 @@ class TestPreflight(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="base_clickhouse", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            key="key_123", plan="free_clickhouse", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
         )
 
         OrganizationInvite.objects.create(organization=self.organization, target_email="invite@posthog.com")

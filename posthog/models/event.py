@@ -4,7 +4,6 @@ import re
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple, Union
 
-import celery
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db import connection, models, transaction
@@ -12,7 +11,7 @@ from django.db.models import Exists, F, OuterRef, Prefetch, Q, QuerySet, Subquer
 from django.forms.models import model_to_dict
 from django.utils import timezone
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 
 from .action import Action
 from .action_step import ActionStep
@@ -258,27 +257,7 @@ class EventManager(models.QuerySet):
                     kwargs["elements_hash"] = ElementGroup.objects.create(
                         team_id=kwargs["team_id"], elements=kwargs.pop("elements")
                     ).hash
-            event = super().create(*args, **kwargs)
-
-            # DEPRECATED: ASYNC_EVENT_ACTION_MAPPING is the main approach now, as it works with the plugin server
-            if not settings.ASYNC_EVENT_ACTION_MAPPING:
-                should_post_webhook = False
-                relations = []
-                for action in event.actions:
-                    relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
-                    if is_ee_enabled():
-                        continue  # avoiding duplication here - in EE hooks are handled by webhooks_ee.py
-                    action.on_perform(event)
-                    if action.post_to_slack:
-                        should_post_webhook = True
-                Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-                team = kwargs.get("team", event.team)
-                if (
-                    should_post_webhook and team and team.slack_incoming_webhook and not is_ee_enabled()
-                ):  # ee will handle separately
-                    celery.current_app.send_task("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, site_url))
-
-            return event
+            return super().create(*args, **kwargs)
 
 
 class Event(models.Model):
@@ -286,7 +265,8 @@ class Event(models.Model):
         indexes = [
             models.Index(fields=["elements_hash"]),
             models.Index(fields=["timestamp", "team_id", "event"]),
-            models.Index(fields=["created_at"]),
+            # Separately managed:
+            # models.Index(fields=["created_at"]),
         ]
 
     def _can_use_cached_query(self, last_updated_action_ts):

@@ -1,13 +1,17 @@
 import json
+import uuid
+from typing import Union
 from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
+from rest_framework import status
 
 from posthog.constants import RDBMS
 from posthog.models import Action, ActionStep, Element, Event, Organization, Person, Team
+from posthog.queries.sessions.sessions_list import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.test.base import APIBaseTest
 from posthog.utils import relative_date_parse
 
@@ -279,9 +283,9 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertIn("http://testserver/api/event/?distinct_id=1&before=", response["next"])
 
             page2 = self.client.get(response["next"]).json()
-            from posthog.ee import is_ee_enabled
+            from posthog.ee import is_clickhouse_enabled
 
-            if is_ee_enabled():
+            if is_clickhouse_enabled():
                 from ee.clickhouse.client import sync_execute
 
                 self.assertEqual(sync_execute("select count(*) from events")[0][0], 150)
@@ -326,12 +330,13 @@ def factory_test_event_api(event_factory, person_factory, _):
             response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-15",).json()
             self.assertEqual(len(response["result"]), 4)
 
-            for i in range(46):
+            # 4 sessions were already created above
+            for i in range(SESSIONS_LIST_DEFAULT_LIMIT - 4):
                 with freeze_time(relative_date_parse("2012-01-15T04:01:34.000Z") + relativedelta(hours=i)):
                     event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 3))
 
             response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17",).json()
-            self.assertEqual(len(response["result"]), 50)
+            self.assertEqual(len(response["result"]), SESSIONS_LIST_DEFAULT_LIMIT)
             self.assertIsNone(response.get("pagination"))
 
             for i in range(2):
@@ -339,7 +344,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                     event_factory(team=self.team, event="action {}".format(i), distinct_id=str(i + 49))
 
             response = self.client.get("/api/event/sessions/?date_from=2012-01-14&date_to=2012-01-17",).json()
-            self.assertEqual(len(response["result"]), 50)
+            self.assertEqual(len(response["result"]), SESSIONS_LIST_DEFAULT_LIMIT)
             self.assertIsNotNone(response["pagination"])
 
         def test_event_sessions_by_id(self):
@@ -386,6 +391,36 @@ def factory_test_event_api(event_factory, person_factory, _):
                 1001,
                 "CSV export should return up to CSV_EXPORT_LIMIT events (+ headers row)",
             )
+
+        def test_get_event_by_id(self):
+            event_id: Union[str, int] = 12345
+
+            if settings.PRIMARY_DB == RDBMS.CLICKHOUSE:
+                from ee.clickhouse.models.event import create_event
+
+                event_id = "01793986-dc4b-0000-93e8-1fb646df3a93"
+                Event(
+                    pk=create_event(
+                        team=self.team,
+                        event="event",
+                        distinct_id="1",
+                        timestamp=timezone.now(),
+                        event_uuid=uuid.UUID(event_id),
+                    )
+                )
+            else:
+                event_factory(team=self.team, event="event", distinct_id="1", timestamp=timezone.now(), id=event_id)
+
+            response = self.client.get(f"/api/event/{event_id}",)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["event"], "event")
+
+            response = self.client.get(f"/api/event/123456",)
+            # EE will inform the user the ID passed is not a valid UUID
+            self.assertIn(response.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST])
+
+            response = self.client.get(f"/api/event/im_a_string_not_an_integer",)
+            self.assertIn(response.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST])
 
     return TestEvents
 

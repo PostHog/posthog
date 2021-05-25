@@ -142,36 +142,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return self._filter_request(self.request, super().get_queryset())
 
     @action(methods=["GET"], detail=False)
-    def by_distinct_id(self, request, **kwargs):
-        """
-        DEPRECATED in favor of /api/person/?distinct_id={id}
-        """
-        warnings.warn(
-            "/api/person/by_distinct_id/ endpoint is deprecated; use /api/person/ instead.", DeprecationWarning,
-        )
-        result = self.get_by_distinct_id(request)
-        return response.Response(result)
-
-    def get_by_distinct_id(self, request):
-        person = self.get_queryset().get(persondistinctid__distinct_id=str(request.GET["distinct_id"]))
-        return PersonSerializer(person).data
-
-    @action(methods=["GET"], detail=False)
-    def by_email(self, request, **kwargs):
-        """
-        DEPRECATED in favor of /api/person/?email={email}
-        """
-        warnings.warn(
-            "/api/person/by_email/ endpoint is deprecated; use /api/person/ instead.", DeprecationWarning,
-        )
-        result = self.get_by_email(request)
-        return response.Response(result)
-
-    def get_by_email(self, request):
-        person = self.get_queryset().get(properties__email=str(request.GET["email"]))
-        return PersonSerializer(person).data
-
-    @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs) -> response.Response:
         result = self.get_properties(request)
 

@@ -4,9 +4,11 @@ describe('Feature Flags', () => {
     })
 
     it('Create feature flag', () => {
+        // ensure unique names to avoid clashes
+        const name = 'beta-feature' + Math.floor(Math.random() * 10000000)
         cy.get('h1').should('contain', 'Feature Flags')
         cy.get('[data-attr=new-feature-flag]').click()
-        cy.get('[data-attr=feature-flag-key]').type('beta-feature').should('have.value', 'beta-feature')
+        cy.get('[data-attr=feature-flag-key]').type(name).should('have.value', name)
         cy.get('[data-attr=feature-flag-description]')
             .type('This is a new feature.')
             .should('have.value', 'This is a new feature.')
@@ -24,30 +26,33 @@ describe('Feature Flags', () => {
 
         cy.get('[data-attr=feature-flag-submit]').click()
         cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
-        cy.get('[data-attr=feature-flag-table]').should('contain', 'beta-feature')
+        cy.get('[data-attr=feature-flag-table]').should('contain', name)
         cy.get('[data-attr=feature-flag-table]').should('not.contain', '%') // By default it's released to everyone, if a % is not specified
         cy.get('[data-attr=feature-flag-table]').should('contain', 'is_demo')
 
-        cy.get('[data-attr=feature-flag-table] tr:first-child td:first-child').click()
-        cy.get('[data-attr=feature-flag-key]').type('-updated').should('have.value', 'beta-feature-updated')
+        cy.get('[data-attr=feature-flag-table] tr:first-child td:nth-child(2)').click()
+        cy.get('[data-attr=feature-flag-key]')
+            .type('-updated')
+            .should('have.value', name + '-updated')
         cy.get('[data-attr=feature-flag-submit]').click()
         cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
-        cy.get('[data-attr=feature-flag-table]').should('contain', 'beta-feature-updated')
+        cy.get('[data-attr=feature-flag-table]').should('contain', name + '-updated')
 
-        cy.get('[data-attr=usage]').click()
+        cy.get('[data-attr=feature-flag-table] tr:first-child [data-attr=usage]').click()
         cy.location().should((loc) => {
             expect(loc.pathname.toString()).to.contain('/insight')
         })
     })
 
     it('Delete feature flag', () => {
+        const name = 'to-be-deleted' + Math.floor(Math.random() * 10000000)
         cy.get('h1').should('contain', 'Feature Flags')
         cy.get('[data-attr=new-feature-flag]').click()
-        cy.get('[data-attr=feature-flag-key]').type('to-be-deleted').should('have.value', 'to-be-deleted')
+        cy.get('[data-attr=feature-flag-key]').type(name).should('have.value', name)
         cy.get('[data-attr=feature-flag-submit]').click()
         cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
-        cy.get('[data-attr=feature-flag-table]').should('contain', 'to-be-deleted')
-        cy.get('[data-row-key="to-be-deleted"]').click()
+        cy.get('[data-attr=feature-flag-table]').should('contain', name)
+        cy.get('[data-row-key="' + name + '"]').click()
         cy.get('[data-attr=delete-flag]').click()
         cy.contains('Click to undo').should('exist')
     })

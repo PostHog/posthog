@@ -27,8 +27,6 @@ coreapi==2.3.3
     # via djangorestframework-stubs
 coreschema==0.0.4
     # via coreapi
-django-debug-toolbar==2.2
-    # via -r requirements-dev.in
 django-stubs-ext==0.2.0
     # via django-stubs
 django-stubs==1.8.0
@@ -38,7 +36,6 @@ django-stubs==1.8.0
 django==3.1.8
     # via
     #   -r requirements-dev.in
-    #   django-debug-toolbar
     #   django-stubs
     #   django-stubs-ext
     #   djangorestframework
@@ -149,9 +146,7 @@ six==1.14.0
 sortedcontainers==2.3.0
     # via fakeredis
 sqlparse==0.3.1
-    # via
-    #   django
-    #   django-debug-toolbar
+    # via django
 toml==0.10.1
     # via
     #   black

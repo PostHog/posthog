@@ -41,14 +41,16 @@ function CustomTag({ label, onClose, value }: CustomTagProps): JSX.Element {
  * Ant Design Select extended with a gradient overlay to indicate a scrollable list.
  */
 
-type SelectGradientOverflowProps = SelectProps<any> & {
+export type SelectGradientOverflowProps = SelectProps<any> & {
     delayBeforeAutoOpen?: number
+    dropdownMatchSelectWidth?: boolean | number
 }
 
 export function SelectGradientOverflow({
     autoFocus = false,
     defaultOpen = false,
     delayBeforeAutoOpen,
+    dropdownMatchSelectWidth = true,
     ...props
 }: SelectGradientOverflowProps): JSX.Element {
     const selectRef: React.RefObject<RefSelectProps> | null = useRef(null)
@@ -94,13 +96,13 @@ export function SelectGradientOverflow({
     }, [autoFocus, defaultOpen])
 
     const outsideClickListener = (event: any): void => {
-        if (!containerRef.current?.contains(event.target) && isOpen) {
+        if (!containerRef.current?.contains(event.target) && !dropdownRef.current?.contains(event.target) && isOpen) {
             selectRef.current?.blur()
         }
     }
     document.addEventListener('click', outsideClickListener)
     return (
-        <div ref={containerRef}>
+        <div ref={containerRef} style={{ width: '100%' }}>
             <Select
                 {...props}
                 ref={selectRef}
@@ -118,6 +120,7 @@ export function SelectGradientOverflow({
                         updateScrollGradient={updateScrollGradient}
                     />
                 )}
+                dropdownMatchSelectWidth={dropdownMatchSelectWidth}
             >
                 {props.children}
             </Select>

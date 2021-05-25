@@ -1,26 +1,22 @@
 import { responsiveMap } from 'antd/lib/_util/responsiveObserve'
-
-const gridBasis = 24
+import { ANTD_EXPAND_BUTTON_WIDTH } from './index'
 
 export function getMinColumnWidth(breakpoint: number): number {
-    return breakpoint < 768 ? 40 : 50
+    return breakpoint < 576 ? 150 : 50
 }
 
-export function getMaxColumnWidth(breakpoint: number): number {
-    return breakpoint < 768 ? 500 : 750
+export function getFullwidthColumnSize(wrapperWidth: number = 1200, gridBasis = 24): number {
+    const innerWidth = wrapperWidth - ANTD_EXPAND_BUTTON_WIDTH
+    return Math.floor(innerWidth / gridBasis)
 }
 
-export function getFullwidthColumnSize(wrapperWidth: number = 1200): number {
-    return Math.floor(wrapperWidth / gridBasis)
-}
-
-function getPixelValue(cssStatement: string): number {
-    return parseInt(cssStatement.replace(/\D/g, ''), 10)
+export function parsePixelValue(cssStatement: string): number {
+    return parseFloat(cssStatement.replace(/[^\d.]/g, ''))
 }
 
 export function getActiveBreakpoint(): number {
     const { innerWidth: width } = window
-    const breakpoints = Object.values(responsiveMap).map((cssStatement) => getPixelValue(cssStatement))
+    const breakpoints = Object.values(responsiveMap).map((cssStatement) => parsePixelValue(cssStatement))
     let breakpoint = breakpoints[0]
     breakpoints.forEach((value) => {
         if (width > breakpoint) {

@@ -19,6 +19,8 @@ export enum ViewType {
     PATHS = 'PATHS',
 }
 
+export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
+
 /*
 InsightLogic maintains state for changing between insight features
 This includes handling the urls and view state
@@ -60,6 +62,7 @@ export const insightLogic = kea<insightLogicType>({
         setTimeout: (timeout) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
+        toggleControlsCollapsed: true,
     }),
 
     reducers: {
@@ -133,6 +136,12 @@ export const insightLogic = kea<insightLogicType>({
                 setNotFirstLoad: () => false,
             },
         ],
+        controlsCollapsed: [
+            false,
+            {
+                toggleControlsCollapsed: (state) => !state,
+            },
+        ],
     },
     listeners: ({ actions, values }) => ({
         setAllFilters: (filters) => {
@@ -173,6 +182,9 @@ export const insightLogic = kea<insightLogicType>({
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
             clearTimeout(values.timeout || undefined)
+        },
+        toggleControlsCollapsed: async () => {
+            eventUsageLogic.actions.reportInsightsControlsCollapseToggle(values.controlsCollapsed)
         },
     }),
     actionToUrl: ({ actions, values }) => ({

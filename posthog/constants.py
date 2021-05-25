@@ -99,3 +99,6 @@ class RDBMS(str, Enum):
 
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
+
+ENVIRONMENT_TEST = "test"
+ENVIRONMENT_PRODUCTION = "production"

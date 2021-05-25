@@ -2,7 +2,7 @@ import base64
 import gzip
 import json
 from datetime import timedelta
-from typing import Any
+from typing import Any, Dict, List, Union
 from unittest.mock import patch
 from urllib.parse import quote
 
@@ -12,6 +12,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.constants import ENVIRONMENT_TEST
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import BaseTest
@@ -29,7 +30,7 @@ class TestCapture(BaseTest):
         super().setUp()
         self.client = Client()
 
-    def _dict_to_json(self, data: dict) -> str:
+    def _to_json(self, data: Union[Dict, List]) -> str:
         return json.dumps(data)
 
     def _dict_to_b64(self, data: dict) -> str:
@@ -69,9 +70,7 @@ class TestCapture(BaseTest):
         now = timezone.now()
         with freeze_time(now):
             with self.assertNumQueries(2):
-                response = self.client.get(
-                    "/e/?data=%s" % quote(self._dict_to_json(data)), HTTP_ORIGIN="https://localhost",
-                )
+                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
@@ -83,6 +82,40 @@ class TestCapture(BaseTest):
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
                 "data": data,
+                "team_id": self.team.pk,
+            },
+        )
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_test_api_key(self, patch_process_event_with_plugins):
+        api_token = "test_" + self.team.api_token
+        data: Dict[str, Any] = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": 2,
+                "token": api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                ],
+            },
+        }
+        now = timezone.now()
+        with freeze_time(now):
+            with self.assertNumQueries(2):
+                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
+        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
+        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments.pop("now")  # can't compare fakedate
+        arguments.pop("sent_at")  # can't compare fakedate
+        self.assertDictEqual(
+            arguments,
+            {
+                "distinct_id": "2",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "data": {**data, "properties": {**data["properties"], "$environment": ENVIRONMENT_TEST}},
                 "team_id": self.team.pk,
             },
         )
@@ -107,9 +140,7 @@ class TestCapture(BaseTest):
         now = timezone.now()
         with freeze_time(now):
             with self.assertNumQueries(5):
-                response = self.client.get(
-                    "/e/?data=%s" % quote(self._dict_to_json(data)), HTTP_ORIGIN="https://localhost",
-                )
+                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = self._to_arguments(patch_process_event_with_plugins)
         arguments.pop("now")  # can't compare fakedate
@@ -122,6 +153,56 @@ class TestCapture(BaseTest):
                 "site_url": "http://testserver",
                 "data": data,
                 "team_id": self.team.pk,
+            },
+        )
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.api.capture.celery_app.send_task")
+    def test_personal_api_key_from_batch_request(self, patch_process_event_with_plugins):
+        # Originally issue POSTHOG-2P8
+        key = PersonalAPIKey(label="X", user=self.user)
+        key.save()
+        data = [
+            {
+                "event": "$pageleave",
+                "api_key": key.value,
+                "project_id": self.team.id,
+                "properties": {
+                    "$os": "Linux",
+                    "$browser": "Chrome",
+                    "$device_type": "Desktop",
+                    "distinct_id": "94b03e599131fd5026b",
+                    "token": "fake token",  # as this is invalid, will do API key authentication
+                },
+                "timestamp": "2021-04-20T19:11:33.841Z",
+            }
+        ]
+        response = self.client.get("/e/?data=%s" % quote(self._to_json(data)))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments.pop("now")  # can't compare fakedate
+        arguments.pop("sent_at")  # can't compare fakedate
+        self.assertDictEqual(
+            arguments,
+            {
+                "distinct_id": "94b03e599131fd5026b",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "data": {
+                    "event": "$pageleave",
+                    "api_key": key.value,
+                    "project_id": self.team.id,
+                    "properties": {
+                        "$os": "Linux",
+                        "$browser": "Chrome",
+                        "$device_type": "Desktop",
+                        "distinct_id": "94b03e599131fd5026b",
+                        "token": "fake token",
+                    },
+                    "timestamp": "2021-04-20T19:11:33.841Z",
+                },
+                "team_id": self.team.id,
             },
         )
 
@@ -290,7 +371,7 @@ class TestCapture(BaseTest):
     def test_batch_gzip_header(self, patch_process_event_with_plugins):
         data = {
             "api_key": self.team.api_token,
-            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
+            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2",}],
         }
 
         response = self.client.generic(
@@ -444,7 +525,7 @@ class TestCapture(BaseTest):
         response = self.client.get(
             "/engage/?data=%s"
             % quote(
-                self._dict_to_json(
+                self._to_json(
                     {
                         "$set": {"$os": "Mac OS X",},
                         "$token": "token123",
@@ -520,7 +601,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._dict_to_json(data))),
+            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
@@ -550,7 +631,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._dict_to_json(data))),
+            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
@@ -596,17 +677,37 @@ class TestCapture(BaseTest):
             ),
         )
 
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_nan(self, patch_process_event_with_plugins):
-        self.client.post(
+    def test_nan(self):
+        response = self.client.post(
             "/track/",
             data={
                 "data": json.dumps([{"event": "beep", "properties": {"distinct_id": float("nan")}}]),
                 "api_key": self.team.api_token,
             },
         )
-        arguments = self._to_arguments(patch_process_event_with_plugins)
-        self.assertEqual(arguments["data"]["properties"]["distinct_id"], None)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Distinct ID field `distinct_id` must have a non-empty value.", code="required", attr="distinct_id"
+            ),
+        )
+
+    def test_distinct_id_set_but_null(self):
+        response = self.client.post(
+            "/e/",
+            data={"api_key": self.team.api_token, "type": "capture", "event": "user signed up", "distinct_id": None},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Distinct ID field `distinct_id` must have a non-empty value.", code="required", attr="distinct_id"
+            ),
+        )
 
     @patch("posthog.api.capture.celery_app.send_task")
     def test_add_feature_flags_if_missing(self, patch_process_event_with_plugins) -> None:
@@ -648,4 +749,29 @@ class TestCapture(BaseTest):
             self.validation_error_response(
                 'Invalid payload: $snapshot events must contain property "$snapshot_data"!', code="invalid_payload",
             ),
+        )
+
+    def test_batch_request_with_invalid_auth(self):
+        data = [
+            {
+                "event": "$pageleave",
+                "project_id": self.team.id,
+                "properties": {
+                    "$os": "Linux",
+                    "$browser": "Chrome",
+                    "token": "fake token",  # as this is invalid, will do API key authentication
+                },
+                "timestamp": "2021-04-20T19:11:33.841Z",
+            }
+        ]
+        response = self.client.get("/e/?data=%s" % quote(self._to_json(data)))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "authentication_error",
+                "code": "invalid_personal_api_key",
+                "detail": "Invalid Personal API key.",
+                "attr": None,
+            },
         )

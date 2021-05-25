@@ -28,6 +28,7 @@ describe('Person Show All Distinct Checks', () => {
 
     it('Should have no Show All Distinct Id Button', () => {
         cy.get('[data-attr=persons-search]').type('fernand{enter}')
+        cy.get('.ant-radio-button-wrapper').contains('All users').click()
         cy.contains('deborah.fernandez@gmail.com').click()
         cy.get('[data-cy="show-more-distinct-id"]').should('not.exist')
     })

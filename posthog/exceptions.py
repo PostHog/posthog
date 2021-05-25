@@ -20,6 +20,7 @@ def exception_reporting(exception: Exception, *args, **kwargs) -> None:
 
 
 def generate_exception_response(
+    endpoint: str,
     detail: str,
     code: str = "invalid",
     type: str = "validation_error",
@@ -29,4 +30,8 @@ def generate_exception_response(
     """
     Generates a friendly JSON error response in line with drf-exceptions-hog for endpoints not under DRF.
     """
+
+    from posthog.internal_metrics import incr
+
+    incr(f"posthog_cloud_raw_endpoint_exception", tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr})
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code,)

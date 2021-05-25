@@ -70,12 +70,11 @@ function createEntry(entry) {
             path: path.resolve(__dirname, 'frontend', 'dist'),
             filename: '[name].js',
             chunkFilename: '[name].[contenthash].js',
-            publicPath:
-                process.env.NODE_ENV === 'production'
-                    ? '/static/'
-                    : process.env.JS_URL
-                    ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
-                    : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
+            publicPath: process.env.JS_URL
+                ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
+                : process.env.NODE_ENV === 'production'
+                ? '/static/'
+                : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
         },
         resolve: {
             extensions: ['.js', '.ts', '.tsx'],

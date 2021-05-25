@@ -75,7 +75,7 @@ services:
             - '8000:8000'
             - '8234:8234'
     plugins:
-        image: posthog/plugin-server:0.15.4
+        image: posthog/plugin-server:latest
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'

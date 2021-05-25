@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from collections import Counter
@@ -8,6 +9,8 @@ from django.db import connection
 from psycopg2 import sql
 
 from posthog.models import Event, Person, Team, User
+from posthog.models.dashboard import Dashboard
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
 from posthog.utils import get_machine_id, get_previous_week
@@ -20,9 +23,12 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
     period_start, period_end = get_previous_week()
     report: Dict[str, Any] = {
         "posthog_version": VERSION,
-        "deployment": os.environ.get("DEPLOYMENT", "unknown"),
+        "deployment": os.getenv("DEPLOYMENT", "unknown"),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
+        "site_url": os.getenv("SITE_URL", "unknown"),
     }
+
+    report["helm"] = get_helm_info_env()
 
     report["users_who_logged_in"] = [
         {"id": user.id, "distinct_id": user.distinct_id}
@@ -65,6 +71,18 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             team_report["events_count_by_lib"] = fetch_event_counts_by_lib(params)
             team_report["events_count_by_name"] = fetch_events_count_by_name(params)
 
+            # Dashboards
+            team_dashboards = Dashboard.objects.filter(team=team).exclude(deleted=True)
+            team_report["dashboards_count"] = team_dashboards.count()
+            team_report["dashboards_template_count"] = team_dashboards.filter(creation_mode="template").count()
+            team_report["dashboards_shared_count"] = team_dashboards.filter(is_shared=True).count()
+            team_report["dashboards_tagged_count"] = team_dashboards.exclude(tags=[]).count()
+
+            # Feature Flags
+            feature_flags = FeatureFlag.objects.filter(team=team).exclude(deleted=True)
+            team_report["ff_count"] = feature_flags.count()
+            team_report["ff_active_count"] = feature_flags.filter(active=True).count()
+
             report["teams"][team.id] = team_report
         except Exception as err:
             capture_event("instance status report failure", {"error": str(err)}, dry_run=dry_run)
@@ -76,10 +94,12 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
 def capture_event(name: str, report: Dict[str, Any], dry_run: bool) -> None:
     if not dry_run:
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
-        disabled = posthoganalytics.disabled
-        posthoganalytics.disabled = False
-        posthoganalytics.capture(get_machine_id(), "instance status report", report)
-        posthoganalytics.disabled = disabled
+        posthoganalytics.capture(get_machine_id(), name, {**report, "scope": "machine"})
+
+        for user in User.objects.all():
+            posthoganalytics.capture(user.distinct_id, f"user {name}", {**report, "scope": "user"})
+    else:
+        print(name, json.dumps(report))  # noqa: T001
 
 
 def fetch_persons_count_active_in_period(params: Tuple[Any, ...]) -> int:
@@ -125,3 +145,10 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
     with connection.cursor() as cursor:
         cursor.execute(sql.SQL(sql_), params)
         return namedtuplefetchall(cursor)
+
+
+def get_helm_info_env() -> dict:
+    try:
+        return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
+    except Exception:
+        return {}

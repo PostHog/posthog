@@ -32,9 +32,9 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "emailing_attempt_made",
             "created_at",
             "updated_at",
-            "emailing_attempt_made",
         ]
         extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
 

@@ -1,4 +1,5 @@
 /* DEPRECATED in favor of global.scss */
+@import '~/vars';
 
 .layout-container {
     max-width: 100vw;
@@ -23,7 +24,7 @@
     text-align: center;
     min-height: 6rem;
     opacity: 0.7;
-    z-index: 9999;
+    z-index: $z_content_overlay;
     display: flex;
     align-items: center;
     justify-content: center;

@@ -109,7 +109,7 @@ export function RetentionTable({
             {results && (
                 <Modal
                     visible={modalVisible}
-                    closable={false}
+                    closable={true}
                     onCancel={dismissModal}
                     footer={<Button onClick={dismissModal}>Close</Button>}
                     style={{
@@ -135,7 +135,7 @@ export function RetentionTable({
                                                         .map((data, index) => <th key={index}>{data.label}</th>)}
                                             </tr>
                                             <tr>
-                                                <td />
+                                                <td>user_id</td>
                                                 {results &&
                                                     results[selectedRow]?.values.map((data: any, index: number) => (
                                                         <td key={index}>

@@ -8,6 +8,10 @@ Clickhouse Support works by swapping in separate queries and classes in the syst
 
 The `django_clickhouse` orm is used to manage migrations and models. The ORM is used to mimic the django model and migration structure in the main folder.
 
+Certain migrations (e.g. changing table engines) can be quite expensive and tricky, especially for deployments outside of cloud. To skip these steps during deployment setup, check for the `CLICKHOUSE_INITIAL_MIGRATIONS` environment variable.
+
+If you need help in making them happen, ask for help from team deployments.
+
 ### Queries
 
 Queries parallel the queries folder in the main folder however, clickhouse queries are written in SQL and do not utilize the ORM.

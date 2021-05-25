@@ -17,7 +17,7 @@ from posthog.queries.sessions.session_recording import filter_sessions_by_record
 from posthog.queries.sessions.sessions_list_builder import SessionListBuilder
 
 Session = Dict
-SESSIONS_LIST_DEFAULT_LIMIT = 50
+SESSIONS_LIST_DEFAULT_LIMIT = 20
 
 
 class SessionsList:

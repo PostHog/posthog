@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.constants import ENTITY_ID, ENTITY_TYPE
+from posthog.constants import ENTITY_ID, ENTITY_TYPE, INSIGHT_STICKINESS
 from posthog.decorators import CacheType
 from posthog.models import Dashboard, DashboardItem, Event, Filter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -151,4 +151,59 @@ class TestUpdateCache(APIBaseTest):
             filters=filter.to_dict(),
             team=self.team,
             last_refresh=now() - timedelta(days=30),
+        )
+
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    @freeze_time("2012-01-15")
+    def test_stickiness_regression(self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock) -> None:
+        # We moved Stickiness from being a "shown_as" item to its own insight
+        # This move caused issues hence a regression test
+        filter_stickiness = StickinessFilter(
+            data={
+                "events": [{"id": "$pageview"}],
+                "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                "date_from": "2012-01-10",
+                "date_to": "2012-01-15",
+                "insight": INSIGHT_STICKINESS,
+                "shown_as": "Stickiness",
+            },
+            team=self.team,
+            get_earliest_timestamp=Event.objects.earliest_timestamp,
+        )
+        filter = Filter(
+            data={
+                "events": [{"id": "$pageview"}],
+                "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                "date_from": "2012-01-10",
+                "date_to": "2012-01-15",
+            }
+        )
+        shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+
+        DashboardItem.objects.create(dashboard=shared_dashboard, filters=filter_stickiness.to_dict(), team=self.team)
+        DashboardItem.objects.create(dashboard=shared_dashboard, filters=filter.to_dict(), team=self.team)
+
+        item_stickiness_key = generate_cache_key(filter_stickiness.toJSON() + "_" + str(self.team.pk))
+        item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
+
+        update_cached_items()
+
+        for call_item in patch_update_cache_item.call_args_list:
+            update_cache_item(*call_item[0])
+
+        self.assertEqual(
+            get_safe_cache(item_stickiness_key)["result"][0]["labels"],
+            ["1 day", "2 days", "3 days", "4 days", "5 days", "6 days"],
+        )
+        self.assertEqual(
+            get_safe_cache(item_key)["result"][0]["labels"],
+            [
+                "Tue. 10 January",
+                "Wed. 11 January",
+                "Thu. 12 January",
+                "Fri. 13 January",
+                "Sat. 14 January",
+                "Sun. 15 January",
+            ],
         )
