@@ -18,10 +18,10 @@ type MyPluginType = Plugin<{
 }>
 
 const MyPlugin: MyPluginType = {
-  setupPlugin: (meta) => {
+  setupPlugin: async (meta) => {
     
   },
-  onEvent: (event, meta) => {
+  onEvent: async (event, meta) => {
     
   },
 }
