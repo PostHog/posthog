@@ -1,10 +1,14 @@
-from typing import Any, ClassVar, List, Optional, cast
+from typing import Any, List, Optional, cast
 
 import requests
 from django.contrib.auth import get_user_model
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from rest_framework import exceptions, status
+
+from posthog.celery import sync_all_organization_available_features
 
 
 class LicenseError(exceptions.APIException):
@@ -39,7 +43,7 @@ class LicenseManager(models.Manager):
 
 
 class License(models.Model):
-    objects = LicenseManager()
+    objects: LicenseManager = LicenseManager()
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     plan: models.CharField = models.CharField(max_length=200)
@@ -83,3 +87,8 @@ def get_licensed_users_available() -> Optional[int]:
         return max(users_left, 0)
 
     return None
+
+
+@receiver(post_save, sender=License)
+def license_saved(sender, instance, created, raw, using, **kwargs):
+    sync_all_organization_available_features()

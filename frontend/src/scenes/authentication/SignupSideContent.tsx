@@ -19,7 +19,7 @@ export function SignupSideContentCloud({ utm_tags }: { utm_tags: string }): JSX.
                 We manage hosting, scaling and upgrades.
                 <div className="signup-list">
                     <div>
-                        <CheckOutlined /> First 10k events free every month
+                        <CheckOutlined /> First 1M events free every month
                     </div>
                     <div>
                         <CheckOutlined /> Pay per use, cancel anytime
