@@ -74,6 +74,9 @@ describe('job queues', () => {
 
         // reset test code
         await resetTestDatabase(testCode)
+
+        // try to deflake
+        await delay(100)
     })
 
     afterEach(async () => {

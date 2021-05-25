@@ -325,82 +325,119 @@ test('async processEvent', async () => {
     expect(event.event).toEqual('changed event')
 })
 
-test('module.exports override', async () => {
-    const indexJs = `
-        function myProcessEventFunction (event, meta) {
-            event.event = 'changed event';
-            return event
+describe('vm exports', () => {
+    test('module.exports override', async () => {
+        const indexJs = `
+            function myProcessEventFunction (event, meta) {
+                event.event = 'changed event';
+                return event
+            }
+            module.exports = { processEvent: myProcessEventFunction }
+        `
+        await resetTestDatabase(indexJs)
+        const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
+
+        const event: PluginEvent = {
+            ...defaultEvent,
+            event: 'original event',
         }
-        module.exports = { processEvent: myProcessEventFunction }
-    `
-    await resetTestDatabase(indexJs)
-    const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
+        await vm.methods.processEvent!(event)
 
-    const event: PluginEvent = {
-        ...defaultEvent,
-        event: 'original event',
-    }
-    await vm.methods.processEvent!(event)
+        expect(event.event).toEqual('changed event')
+    })
 
-    expect(event.event).toEqual('changed event')
-})
+    test('module.exports set', async () => {
+        const indexJs = `
+            function myProcessEventFunction (event, meta) {
+                event.event = 'changed event';
+                return event
+            }
+            module.exports.processEvent = myProcessEventFunction
+        `
+        await resetTestDatabase(indexJs)
+        const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
 
-test('module.exports set', async () => {
-    const indexJs = `
-        function myProcessEventFunction (event, meta) {
-            event.event = 'changed event';
-            return event
+        const event: PluginEvent = {
+            ...defaultEvent,
+            event: 'original event',
         }
-        module.exports.processEvent = myProcessEventFunction
-    `
-    await resetTestDatabase(indexJs)
-    const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
+        await vm.methods.processEvent!(event)
 
-    const event: PluginEvent = {
-        ...defaultEvent,
-        event: 'original event',
-    }
-    await vm.methods.processEvent!(event)
+        expect(event.event).toEqual('changed event')
+    })
 
-    expect(event.event).toEqual('changed event')
-})
-
-test('exports override', async () => {
-    const indexJs = `
-        function myProcessEventFunction (event, meta) {
-            event.event = 'changed event';
-            return event
+    test('exports override', async () => {
+        const indexJs = `
+            function myProcessEventFunction (event, meta) {
+                event.event = 'changed event';
+                return event
+            }
+            exports = { processEvent: myProcessEventFunction }
+        `
+        await resetTestDatabase(indexJs)
+        const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const event: PluginEvent = {
+            ...defaultEvent,
+            event: 'original event',
         }
-        exports = { processEvent: myProcessEventFunction }
-    `
-    await resetTestDatabase(indexJs)
-    const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
-    const event: PluginEvent = {
-        ...defaultEvent,
-        event: 'original event',
-    }
-    await vm.methods.processEvent!(event)
+        await vm.methods.processEvent!(event)
 
-    expect(event.event).toEqual('changed event')
-})
+        expect(event.event).toEqual('changed event')
+    })
 
-test('exports set', async () => {
-    const indexJs = `
-        function myProcessEventFunction (event, meta) {
-            event.event = 'changed event';
-            return event
+    test('exports set', async () => {
+        const indexJs = `
+            function myProcessEventFunction (event, meta) {
+                event.event = 'changed event';
+                return event
+            }
+            exports.processEvent = myProcessEventFunction
+        `
+        await resetTestDatabase(indexJs)
+        const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const event: PluginEvent = {
+            ...defaultEvent,
+            event: 'original event',
         }
-        exports.processEvent = myProcessEventFunction
-    `
-    await resetTestDatabase(indexJs)
-    const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
-    const event: PluginEvent = {
-        ...defaultEvent,
-        event: 'original event',
-    }
-    await vm.methods.processEvent!(event)
+        await vm.methods.processEvent!(event)
 
-    expect(event.event).toEqual('changed event')
+        expect(event.event).toEqual('changed event')
+    })
+
+    test('export', async () => {
+        const indexJs = `
+            export const onEvent = async (event, meta) => {
+                await fetch('https://google.com/results.json?query=' + event.event)
+            }
+        `
+        await resetTestDatabase(indexJs)
+        const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const event: PluginEvent = {
+            ...defaultEvent,
+            event: 'export',
+        }
+        await vm.methods.onEvent!(event)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=export')
+    })
+
+    test('export default', async () => {
+        const indexJs = `
+            const MyPlugin = {
+                onEvent: async (event, meta) => {
+                    await fetch('https://google.com/results.json?query=' + event.event)
+                }
+            }
+            export default MyPlugin
+        `
+        await resetTestDatabase(indexJs)
+        const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
+        const event: PluginEvent = {
+            ...defaultEvent,
+            event: 'default export',
+        }
+        await vm.methods.onEvent!(event)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=default export')
+    })
 })
 
 test('meta.config', async () => {

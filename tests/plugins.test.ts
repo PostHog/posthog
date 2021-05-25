@@ -517,11 +517,11 @@ test('plugin with archive loads capabilities', async () => {
 test('plugin with archive loads all capabilities, no random caps', async () => {
     getPluginRows.mockReturnValueOnce([
         mockPluginWithArchive(`
-            function processEvent (event, meta) { event.properties={"x": 1}; return event }
-            function randomFunction (event, meta) { return event}
-            function onEvent (event, meta) { return event }
+            export function processEvent (event, meta) { event.properties={"x": 1}; return event }
+            export function randomFunction (event, meta) { return event}
+            export function onEvent (event, meta) { return event }
 
-            function runEveryHour(meta) {console.log('1')}
+            export function runEveryHour(meta) {console.log('1')}
 
             export const jobs = {
                 x: (event, meta) => console.log(event)
