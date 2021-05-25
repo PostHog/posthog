@@ -330,7 +330,14 @@ export function LineGraph({
                           },
                       },
                   }
-                : undefined,
+                : {
+                      crosshair: {
+                          line: {
+                              color: 'rgba(0,0,0,0)',
+                              width: 0,
+                          },
+                      },
+                  },
             hover: {
                 mode: 'nearest',
                 axis: newUI ? 'x' : undefined, // constrain the axis of nearest-point calculation
