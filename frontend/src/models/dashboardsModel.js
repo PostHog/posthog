@@ -118,7 +118,10 @@ export const dashboardsModel = kea({
                 return [...list.filter((d) => d.pinned), ...list.filter((d) => !d.pinned)]
             },
         ],
-        dashboardsLoading: [() => [selectors.rawDashboardsLoading], (rawDashboardsLoading) => rawDashboardsLoading],
+        dashboardsLoading: [
+            () => [selectors.rawDashboardsLoading, selectors.sharedDashboardsLoading],
+            (dashesLoading, sharedLoading) => dashesLoading || sharedLoading,
+        ],
         pinnedDashboards: [() => [selectors.dashboards], (dashboards) => dashboards.filter((d) => d.pinned)],
     }),
 
