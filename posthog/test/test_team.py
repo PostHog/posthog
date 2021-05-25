@@ -5,6 +5,7 @@ from django.conf import settings
 
 from posthog.demo import create_demo_team
 from posthog.models import EventDefinition, Organization, PluginConfig, PropertyDefinition, Team, User
+from posthog.models.dashboard_item import DashboardItem
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
@@ -47,13 +48,12 @@ class TestTeam(BaseTest):
             ],
         )
 
-    # TODO: #4070 Temporary test until relevant attributes are migrated from `Team` model
     def test_updating_team_events_or_related_updates_event_definitions(self):
-        random.seed(900)
+        random.seed(900)  # ensure random data is consistent
         org = Organization.objects.create(name="Demo Org")
         team = create_demo_team(org, None, None)
 
-        expected_events = ["watched_movie", "installed_app", "rated_app", "purchase", "entered_free_trial"]
+        expected_events = ["watched_movie", "installed_app", "rated_app", "purchase", "entered_free_trial", "$pageview"]
 
         self.assertEqual(EventDefinition.objects.filter(team=team).count(), len(expected_events))
 
@@ -62,38 +62,24 @@ class TestTeam(BaseTest):
             self.assertEqual(obj.volume_30_day, None)
             self.assertEqual(obj.query_usage_30_day, None)
 
-        # Test adding and removing one event
-        team.event_names.pop(0)
-        team.event_names.append("uninstalled_app")
-        team.save()
-        expected_events = ["installed_app", "rated_app", "purchase", "entered_free_trial", "uninstalled_app"]
-        self.assertEqual(
-            list(EventDefinition.objects.filter(team=team).values_list("name", flat=True)).sort(),
-            expected_events.sort(),
-        )
-
+        DashboardItem.objects.create(team=team, filters={"events": [{"id": "$pageview"}]})
         # Test events with usage
         expected_event_definitions = [
             {"name": "installed_app", "volume_30_day": 100, "query_usage_30_day": 0},
             {"name": "rated_app", "volume_30_day": 73, "query_usage_30_day": 0},
             {"name": "purchase", "volume_30_day": 16, "query_usage_30_day": 0},
             {"name": "entered_free_trial", "volume_30_day": 0, "query_usage_30_day": 0},
-            {"name": "uninstalled_app", "volume_30_day": 0, "query_usage_30_day": 0},
-            {"name": "$pageview", "volume_30_day": 1822, "query_usage_30_day": 19292},
+            {"name": "watched_movie", "volume_30_day": 87, "query_usage_30_day": 0},
+            {"name": "$pageview", "volume_30_day": 327, "query_usage_30_day": 1},
         ]
         calculate_event_property_usage_for_team(team.pk)
-        team.refresh_from_db()
-        team.event_names.append("$pageview")
-        team.event_names_with_usage.append({"event": "$pageview", "volume": 1822, "usage_count": 19292})
-        team.save()
 
         self.assertEqual(EventDefinition.objects.filter(team=team).count(), len(expected_event_definitions))
         for item in expected_event_definitions:
             instance = EventDefinition.objects.get(name=item["name"], team=team)
-            self.assertEqual(instance.volume_30_day, item["volume_30_day"])
-            self.assertEqual(instance.query_usage_30_day, item["query_usage_30_day"])
+            self.assertEqual(instance.volume_30_day, item["volume_30_day"], item)
+            self.assertEqual(instance.query_usage_30_day, item["query_usage_30_day"], item)
 
-    # TODO: #4070 Temporary test until relevant attributes are migrated from `Team` model
     def test_updating_event_properties_or_related_updates_property_definitions(self):
         random.seed(900)
         org = Organization.objects.create(name="Demo Org")
@@ -102,6 +88,7 @@ class TestTeam(BaseTest):
         expected_properties = [
             "purchase",
             "$current_url",
+            "$browser",
             "is_first_movie",
             "app_rating",
             "plan",
@@ -110,7 +97,11 @@ class TestTeam(BaseTest):
         ]
         numerical_properties = ["purchase", "app_rating", "purchase_value"]
 
-        self.assertEqual(PropertyDefinition.objects.filter(team=team).count(), len(expected_properties))
+        self.assertCountEqual(
+            PropertyDefinition.objects.filter(team=team).values_list("name", flat=True),
+            expected_properties,
+            PropertyDefinition.objects.filter(team=team).values("name"),
+        )
 
         for obj in PropertyDefinition.objects.filter(team=team):
             self.assertIn(obj.name, expected_properties)
@@ -118,48 +109,25 @@ class TestTeam(BaseTest):
             self.assertEqual(obj.query_usage_30_day, None)
             self.assertEqual(obj.is_numerical, obj.name in numerical_properties)
 
-        # Test adding and removing one event
-        team.event_properties.pop(-1)
-        team.event_properties.append("paid_tier")
-        team.save()
-        expected_properties = [
-            "purchase",
-            "$current_url",
-            "is_first_movie",
-            "app_rating",
-            "plan",
-            "first_visit",
-            "paid_tier",
-        ]
-        self.assertEqual(
-            list(PropertyDefinition.objects.filter(team=team).values_list("name", flat=True)).sort(),
-            expected_properties.sort(),
-        )
-
+        DashboardItem.objects.create(team=team, filters={"properties": [{"key": "$browser", "value": "Safari"}]})
         # Test events with usage
         expected_property_definitions = [
-            {"name": "$current_url", "volume_30_day": 264, "query_usage_30_day": 0, "is_numerical": False},
-            {"name": "is_first_movie", "volume_30_day": 87, "query_usage_30_day": 0, "is_numerical": False},
-            {"name": "app_rating", "volume_30_day": 73, "query_usage_30_day": 0, "is_numerical": True},
-            {"name": "plan", "volume_30_day": 14, "query_usage_30_day": 0, "is_numerical": False},
-            {"name": "purchase", "volume_30_day": 0, "query_usage_30_day": 0, "is_numerical": True},
-            {"name": "paid_tier", "volume_30_day": 0, "query_usage_30_day": 0, "is_numerical": False},
-            {"name": "first_visit", "volume_30_day": 0, "query_usage_30_day": 0, "is_numerical": False},
-            {"name": "$browser", "volume_30_day": 166, "query_usage_30_day": 349, "is_numerical": True},
+            {"name": "$current_url", "query_usage_30_day": 0, "is_numerical": False},
+            {"name": "is_first_movie", "query_usage_30_day": 0, "is_numerical": False},
+            {"name": "app_rating", "query_usage_30_day": 0, "is_numerical": True},
+            {"name": "plan", "query_usage_30_day": 0, "is_numerical": False},
+            {"name": "purchase", "query_usage_30_day": 0, "is_numerical": True},
+            {"name": "purchase_value", "query_usage_30_day": 0, "is_numerical": True},
+            {"name": "first_visit", "query_usage_30_day": 0, "is_numerical": False},
+            {"name": "$browser", "query_usage_30_day": 1, "is_numerical": False},
         ]
         calculate_event_property_usage_for_team(team.pk)
-        team.refresh_from_db()
-        team.event_properties.append("$browser")
-        team.event_properties_numerical.append("$browser")
-        team.event_properties_with_usage.append({"key": "$browser", "volume": 166, "usage_count": 349})
-        team.save()
 
         self.assertEqual(PropertyDefinition.objects.filter(team=team).count(), len(expected_property_definitions))
         for item in expected_property_definitions:
             instance = PropertyDefinition.objects.get(name=item["name"], team=team)
-            self.assertEqual(instance.volume_30_day, item["volume_30_day"])
-            self.assertEqual(instance.query_usage_30_day, item["query_usage_30_day"])
-            self.assertEqual(instance.is_numerical, item["is_numerical"])
+            self.assertEqual(instance.query_usage_30_day, item["query_usage_30_day"], item)
+            self.assertEqual(instance.is_numerical, item["is_numerical"], item)
 
     @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
     def test_preinstalled_are_autoenabled(self, mock_get):
