@@ -325,7 +325,17 @@ export function LineGraph({
                   },
                   itemSort: (a, b) => b.yLabel - a.yLabel,
               }
-
+        const crosshairPluginCommonOptions = {
+            snapping: {
+                enabled: true, // Snap crosshair to data points
+            },
+            sync: {
+                enabled: false, // Sync crosshairs across multiple Chartjs instances
+            },
+            zoom: {
+                enabled: false, // Allow drag to zoom
+            },
+        }
         let options = {
             responsive: true,
             maintainAspectRatio: false,
@@ -334,23 +344,16 @@ export function LineGraph({
             plugins: newUI
                 ? {
                       crosshair: {
+                          ...crosshairPluginCommonOptions,
                           line: {
                               color: colors.crosshair,
                               width: 1,
-                          },
-                          snapping: {
-                              enabled: true, // Snap crosshair to data points
-                          },
-                          sync: {
-                              enabled: false, // Sync crosshairs across multiple Chartjs instances
-                          },
-                          zoom: {
-                              enabled: false, // Allow drag to zoom
                           },
                       },
                   }
                 : {
                       crosshair: {
+                          ...crosshairPluginCommonOptions,
                           line: {
                               color: 'rgba(0,0,0,0)',
                               width: 0,
