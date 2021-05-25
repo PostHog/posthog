@@ -45,7 +45,7 @@ class DataGenerator:
             for person in self.people:
                 create_person(team_id=person.team.pk, properties=person.properties, is_identified=person.is_identified)
             for pid in pids:
-                create_person_distinct_id("0", pid.team.pk, pid.distinct_id, pid.person.uuid)
+                create_person_distinct_id("0", pid.team.pk, pid.distinct_id, str(pid.person.uuid))
 
     def make_person(self, index):
         return Person(team=self.team, properties={"is_demo": True})
