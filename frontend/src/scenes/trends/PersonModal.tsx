@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { ExportOutlined } from '@ant-design/icons'
+import { DownloadOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { Link } from 'lib/components/Link'
@@ -41,21 +41,43 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
             width={800}
         >
             {people ? (
-                <div
-                    style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                >
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                        Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
-                        {featureFlags['save-cohort-on-modal'] &&
-                            (view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
-                                <div>
-                                    <Button type="primary" onClick={onSaveCohort}>
-                                        Save cohort
-                                    </Button>
-                                </div>
-                            )}
+                <>
+                    <div
+                        style={{
+                            marginBottom: 16,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                        }}
+                    >
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                            Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
+                            {featureFlags['save-cohort-on-modal'] &&
+                                (view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
+                                    <div>
+                                        <Button type="primary" onClick={onSaveCohort}>
+                                            Save cohort
+                                        </Button>
+                                    </div>
+                                )}
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                            <Link
+                                to={peopleModalURL.sessions}
+                                style={{ marginLeft: 8 }}
+                                data-attr="persons-modal-sessions"
+                            >
+                                <ClockCircleOutlined /> View related sessions <ArrowRightOutlined />
+                            </Link>
+                            <Link to={peopleModalURL.recordings} type="primary" data-attr="persons-modal-recordings">
+                                View related recordings <ArrowRightOutlined />
+                            </Link>
+                        </div>
+                    </div>
+                    <div className="text-right">
                         <Button
-                            icon={<ExportOutlined />}
+                            icon={<DownloadOutlined />}
                             href={`/api/action/people.csv?/?${toParams({
                                 ...(filters || {}),
                                 entity_id: people.action.id,
@@ -65,37 +87,26 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                 label: people.label,
                             })}`}
                             style={{ marginBottom: '1rem' }}
-                        >
-                            Export
-                        </Button>
+                            title="Download CSV"
+                        />
                     </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                        <Link to={peopleModalURL.sessions} style={{ marginLeft: 8 }} data-attr="persons-modal-sessions">
-                            <ClockCircleOutlined /> View related sessions <ArrowRightOutlined />
-                        </Link>
-                        <Link to={peopleModalURL.recordings} type="primary" data-attr="persons-modal-recordings">
-                            View related recordings <ArrowRightOutlined />
-                        </Link>
+                    <PersonsTable loading={!people?.people} people={people.people} />
+                    <div
+                        style={{
+                            margin: '1rem',
+                            textAlign: 'center',
+                        }}
+                    >
+                        {people?.next && (
+                            <Button type="primary" onClick={loadMorePeople}>
+                                {loadingMorePeople ? <Spin /> : 'Load more people'}
+                            </Button>
+                        )}
                     </div>
-                </div>
+                </>
             ) : (
                 <p>Loading users...</p>
             )}
-
-            {people && <PersonsTable loading={!people?.people} people={people.people} />}
-            <div
-                style={{
-                    margin: '1rem',
-                    textAlign: 'center',
-                }}
-            >
-                {people?.next && (
-                    <Button type="primary" onClick={loadMorePeople}>
-                        {loadingMorePeople ? <Spin /> : 'Load more people'}
-                    </Button>
-                )}
-            </div>
         </Modal>
     )
 }
