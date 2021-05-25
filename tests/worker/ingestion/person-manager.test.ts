@@ -1,32 +1,32 @@
 import { DateTime } from 'luxon'
 
-import { PluginsServer } from '../../../src/types'
-import { createServer } from '../../../src/utils/db/server'
+import { Hub } from '../../../src/types'
+import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { PersonManager } from '../../../src/worker/ingestion/person-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 describe('PersonManager.isNewPerson', () => {
     let personManager: PersonManager
-    let server: PluginsServer
-    let closeServer: () => Promise<void>
+    let hub: Hub
+    let closeHub: () => Promise<void>
 
-    const check = (distinctId: string) => personManager.isNewPerson(server.db, 2, distinctId)
+    const check = (distinctId: string) => personManager.isNewPerson(hub.db, 2, distinctId)
     const createPerson = async (distinctId: string) => {
         const uuid = new UUIDT().toString()
-        await server.db.createPerson(DateTime.utc(), {}, 2, null, false, uuid, [distinctId])
+        await hub.db.createPerson(DateTime.utc(), {}, 2, null, false, uuid, [distinctId])
     }
 
     beforeEach(async () => {
         await resetTestDatabase()
-        ;[server, closeServer] = await createServer({
+        ;[hub, closeHub] = await createHub({
             DISTINCT_ID_LRU_SIZE: 10,
         })
-        personManager = new PersonManager(server)
+        personManager = new PersonManager(hub)
     })
 
     afterEach(async () => {
-        await closeServer()
+        await closeHub()
     })
 
     it('returns whether person exists or not', async () => {
@@ -42,7 +42,7 @@ describe('PersonManager.isNewPerson', () => {
         await createPerson('1234')
         await createPerson('567')
 
-        const spy = jest.spyOn(server.db, 'postgresQuery')
+        const spy = jest.spyOn(hub.db, 'postgresQuery')
 
         expect(await check('1234')).toEqual(false)
         expect(await check('567')).toEqual(false)

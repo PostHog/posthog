@@ -1,5 +1,5 @@
 import { fastify, FastifyInstance } from 'fastify'
-import { PluginsServer } from 'types'
+import { Hub } from 'types'
 
 import { status } from '../../utils/status'
 
@@ -13,7 +13,7 @@ export async function stopFastifyInstance(fastifyInstance: FastifyInstance): Pro
     status.info('🛑', 'Web server closed!')
 }
 
-export async function startFastifyInstance(pluginsServer: PluginsServer): Promise<FastifyInstance> {
+export async function startFastifyInstance(pluginsServer: Hub): Promise<FastifyInstance> {
     status.info('👾', 'Starting web server…')
     const fastifyInstance = buildFastifyInstance()
     try {

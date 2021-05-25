@@ -1,8 +1,8 @@
 import { StorageExtension } from '@posthog/plugin-scaffold'
 
-import { PluginConfig, PluginsServer } from '../../../types'
+import { Hub, PluginConfig } from '../../../types'
 
-export function createStorage(server: PluginsServer, pluginConfig: PluginConfig): StorageExtension {
+export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageExtension {
     const get = async function (key: string, defaultValue: unknown): Promise<unknown> {
         const result = await server.db.postgresQuery(
             'SELECT * FROM posthog_pluginstorage WHERE "plugin_config_id"=$1 AND "key"=$2 LIMIT 1',

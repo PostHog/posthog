@@ -1,7 +1,7 @@
 import { Pool, PoolClient } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
-import { Plugin, PluginAttachmentDB, PluginConfig, PluginsServer, PluginsServerConfig, Team } from '../../src/types'
+import { Hub, Plugin, PluginAttachmentDB, PluginConfig, PluginsServerConfig, Team } from '../../src/types'
 import { UUIDT } from '../../src/utils/utils'
 import {
     commonOrganizationId,
@@ -146,16 +146,16 @@ export async function createUserTeamAndOrganization(
     })
 }
 
-export async function getTeams(server: PluginsServer): Promise<Team[]> {
-    return (await server.db.postgresQuery('SELECT * FROM posthog_team ORDER BY id', undefined, 'fetchAllTeams')).rows
+export async function getTeams(hub: Hub): Promise<Team[]> {
+    return (await hub.db.postgresQuery('SELECT * FROM posthog_team ORDER BY id', undefined, 'fetchAllTeams')).rows
 }
 
-export async function getFirstTeam(server: PluginsServer): Promise<Team> {
-    return (await getTeams(server))[0]
+export async function getFirstTeam(hub: Hub): Promise<Team> {
+    return (await getTeams(hub))[0]
 }
 
 /** Inject code onto `server` which runs a callback whenever a postgres query is performed */
-export function onQuery(server: PluginsServer, onQueryCallback: (queryText: string) => any): void {
+export function onQuery(hub: Hub, onQueryCallback: (queryText: string) => any): void {
     function spyOnQueryFunction(client: any) {
         const query = client.query.bind(client)
         client.query = (queryText: any, values?: any, callback?: any): any => {
@@ -164,10 +164,10 @@ export function onQuery(server: PluginsServer, onQueryCallback: (queryText: stri
         }
     }
 
-    spyOnQueryFunction(server.postgres)
+    spyOnQueryFunction(hub.postgres)
 
-    const postgresTransaction = server.db.postgresTransaction.bind(server.db)
-    server.db.postgresTransaction = async (transaction: (client: PoolClient) => Promise<any>): Promise<any> => {
+    const postgresTransaction = hub.db.postgresTransaction.bind(hub.db)
+    hub.db.postgresTransaction = async (transaction: (client: PoolClient) => Promise<any>): Promise<any> => {
         return await postgresTransaction(async (client: PoolClient) => {
             const query = client.query
             spyOnQueryFunction(client)

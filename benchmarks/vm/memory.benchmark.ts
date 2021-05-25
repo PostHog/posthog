@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { Plugin, PluginConfig, PluginConfigVMReponse } from '../../src/types'
-import { createServer } from '../../src/utils/db/server'
+import { createHub } from '../../src/utils/db/hub'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { commonOrganizationId } from '../../tests/helpers/plugins'
 
@@ -57,7 +57,7 @@ test('test vm memory usage', async () => {
     const numVMs = 1000
     const numEventsPerVM = 100
 
-    const [server, closeServer] = await createServer()
+    const [hub, closeHub] = await createHub()
     const indexJs = `
         async function processEvent (event, meta) {
             event.event = 'changed event'
@@ -80,7 +80,7 @@ test('test vm memory usage', async () => {
     const vms: PluginConfigVMReponse[] = []
 
     for (let i = 0; i < numVMs; i++) {
-        const vm = await createPluginConfigVM(server, mockConfig, indexJs)
+        const vm = await createPluginConfigVM(hub, mockConfig, indexJs)
         vms.push(vm)
 
         if (debug || i === numVMs - 1) {
@@ -110,5 +110,5 @@ test('test vm memory usage', async () => {
         }
     }
 
-    await closeServer()
+    await closeHub()
 })

@@ -1,4 +1,6 @@
+import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+import { Redis } from 'ioredis'
 
 import {
     loadPluginSchedule,
@@ -7,8 +9,8 @@ import {
     startSchedule,
     waitForTasksToFinish,
 } from '../src/main/services/schedule'
-import { LogLevel, ScheduleControl } from '../src/types'
-import { createServer } from '../src/utils/db/server'
+import { Hub, LogLevel, ScheduleControl } from '../src/types'
+import { createHub } from '../src/utils/db/hub'
 import { delay } from '../src/utils/utils'
 import { createPromise } from './helpers/promises'
 import { resetTestDatabase } from './helpers/sql'
@@ -51,16 +53,16 @@ test('runScheduleDebounced', async () => {
     const piscina = setupPiscina(workerThreads, 10)
     const processEvent = (event: PluginEvent) => piscina.runTask({ task: 'processEvent', args: { event } })
 
-    const [server, closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log })
-    server.pluginSchedule = await loadPluginSchedule(piscina)
-    expect(server.pluginSchedule).toEqual({ runEveryDay: [], runEveryHour: [], runEveryMinute: [39] })
+    const [hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
+    hub.pluginSchedule = await loadPluginSchedule(piscina)
+    expect(hub.pluginSchedule).toEqual({ runEveryDay: [], runEveryHour: [], runEveryMinute: [39] })
 
     const event1 = await processEvent(createEvent())
     expect(event1.properties['counter']).toBe(0)
 
-    runScheduleDebounced(server, piscina, 'runEveryMinute')
-    runScheduleDebounced(server, piscina, 'runEveryMinute')
-    runScheduleDebounced(server, piscina, 'runEveryMinute')
+    runScheduleDebounced(hub, piscina, 'runEveryMinute')
+    runScheduleDebounced(hub, piscina, 'runEveryMinute')
+    runScheduleDebounced(hub, piscina, 'runEveryMinute')
     await delay(100)
 
     const event2 = await processEvent(createEvent())
@@ -71,10 +73,10 @@ test('runScheduleDebounced', async () => {
     const event3 = await processEvent(createEvent())
     expect(event3.properties['counter']).toBe(1)
 
-    await waitForTasksToFinish(server)
+    await waitForTasksToFinish(hub)
     await delay(1000)
     await piscina.destroy()
-    await closeServer()
+    await closeHub()
 })
 
 test('runScheduleDebounced exception', async () => {
@@ -87,12 +89,12 @@ test('runScheduleDebounced exception', async () => {
     await resetTestDatabase(testCode)
     const piscina = setupPiscina(workerThreads, 10)
 
-    const [server, closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log })
-    server.pluginSchedule = await loadPluginSchedule(piscina)
+    const [hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
+    hub.pluginSchedule = await loadPluginSchedule(piscina)
 
-    runScheduleDebounced(server, piscina, 'runEveryMinute')
+    runScheduleDebounced(hub, piscina, 'runEveryMinute')
 
-    await waitForTasksToFinish(server)
+    await waitForTasksToFinish(hub)
 
     // nothing bad should have happened. the error is in SQL via setError, but that ran in another worker (can't mock)
     // and we're not testing it E2E so we can't check the DB either...
@@ -100,12 +102,12 @@ test('runScheduleDebounced exception', async () => {
     try {
         await delay(1000)
         await piscina.destroy()
-        await closeServer()
+        await closeHub()
     } catch {}
 })
 
 describe('startSchedule', () => {
-    let server: any, piscina: any, closeServer: any, redis: any
+    let hub: Hub, piscina: Piscina, closeHub: () => Promise<void>, redis: Redis
 
     beforeEach(async () => {
         const workerThreads = 2
@@ -116,20 +118,20 @@ describe('startSchedule', () => {
         `
         await resetTestDatabase(testCode)
         piscina = setupPiscina(workerThreads, 10)
-        const [_server, _closeServer] = await createServer({ LOG_LEVEL: LogLevel.Log, SCHEDULE_LOCK_TTL: 3 })
-        server = _server
-        closeServer = _closeServer
+        const [_hub, _closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log, SCHEDULE_LOCK_TTL: 3 })
+        hub = _hub
+        closeHub = _closeHub
 
-        redis = await server.redisPool.acquire()
+        redis = await hub.redisPool.acquire()
         await redis.del(LOCKED_RESOURCE)
     })
 
     afterEach(async () => {
         await redis.del(LOCKED_RESOURCE)
-        await server.redisPool.release(redis)
+        await hub.redisPool.release(redis)
         await delay(1000)
         await piscina.destroy()
-        await closeServer()
+        await closeHub()
     })
 
     test('redlock', async () => {
@@ -140,7 +142,7 @@ describe('startSchedule', () => {
         let lock2 = false
         let lock3 = false
 
-        const schedule1 = await startSchedule(server, piscina, () => {
+        const schedule1 = await startSchedule(hub, piscina, () => {
             lock1 = true
             promises[i++].resolve()
         })
@@ -151,11 +153,11 @@ describe('startSchedule', () => {
         expect(lock2).toBe(false)
         expect(lock3).toBe(false)
 
-        const schedule2 = await startSchedule(server, piscina, () => {
+        const schedule2 = await startSchedule(hub, piscina, () => {
             lock2 = true
             promises[i++].resolve()
         })
-        const schedule3 = await startSchedule(server, piscina, () => {
+        const schedule3 = await startSchedule(hub, piscina, () => {
             lock3 = true
             promises[i++].resolve()
         })
@@ -183,7 +185,7 @@ describe('startSchedule', () => {
         let schedule: ScheduleControl
 
         beforeEach(async () => {
-            schedule = await startSchedule(server, piscina)
+            schedule = await startSchedule(hub, piscina)
         })
 
         afterEach(async () => {
@@ -191,7 +193,7 @@ describe('startSchedule', () => {
         })
 
         test('loads successfully', async () => {
-            expect(server.pluginSchedule).toEqual({
+            expect(hub.pluginSchedule).toEqual({
                 runEveryMinute: [39],
                 runEveryHour: [],
                 runEveryDay: [],
@@ -205,7 +207,7 @@ describe('startSchedule', () => {
 
             await schedule.reloadSchedule()
 
-            expect(server.pluginSchedule).toEqual({
+            expect(hub.pluginSchedule).toEqual({
                 runEveryMinute: [39],
                 runEveryHour: [],
                 runEveryDay: [],

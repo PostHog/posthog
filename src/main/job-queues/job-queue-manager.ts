@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node'
 
-import { EnqueuedJob, JobQueue, OnJobCallback, PluginsServer } from '../../types'
+import { EnqueuedJob, Hub, JobQueue, OnJobCallback } from '../../types'
 import { status } from '../../utils/status'
 import { logOrThrowJobQueueError } from '../../utils/utils'
 import { FsQueue } from './fs-queue'
@@ -11,17 +11,17 @@ enum JobQueueType {
     Graphile = 'graphile',
 }
 
-const queues: Record<JobQueueType, (server: PluginsServer) => JobQueue> = {
+const queues: Record<JobQueueType, (server: Hub) => JobQueue> = {
     fs: () => new FsQueue(),
-    graphile: (pluginsServer: PluginsServer) => new GraphileQueue(pluginsServer),
+    graphile: (pluginsServer: Hub) => new GraphileQueue(pluginsServer),
 }
 
 export class JobQueueManager implements JobQueue {
-    pluginsServer: PluginsServer
+    pluginsServer: Hub
     jobQueues: JobQueue[]
     jobQueueTypes: JobQueueType[]
 
-    constructor(pluginsServer: PluginsServer) {
+    constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
 
         this.jobQueueTypes = pluginsServer.JOB_QUEUES.split(',')

@@ -2,8 +2,7 @@ import * as IORedis from 'ioredis'
 import { performance } from 'perf_hooks'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { LogLevel, PluginsServerConfig, Queue } from '../../src/types'
-import { PluginsServer } from '../../src/types'
+import { Hub, LogLevel, PluginsServerConfig, Queue } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
@@ -25,7 +24,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 
 describe('e2e celery & postgres benchmark', () => {
     let queue: Queue
-    let server: PluginsServer
+    let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
     let redis: IORedis.Redis
@@ -40,19 +39,19 @@ describe('e2e celery & postgres benchmark', () => {
         `)
 
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
-        server = startResponse.server
+        hub = startResponse.hub
         stopServer = startResponse.stop
         queue = startResponse.queue
-        redis = await server.redisPool.acquire()
+        redis = await hub.redisPool.acquire()
 
-        await redis.del(server.PLUGINS_CELERY_QUEUE)
-        await redis.del(server.CELERY_DEFAULT_QUEUE)
+        await redis.del(hub.PLUGINS_CELERY_QUEUE)
+        await redis.del(hub.CELERY_DEFAULT_QUEUE)
 
-        posthog = createPosthog(server, pluginConfig39)
+        posthog = createPosthog(hub, pluginConfig39)
     })
 
     afterEach(async () => {
-        await server.redisPool.release(redis)
+        await hub.redisPool.release(redis)
         await stopServer()
     })
 
@@ -67,17 +66,17 @@ describe('e2e celery & postgres benchmark', () => {
             posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
         }
         await queue.pause()
-        expect(await redis.llen(server.PLUGINS_CELERY_QUEUE)).toEqual(0)
+        expect(await redis.llen(hub.PLUGINS_CELERY_QUEUE)).toEqual(0)
         for (let i = 0; i < count; i++) {
             createEvent()
         }
         await delay(3000)
-        expect(await redis.llen(server.PLUGINS_CELERY_QUEUE)).toEqual(count)
+        expect(await redis.llen(hub.PLUGINS_CELERY_QUEUE)).toEqual(count)
         await queue.resume()
 
         console.log('Starting timer')
         const startTime = performance.now()
-        await delayUntilEventIngested(() => server.db.fetchEvents(), count, 500, count)
+        await delayUntilEventIngested(() => hub.db.fetchEvents(), count, 500, count)
         const timeMs = performance.now() - startTime
         console.log('Finished!')
 
@@ -88,7 +87,7 @@ describe('e2e celery & postgres benchmark', () => {
             )} events/sec, ${n(timeMs / count)}ms per event)`
         )
 
-        const events = await server.db.fetchEvents()
+        const events = await hub.db.fetchEvents()
         expect(events[count - 1].properties.upperUuid).toEqual(events[count - 1].properties.uuid.toUpperCase())
     })
 })

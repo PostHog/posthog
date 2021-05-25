@@ -2,7 +2,7 @@ import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { PluginsServer, Queue, WorkerMethods } from '../../types'
+import { Hub, Queue, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { sanitizeEvent, UUIDT } from '../../utils/utils'
 import { CeleryQueue } from './celery-queue'
@@ -11,7 +11,7 @@ import { KafkaQueue } from './kafka-queue'
 
 export function pauseQueueIfWorkerFull(
     pause: undefined | (() => void | Promise<void>),
-    server: PluginsServer,
+    server: Hub,
     piscina?: Piscina
 ): void {
     if (pause && (piscina?.queueSize || 0) > (server.WORKER_CONCURRENCY || 4) * (server.WORKER_CONCURRENCY || 4)) {
@@ -20,7 +20,7 @@ export function pauseQueueIfWorkerFull(
 }
 
 export async function startQueue(
-    server: PluginsServer,
+    server: Hub,
     piscina: Piscina,
     workerMethods: Partial<WorkerMethods> = {}
 ): Promise<Queue> {
@@ -65,7 +65,7 @@ export async function startQueue(
     }
 }
 
-function startQueueRedis(server: PluginsServer, piscina: Piscina | undefined, workerMethods: WorkerMethods): Queue {
+function startQueueRedis(server: Hub, piscina: Piscina | undefined, workerMethods: WorkerMethods): Queue {
     const celeryQueue = new CeleryQueue(server.db, server.PLUGINS_CELERY_QUEUE)
 
     celeryQueue.register(
@@ -104,7 +104,7 @@ function startQueueRedis(server: PluginsServer, piscina: Piscina | undefined, wo
     return celeryQueue
 }
 
-async function startQueueKafka(server: PluginsServer, piscina: Piscina, workerMethods: WorkerMethods): Promise<Queue> {
+async function startQueueKafka(server: Hub, piscina: Piscina, workerMethods: WorkerMethods): Promise<Queue> {
     const kafkaQueue: Queue = new KafkaQueue(server, piscina, workerMethods)
     await kafkaQueue.start()
 

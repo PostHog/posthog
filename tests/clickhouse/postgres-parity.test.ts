@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { Database, LogLevel, PluginsServer, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
+import { Database, Hub, LogLevel, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
 import { castTimestampOrNow, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
@@ -21,7 +21,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 }
 
 describe('postgres parity', () => {
-    let server: PluginsServer
+    let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
     let team: Team
@@ -40,10 +40,10 @@ describe('postgres parity', () => {
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
-        server = startResponse.server
+        hub = startResponse.hub
         stopServer = startResponse.stop
-        posthog = createPosthog(server, pluginConfig39)
-        team = await getFirstTeam(server)
+        posthog = createPosthog(hub, pluginConfig39)
+        team = await getFirstTeam(hub)
     })
 
     afterEach(async () => {
@@ -52,19 +52,14 @@ describe('postgres parity', () => {
 
     test('createPerson', async () => {
         const uuid = new UUIDT().toString()
-        const person = await server.db.createPerson(
-            DateTime.utc(),
-            { userProp: 'propValue' },
-            team.id,
-            null,
-            true,
-            uuid,
-            ['distinct1', 'distinct2']
-        )
-        await delayUntilEventIngested(() => server.db.fetchPersons(Database.ClickHouse))
-        await delayUntilEventIngested(() => server.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
+        const person = await hub.db.createPerson(DateTime.utc(), { userProp: 'propValue' }, team.id, null, true, uuid, [
+            'distinct1',
+            'distinct2',
+        ])
+        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
+        await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
 
-        const clickHousePersons = await server.db.fetchPersons(Database.ClickHouse)
+        const clickHousePersons = await hub.db.fetchPersons(Database.ClickHouse)
         expect(clickHousePersons).toEqual([
             {
                 id: uuid,
@@ -77,10 +72,10 @@ describe('postgres parity', () => {
                 _offset: expect.any(Number),
             },
         ])
-        const clickHouseDistinctIds = await server.db.fetchDistinctIdValues(person, Database.ClickHouse)
+        const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(person, Database.ClickHouse)
         expect(clickHouseDistinctIds).toEqual(['distinct1', 'distinct2'])
 
-        const postgresPersons = await server.db.fetchPersons(Database.Postgres)
+        const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
         expect(postgresPersons).toEqual([
             {
                 id: expect.any(Number),
@@ -94,7 +89,7 @@ describe('postgres parity', () => {
                 uuid: uuid,
             },
         ])
-        const postgresDistinctIds = await server.db.fetchDistinctIdValues(person, Database.Postgres)
+        const postgresDistinctIds = await hub.db.fetchDistinctIdValues(person, Database.Postgres)
         expect(postgresDistinctIds).toEqual(['distinct1', 'distinct2'])
 
         expect(person).toEqual(postgresPersons[0])
@@ -102,7 +97,7 @@ describe('postgres parity', () => {
 
     test('updatePerson', async () => {
         const uuid = new UUIDT().toString()
-        const person = await server.db.createPerson(
+        const person = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             team.id,
@@ -111,19 +106,19 @@ describe('postgres parity', () => {
             uuid,
             ['distinct1', 'distinct2']
         )
-        await delayUntilEventIngested(() => server.db.fetchPersons(Database.ClickHouse))
-        await delayUntilEventIngested(() => server.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
+        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
+        await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
 
         // update JSON and boolean to true
 
-        await server.db.updatePerson(person, { properties: { replacedUserProp: 'propValue' }, is_identified: true })
+        await hub.db.updatePerson(person, { properties: { replacedUserProp: 'propValue' }, is_identified: true })
 
         await delayUntilEventIngested(async () =>
-            (await server.db.fetchPersons(Database.ClickHouse)).filter((p) => p.is_identified)
+            (await hub.db.fetchPersons(Database.ClickHouse)).filter((p) => p.is_identified)
         )
 
-        const clickHousePersons = await server.db.fetchPersons(Database.ClickHouse)
-        const postgresPersons = await server.db.fetchPersons(Database.Postgres)
+        const clickHousePersons = await hub.db.fetchPersons(Database.ClickHouse)
+        const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
 
         expect(clickHousePersons.length).toEqual(1)
         expect(postgresPersons.length).toEqual(1)
@@ -138,14 +133,14 @@ describe('postgres parity', () => {
         // update date and boolean to false
 
         const randomDate = DateTime.utc().minus(100000).setZone('UTC')
-        await server.db.updatePerson(person, { created_at: randomDate, is_identified: false })
+        await hub.db.updatePerson(person, { created_at: randomDate, is_identified: false })
 
         await delayUntilEventIngested(async () =>
-            (await server.db.fetchPersons(Database.ClickHouse)).filter((p) => !p.is_identified)
+            (await hub.db.fetchPersons(Database.ClickHouse)).filter((p) => !p.is_identified)
         )
 
-        const clickHousePersons2 = await server.db.fetchPersons(Database.ClickHouse)
-        const postgresPersons2 = await server.db.fetchPersons(Database.Postgres)
+        const clickHousePersons2 = await hub.db.fetchPersons(Database.ClickHouse)
+        const postgresPersons2 = await hub.db.fetchPersons(Database.Postgres)
 
         expect(clickHousePersons2.length).toEqual(1)
         expect(postgresPersons2.length).toEqual(1)
@@ -162,7 +157,7 @@ describe('postgres parity', () => {
 
     test('deletePerson', async () => {
         const uuid = new UUIDT().toString()
-        const person = await server.db.createPerson(
+        const person = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             team.id,
@@ -171,26 +166,26 @@ describe('postgres parity', () => {
             uuid,
             ['distinct1', 'distinct2']
         )
-        await delayUntilEventIngested(() => server.db.fetchPersons(Database.ClickHouse))
-        await delayUntilEventIngested(() => server.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
+        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
+        await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
 
-        await server.db.deletePerson(person)
+        await hub.db.deletePerson(person)
 
         await delayUntilEventIngested(async () =>
-            (await server.db.fetchPersons(Database.ClickHouse)).length === 0 ? ['deleted!'] : []
+            (await hub.db.fetchPersons(Database.ClickHouse)).length === 0 ? ['deleted!'] : []
         )
         await delayUntilEventIngested(async () =>
-            (await server.db.fetchDistinctIdValues(person, Database.ClickHouse)).length === 0 ? ['deleted!'] : []
+            (await hub.db.fetchDistinctIdValues(person, Database.ClickHouse)).length === 0 ? ['deleted!'] : []
         )
 
-        const clickHousePersons = await server.db.fetchPersons(Database.ClickHouse)
-        const postgresPersons = await server.db.fetchPersons(Database.Postgres)
+        const clickHousePersons = await hub.db.fetchPersons(Database.ClickHouse)
+        const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
 
         expect(clickHousePersons.length).toEqual(0)
         expect(postgresPersons.length).toEqual(0)
 
-        const clickHouseDistinctIdValues = await server.db.fetchDistinctIdValues(person, Database.ClickHouse)
-        const postgresDistinctIdValues = await server.db.fetchDistinctIdValues(person, Database.Postgres)
+        const clickHouseDistinctIdValues = await hub.db.fetchDistinctIdValues(person, Database.ClickHouse)
+        const postgresDistinctIdValues = await hub.db.fetchDistinctIdValues(person, Database.Postgres)
         expect(clickHouseDistinctIdValues.length).toEqual(0)
         expect(postgresDistinctIdValues.length).toEqual(0)
     })
@@ -198,16 +193,10 @@ describe('postgres parity', () => {
     test('addDistinctId & moveDistinctId', async () => {
         const uuid = new UUIDT().toString()
         const uuid2 = new UUIDT().toString()
-        const person = await server.db.createPerson(
-            DateTime.utc(),
-            { userProp: 'propValue' },
-            team.id,
-            null,
-            true,
-            uuid,
-            ['distinct1']
-        )
-        const anotherPerson = await server.db.createPerson(
+        const person = await hub.db.createPerson(DateTime.utc(), { userProp: 'propValue' }, team.id, null, true, uuid, [
+            'distinct1',
+        ])
+        const anotherPerson = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             team.id,
@@ -216,20 +205,20 @@ describe('postgres parity', () => {
             uuid2,
             ['another_distinct_id']
         )
-        await delayUntilEventIngested(() => server.db.fetchPersons(Database.ClickHouse))
-        const [postgresPerson] = await server.db.fetchPersons(Database.Postgres)
+        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
+        const [postgresPerson] = await hub.db.fetchPersons(Database.Postgres)
 
-        await delayUntilEventIngested(() => server.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse), 1)
-        const clickHouseDistinctIdValues = await server.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse)
-        const postgresDistinctIdValues = await server.db.fetchDistinctIdValues(postgresPerson, Database.Postgres)
+        await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse), 1)
+        const clickHouseDistinctIdValues = await hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse)
+        const postgresDistinctIdValues = await hub.db.fetchDistinctIdValues(postgresPerson, Database.Postgres)
 
         // check that all is in the right format
 
         expect(clickHouseDistinctIdValues).toEqual(['distinct1'])
         expect(postgresDistinctIdValues).toEqual(['distinct1'])
 
-        const clickHouseDistinctIds = await server.db.fetchDistinctIds(postgresPerson, Database.ClickHouse)
-        const postgresDistinctIds = await server.db.fetchDistinctIds(postgresPerson, Database.Postgres)
+        const clickHouseDistinctIds = await hub.db.fetchDistinctIds(postgresPerson, Database.ClickHouse)
+        const postgresDistinctIds = await hub.db.fetchDistinctIds(postgresPerson, Database.Postgres)
 
         expect(clickHouseDistinctIds).toEqual([
             {
@@ -253,50 +242,44 @@ describe('postgres parity', () => {
 
         // add 'anotherOne' to person
 
-        await server.db.addDistinctId(postgresPerson, 'anotherOne')
+        await hub.db.addDistinctId(postgresPerson, 'anotherOne')
 
-        await delayUntilEventIngested(() => server.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse), 2)
+        await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse), 2)
 
-        const clickHouseDistinctIdValues2 = await server.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse)
-        const postgresDistinctIdValues2 = await server.db.fetchDistinctIdValues(postgresPerson, Database.Postgres)
+        const clickHouseDistinctIdValues2 = await hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse)
+        const postgresDistinctIdValues2 = await hub.db.fetchDistinctIdValues(postgresPerson, Database.Postgres)
 
         expect(clickHouseDistinctIdValues2).toEqual(['distinct1', 'anotherOne'])
         expect(postgresDistinctIdValues2).toEqual(['distinct1', 'anotherOne'])
 
         // check anotherPerson for their initial distinct id
 
-        const clickHouseDistinctIdValuesOther = await server.db.fetchDistinctIdValues(
-            anotherPerson,
-            Database.ClickHouse
-        )
-        const postgresDistinctIdValuesOther = await server.db.fetchDistinctIdValues(anotherPerson, Database.Postgres)
+        const clickHouseDistinctIdValuesOther = await hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse)
+        const postgresDistinctIdValuesOther = await hub.db.fetchDistinctIdValues(anotherPerson, Database.Postgres)
 
         expect(clickHouseDistinctIdValuesOther).toEqual(['another_distinct_id'])
         expect(postgresDistinctIdValuesOther).toEqual(['another_distinct_id'])
 
         // move 'distinct1' from person to to anotherPerson
 
-        await server.db.moveDistinctId(postgresPerson, postgresDistinctIds[0], anotherPerson)
-        await delayUntilEventIngested(() => server.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
+        await hub.db.moveDistinctId(postgresPerson, postgresDistinctIds[0], anotherPerson)
+        await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
 
         // it got added
 
-        const clickHouseDistinctIdValuesMoved = await server.db.fetchDistinctIdValues(
-            anotherPerson,
-            Database.ClickHouse
-        )
-        const postgresDistinctIdValuesMoved = await server.db.fetchDistinctIdValues(anotherPerson, Database.Postgres)
+        const clickHouseDistinctIdValuesMoved = await hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse)
+        const postgresDistinctIdValuesMoved = await hub.db.fetchDistinctIdValues(anotherPerson, Database.Postgres)
 
         expect(clickHouseDistinctIdValuesMoved).toEqual(['distinct1', 'another_distinct_id'])
         expect(postgresDistinctIdValuesMoved).toEqual(['distinct1', 'another_distinct_id'])
 
         // it got removed
 
-        const clickHouseDistinctIdValuesRemoved = await server.db.fetchDistinctIdValues(
+        const clickHouseDistinctIdValuesRemoved = await hub.db.fetchDistinctIdValues(
             postgresPerson,
             Database.ClickHouse
         )
-        const postgresDistinctIdValuesRemoved = await server.db.fetchDistinctIdValues(postgresPerson, Database.Postgres)
+        const postgresDistinctIdValuesRemoved = await hub.db.fetchDistinctIdValues(postgresPerson, Database.Postgres)
 
         // The `distinct1` key is still there in clickhouse, yet ALSO there for the new person.
         // Eventually this should be compacted away but it's not right now.

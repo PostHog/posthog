@@ -1,13 +1,13 @@
 import { PluginAttachment } from '@posthog/plugin-scaffold'
 
-import { Plugin, PluginConfig, PluginConfigId, PluginId, PluginsServer, PluginTaskType, TeamId } from '../../types'
+import { Hub, Plugin, PluginConfig, PluginConfigId, PluginId, PluginTaskType, TeamId } from '../../types'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { LazyPluginVM } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
 import { teardownPlugins } from './teardown'
 
-export async function setupPlugins(server: PluginsServer): Promise<void> {
+export async function setupPlugins(server: Hub): Promise<void> {
     const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(server)
 
     const pluginVMLoadPromises: Array<Promise<any>> = []
@@ -46,8 +46,8 @@ export async function setupPlugins(server: PluginsServer): Promise<void> {
 }
 
 async function loadPluginsFromDB(
-    server: PluginsServer
-): Promise<Pick<PluginsServer, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
+    server: Hub
+): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
     const pluginRows = await getPluginRows(server)
     const plugins = new Map<PluginId, Plugin>()
 
@@ -104,7 +104,7 @@ async function loadPluginsFromDB(
     return { plugins, pluginConfigs, pluginConfigsPerTeam }
 }
 
-export async function loadSchedule(server: PluginsServer): Promise<void> {
+export async function loadSchedule(server: Hub): Promise<void> {
     server.pluginSchedule = null
 
     // gather runEvery* tasks into a schedule

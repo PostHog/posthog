@@ -1,5 +1,5 @@
-import { PluginConfig, PluginError, PluginsServer } from '../src/types'
-import { createServer } from '../src/utils/db/server'
+import { Hub, PluginConfig, PluginError } from '../src/types'
+import { createHub } from '../src/utils/db/hub'
 import {
     disablePlugin,
     getPluginAttachmentRows,
@@ -10,14 +10,16 @@ import {
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
-let server: PluginsServer
-let closeServer: () => Promise<void>
+let hub: Hub
+let closeHub: () => Promise<void>
+
 beforeEach(async () => {
-    ;[server, closeServer] = await createServer()
+    ;[hub, closeHub] = await createHub()
     await resetTestDatabase(`const processEvent = event => event`)
 })
+
 afterEach(async () => {
-    await closeServer()
+    await closeHub()
 })
 
 test('getPluginAttachmentRows', async () => {
@@ -34,10 +36,10 @@ test('getPluginAttachmentRows', async () => {
         },
     ]
 
-    const rows1 = await getPluginAttachmentRows(server)
+    const rows1 = await getPluginAttachmentRows(hub)
     expect(rows1).toEqual(rowsExpected)
-    await server.db.postgresQuery("update posthog_team set plugins_opt_in='f'", undefined, 'testTag')
-    const rows2 = await getPluginAttachmentRows(server)
+    await hub.db.postgresQuery("update posthog_team set plugins_opt_in='f'", undefined, 'testTag')
+    const rows2 = await getPluginAttachmentRows(hub)
     expect(rows2).toEqual(rowsExpected)
 })
 
@@ -58,10 +60,10 @@ test('getPluginConfigRows', async () => {
         },
     ]
 
-    const rows1 = await getPluginConfigRows(server)
+    const rows1 = await getPluginConfigRows(hub)
     expect(rows1).toEqual(rowsExpected)
-    await server.db.postgresQuery("update posthog_team set plugins_opt_in='f'", undefined, 'testTag')
-    const rows2 = await getPluginConfigRows(server)
+    await hub.db.postgresQuery("update posthog_team set plugins_opt_in='f'", undefined, 'testTag')
+    const rows2 = await getPluginConfigRows(hub)
     expect(rows2).toEqual(rowsExpected)
 })
 
@@ -109,10 +111,10 @@ test('getPluginRows', async () => {
         },
     ]
 
-    const rows1 = await getPluginRows(server)
+    const rows1 = await getPluginRows(hub)
     expect(rows1).toEqual(rowsExpected)
-    await server.db.postgresQuery("update posthog_team set plugins_opt_in='f'", undefined, 'testTag')
-    const rows2 = await getPluginRows(server)
+    await hub.db.postgresQuery("update posthog_team set plugins_opt_in='f'", undefined, 'testTag')
+    const rows2 = await getPluginRows(hub)
     expect(rows2).toEqual(rowsExpected)
 })
 
@@ -128,18 +130,18 @@ test('setError', async () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     }
-    server.db.postgresQuery = jest.fn() as any
+    hub.db.postgresQuery = jest.fn() as any
 
-    await setError(server, null, pluginConfig39)
-    expect(server.db.postgresQuery).toHaveBeenCalledWith(
+    await setError(hub, null, pluginConfig39)
+    expect(hub.db.postgresQuery).toHaveBeenCalledWith(
         'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
         [null, pluginConfig39.id],
         'updatePluginConfigError'
     )
 
     const pluginError: PluginError = { message: 'error happened', time: 'now' }
-    await setError(server, pluginError, pluginConfig39)
-    expect(server.db.postgresQuery).toHaveBeenCalledWith(
+    await setError(hub, pluginError, pluginConfig39)
+    expect(hub.db.postgresQuery).toHaveBeenCalledWith(
         'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
         [pluginError, pluginConfig39.id],
         'updatePluginConfigError'
@@ -148,10 +150,10 @@ test('setError', async () => {
 
 describe('disablePlugin', () => {
     test('disablePlugin query builds correctly', async () => {
-        server.db.postgresQuery = jest.fn() as any
+        hub.db.postgresQuery = jest.fn() as any
 
-        await disablePlugin(server, 39)
-        expect(server.db.postgresQuery).toHaveBeenCalledWith(
+        await disablePlugin(hub, 39)
+        expect(hub.db.postgresQuery).toHaveBeenCalledWith(
             `UPDATE posthog_pluginconfig SET enabled='f' WHERE id=$1 AND enabled='t'`,
             [39],
             'disablePlugin'
@@ -159,13 +161,13 @@ describe('disablePlugin', () => {
     })
 
     test('disablePlugin disables a plugin', async () => {
-        const rowsBefore = await getPluginConfigRows(server)
+        const rowsBefore = await getPluginConfigRows(hub)
         expect(rowsBefore[0].plugin_id).toEqual(60)
         expect(rowsBefore[0].enabled).toEqual(true)
 
-        await disablePlugin(server, 39)
+        await disablePlugin(hub, 39)
 
-        const rowsAfter = await getPluginConfigRows(server)
+        const rowsAfter = await getPluginConfigRows(hub)
         expect(rowsAfter).toEqual([])
     })
 })

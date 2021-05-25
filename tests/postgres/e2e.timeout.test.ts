@@ -1,5 +1,5 @@
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { LogLevel, PluginsServer } from '../../src/types'
+import { Hub, LogLevel } from '../../src/types'
 import { UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
@@ -10,7 +10,7 @@ import { delayUntilEventIngested } from '../shared/process-event'
 jest.setTimeout(60000) // 60 sec timeout
 
 describe('e2e postgres ingestion timeout', () => {
-    let server: PluginsServer
+    let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
 
@@ -37,14 +37,14 @@ describe('e2e postgres ingestion timeout', () => {
             },
             makePiscina
         )
-        server = startResponse.server
+        hub = startResponse.hub
         stopServer = startResponse.stop
-        const redis = await server.redisPool.acquire()
-        await redis.del(server.PLUGINS_CELERY_QUEUE)
-        await redis.del(server.CELERY_DEFAULT_QUEUE)
-        await server.redisPool.release(redis)
+        const redis = await hub.redisPool.acquire()
+        await redis.del(hub.PLUGINS_CELERY_QUEUE)
+        await redis.del(hub.CELERY_DEFAULT_QUEUE)
+        await hub.redisPool.release(redis)
 
-        posthog = createPosthog(server, pluginConfig39)
+        posthog = createPosthog(hub, pluginConfig39)
     })
 
     afterEach(async () => {
@@ -52,11 +52,11 @@ describe('e2e postgres ingestion timeout', () => {
     })
 
     test('event captured, processed, ingested', async () => {
-        expect((await server.db.fetchEvents()).length).toBe(0)
+        expect((await hub.db.fetchEvents()).length).toBe(0)
         const uuid = new UUIDT().toString()
         posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
-        await delayUntilEventIngested(() => server.db.fetchEvents())
-        const events = await server.db.fetchEvents()
+        await delayUntilEventIngested(() => hub.db.fetchEvents())
+        const events = await hub.db.fetchEvents()
         expect(events.length).toBe(1)
         expect(events[0].properties.name).toEqual('haha')
         expect(events[0].properties.passed).not.toEqual(true)

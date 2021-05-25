@@ -2,8 +2,7 @@ import { performance } from 'perf_hooks'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { ClickHouseEvent, LogLevel, PluginsServerConfig, Queue } from '../../src/types'
-import { PluginsServer } from '../../src/types'
+import { ClickHouseEvent, Hub, LogLevel, PluginsServerConfig, Queue } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
@@ -27,7 +26,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 
 describe('e2e kafka processing timeout benchmark', () => {
     let queue: Queue
-    let server: PluginsServer
+    let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
 
@@ -43,11 +42,11 @@ describe('e2e kafka processing timeout benchmark', () => {
         await resetTestDatabaseClickhouse(extraServerConfig)
 
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
-        server = startResponse.server
+        hub = startResponse.hub
         stopServer = startResponse.stop
         queue = startResponse.queue
 
-        posthog = createPosthog(server, pluginConfig39)
+        posthog = createPosthog(hub, pluginConfig39)
     })
 
     afterEach(async () => {
@@ -75,7 +74,7 @@ describe('e2e kafka processing timeout benchmark', () => {
 
         console.log('Starting timer')
         const startTime = performance.now()
-        await delayUntilEventIngested(() => server.db.fetchEvents(), count, 500, count)
+        await delayUntilEventIngested(() => hub.db.fetchEvents(), count, 500, count)
         const timeMs = performance.now() - startTime
         console.log('Finished!')
 
@@ -85,7 +84,7 @@ describe('e2e kafka processing timeout benchmark', () => {
                 1000 / (timeMs / count)
             )} events/sec, ${n(timeMs / count)}ms per event)`
         )
-        const events = (await server.db.fetchEvents()) as ClickHouseEvent[]
+        const events = (await hub.db.fetchEvents()) as ClickHouseEvent[]
         const passedEvents = events.filter((e) => e.properties.timeout).length
         console.log(
             `ℹ️ Out of 3000 events: ${passedEvents} took under 5sec, ${

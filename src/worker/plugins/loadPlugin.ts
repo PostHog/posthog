@@ -1,11 +1,11 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-import { PluginConfig, PluginJsonConfig, PluginsServer } from '../../types'
+import { Hub, PluginConfig, PluginJsonConfig } from '../../types'
 import { processError } from '../../utils/db/error'
 import { getFileFromArchive, pluginDigest } from '../../utils/utils'
 
-export async function loadPlugin(server: PluginsServer, pluginConfig: PluginConfig): Promise<boolean> {
+export async function loadPlugin(server: Hub, pluginConfig: PluginConfig): Promise<boolean> {
     const { plugin } = pluginConfig
 
     if (!plugin) {

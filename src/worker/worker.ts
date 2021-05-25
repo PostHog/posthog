@@ -1,9 +1,9 @@
 import * as Sentry from '@sentry/node'
 
 import { initApp } from '../init'
-import { PluginsServer, PluginsServerConfig } from '../types'
+import { Hub, PluginsServerConfig } from '../types'
 import { processError } from '../utils/db/error'
-import { createServer } from '../utils/db/server'
+import { createHub } from '../utils/db/hub'
 import { status } from '../utils/status'
 import { cloneObject, pluginConfigIdFromStack } from '../utils/utils'
 import { setupPlugins } from './plugins/setup'
@@ -16,19 +16,19 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
 
     status.info('🧵', `Starting Piscina worker thread ${threadId}…`)
 
-    const [server, closeServer] = await createServer(config, threadId)
-    await setupPlugins(server)
+    const [hub, closeHub] = await createHub(config, threadId)
+    await setupPlugins(hub)
 
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-        process.on(signal, closeServer)
+        process.on(signal, closeHub)
     }
 
-    process.on('unhandledRejection', (error: Error) => processUnhandledRejections(error, server))
+    process.on('unhandledRejection', (error: Error) => processUnhandledRejections(error, hub))
 
-    return createTaskRunner(server)
+    return createTaskRunner(hub)
 }
 
-export const createTaskRunner = (server: PluginsServer): PiscinaTaskWorker => async ({ task, args }) => {
+export const createTaskRunner = (hub: Hub): PiscinaTaskWorker => async ({ task, args }) => {
     const timer = new Date()
     let response
 
@@ -37,7 +37,7 @@ export const createTaskRunner = (server: PluginsServer): PiscinaTaskWorker => as
     if (task in workerTasks) {
         try {
             // must clone the object, as we may get from VM2 something like { ..., properties: Proxy {} }
-            response = cloneObject(await workerTasks[task](server, args))
+            response = cloneObject(await workerTasks[task](hub, args))
         } catch (e) {
             status.info('🔔', e)
             Sentry.captureException(e)
@@ -47,11 +47,11 @@ export const createTaskRunner = (server: PluginsServer): PiscinaTaskWorker => as
         response = { error: `Worker task "${task}" not found in: ${Object.keys(workerTasks).join(', ')}` }
     }
 
-    server.statsd?.timing(`piscina_task.${task}`, timer)
+    hub.statsd?.timing(`piscina_task.${task}`, timer)
     return response
 }
 
-export function processUnhandledRejections(error: Error, server: PluginsServer): void {
+export function processUnhandledRejections(error: Error, server: Hub): void {
     const pluginConfigId = pluginConfigIdFromStack(error.stack || '', server.pluginConfigSecretLookup)
     const pluginConfig = pluginConfigId ? server.pluginConfigs.get(pluginConfigId) : null
 

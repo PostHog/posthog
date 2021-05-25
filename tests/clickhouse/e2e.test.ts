@@ -1,7 +1,7 @@
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../../src/types'
-import { PluginsServer } from '../../src/types'
+import { Hub } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
@@ -26,7 +26,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 
 // TODO: merge these tests with postgres/e2e.test.ts
 describe('e2e clickhouse ingestion', () => {
-    let server: PluginsServer
+    let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
 
@@ -55,9 +55,9 @@ describe('e2e clickhouse ingestion', () => {
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
-        server = startResponse.server
+        hub = startResponse.hub
         stopServer = startResponse.stop
-        posthog = createPosthog(server, pluginConfig39)
+        posthog = createPosthog(hub, pluginConfig39)
     })
 
     afterEach(async () => {
@@ -65,16 +65,16 @@ describe('e2e clickhouse ingestion', () => {
     })
 
     test('event captured, processed, ingested', async () => {
-        expect((await server.db.fetchEvents()).length).toBe(0)
+        expect((await hub.db.fetchEvents()).length).toBe(0)
 
         const uuid = new UUIDT().toString()
 
         posthog.capture('custom event', { name: 'haha', uuid })
 
-        await delayUntilEventIngested(() => server.db.fetchEvents())
+        await delayUntilEventIngested(() => hub.db.fetchEvents())
 
-        await server.kafkaProducer?.flush()
-        const events = await server.db.fetchEvents()
+        await hub.kafkaProducer?.flush()
+        const events = await hub.db.fetchEvents()
         await delay(1000)
 
         expect(events.length).toBe(1)
@@ -88,16 +88,16 @@ describe('e2e clickhouse ingestion', () => {
     })
 
     test('snapshot captured, processed, ingested', async () => {
-        expect((await server.db.fetchSessionRecordingEvents()).length).toBe(0)
+        expect((await hub.db.fetchSessionRecordingEvents()).length).toBe(0)
 
         const uuid = new UUIDT().toString()
 
         posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: 'yes way' })
 
-        await delayUntilEventIngested(() => server.db.fetchSessionRecordingEvents())
+        await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
-        await server.kafkaProducer?.flush()
-        const events = await server.db.fetchSessionRecordingEvents()
+        await hub.kafkaProducer?.flush()
+        const events = await hub.db.fetchSessionRecordingEvents()
         await delay(1000)
 
         expect(events.length).toBe(1)
@@ -110,14 +110,14 @@ describe('e2e clickhouse ingestion', () => {
     })
 
     test('console logging is persistent', async () => {
-        const logCount = (await server.db.fetchPluginLogEntries()).length
-        const getLogsSinceStart = async () => (await server.db.fetchPluginLogEntries()).slice(logCount)
+        const logCount = (await hub.db.fetchPluginLogEntries()).length
+        const getLogsSinceStart = async () => (await hub.db.fetchPluginLogEntries()).slice(logCount)
 
         posthog.capture('custom event', { name: 'hehe', uuid: new UUIDT().toString() })
 
-        await server.kafkaProducer?.flush()
-        await delayUntilEventIngested(() => server.db.fetchEvents())
-        await delayUntilEventIngested(() => server.db.fetchPluginLogEntries())
+        await hub.kafkaProducer?.flush()
+        await delayUntilEventIngested(() => hub.db.fetchEvents())
+        await delayUntilEventIngested(() => hub.db.fetchPluginLogEntries())
 
         const pluginLogEntries = await getLogsSinceStart()
         expect(

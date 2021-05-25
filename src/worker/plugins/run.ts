@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { PluginConfig, PluginsServer, PluginTaskType } from '../../types'
+import { Hub, PluginConfig, PluginTaskType } from '../../types'
 import { processError } from '../../utils/db/error'
 
 export class IllegalOperationError extends Error {
@@ -11,7 +11,7 @@ export class IllegalOperationError extends Error {
     }
 }
 
-export async function runOnEvent(server: PluginsServer, event: PluginEvent): Promise<void> {
+export async function runOnEvent(server: Hub, event: PluginEvent): Promise<void> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
 
     await Promise.all(
@@ -31,7 +31,7 @@ export async function runOnEvent(server: PluginsServer, event: PluginEvent): Pro
     )
 }
 
-export async function runOnSnapshot(server: PluginsServer, event: PluginEvent): Promise<void> {
+export async function runOnSnapshot(server: Hub, event: PluginEvent): Promise<void> {
     const pluginsToRun = getPluginsForTeam(server, event.team_id)
 
     await Promise.all(
@@ -51,7 +51,7 @@ export async function runOnSnapshot(server: PluginsServer, event: PluginEvent): 
     )
 }
 
-export async function runProcessEvent(server: PluginsServer, event: PluginEvent): Promise<PluginEvent | null> {
+export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<PluginEvent | null> {
     const teamId = event.team_id
     const pluginsToRun = getPluginsForTeam(server, teamId)
     let returnedEvent: PluginEvent | null = event
@@ -98,7 +98,7 @@ export async function runProcessEvent(server: PluginsServer, event: PluginEvent)
     return returnedEvent
 }
 
-export async function runProcessEventBatch(server: PluginsServer, batch: PluginEvent[]): Promise<PluginEvent[]> {
+export async function runProcessEventBatch(server: Hub, batch: PluginEvent[]): Promise<PluginEvent[]> {
     const eventsByTeam = new Map<number, PluginEvent[]>()
 
     for (const event of batch) {
@@ -164,7 +164,7 @@ export async function runProcessEventBatch(server: PluginsServer, batch: PluginE
 }
 
 export async function runPluginTask(
-    server: PluginsServer,
+    server: Hub,
     taskName: string,
     taskType: PluginTaskType,
     pluginConfigId: number,
@@ -189,6 +189,6 @@ export async function runPluginTask(
     return response
 }
 
-function getPluginsForTeam(server: PluginsServer, teamId: number): PluginConfig[] {
+function getPluginsForTeam(server: Hub, teamId: number): PluginConfig[] {
     return server.pluginConfigsPerTeam.get(teamId) || []
 }

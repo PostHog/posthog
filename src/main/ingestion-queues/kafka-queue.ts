@@ -2,21 +2,21 @@ import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka, KafkaMessage } from 'kafkajs'
-import { PluginsServer, Queue, WorkerMethods } from 'types'
+import { Hub, Queue, WorkerMethods } from 'types'
 
 import { status } from '../../utils/status'
 import { groupIntoBatches, killGracefully, sanitizeEvent } from '../../utils/utils'
 import { ingestEvent } from './ingest-event'
 
 export class KafkaQueue implements Queue {
-    private pluginsServer: PluginsServer
+    private pluginsServer: Hub
     private piscina: Piscina
     private kafka: Kafka
     private consumer: Consumer
     private wasConsumerRan: boolean
     private workerMethods: WorkerMethods
 
-    constructor(pluginsServer: PluginsServer, piscina: Piscina, workerMethods: WorkerMethods) {
+    constructor(pluginsServer: Hub, piscina: Piscina, workerMethods: WorkerMethods) {
         this.pluginsServer = pluginsServer
         this.piscina = piscina
         this.kafka = pluginsServer.kafka!

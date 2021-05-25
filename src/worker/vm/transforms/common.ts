@@ -1,6 +1,6 @@
 import { PluginObj } from '@babel/core'
 import * as types from '@babel/types'
 
-import { PluginsServer } from '../../../types'
+import { Hub } from '../../../types'
 
-export type PluginGen = (server: PluginsServer, ...args: any[]) => (param: { types: typeof types }) => PluginObj
+export type PluginGen = (server: Hub, ...args: any[]) => (param: { types: typeof types }) => PluginObj
