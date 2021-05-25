@@ -25,6 +25,10 @@ export interface SelectBoxItem {
     metadata?: Record<string, any> // Used to store additional data (e.g. search term)
 }
 
+interface CustomOnSelectProps {
+    item: SelectedItem
+    group: SelectBoxItem
+}
 export interface SelectedItem {
     id?: number | string // Populated for actions (string is used for UUIDs)
     name: string
@@ -37,6 +41,8 @@ export interface SelectedItem {
     is_numerical?: boolean // Only for properties
     category?: string
     cohort?: CohortType
+    onSelect?: (props?: CustomOnSelectProps) => void // Custom handler on item select
+    onSelectPreventDefault?: boolean // Prevent default handler logic from running
 }
 
 export function SelectBox({

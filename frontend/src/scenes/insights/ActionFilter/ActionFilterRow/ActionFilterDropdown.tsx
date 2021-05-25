@@ -10,6 +10,7 @@ import { Link } from 'lib/components/Link'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { entityFilterLogic } from '../entityFilterLogic'
 import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { router } from 'kea-router'
 
 const getSuggestions = (events: EventDefinition[]): EventDefinition[] => {
     return events
@@ -114,13 +115,24 @@ export function ActionFilterDropdown({
                             </>
                         )
                     },
-                    dataSource: actions.map((action: ActionType) => ({
-                        key: EntityTypes.ACTIONS + action.id,
-                        name: action.name,
-                        volume: action.count,
-                        id: action.id,
-                        action,
-                    })),
+                    dataSource: actions.length
+                        ? actions.map((action: ActionType) => ({
+                              key: EntityTypes.ACTIONS + action.id,
+                              name: action.name,
+                              volume: action.count,
+                              id: action.id,
+                              action,
+                          }))
+                        : [
+                              {
+                                  key: EntityTypes.ACTIONS + 'create_new',
+                                  name: `No actions found. Click to set up an action.`,
+                                  onSelect: () => {
+                                      router.actions.push('/actions')
+                                  },
+                                  onSelectPreventDefault: true,
+                              },
+                          ],
                     renderInfo: ActionInfo,
                     type: EntityTypes.ACTIONS,
                     getValue: (item: SelectedItem) => item.action?.id || '',
