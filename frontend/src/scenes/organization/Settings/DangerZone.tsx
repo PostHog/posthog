@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { DeleteOutlined } from '@ant-design/icons'
-import { Button, Modal } from 'antd'
+import { Button, Input, Modal } from 'antd'
 import { organizationLogic } from 'scenes/organizationLogic'
 import Paragraph from 'antd/lib/typography/Paragraph'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
@@ -16,6 +16,7 @@ export function DeleteOrganizationModal({
     const { currentOrganization, organizationBeingDeleted } = useValues(organizationLogic)
     const { deleteOrganization } = useActions(organizationLogic)
 
+    const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
     const isDeletionInProgress = !!currentOrganization && organizationBeingDeleted?.id === currentOrganization.id
 
     return (
@@ -28,6 +29,7 @@ export function DeleteOrganizationModal({
                 // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
                 'data-attr': 'delete-organization-ok',
                 loading: isDeletionInProgress,
+                disabled: !isDeletionConfirmed,
             }}
             onCancel={() => setIsVisible(false)}
             cancelButtonProps={{
@@ -35,8 +37,24 @@ export function DeleteOrganizationModal({
             }}
             visible={isVisible}
         >
-            Organization deletion <b>cannot be undone</b>. You will lose all data, <b>including all events</b>, related
-            to all projects within this organization.
+            <p>
+                Organization deletion <b>cannot be undone</b>. You will lose all data, <b>including all events</b>,
+                related to all projects within this organization.
+            </p>
+            <p>
+                Please type{' '}
+                <strong>{currentOrganization ? currentOrganization.name : "this organization's name"}</strong> to
+                confirm.
+            </p>
+            <Input
+                type="text"
+                onChange={(e) => {
+                    if (currentOrganization) {
+                        const { value } = e.target
+                        setIsDeletionConfirmed(value.toLowerCase() === currentOrganization.name.toLowerCase())
+                    }
+                }}
+            />
         </Modal>
     )
 }
