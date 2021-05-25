@@ -29,7 +29,7 @@ export default function TooltipItem({ propertyValue, action, value }: TooltipIte
                     {' ('}
                     {action.properties?.map((property, i, arr) => (
                         <span key={i}>
-                            {property.key && `${property.key} `}
+                            {property.key && <PropertyKeyInfo disableIcon value={property.key} />}{' '}
                             {operatorMap[property.operator || 'exact'].split(' ')[0]} {property.value}
                             {i !== arr.length - 1 && ', '}
                         </span>
