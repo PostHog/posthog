@@ -741,6 +741,8 @@ export interface EventDefinition {
 export interface PropertyDefinition {
     id: string
     name: string
+    description: string | null
+    tags: []
     volume_30_day: number | null
     query_usage_30_day: number | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition

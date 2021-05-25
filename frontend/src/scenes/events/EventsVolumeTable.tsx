@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useValues } from 'kea'
-import { Alert, Input, Skeleton, Table, Tooltip } from 'antd'
+import { Alert, Button, Input, Skeleton, Table, Tooltip, Typography } from 'antd'
 import Fuse from 'fuse.js'
 import { InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
@@ -11,7 +11,8 @@ import { eventDefinitionsLogic } from './eventDefinitionsLogic'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ObjectTags } from 'lib/components/ObjectTags'
-
+import { userLogic } from 'scenes/userLogic'
+import './VolumeTable.scss'
 type EventTableType = 'event' | 'property'
 
 type EventOrPropType = EventDefinition & PropertyDefinition
@@ -39,7 +40,8 @@ export function VolumeTable({
 }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
-
+    const { user } = useValues(userLogic)
+    const isPremiumUser = user?.organization?.available_features?.includes('dashboard_collaboration')
     const columns: ColumnsType<VolumeTableRecord> = [
         {
             title: `${capitalizeFirstLetter(type)} name`,
@@ -47,8 +49,9 @@ export function VolumeTable({
                 return (
                     <span>
                         <span className="ph-no-capture">
-                            <PropertyKeyInfo value={record.eventOrProp.name} />
+                            <PropertyKeyInfo style={{ fontWeight: 'bold' }} value={record.eventOrProp.name} />
                         </span>
+                        {isPremiumUser && type === 'event' && <VolumeTableRecordDescription record={record.eventOrProp}/>}
                         {record.warnings?.map((warning) => (
                             <Tooltip
                                 key={warning}
@@ -152,33 +155,50 @@ export function VolumeTable({
                 size="small"
                 style={{ marginBottom: '4rem' }}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                expandable={{
-                    expandedRowRender: function renderExpand(item) {
-                        return <VolumeTableDetail event={item.eventOrProp} />
-                    },
-                    rowExpandable: (item) => !!item,
-                    expandRowByClick: true,
-                }}
             />
         </>
     )
 }
 
-export function VolumeTableDetail({ event }: { event: EventDefinition }): JSX.Element {
-    console.log('EVENT DEF', event)
+export function VolumeTableRecordDescription({ record }: { record: EventDefinition | PropertyDefinition }): JSX.Element {
+    const [newDescription, setNewDescription] = useState(record.description)
+    const [bordered, setBordered] = useState(false)
     return (
-        <div>
-            <ObjectTags
-                tags={event.tags}
-                onTagSave={() => {}}
-                onTagDelete={() => {}}
-                saving={false}
-            />
-
-            {event.description && (
-                <div>Description: {event?.description}</div>
-            )}
-        </div>
+        (record.description ? (
+            <Typography.Text>
+                {record.description}
+            </Typography.Text>
+        )
+            : (
+                <div style={{display: 'flex', minWidth: 300, marginRight: 32}}>
+                    <Input.TextArea
+                        className="definition-description"
+                        placeholder="Click to add description"
+                        onClick={() => setBordered(true)}
+                        bordered={bordered}
+                        maxLength={400}
+                        style={{padding: 0, marginRight: 16, minWidth: 300}}
+                        autoSize={true}
+                        value={newDescription || undefined}
+                        onChange={(e) => setNewDescription(e.target.value)}
+                    />
+                    {newDescription !== record.description && (
+                        <>
+                            <Button style={{marginRight: 8}} size="small">Save</Button>
+                            <Button
+                                onClick={() => {
+                                    setNewDescription(record.description)
+                                    setBordered(false)
+                                }}
+                                size="small"
+                            >
+                                Cancel
+                            </Button>
+                        </>
+                    )}
+                </div>
+            )
+        )
     )
 }
 

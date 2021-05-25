@@ -462,12 +462,14 @@ export const keyMapping: KeyMappingInterface = {
 interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
+    style?: any
     disablePopover?: boolean
 }
 
 export function PropertyKeyInfo({
     value,
     type = 'event',
+    style,
     disablePopover = false,
 }: PropertyKeyInfoInterface): JSX.Element {
     value = `${value}` // convert to string
@@ -482,7 +484,7 @@ export function PropertyKeyInfo({
         }
     } else {
         return (
-            <Typography.Text ellipsis={true} style={{ color: 'inherit', maxWidth: 400 }} title={value}>
+            <Typography.Text ellipsis={true} style={{ color: 'inherit', maxWidth: 400, ...style }} title={value}>
                 {value}
             </Typography.Text>
         )
