@@ -79,8 +79,8 @@ class TestEventDefinitionAPI(APIBaseTest):
     def test_cant_see_event_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")
         team = Team.objects.create(organization=org, name="Default Project")
-        team.event_names = self.demo_team.event_names + [f"should_be_invisible_{i}" for i in range(0, 5)]
-        team.save()
+
+        EventDefinition.objects.create(team=team, name="should_be_invisible")
 
         response = self.client.get("/api/projects/@current/event_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
