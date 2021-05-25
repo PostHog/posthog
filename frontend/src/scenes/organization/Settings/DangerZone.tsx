@@ -16,7 +16,7 @@ export function DeleteOrganizationModal({
     const { currentOrganization, organizationBeingDeleted } = useValues(organizationLogic)
     const { deleteOrganization } = useActions(organizationLogic)
 
-    const [deletionEnabled, setDeletionEnabled] = useState(false)
+    const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
     const isDeletionInProgress = !!currentOrganization && organizationBeingDeleted?.id === currentOrganization.id
 
     return (
@@ -29,7 +29,7 @@ export function DeleteOrganizationModal({
                 // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
                 'data-attr': 'delete-organization-ok',
                 loading: isDeletionInProgress,
-                disabled: !deletionEnabled,
+                disabled: !isDeletionConfirmed,
             }}
             onCancel={() => setIsVisible(false)}
             cancelButtonProps={{
@@ -41,14 +41,19 @@ export function DeleteOrganizationModal({
                 Organization deletion <b>cannot be undone</b>. You will lose all data, <b>including all events</b>,
                 related to all projects within this organization.
             </p>
-            Please type <strong>{currentOrganization ? currentOrganization.name : 'I confirm'}</strong> to confirm.
+            <p>
+                Please type{' '}
+                <strong>{currentOrganization ? currentOrganization.name : "this organization's name"}</strong> to
+                confirm.
+            </p>
             <Input
                 type="text"
                 onChange={(e) => {
-                    const { value } = e.target
-                    setDeletionEnabled(value === (currentOrganization ? currentOrganization.name : 'I confirm'))
+                    if (currentOrganization) {
+                        const { value } = e.target
+                        setIsDeletionConfirmed(value.toLowerCase() === currentOrganization.name.toLowerCase())
+                    }
                 }}
-                style={{ marginTop: '1rem' }}
             />
         </Modal>
     )
