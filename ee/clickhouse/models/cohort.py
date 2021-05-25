@@ -6,7 +6,11 @@ from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.sql.cohort import CALCULATE_COHORT_PEOPLE_SQL
+from ee.clickhouse.sql.cohort import (
+    CALCULATE_COHORT_PEOPLE_SQL,
+    INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
+    REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
+)
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_ID_SQL,
@@ -23,9 +27,7 @@ def format_person_query(cohort: Cohort, custom_match_field="person_id") -> Tuple
 
     if cohort.is_static:
         return (
-            "{match_field} IN (SELECT person_id FROM {static_cohort} WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s)".format(
-                match_field=custom_match_field, static_cohort=PERSON_STATIC_COHORT_TABLE
-            ),
+            f"{custom_match_field} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s)",
             {"cohort_id": cohort.pk, "team_id": cohort.team_id},
         )
 
@@ -112,40 +114,10 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 def recalculate_cohortpeople(cohort: Cohort):
     cohort_filter, cohort_params = format_person_query(cohort, "person.id")
 
-    INSERT_PEOPLE_MATCHING_COHORT_ID_SQL = """
-    INSERT INTO cohortpeople
-        SELECT id, %(cohort_id)s as cohort_id, %(team_id)s as team_id, 1 as _sign
-        FROM (
-            SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
-        ) as person
-        LEFT JOIN cohortpeople ON (person.id = cohortpeople.person_id)
-        WHERE cohortpeople.person_id = '00000000-0000-0000-0000-000000000000'
-        AND person.is_deleted = 0
-        AND {cohort_filter}
-    """.format(
-        cohort_filter=cohort_filter
-    )
+    insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
 
-    sync_execute(
-        INSERT_PEOPLE_MATCHING_COHORT_ID_SQL, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id}
-    )
+    sync_execute(insert_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
 
-    REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL = """
-    INSERT INTO cohortpeople
-    SELECT person_id, cohort_id, %(team_id)s as team_id,  -1 as _sign
-    FROM cohortpeople
-    JOIN (
-        SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
-    ) as person ON (person.id = cohortpeople.person_id)
-    WHERE cohort_id = %(cohort_id)s
-    AND 
-        (
-            person.is_deleted = 1 OR NOT ({cohort_filter})
-        )
-    """.format(
-        cohort_filter=cohort_filter
-    )
+    remove_cohortpeople_sql = REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
 
-    sync_execute(
-        REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id}
-    )
+    sync_execute(remove_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})

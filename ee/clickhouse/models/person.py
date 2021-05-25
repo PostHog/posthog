@@ -99,13 +99,25 @@ def get_persons_by_uuids(team_id: int, uuids: List[str]) -> QuerySet:
 
 
 def delete_person(person_id: UUID, delete_events: bool = False, team_id: int = False) -> None:
+    person = Person.objects.get(uuid=person_id)
+    timestamp = now()
+
+    data = {
+        "id": person.uuid,
+        "team_id": team_id,
+        "properties": json.dumps(person.properties),
+        "is_identified": int(person.is_identified),
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
     try:
         if delete_events:
             sync_execute(DELETE_PERSON_EVENTS_BY_ID, {"id": person_id, "team_id": team_id})
     except:
         pass  # cannot delete if the table is distributed
 
-    sync_execute(DELETE_PERSON_BY_ID, {"id": person_id, "team_id": team_id})
+    sync_execute(DELETE_PERSON_BY_ID, data)
     sync_execute(DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID, {"id": person_id,})
 
 
