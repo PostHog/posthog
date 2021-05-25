@@ -11,7 +11,7 @@ class EventDefinition(UUIDModel):
         Team, on_delete=models.CASCADE, related_name="event_definitions", related_query_name="team",
     )
     owner: models.ForeignKey = models.ForeignKey(
-        User, null=True, on_delete=models.CASCADE, related_name="event_definitions", related_query_name="user",
+        User, null=True, on_delete=models.SET_NULL, related_name="event_definitions", related_query_name="user",
     )
     name: models.CharField = models.CharField(max_length=400)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
