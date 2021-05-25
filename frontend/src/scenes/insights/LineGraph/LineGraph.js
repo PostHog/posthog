@@ -67,6 +67,7 @@ export function LineGraph({
         axisLabel: color === 'white' ? '#333' : 'rgba(255,255,255,0.8)',
         axisLine: color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)',
         axis: color === 'white' ? '#999' : 'rgba(255,255,255,0.6)',
+        crosshair: 'rgba(0,0,0,0.2)',
         tooltipBackground: '#1dc9b7',
         tooltipTitle: '#fff',
         tooltipBody: '#fff',
@@ -316,7 +317,7 @@ export function LineGraph({
                 ? {
                       crosshair: {
                           line: {
-                              color: colors.axis,
+                              color: colors.crosshair,
                               width: 1,
                           },
                           snapping: {
