@@ -62,7 +62,7 @@ class TestUserAPI(APIBaseTest):
         )  # Ensure we're not returning the full `Team`
         self.assertNotIn("event_names", response_data["organization"]["teams"][0])
 
-        self.assertEqual(
+        self.assertCountEqual(
             response_data["organizations"],
             [
                 {"id": str(self.organization.id), "name": self.organization.name},

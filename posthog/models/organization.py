@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
@@ -81,6 +82,7 @@ class Organization(UUIDModel):
         default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
         choices=PluginsAccessLevel.choices,
     )
+    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
 
     objects: OrganizationManager = OrganizationManager()
@@ -114,17 +116,15 @@ class Organization(UUIDModel):
     def billing_plan(self) -> Optional[str]:
         return self._billing_plan_details[0]
 
-    @property
-    def available_features(self) -> List[str]:
+    def update_available_features(self) -> List[str]:
+        """Updates field `available_features`. Does not `save()`."""
         plan, realm = self._billing_plan_details
         if not plan:
-            return []
-        if realm == "ee":
-            return License.PLANS.get(plan, [])
-        return self.billing.available_features  # type: ignore
-
-    def update_available_features(self) -> List[str]:
-        """Dummy method to satisfy https://github.com/PostHog/posthog-cloud/pull/121 tests."""
+            self.available_features = []
+        elif realm == "ee":
+            self.available_features = License.PLANS.get(plan, [])
+        else:
+            self.available_features = self.billing.available_features  # type: ignore
         return self.available_features
 
     def is_feature_available(self, feature: str) -> bool:
@@ -153,8 +153,14 @@ class Organization(UUIDModel):
         }
 
 
+@receiver(models.signals.pre_save, sender=Organization)
+def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
+    if instance._state.adding:
+        instance.update_available_features()
+
+
 @receiver(models.signals.pre_delete, sender=Organization)
-def organization_deleted(sender, instance, **kwargs):
+def organization_about_to_be_deleted(sender, instance, **kwargs):
     instance.teams.all().delete()
 
 
