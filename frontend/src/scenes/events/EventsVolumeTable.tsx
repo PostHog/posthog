@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { useValues } from 'kea'
-import { Alert, Button, Input, Skeleton, Table, Tooltip, Typography } from 'antd'
+import { useActions, useValues } from 'kea'
+import { Alert, Button, Input, Skeleton, Table, Tooltip } from 'antd'
 import Fuse from 'fuse.js'
 import { InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
@@ -41,7 +41,9 @@ export function VolumeTable({
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
     const { user } = useValues(userLogic)
-    const isPremiumUser = user?.organization?.available_features?.includes('dashboard_collaboration')
+    // const isPremiumUser = user?.organization?.available_features?.includes('dashboard_collaboration')
+    const isPremiumUser = true
+
     const columns: ColumnsType<VolumeTableRecord> = [
         {
             title: `${capitalizeFirstLetter(type)} name`,
@@ -163,42 +165,42 @@ export function VolumeTable({
 export function VolumeTableRecordDescription({ record }: { record: EventDefinition | PropertyDefinition }): JSX.Element {
     const [newDescription, setNewDescription] = useState(record.description)
     const [bordered, setBordered] = useState(false)
+    const { updateEventDefinition } = useActions(eventDefinitionsLogic)
+
     return (
-        (record.description ? (
-            <Typography.Text>
-                {record.description}
-            </Typography.Text>
-        )
-            : (
-                <div style={{display: 'flex', minWidth: 300, marginRight: 32}}>
-                    <Input.TextArea
-                        className="definition-description"
-                        placeholder="Click to add description"
-                        onClick={() => setBordered(true)}
-                        bordered={bordered}
-                        maxLength={400}
-                        style={{padding: 0, marginRight: 16, minWidth: 300}}
-                        autoSize={true}
-                        value={newDescription || undefined}
-                        onChange={(e) => setNewDescription(e.target.value)}
-                    />
-                    {newDescription !== record.description && (
-                        <>
-                            <Button style={{marginRight: 8}} size="small">Save</Button>
-                            <Button
-                                onClick={() => {
-                                    setNewDescription(record.description)
-                                    setBordered(false)
-                                }}
-                                size="small"
-                            >
-                                Cancel
-                            </Button>
-                        </>
-                    )}
-                </div>
-            )
-        )
+        <div style={{display: 'flex', minWidth: 300, marginRight: 32}}>
+            <Input.TextArea
+                className="definition-description"
+                placeholder="Click to add description"
+                onClick={() => setBordered(true)}
+                bordered={bordered}
+                maxLength={400}
+                style={{padding: 0, marginRight: 16, minWidth: 300}}
+                autoSize={true}
+                value={newDescription || undefined}
+                onChange={(e) => setNewDescription(e.target.value)}
+            />
+            {bordered && (
+                <>
+                    <Button
+                        style={{marginRight: 8}}
+                        size="small"
+                        onClick={() => updateEventDefinition(record.id, newDescription)}
+                    >
+                        Save
+                    </Button>
+                    <Button
+                        onClick={() => {
+                            setNewDescription(record.description)
+                            setBordered(false)
+                        }}
+                        size="small"
+                    >
+                        Cancel
+                    </Button>
+                </>
+            )}
+        </div>
     )
 }
 
