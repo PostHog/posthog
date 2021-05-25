@@ -71,8 +71,15 @@ async function insertRow(db: Pool, table: string, object: Record<string, any>): 
     const params = Object.keys(object)
         .map((_, i) => `\$${i + 1}`)
         .join(',')
+    const values = Object.values(object).map((value) => {
+        if (Array.isArray(value) && value.length > 0) {
+            return JSON.stringify(value)
+        }
+        return value
+    })
+
     try {
-        await db.query(`INSERT INTO ${table} (${keys}) VALUES (${params})`, Object.values(object))
+        await db.query(`INSERT INTO ${table} (${keys}) VALUES (${params})`, values)
     } catch (error) {
         console.error(`Error on table ${table} when inserting object:\n`, object, '\n', error)
         throw error
@@ -124,11 +131,11 @@ export async function createUserTeamAndOrganization(
         organization_id: organizationId,
         app_urls: [],
         name: 'TEST PROJECT',
-        event_names: JSON.stringify([]),
-        event_names_with_usage: JSON.stringify([]),
-        event_properties: JSON.stringify([]),
-        event_properties_with_usage: JSON.stringify([]),
-        event_properties_numerical: JSON.stringify([]),
+        event_names: [],
+        event_names_with_usage: [],
+        event_properties: [],
+        event_properties_with_usage: [],
+        event_properties_numerical: [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         anonymize_ips: false,
@@ -142,7 +149,7 @@ export async function createUserTeamAndOrganization(
         api_token: `THIS IS NOT A TOKEN FOR TEAM ${teamId}`,
         test_account_filters: [],
         timezone: 'UTC',
-        data_attributes: JSON.stringify(['data-attr']),
+        data_attributes: ['data-attr'],
     })
 }
 

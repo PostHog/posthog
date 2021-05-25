@@ -96,7 +96,7 @@ test('test vm memory usage', async () => {
 
     for (let i = 0; i < numEventsPerVM; i++) {
         for (let j = 0; j < numVMs; j++) {
-            await vms[j].methods.processEvent(createEvent(i + j))
+            await vms[j].methods.processEvent!(createEvent(i + j))
         }
         if (debug || i === numEventsPerVM - 1) {
             global?.gc?.()
