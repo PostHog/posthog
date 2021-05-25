@@ -41,7 +41,7 @@ describe('vm timeout tests', () => {
         const date = new Date()
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
             errorMessage = e.message
         }
@@ -62,7 +62,7 @@ describe('vm timeout tests', () => {
         const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
             errorMessage = e.message
         }
@@ -81,7 +81,7 @@ describe('vm timeout tests', () => {
         const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
             errorMessage = e.message
         }
@@ -100,7 +100,7 @@ describe('vm timeout tests', () => {
         const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
             errorMessage = e.message
         }
@@ -120,7 +120,7 @@ describe('vm timeout tests', () => {
         const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
             errorMessage = e.message
         }
@@ -139,7 +139,7 @@ describe('vm timeout tests', () => {
         const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
             errorMessage = e.message
         }
@@ -158,7 +158,7 @@ describe('vm timeout tests', () => {
         const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
             errorMessage = e.message
         }
@@ -178,7 +178,7 @@ describe('vm timeout tests', () => {
         const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
             errorMessage = e.message
         }
@@ -197,7 +197,7 @@ describe('vm timeout tests', () => {
         const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
             errorMessage = e.message
         }
@@ -225,7 +225,7 @@ describe('vm timeout tests', () => {
         const date = new Date()
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
             errorMessage = e.message
         }
@@ -257,7 +257,7 @@ describe('vm timeout tests', () => {
         const date = new Date()
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
             errorMessage = e.message
         }
@@ -278,7 +278,7 @@ describe('vm timeout tests', () => {
         const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
             errorMessage = e.message
         }

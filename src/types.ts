@@ -161,7 +161,13 @@ export interface Plugin {
     from_web?: boolean
     created_at: string
     updated_at: string
-    capabilities?: Record<string, any>
+    capabilities?: PluginCapabilities
+}
+
+export interface PluginCapabilities {
+    jobs?: string[]
+    scheduled_tasks?: string[]
+    methods?: string[]
 }
 
 export interface PluginConfig {
@@ -255,13 +261,13 @@ export type WorkerMethods = {
 export interface PluginConfigVMReponse {
     vm: VM
     methods: {
-        setupPlugin: () => Promise<void>
-        teardownPlugin: () => Promise<void>
-        onEvent: (event: PluginEvent) => Promise<void>
-        onSnapshot: (event: PluginEvent) => Promise<void>
-        processEvent: (event: PluginEvent) => Promise<PluginEvent>
+        setupPlugin?: () => Promise<void>
+        teardownPlugin?: () => Promise<void>
+        onEvent?: (event: PluginEvent) => Promise<void>
+        onSnapshot?: (event: PluginEvent) => Promise<void>
+        processEvent?: (event: PluginEvent) => Promise<PluginEvent>
         // DEPRECATED
-        processEventBatch: (batch: PluginEvent[]) => Promise<PluginEvent[]>
+        processEventBatch?: (batch: PluginEvent[]) => Promise<PluginEvent[]>
     }
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
 }

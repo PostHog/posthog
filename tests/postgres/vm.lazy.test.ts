@@ -5,6 +5,7 @@ import { clearError, processError } from '../../src/utils/db/error'
 import { status } from '../../src/utils/status'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
+import { plugin60 } from '../helpers/plugins'
 import { disablePlugin } from '../helpers/sqlMock'
 
 jest.mock('../../src/worker/vm/vm')
@@ -16,6 +17,7 @@ const mockConfig = {
     plugin_id: 60,
     team_id: 2,
     id: 39,
+    plugin: { ...plugin60 },
 }
 
 describe('LazyPluginVM', () => {

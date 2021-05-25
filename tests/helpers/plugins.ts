@@ -48,7 +48,7 @@ export const plugin60: Plugin = {
     is_preinstalled: false,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-    capabilities: {},
+    capabilities: {}, // inferred on setup
 }
 
 export const pluginAttachment1: PluginAttachmentDB = {
@@ -139,3 +139,11 @@ export function mockPluginTempFolder(indexJs: string, pluginJson?: string): [Plu
         },
     ]
 }
+
+export const mockPluginSourceCode = (indexJs: string): Plugin => ({
+    ...plugin60,
+    archive: null,
+    plugin_type: 'source',
+    url: undefined,
+    source: indexJs,
+})

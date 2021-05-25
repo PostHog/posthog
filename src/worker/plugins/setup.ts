@@ -9,7 +9,6 @@ import { teardownPlugins } from './teardown'
 
 export async function setupPlugins(server: Hub): Promise<void> {
     const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(server)
-
     const pluginVMLoadPromises: Array<Promise<any>> = []
     for (const [id, pluginConfig] of pluginConfigs) {
         const plugin = plugins.get(pluginConfig.plugin_id)

@@ -9,6 +9,7 @@ import { IllegalOperationError, runProcessEvent, runProcessEventBatch } from '..
 import { loadSchedule, setupPlugins } from '../src/worker/plugins/setup'
 import {
     commonOrganizationId,
+    mockPluginSourceCode,
     mockPluginTempFolder,
     mockPluginWithArchive,
     plugin60,
@@ -16,7 +17,7 @@ import {
     pluginConfig39,
 } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
-import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows } from './helpers/sqlMock'
+import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setPluginCapabilities } from './helpers/sqlMock'
 
 jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/status')
@@ -40,7 +41,7 @@ afterEach(async () => {
 })
 
 test('setupPlugins and runProcessEvent', async () => {
-    getPluginRows.mockReturnValueOnce([plugin60])
+    getPluginRows.mockReturnValueOnce([{ ...plugin60 }])
     getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
     getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
 
@@ -51,7 +52,6 @@ test('setupPlugins and runProcessEvent', async () => {
     expect(getPluginAttachmentRows).toHaveBeenCalled()
     expect(getPluginConfigRows).toHaveBeenCalled()
 
-    expect(Array.from(plugins.entries())).toEqual([[60, plugin60]])
     expect(Array.from(pluginConfigs.keys())).toEqual([39])
 
     const pluginConfig = pluginConfigs.get(39)!
@@ -82,9 +82,21 @@ test('setupPlugins and runProcessEvent', async () => {
         'teardownPlugin',
     ])
 
+    // async loading of capabilities
+    expect(setPluginCapabilities).toHaveBeenCalled()
+    expect(Array.from(plugins.entries())).toEqual([
+        [
+            60,
+            {
+                ...plugin60,
+                capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent', 'processEventBatch'] },
+            },
+        ],
+    ])
+
     expect(clearError).toHaveBeenCalledWith(hub, pluginConfig)
 
-    const processEvent = vm!.methods['processEvent']
+    const processEvent = vm!.methods['processEvent']!
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     await processEvent(event)
 
@@ -475,6 +487,117 @@ test('plugin config order', async () => {
     expect(returnedEvent2!.properties!.plugins).toEqual([61, 60, 62])
 })
 
+test('plugin with archive loads capabilities', async () => {
+    getPluginRows.mockReturnValueOnce([
+        mockPluginWithArchive(`
+            function setupPlugin (meta) { meta.global.key = 'value' }
+            function processEvent (event, meta) { event.properties={"x": 1}; return event }
+        `),
+    ])
+    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
+
+    const pluginConfig = pluginConfigs.get(39)!
+
+    await pluginConfig.vm?.resolveInternalVm
+    // async loading of capabilities
+
+    expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual([
+        'processEvent',
+        'processEventBatch',
+        'setupPlugin',
+    ])
+    expect(pluginConfig.plugin!.capabilities!.jobs).toHaveLength(0)
+    expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toHaveLength(0)
+})
+
+test('plugin with archive loads all capabilities, no random caps', async () => {
+    getPluginRows.mockReturnValueOnce([
+        mockPluginWithArchive(`
+            function processEvent (event, meta) { event.properties={"x": 1}; return event }
+            function randomFunction (event, meta) { return event}
+            function onEvent (event, meta) { return event }
+
+            function runEveryHour(meta) {console.log('1')}
+
+            export const jobs = {
+                x: (event, meta) => console.log(event)
+            }
+        `),
+    ])
+    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
+
+    const pluginConfig = pluginConfigs.get(39)!
+
+    await pluginConfig.vm?.resolveInternalVm
+    // async loading of capabilities
+
+    expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent', 'processEventBatch'])
+    expect(pluginConfig.plugin!.capabilities!.jobs).toEqual(['x'])
+    expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual(['runEveryHour'])
+})
+
+test('plugin with source file loads capabilities', async () => {
+    const [plugin, unlink] = mockPluginTempFolder(`
+        function processEvent (event, meta) { event.properties={"x": 1}; return event }
+        function randomFunction (event, meta) { return event}
+        function onEvent (event, meta) { return event }
+    `)
+
+    getPluginRows.mockReturnValueOnce([plugin])
+    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
+
+    const pluginConfig = pluginConfigs.get(39)!
+
+    await pluginConfig.vm?.resolveInternalVm
+    // async loading of capabilities
+
+    expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent', 'processEventBatch'])
+    expect(pluginConfig.plugin!.capabilities!.jobs).toEqual([])
+    expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
+
+    unlink()
+})
+
+test('plugin with source code loads capabilities', async () => {
+    const source_code = `
+        function processEvent (event, meta) { event.properties={"x": 1}; return event }
+        function randomFunction (event, meta) { return event}
+        function onSnapshot (event, meta) { return event }
+    `
+    getPluginRows.mockReturnValueOnce([mockPluginSourceCode(source_code)])
+
+    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+    await setupPlugins(hub)
+    const { pluginConfigs } = hub
+
+    const pluginConfig = pluginConfigs.get(39)!
+
+    await pluginConfig.vm?.resolveInternalVm
+    // async loading of capabilities
+
+    expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual([
+        'onSnapshot',
+        'processEvent',
+        'processEventBatch',
+    ])
+    expect(pluginConfig.plugin!.capabilities!.jobs).toEqual([])
+    expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
+})
+
 test('reloading plugins after config changes', async () => {
     const makePlugin = (id: number, updated_at = '2020-11-02'): any => ({
         ...plugin60,
@@ -549,10 +672,56 @@ test('reloading plugins after config changes', async () => {
     ])
 })
 
+test("capabilities don't reload without changes", async () => {
+    getPluginRows.mockReturnValueOnce([{ ...plugin60 }]).mockReturnValueOnce([
+        {
+            ...plugin60,
+            capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent', 'processEventBatch'] },
+        },
+    ]) // updated in DB via first `setPluginCapabilities` call.
+    getPluginAttachmentRows.mockReturnValue([pluginAttachment1])
+    getPluginConfigRows.mockReturnValue([pluginConfig39])
+
+    await setupPlugins(hub)
+    const pluginConfig = hub.pluginConfigs.get(39)!
+
+    await pluginConfig.vm?.resolveInternalVm
+    // async loading of capabilities
+    expect(setPluginCapabilities.mock.calls.length).toBe(1)
+
+    pluginConfig.updated_at = new Date().toISOString()
+    // config is changed, but capabilities haven't changed
+
+    await setupPlugins(hub)
+    const newPluginConfig = hub.pluginConfigs.get(39)!
+
+    await newPluginConfig.vm?.resolveInternalVm
+    // async loading of capabilities
+
+    expect(newPluginConfig.plugin).not.toBe(pluginConfig.plugin)
+    expect(setPluginCapabilities.mock.calls.length).toBe(1)
+    expect(newPluginConfig.plugin!.capabilities).toEqual(pluginConfig.plugin!.capabilities)
+})
+
+test('plugin lazy loads capabilities', async () => {
+    getPluginRows.mockReturnValueOnce([
+        mockPluginWithArchive(`
+            function setupPlugin (meta) { meta.global.key = 'value' }
+            function onEvent (event, meta) { event.properties={"x": 1}; return event }
+        `),
+    ])
+    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+    await setupPlugins(hub)
+    const pluginConfig = hub.pluginConfigs.get(39)!
+    expect(pluginConfig.plugin!.capabilities).toEqual({})
+})
+
 describe('loadSchedule()', () => {
     const mockConfig = (tasks: any) => ({ vm: { getTasks: () => Promise.resolve(tasks) } })
 
-    const mockServer = {
+    const hub = {
         pluginConfigs: new Map(
             Object.entries({
                 1: {},
@@ -563,12 +732,12 @@ describe('loadSchedule()', () => {
     } as any
 
     it('sets server.pluginSchedule once all plugins are ready', async () => {
-        const promise = loadSchedule(mockServer)
-        expect(mockServer.pluginSchedule).toEqual(null)
+        const promise = loadSchedule(hub)
+        expect(hub.pluginSchedule).toEqual(null)
 
         await promise
 
-        expect(mockServer.pluginSchedule).toEqual({
+        expect(hub.pluginSchedule).toEqual({
             runEveryMinute: ['3'],
             runEveryHour: ['2'],
             runEveryDay: [],

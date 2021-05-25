@@ -66,7 +66,7 @@ export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<
 
             try {
                 returnedEvent = (await processEvent(returnedEvent)) || null
-                if (returnedEvent.team_id != teamId) {
+                if (returnedEvent.team_id !== teamId) {
                     returnedEvent.team_id = teamId
                     throw new IllegalOperationError('Plugin tried to change event.team_id')
                 }
