@@ -4,7 +4,7 @@ import { CopyOutlined } from '@ant-design/icons'
 import { copyToClipboard } from 'lib/utils'
 
 interface InlineProps {
-    children: JSX.Element | string
+    children?: JSX.Element | string
     explicitValue?: string
     description?: string
     isValueSensitive?: boolean
@@ -43,7 +43,7 @@ export function CopyToClipboardInline({
                     flexWrap: iconPosition === 'end' ? 'wrap' : 'wrap-reverse',
                 }}
                 onClick={() => {
-                    copyToClipboard(explicitValue ?? children.toString(), description)
+                    copyToClipboard(explicitValue ?? (children ? children.toString() : ''), description)
                 }}
                 {...props}
             >
