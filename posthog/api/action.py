@@ -293,8 +293,16 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         next_url = paginated_result(serialized_people, request, filter.offset)
 
         if request.accepted_renderer.format == "csv":
-            csvrenderers.CSVRenderer.header = ["Email", "ID"]
-            content = [{"Email": person["name"], "ID": person["uuid"]} for person in serialized_people]
+            csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name"]
+            content = [
+                {
+                    "Name": person.get("properties", {}).get("name"),
+                    "Distinct ID": person.get("distinct_ids", [""])[0],
+                    "Internal ID": person["uuid"],
+                    "Email": person.get("properties", {}).get("email"),
+                }
+                for person in serialized_people
+            ]
             return content
 
         return {
