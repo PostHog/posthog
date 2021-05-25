@@ -141,6 +141,9 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
         return Response({"results": {"overview": metrics, "internal_metrics": get_internal_metrics_dashboards()}})
 
+    def create(self, request: Request) -> Response:
+        __import__("IPython").embed()  # FIXME
+
     @action(methods=["GET"], detail=False)
     def queries(self, request: Request) -> Response:
         queries = {"postgres_running": self.get_postgres_running_queries()}

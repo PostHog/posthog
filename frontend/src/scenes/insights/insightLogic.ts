@@ -9,6 +9,7 @@ import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FilterType } from '~/types'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { captureInternalMetric } from 'lib/internalMetrics'
 
 export enum ViewType {
     TRENDS = 'TRENDS',
@@ -166,10 +167,12 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType>>({
                 setTimeout(() => {
                     if (values && view == values.activeView) {
                         actions.setShowTimeoutMessage(true)
-                        posthog.capture('insight timeout message shown', {
+                        const tags = {
                             insight: values.activeView,
                             scene: sceneLogic.values.scene,
-                        })
+                        }
+                        posthog.capture('insight timeout message shown', tags)
+                        captureInternalMetric({ method: 'incr', metric: 'insight_timeout', value: 1, tags })
                     }
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
@@ -183,17 +186,18 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType>>({
                 actions.setLastRefresh(lastRefresh || null)
                 actions.setIsLoading(false)
 
-                const payload = {
+                const duration = new Date().getTime() - values.queryStartTimes[queryId]
+                const tags = {
                     insight: values.activeView,
                     scene: sceneLogic.values.scene,
-                    duration: new Date().getTime() - values.queryStartTimes[queryId],
                     success: !exception,
                     ...exception,
                 }
 
-                posthog.capture('insight loaded', payload)
+                posthog.capture('insight loaded', { ...tags, duration })
+                captureInternalMetric({ method: 'timing', metric: 'insight_load_time', value: duration, tags })
                 if (values.maybeShowErrorMessage) {
-                    posthog.capture('insight error message shown', payload)
+                    posthog.capture('insight error message shown', { ...tags, duration })
                 }
             }
         },
