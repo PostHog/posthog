@@ -3,15 +3,14 @@ from unittest.mock import Mock, patch
 
 import pytest
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
 
+from posthog.celery import sync_all_organization_available_features
 from posthog.models import Organization, OrganizationInvite, Plugin
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
-from posthog.settings import PLUGINS_PREINSTALLED_URLS
 from posthog.test.base import BaseTest
 
 
@@ -74,6 +73,13 @@ class TestOrganization(BaseTest):
             mock.json.return_value = {"plan": "enterprise", "valid_until": now() + relativedelta(days=1)}
             patch_post.return_value = mock
             License.objects.create(key="key")
+
+            # Still only old, empty available_features field value known
+            self.assertFalse(self.organization.is_feature_available("whatever"))
+            self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
+
+            # New available_features field value that was updated in DB on license creation is known after refresh
+            self.organization.refresh_from_db()
             self.assertTrue(self.organization.is_feature_available("whatever"))
             self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
 
@@ -95,4 +101,6 @@ class TestOrganization(BaseTest):
         License.objects.create(key="key")
 
         with freeze_time("2012-01-19T12:00:00.000Z"):
+            sync_all_organization_available_features()  # This is normally ran every hour
+            self.organization.refresh_from_db()
             self.assertFalse(self.organization.is_feature_available("whatever"))
