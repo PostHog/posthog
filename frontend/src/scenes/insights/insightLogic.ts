@@ -21,6 +21,8 @@ export enum ViewType {
     PATHS = 'PATHS',
 }
 
+type Timeout = NodeJS.Timeout
+
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 
 /*
@@ -45,11 +47,11 @@ export const logicFromInsight = (insight: string, logicProps: Record<string, any
     }
 }
 
-export const insightLogic = kea<insightLogicType<ViewType, FilterType>>({
+export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
-        updateActiveView: (type) => ({ type }),
-        setCachedUrl: (type, url) => ({ type, url }),
+        updateActiveView: (type: ViewType) => ({ type }),
+        setCachedUrl: (type: ViewType, url: string) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: (queryId: string) => ({ queryId }),
         endQuery: (queryId: string, view: string, lastRefresh: string | null, exception?: Record<string, any>) => ({
@@ -62,7 +64,7 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType>>({
         setShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
-        setTimeout: (timeout) => ({ timeout }),
+        setTimeout: (timeout: Timeout | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
         toggleControlsCollapsed: true,
@@ -107,7 +109,7 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType>>({
                 updateActiveView: (_, { type }) => type,
             },
         ],
-        timeout: [null, { setTimeout: (_, { timeout }) => timeout }],
+        timeout: [null as Timeout | null, { setTimeout: (_, { timeout }) => timeout }],
         lastRefresh: [
             null as string | null,
             {
@@ -143,7 +145,7 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType>>({
             false,
             {
                 toggleControlsCollapsed: (state) => !state,
-            }
+            },
         ],
         queryStartTimes: [
             {} as Record<string, number>,
@@ -179,7 +181,9 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType>>({
             actions.setIsLoading(true)
         },
         endQuery: ({ queryId, view, lastRefresh, exception }) => {
-            clearTimeout(values.timeout || undefined)
+            if (values.timeout) {
+                clearTimeout(values.timeout)
+            }
             if (view === values.activeView) {
                 actions.setShowTimeoutMessage(values.maybeShowTimeoutMessage)
                 actions.setShowErrorMessage(values.maybeShowErrorMessage)
@@ -204,14 +208,16 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType>>({
         setActiveView: () => {
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
-            clearTimeout(values.timeout || undefined)
+            if (values.timeout) {
+                clearTimeout(values.timeout)
+            }
         },
         toggleControlsCollapsed: async () => {
             eventUsageLogic.actions.reportInsightsControlsCollapseToggle(values.controlsCollapsed)
         },
     }),
     actionToUrl: ({ actions, values }) => ({
-        setActiveView: ({ type }: { type: string }) => {
+        setActiveView: ({ type }: { type: ViewType }) => {
             const params = fromParams()
             const { properties, ...restParams } = params
 
@@ -240,7 +246,9 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType>>({
     }),
     events: ({ values }) => ({
         beforeUnmount: () => {
-            clearTimeout(values.timeout || undefined)
+            if (values.timeout) {
+                clearTimeout(values.timeout)
+            }
         },
     }),
 })
