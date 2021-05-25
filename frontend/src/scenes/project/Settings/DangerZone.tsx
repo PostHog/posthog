@@ -1,7 +1,7 @@
 import React, { Dispatch, SetStateAction, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { DeleteOutlined } from '@ant-design/icons'
-import { Button, Modal } from 'antd'
+import { Button, Input, Modal } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
 import Paragraph from 'antd/lib/typography/Paragraph'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
@@ -16,6 +16,7 @@ export function DeleteProjectModal({
     const { currentTeam, teamBeingDeleted } = useValues(teamLogic)
     const { deleteTeam } = useActions(teamLogic)
 
+    const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
     const isDeletionInProgress = !!currentTeam && teamBeingDeleted?.id === currentTeam.id
 
     return (
@@ -28,6 +29,7 @@ export function DeleteProjectModal({
                 // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
                 'data-attr': 'delete-project-ok',
                 loading: isDeletionInProgress,
+                disabled: !isDeletionConfirmed,
             }}
             onCancel={() => setIsVisible(false)}
             cancelButtonProps={{
@@ -35,8 +37,22 @@ export function DeleteProjectModal({
             }}
             visible={isVisible}
         >
-            Project deletion <b>cannot be undone</b>. You will lose all data, <b>including events</b>, related to the
-            project.
+            <p>
+                Project deletion <b>cannot be undone</b>. You will lose all data, <b>including events</b>, related to
+                the project.
+            </p>
+            <p>
+                Please type <strong>{currentTeam ? currentTeam.name : "this project's name"}</strong> to confirm.
+            </p>
+            <Input
+                type="text"
+                onChange={(e) => {
+                    if (currentTeam) {
+                        const { value } = e.target
+                        setIsDeletionConfirmed(value.toLowerCase() === currentTeam.name.toLowerCase())
+                    }
+                }}
+            />
         </Modal>
     )
 }
