@@ -21,9 +21,11 @@ from ee.clickhouse.sql.person import (
 from posthog.models import Action, Cohort, Filter, Team
 
 
-def format_person_query(cohort: Cohort, custom_match_field="person_id") -> Tuple[str, Dict[str, Any]]:
+def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
     filters = []
     params: Dict[str, Any] = {}
+
+    custom_match_field = kwargs.get("custom_match_field", "person_id")
 
     if cohort.is_static:
         return (
@@ -112,7 +114,7 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 
 def recalculate_cohortpeople(cohort: Cohort):
-    cohort_filter, cohort_params = format_person_query(cohort, "person.id")
+    cohort_filter, cohort_params = format_person_query(cohort, custom_match_field="person.id")
 
     insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
 

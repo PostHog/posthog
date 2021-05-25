@@ -47,7 +47,7 @@ if settings.EE_AVAILABLE and is_clickhouse_enabled():
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
-        delete_person(instance.uuid, team_id=instance.team_id)
+        delete_person(instance.uuid, instance.properties, instance.is_identified, team_id=instance.team_id)
 
 
 def create_person(
@@ -98,15 +98,16 @@ def get_persons_by_uuids(team_id: int, uuids: List[str]) -> QuerySet:
     return Person.objects.filter(team_id=team_id, uuid__in=uuids)
 
 
-def delete_person(person_id: UUID, delete_events: bool = False, team_id: int = False) -> None:
-    person = Person.objects.get(uuid=person_id)
+def delete_person(
+    person_id: UUID, properties: Dict, is_identified: bool, delete_events: bool = False, team_id: int = False
+) -> None:
     timestamp = now()
 
     data = {
-        "id": person.uuid,
+        "id": person_id,
         "team_id": team_id,
-        "properties": json.dumps(person.properties),
-        "is_identified": int(person.is_identified),
+        "properties": json.dumps(properties),
+        "is_identified": int(is_identified),
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
