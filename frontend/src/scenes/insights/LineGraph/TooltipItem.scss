@@ -1,0 +1,12 @@
+.tooltip-item {
+    line-height: 1.1;
+    margin-bottom: 0.1rem;
+    .property-key-info {
+        display: inline;
+    }
+    .value-large {
+        font-size: 1.2rem;
+        line-height: 1.5;
+        font-weight: 600;
+    }
+}

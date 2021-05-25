@@ -25,11 +25,15 @@
     ul {
         list-style-type: none;
         padding-left: 0;
+        margin-bottom: 0;
+
         li {
-            display: flex;
-            align-items: center;
+            padding-left: 18px;
+            position: relative;
             .color-icon {
-                margin-right: 8px;
+                position: absolute;
+                top: 2px;
+                left: 0;
                 width: 12px;
                 height: 12px;
                 border-radius: 50%;

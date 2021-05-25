@@ -14,6 +14,7 @@ import dayjs from 'dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import './LineGraph.scss'
 import 'chartjs-plugin-crosshair'
+import TooltipItem from './TooltipItem'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -204,6 +205,23 @@ export function LineGraph({
                   mode: 'nearest',
                   axis: 'x',
                   intersect: false,
+                  callbacks: {
+                      label: function labelElement(tooltipItem, data) {
+                          let entityData = data.datasets[tooltipItem.datasetIndex]
+                          if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
+                              return null
+                          }
+                          const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
+                          const action =
+                              entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
+                          let value = tooltipItem.yLabel.toLocaleString()
+                          if (type === 'horizontalBar') {
+                              const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
+                              value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
+                          }
+                          return <TooltipItem propertyValue={label} action={action} value={value} />
+                      },
+                  },
                   custom: function (tooltipModel) {
                       var tooltipEl = document.getElementById('chartjs-tooltip')
                       // Create element on first render
@@ -235,7 +253,7 @@ export function LineGraph({
                       tooltipEl.style.pointerEvents = 'none'
                       if (tooltipModel.body) {
                           const titleLines = tooltipModel.title || []
-                          const bodyLines = tooltipModel.body.map(({ lines }) => lines)
+                          const bodyLines = tooltipModel.body.flatMap(({ lines }) => lines)
                           ReactDOM.render(
                               <>
                                   {titleLines.map((title, i) => (
