@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions
 
 from posthog.api.routing import DefaultRouterPlusPlus
-from posthog.ee import is_clickhouse_enabled
+from posthog.ee import is_clickhouse_enabled, is_ee_enabled
 
 from . import (
     action,
@@ -73,12 +73,16 @@ organizations_router.register(
 
 # Project nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet, "projects")
-projects_router.register(
-    r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
-)
-projects_router.register(
-    r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
-)
+if not is_ee_enabled():
+    projects_router.register(
+        r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
+    )
+    projects_router.register(
+        r"property_definitions",
+        property_definition.PropertyDefinitionViewSet,
+        "project_property_definitions",
+        ["team_id"],
+    )
 
 # General endpoints (shared across EE & FOSS)
 router.register(r"login", authentication.LoginViewSet)

@@ -12,9 +12,6 @@ class EventDefinitionSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "name",
-            "owner",
-            "description",
-            "tags",
             "volume_30_day",
             "query_usage_30_day",
         )
@@ -25,10 +22,7 @@ class EventDefinitionSerializer(serializers.ModelSerializer):
 
 
 class EventDefinitionViewSet(
-    StructuredViewSetMixin,
-    mixins.ListModelMixin,
-    mixins.UpdateModelMixin,
-    viewsets.GenericViewSet,
+    StructuredViewSetMixin, mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet,
 ):
     serializer_class = EventDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
