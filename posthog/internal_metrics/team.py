@@ -14,6 +14,90 @@ CLICKHOUSE_DASHBOARD = {
     "name": "Clickhouse internal dashboard",
     "items": [
         {
+            "name": "Number of insights loaded vs failed",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$insight_load_time",
+                        "name": "insights loaded",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [{"key": "success", "type": "event", "value": ["true"], "operator": "exact"}],
+                    },
+                    {
+                        "id": "$$insight_load_time",
+                        "name": "insights loaded",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [{"key": "success", "type": "event", "value": ["false"], "operator": "exact"}],
+                    },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "properties": [],
+            },
+        },
+        {
+            "name": "Insight load time",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$insight_load_time",
+                        "math": "avg",
+                        "name": "Load time (avg)",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": "value",
+                    },
+                    {
+                        "id": "$$insight_load_time",
+                        "math": "p90",
+                        "name": "Load time (p90)",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": "value",
+                    },
+                    {
+                        "id": "$$insight_load_time",
+                        "math": "p95",
+                        "name": "Load time (p95)",
+                        "type": "events",
+                        "order": 2,
+                        "properties": [],
+                        "math_property": "value",
+                    },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "properties": [],
+            },
+        },
+        {
+            "name": "Number of insights with timeout message",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$insight_timeout",
+                        "name": "insight timeout",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                    },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "properties": [],
+            },
+        },
+        {
             "name": "Clickhouse total queries",
             "filters": {
                 "events": [
