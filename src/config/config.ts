@@ -47,7 +47,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         WORKER_CONCURRENCY: coreCount,
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
-        LOG_LEVEL: LogLevel.Info,
+        LOG_LEVEL: isTestEnv ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
         STATSD_HOST: null,
         STATSD_PORT: 8125,

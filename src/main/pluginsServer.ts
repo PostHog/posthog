@@ -2,7 +2,6 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { FastifyInstance } from 'fastify'
-import Redis from 'ioredis'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
@@ -10,8 +9,9 @@ import { defaultConfig } from '../config/config'
 import { Hub, JobQueueConsumerControl, PluginsServerConfig, Queue, ScheduleControl } from '../types'
 import { createHub } from '../utils/db/hub'
 import { killProcess } from '../utils/kill'
+import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createRedis, delay, getPiscinaStats } from '../utils/utils'
+import { delay, getPiscinaStats } from '../utils/utils'
 import { startQueue } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
@@ -41,9 +41,10 @@ export async function startPluginsServer(
 
     status.info('ℹ️', `${serverConfig.WORKER_CONCURRENCY} workers, ${serverConfig.TASKS_PER_WORKER} tasks per worker`)
 
-    let pubSub: Redis.Redis | undefined
+    let pubSub: PubSub | undefined
     let hub: Hub | undefined
     let fastifyInstance: FastifyInstance | undefined
+    let actionsReloadJob: schedule.Job | undefined
     let pingJob: schedule.Job | undefined
     let statsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
@@ -73,7 +74,8 @@ export async function startPluginsServer(
         }
         lastActivityCheck && clearInterval(lastActivityCheck)
         await queue?.stop()
-        await pubSub?.quit()
+        await pubSub?.stop()
+        actionsReloadJob && schedule.cancelJob(actionsReloadJob)
         pingJob && schedule.cancelJob(pingJob)
         statsJob && schedule.cancelJob(statsJob)
         await jobQueueConsumer?.stop()
@@ -141,23 +143,29 @@ export async function startPluginsServer(
             void jobQueueConsumer?.resume()
         })
 
-        // use one extra connection for redis pubsub
-        pubSub = await createRedis(hub)
-        await pubSub.subscribe(hub.PLUGINS_RELOAD_PUBSUB_CHANNEL)
-        pubSub.on('message', async (channel: string, message) => {
-            if (channel === hub!.PLUGINS_RELOAD_PUBSUB_CHANNEL) {
+        // use one extra Redis connection for pub-sub
+        pubSub = new PubSub(hub, {
+            [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
                 status.info('⚡', 'Reloading plugins!')
-
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
                 await scheduleControl?.reloadSchedule()
-            }
+            },
+            'reload-action': async (message) =>
+                await piscina?.broadcastTask({ task: 'reloadAction', args: { actionId: parseInt(message) } }),
+            'drop-action': async (message) =>
+                await piscina?.broadcastTask({ task: 'dropAction', args: { actionId: parseInt(message) } }),
         })
+        await pubSub.start()
 
         if (hub.jobQueueManager) {
             const queueString = hub.jobQueueManager.getJobQueueTypesAsString()
             await hub!.db!.redisSet('@posthog-plugin-server/enabled-job-queues', queueString)
         }
 
+        // every 5 minutes all ActionManager caches are reloaded for eventual consistency
+        actionsReloadJob = schedule.scheduleJob('*/5 * * * *', async () => {
+            await piscina?.broadcastTask({ task: 'reloadAllActions' })
+        })
         // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
         pingJob = schedule.scheduleJob('*/5 * * * * *', async () => {
             await hub!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {

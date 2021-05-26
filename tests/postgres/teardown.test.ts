@@ -82,7 +82,7 @@ describe('teardown', () => {
         expect(event1.properties.storage).toBe('nope')
 
         await piscina!.broadcastTask({ task: 'reloadPlugins' })
-        await delay(3000)
+        await delay(2000)
 
         const event2 = await piscina!.runTask({ task: 'processEvent', args: { event: { ...defaultEvent } } })
         expect(event2.properties.storage).toBe('tore down')

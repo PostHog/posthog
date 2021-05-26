@@ -4,9 +4,12 @@ import { mocked } from 'ts-jest/utils'
 
 import { ServerInstance, startPluginsServer } from '../../src/main/pluginsServer'
 import { loadPluginSchedule } from '../../src/main/services/schedule'
-import { LogLevel } from '../../src/types'
+import { Hub, LogLevel } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
+import { createHub } from '../../src/utils/db/hub'
+import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { delay, UUIDT } from '../../src/utils/utils'
+import { ActionManager } from '../../src/worker/ingestion/action-manager'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
 import { makePiscina } from '../../src/worker/piscina'
 import { runPluginTask, runProcessEvent, runProcessEventBatch } from '../../src/worker/plugins/run'
@@ -16,6 +19,7 @@ import { createTaskRunner } from '../../src/worker/worker'
 import { resetTestDatabase } from '../helpers/sql'
 import { setupPiscina } from '../helpers/worker'
 
+jest.mock('../../src/worker/ingestion/action-manager')
 jest.mock('../../src/utils/db/sql')
 jest.mock('../../src/utils/status')
 jest.mock('../../src/worker/ingestion/ingest-event')
@@ -38,6 +42,9 @@ function createEvent(index = 0): PluginEvent {
 
 beforeEach(() => {
     console.debug = jest.fn()
+    jest.spyOn(ActionManager.prototype, 'reloadAllActions')
+    jest.spyOn(ActionManager.prototype, 'reloadAction')
+    jest.spyOn(ActionManager.prototype, 'dropAction')
 })
 
 test('piscina worker test', async () => {
@@ -229,15 +236,15 @@ describe('queue logic', () => {
 
 describe('createTaskRunner()', () => {
     let taskRunner: any
-    let hub: any
+    let hub: Hub
+    let closeHub: () => Promise<void>
 
-    beforeEach(() => {
-        hub = { mock: 'server' }
+    beforeEach(async () => {
+        ;[hub, closeHub] = await createHub()
         taskRunner = createTaskRunner(hub)
     })
-
-    it('handles `hello` task', async () => {
-        expect(await taskRunner({ task: 'hello', args: ['world'] })).toEqual('hello world!')
+    afterEach(async () => {
+        await closeHub()
     })
 
     it('handles `processEvent` task', async () => {
@@ -306,6 +313,24 @@ describe('createTaskRunner()', () => {
         expect(loadSchedule).toHaveBeenCalled()
     })
 
+    it('handles `reloadAllActions` task', async () => {
+        await taskRunner({ task: 'reloadAllActions' })
+
+        expect(hub.eventsProcessor.actionManager.reloadAllActions).toHaveBeenCalledWith()
+    })
+
+    it('handles `reloadAction` task', async () => {
+        await taskRunner({ task: 'reloadAction', args: { actionId: 777 } })
+
+        expect(hub.eventsProcessor.actionManager.reloadAction).toHaveBeenCalledWith(777)
+    })
+
+    it('handles `dropAction` task', async () => {
+        await taskRunner({ task: 'dropAction', args: { actionId: 777 } })
+
+        expect(hub.eventsProcessor.actionManager.dropAction).toHaveBeenCalledWith(777)
+    })
+
     it('handles `teardownPlugin` task', async () => {
         await taskRunner({ task: 'teardownPlugins' })
 
@@ -313,7 +338,7 @@ describe('createTaskRunner()', () => {
     })
 
     it('handles `flushKafkaMessages` task', async () => {
-        hub.kafkaProducer = { flush: jest.fn() }
+        hub.kafkaProducer = ({ flush: jest.fn() } as unknown) as KafkaProducerWrapper
 
         await taskRunner({ task: 'flushKafkaMessages' })
 
