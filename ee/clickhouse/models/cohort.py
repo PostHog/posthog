@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.utils import timezone
 
@@ -114,7 +114,8 @@ def get_event_cohort_subquery(cohort_group: Dict, group_idx: int):
         extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
             entity_query="event = %(event)s", date_query=date_query
         )
-        return "person_id IN (" + extract_person + ")", {"count": int(count), "event": event_id, **date_params}
+        params: Dict[str, Union[str, int]] = {"count": int(count), "event": event_id, **date_params}
+        return "person_id IN (" + extract_person + ")", params
     else:
         extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query="event = %(event)s", date_query=date_query,)
         return "distinct_id IN (" + extract_person + ")", {"event": event_id, **date_params}
