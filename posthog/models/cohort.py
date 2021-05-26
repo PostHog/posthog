@@ -29,12 +29,17 @@ ON CONFLICT DO NOTHING
 
 class Group(object):
     def __init__(
-        self, properties: Optional[Dict[str, Any]] = None, action_id: Optional[int] = None, days: Optional[int] = None,
+        self,
+        properties: Optional[Dict[str, Any]] = None,
+        action_id: Optional[int] = None,
+        event_id: Optional[str] = None,
+        days: Optional[int] = None,
     ):
-        if not properties and not action_id:
-            raise ValueError("Cohort group needs properties or action_id")
+        if not properties and not action_id and not event_id:
+            raise ValueError("Cohort group needs properties or action_id or event_id")
         self.properties = properties
         self.action_id = action_id
+        self.event_id = event_id
         self.days = days
 
 
