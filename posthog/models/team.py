@@ -17,8 +17,11 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
-# TODO: #4070 DEPRECATED; delete when these attributes are fully removed from `Team` model
-DEFERRED_FIELDS = (
+# TODO: DEPRECATED; delete when these attributes can be fully removed from `Team` model
+DEPRECATED_ATTRS = (
+    "plugins_opt_in",
+    "opt_out_capture",
+    "users",
     "event_names",
     "event_names_with_usage",
     "event_properties",
@@ -68,7 +71,7 @@ class TeamManager(models.Manager):
         if not token:
             return None
         try:
-            return Team.objects.defer(*DEFERRED_FIELDS).get(api_token=token)
+            return Team.objects.defer(*DEPRECATED_ATTRS).get(api_token=token)
         except Team.DoesNotExist:
             return None
 
@@ -133,36 +136,6 @@ class Team(UUIDClassicModel):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
-
-    def get_latest_event_names_with_usage(self):
-        """
-        TODO: #4070 This has been deprecated in favor of `EventDefinition` and should be removed upon final migration.
-        Fetches `event_names_with_usage` but adding any events that may have come in since the
-        property was last computed. Ensures all events are included.
-        """
-
-        def get_key(event: str, type: str):
-            return next((item.get(type) for item in self.event_names_with_usage if item["event"] == event), None)
-
-        return [
-            {"event": event, "volume": get_key(event, "volume"), "usage_count": get_key(event, "usage_count")}
-            for event in self.event_names
-        ]
-
-    def get_latest_event_properties_with_usage(self):
-        """
-        TODO: #4070 This has been deprecated in favor of `EventDefinition` and should be removed upon final migration.
-        Fetches `event_properties_with_usage` but adding any properties that may have appeared since the
-        property was last computed. Ensures all properties are included.
-        """
-
-        def get_key(key: str, type: str):
-            return next((item.get(type) for item in self.event_properties_with_usage if item["key"] == key), None)
-
-        return [
-            {"key": key, "volume": get_key(key, "volume"), "usage_count": get_key(key, "usage_count")}
-            for key in self.event_properties
-        ]
 
 
 @receiver(models.signals.pre_delete, sender=Team)
