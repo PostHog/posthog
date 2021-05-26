@@ -113,7 +113,7 @@ export function ActionFilterDropdown({
                           }))
                         : [
                               {
-                                  key: EntityTypes.ACTIONS + 'create_new',
+                                  key: EntityTypes.ACTIONS + '_create_new',
                                   name: `No actions found. Click to set up an action.`,
                                   onSelect: () => {
                                       router.actions.push('/actions')
@@ -199,8 +199,7 @@ export function ActionInfo({ item }: RenderInfoProps): JSX.Element {
         </>
     )
 }
-
-export function EventInfo({ item }: RenderInfoProps): JSX.Element {
+function EventInfo({ item }: RenderInfoProps): JSX.Element {
     if (item.renderInfo) {
         return item.renderInfo({ item })
     }
@@ -237,7 +236,7 @@ export function EventInfo({ item }: RenderInfoProps): JSX.Element {
     )
 }
 
-export function SuggestionsInfo({ item }: RenderInfoProps): JSX.Element {
+function SuggestionsInfo({ item }: RenderInfoProps): JSX.Element {
     if (item.renderInfo) {
         return item.renderInfo({ item })
     }
