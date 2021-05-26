@@ -29,7 +29,6 @@ export function BackupTab(): JSX.Element {
                     </Tooltip>
                     &nbsp;&nbsp;
                     <Button
-                        // TODO: provide some info about where the errors went
                         type="primary"
                         onClick={() =>
                             createBackup(
@@ -59,13 +58,7 @@ export function BackupTab(): JSX.Element {
                         ))}
                     </Select>
                     &nbsp;&nbsp;
-                    <Button
-                        type="primary"
-                        // TODO: what happens if some tables exist?
-                        // TODO: restoring specific tables, maybe?
-                        // TODO: provide some info about where the errors went
-                        onClick={() => restoreFromBackup(restoreCandidate)}
-                    >
+                    <Button type="primary" onClick={() => restoreFromBackup(restoreCandidate)}>
                         Restore From Backup
                     </Button>
                     <br />

@@ -1,4 +1,3 @@
-# TODO: move to ee/
 import json
 from typing import Dict, List, Tuple
 
@@ -10,18 +9,16 @@ URL_BASE = "http://clickhouse:7171/backup"
 
 
 def get_backup_info() -> Dict:
-    # TODO fill with actual data
     return {"is_enabled": is_enabled(), "existing_backups": get_existing_backup_names()}
 
 
 def is_enabled() -> bool:
-    return is_clickhouse_enabled()  # TODO more specofic backup related setup
+    return is_clickhouse_enabled()
 
 
 def get_existing_backup_names() -> List[str]:
     if not is_enabled():
         return []
-    # TODO: error handling etc
     url = f"{URL_BASE}/list"
     response = requests.get(url)
     items = response.text.split("\n")[:-1]  # to ignore the '' last one from linebreak
@@ -32,7 +29,6 @@ def get_existing_backup_names() -> List[str]:
 def get_status() -> List[str]:
     if not is_enabled():
         return []
-    # TODO: make a refresh button
     url = f"{URL_BASE}/status"
     response = requests.get(url)
     items = response.text.split("\n")[:-1]  # to ignore the '' last one from linebreak

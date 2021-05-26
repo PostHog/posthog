@@ -1,9 +1,9 @@
 from typing import Dict, List, Union
 
 from django.db import connection
-from posthog.backup import create_backup, get_backup_info
-from posthog.backup import get_status as get_backup_status
-from posthog.backup import restore_from_backup
+from ee.api.backup import create_backup, get_backup_info
+from ee.api.backup import get_status as get_backup_status
+from ee.api.backup import restore_from_backup
 from posthog.ee import is_clickhouse_enabled
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
