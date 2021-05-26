@@ -8,7 +8,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.ee import is_clickhouse_enabled
-from posthog.internal_metrics import incr, timing
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
 from posthog.permissions import SingleTenancyOrAdmin
@@ -144,6 +143,8 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
     # Used to capture internal metrics shown on dashboards
     def create(self, request: Request) -> Response:
+        from posthog.internal_metrics import incr, timing
+
         method = timing if request.data["method"] == "timing" else incr
         method(request.data["metric"], request.data["value"], request.data.get("tags", None))
         return Response({"status": 1})
