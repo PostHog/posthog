@@ -37,8 +37,7 @@ export default function TooltipItem({ propertyValue, action, value }: TooltipIte
                     {')'}
                 </span>
             )}
-            <br />
-            <span className="value-large">{value}</span>
+            <span className="value">{value}</span>
         </div>
     )
 }
