@@ -47,3 +47,7 @@ INSERT INTO cohortpeople
     AND person.is_deleted = 0
     AND {cohort_filter}
 """
+
+GET_DISTINCT_ID_BY_ENTITY_SQL = """
+SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {entity_query}
+"""
