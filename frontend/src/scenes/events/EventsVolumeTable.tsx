@@ -13,6 +13,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import './VolumeTable.scss'
+import { ProfilePicture } from '~/layout/navigation/TopNavigation'
 type EventTableType = 'event' | 'property'
 
 type EventOrPropType = EventDefinition & PropertyDefinition
@@ -76,6 +77,26 @@ export function VolumeTable({
                 { text: 'No warnings', value: 'noWarnings' },
             ],
             onFilter: (value, record) => (value === 'warnings' ? !!record.warnings.length : !record.warnings.length),
+        },
+        {
+            title: 'Owner',
+            render: function Render(_, record): JSX.Element {
+                const owner = record.eventOrProp.owner
+                return (
+                    <>
+                        {owner ? (
+                                <div style={{display: 'flex', alignItems: 'center', }}>
+                                    <ProfilePicture name={owner.first_name} email={owner.email} small={true}/>
+                                    <span style={{paddingLeft: 8}}>{owner.first_name}</span>
+                                </div>
+                            )
+                            : (
+                                <span className="text-muted" style={{fontStyle: 'italic'}}>No Owner</span>
+                            )
+                        }
+                    </>
+                )
+            },
         },
         {
             title: function VolumeTitle() {
@@ -152,7 +173,7 @@ export function VolumeTable({
             <br />
             <Table
                 dataSource={searchTerm ? search(dataWithWarnings, searchTerm) : dataWithWarnings}
-                columns={columns}
+                columns={type === 'event' ? columns : columns.filter((col) => col.title !== 'Owner')}
                 rowKey={(item) => item.eventOrProp.name}
                 size="small"
                 style={{ marginBottom: '4rem' }}
@@ -185,6 +206,7 @@ export function VolumeTableRecordDescription({ record }: { record: EventDefiniti
                     <Button
                         style={{marginRight: 8}}
                         size="small"
+                        type="primary"
                         onClick={() => updateEventDefinition(record.id, newDescription)}
                     >
                         Save

@@ -441,4 +441,10 @@
     justify-content: center;
     font-weight: bold;
     font-size: 18px;
+
+    &.small {
+        width: 18px;
+        height: 18px;
+        font-size: 12px;
+    }
 }

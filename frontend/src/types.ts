@@ -731,6 +731,7 @@ export interface LicenseType {
 
 export interface EventDefinition {
     id: string
+    owner: UserBasicType | null
     name: string
     description: string | null
     tags: []
@@ -740,6 +741,7 @@ export interface EventDefinition {
 
 export interface PropertyDefinition {
     id: string
+    owner: UserBasicType | null
     name: string
     description: string | null
     tags: []
