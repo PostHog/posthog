@@ -17,8 +17,11 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
-# TODO: #4070 DEPRECATED; delete when these attributes are fully removed from `Team` model
-DEFERRED_FIELDS = (
+# TODO: DEPRECATED; delete when these attributes can be fully removed from `Team` model
+DEPRECATED_ATTRS = (
+    "plugins_opt_in",
+    "opt_out_capture",
+    "users",
     "event_names",
     "event_names_with_usage",
     "event_properties",
@@ -68,7 +71,7 @@ class TeamManager(models.Manager):
         if not token:
             return None
         try:
-            return Team.objects.defer(*DEFERRED_FIELDS).get(api_token=token)
+            return Team.objects.defer(*DEPRECATED_ATTRS).get(api_token=token)
         except Team.DoesNotExist:
             return None
 

@@ -57,7 +57,8 @@ class Command(BaseCommand):
             self._generate_psql_data(team, options["event_number"], options["days"])
 
         EventDefinition.objects.get_or_create(team=team, name="$purchase")
-        PropertyDefinition.objects.get_or_create(team=team, name="plan", is_numerical=True)
+        PropertyDefinition.objects.update_or_create(team=team, name="plan", defaults={"is_numerical": True})
+        PropertyDefinition.objects.update_or_create(team=team, name="purchase_value", defaults={"is_numerical": True})
 
     def _generate_psql_data(self, team, n_events, n_days):
         distinct_ids = []

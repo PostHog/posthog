@@ -1,8 +1,7 @@
 from datetime import timedelta
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 from celery.app import shared_task
-from django.db import connection
 from django.db.models import Count
 from django.utils.timezone import now
 

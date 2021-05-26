@@ -2,11 +2,7 @@
 
 from django.db import migrations
 
-from posthog.models.event_definition import EventDefinition
-from posthog.models.property_definition import PropertyDefinition
-
-# TODO: #4070 DEPRECATED; delete when these attributes are fully removed from `Team` model
-DEFERRED_FIELDS = (
+ATTRIBUTES = (
     "event_names",
     "event_names_with_usage",
     "event_properties",
@@ -20,7 +16,7 @@ def sync_event_and_properties_definitions(team_uuid: str, Team, EventDefinition,
     team = None
 
     # It is possible that the team was deleted before the task could run
-    team = Team.objects.only("uuid", *DEFERRED_FIELDS).get(uuid=team_uuid)
+    team = Team.objects.only("uuid", *ATTRIBUTES).get(uuid=team_uuid)
 
     if team is None:
         return
@@ -62,11 +58,8 @@ def sync_team_event_names_and_properties(apps, schema_editor):
     PropertyDefinition = apps.get_model("posthog", "PropertyDefinition")
     for team in Team.objects.all():
         try:
-            # importing locally in case the code ever moves
-            from posthog.tasks.sync_event_and_properties_definitions import sync_event_and_properties_definitions
-
             sync_event_and_properties_definitions(team.uuid, EventDefinition, PropertyDefinition)
-        except:
+        except Exception:
             pass
 
 
