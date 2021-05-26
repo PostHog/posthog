@@ -85,6 +85,11 @@ export interface PluginsServerConfig extends Record<string, any> {
     JOB_QUEUE_GRAPHILE_URL: string
     JOB_QUEUE_GRAPHILE_SCHEMA: string
     JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean
+    JOB_QUEUE_S3_AWS_ACCESS_KEY: string
+    JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: string
+    JOB_QUEUE_S3_AWS_REGION: string
+    JOB_QUEUE_S3_BUCKET_NAME: string
+    JOB_QUEUE_S3_PREFIX: string
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
     STALENESS_RESTART_SECONDS: number
 }
@@ -146,6 +151,27 @@ export interface JobQueue {
     connectProducer: () => Promise<void> | void
     enqueue: (job: EnqueuedJob) => Promise<void> | void
     disconnectProducer: () => Promise<void> | void
+}
+
+export enum JobQueueType {
+    FS = 'fs',
+    Graphile = 'graphile',
+    S3 = 's3',
+}
+
+export enum JobQueuePersistence {
+    /** Job queues that store jobs on the local server */
+    Local = 'local',
+    /** Remote persistent job queues that can be read from concurrently */
+    Concurrent = 'concurrent',
+    /** Remote persistent job queues that must be read from one redlocked server at a time */
+    Redlocked = 'redlocked',
+}
+
+export type JobQueueExport = {
+    type: JobQueueType
+    persistence: JobQueuePersistence
+    getQueue: (serverConfig: PluginsServerConfig) => JobQueue
 }
 
 export type PluginId = number

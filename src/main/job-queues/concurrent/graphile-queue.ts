@@ -1,10 +1,10 @@
 import * as Sentry from '@sentry/node'
-import { makeWorkerUtils, run, Runner, WorkerUtils, WorkerUtilsOptions } from 'graphile-worker'
+import { makeWorkerUtils, run, Runner, WorkerUtils } from 'graphile-worker'
 import { Pool } from 'pg'
 
-import { EnqueuedJob, JobQueue, OnJobCallback, PluginsServerConfig } from '../../types'
-import { status } from '../../utils/status'
-import { createPostgresPool } from '../../utils/utils'
+import { EnqueuedJob, JobQueue, OnJobCallback, PluginsServerConfig } from '../../../types'
+import { status } from '../../../utils/status'
+import { createPostgresPool } from '../../../utils/utils'
 
 export class GraphileQueue implements JobQueue {
     serverConfig: PluginsServerConfig
