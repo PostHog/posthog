@@ -8,7 +8,6 @@ import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from '../lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export enum Scene {
     Dashboards = 'dashboards',
@@ -247,9 +246,6 @@ export const sceneLogic = kea<sceneLogicType>({
     },
     urlToAction: ({ actions }) => {
         featureFlagLogic.mount() // Otherwise logic is not loaded before this
-        if (featureFlagLogic && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
-            redirects['/'] = '/home'
-        }
 
         const mapping: Record<string, (params: Params) => any> = {}
 
