@@ -13,15 +13,6 @@ SCREEN_OPTIONS = ("settings", "profile", "movies", "downloads")
 
 class AppDataGenerator(DataGenerator):
     def create_missing_events_and_properties(self):
-        self.add_if_not_contained(self.team.event_names, "watched_movie")
-        self.add_if_not_contained(self.team.event_names, "installed_app")
-        self.add_if_not_contained(self.team.event_names, "rated_app")
-        self.add_if_not_contained(self.team.event_properties, "$current_url")
-        self.add_if_not_contained(self.team.event_properties, "is_first_movie")
-        self.add_if_not_contained(
-            self.team.event_properties, "app_rating",
-        )  # numerical properties must also be declared here
-        self.add_if_not_contained(self.team.event_properties_numerical, "app_rating")
         EventDefinition.objects.get_or_create(team=self.team, name="watched_movie")
         EventDefinition.objects.get_or_create(team=self.team, name="installed_app")
         EventDefinition.objects.get_or_create(team=self.team, name="rated_app")

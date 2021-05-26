@@ -1,6 +1,6 @@
 import random
 
-from posthog.models import Action, Dashboard, Event, Person, SessionRecordingEvent, Team
+from posthog.models import Action, Dashboard, Event, EventDefinition, Person, SessionRecordingEvent, Team
 from posthog.test.base import APIBaseTest
 
 
@@ -21,4 +21,4 @@ class TestDemo(APIBaseTest):
         # action_event_counts = [action.events.count() for action in Action.objects.all()]
         # self.assertCountEqual(action_event_counts, [14, 140, 0, 0, 40, 100, 73, 87])
 
-        self.assertIn("$pageview", demo_team.event_names)
+        self.assertTrue(EventDefinition.objects.filter(team=demo_team, name="$pageview").exists())
