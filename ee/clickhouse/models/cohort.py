@@ -36,38 +36,76 @@ def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
     or_queries = []
     for group_idx, group in enumerate(cohort.groups):
         if group.get("action_id"):
-            action = Action.objects.get(pk=group["action_id"], team_id=cohort.team.pk)
-            action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
+            action_query, action_params = get_action_cohort_subquery(cohort, group, group_idx)
+            params = {**params, **action_params}
+            filters.append(action_query)
 
-            date_query: str = ""
-            date_params: Dict[str, str] = {}
-            if group.get("days"):
-                date_query, date_params = parse_action_timestamps(int(group.get("days")))
-
-            extract_person = "SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {query}".format(
-                query=action_filter_query, date_query=date_query
-            )
-            params = {**params, **action_params, **date_params}
-            filters.append("distinct_id IN (" + extract_person + ")")
+        elif group.get("event_id"):
+            event_query, event_params = get_event_cohort_subquery(group, group_idx)
+            params = {**params, **event_params}
+            filters.append(event_query)
 
         elif group.get("properties"):
-            from ee.clickhouse.models.property import prop_filter_json_extract
+            prop_query, prop_params = get_properties_cohort_subquery(cohort, group, group_idx)
+            or_queries.append(prop_query)
+            params = {**params, **prop_params}
 
-            filter = Filter(data=group)
-            query = ""
-            for idx, prop in enumerate(filter.properties):
-                filter_query, filter_params = prop_filter_json_extract(
-                    prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
-                )
-                params = {**params, **filter_params}
-                query += filter_query
-            or_queries.append(query.replace("AND ", "", 1))
     if len(or_queries) > 0:
         query = "AND ({})".format(" OR ".join(or_queries))
         filters.append("{} IN {}".format(custom_match_field, GET_LATEST_PERSON_ID_SQL.format(query=query)))
 
     joined_filter = " OR ".join(filters)
     return joined_filter, params
+
+
+def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int):
+    from ee.clickhouse.models.property import prop_filter_json_extract
+
+    filter = Filter(data=cohort_group)
+    params = {}
+
+    query = ""
+    for idx, prop in enumerate(filter.properties):
+        filter_query, filter_params = prop_filter_json_extract(
+            prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
+        )
+        params = {**params, **filter_params}
+        query += filter_query
+
+    return query.replace("AND ", "", 1), params
+
+
+def get_action_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int):
+    action_id = cohort_group["action_id"]
+    days = cohort_group.get("days")
+
+    action = Action.objects.get(pk=action_id, team_id=cohort.team.pk)
+    action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
+
+    date_query: str = ""
+    date_params: Dict[str, str] = {}
+    if days:
+        date_query, date_params = parse_action_timestamps(int(days))
+
+    extract_person = "SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {query}".format(
+        query=action_filter_query, date_query=date_query
+    )
+    return "distinct_id IN (" + extract_person + ")", {**action_params, **date_params}
+
+
+def get_event_cohort_subquery(cohort_group: Dict, group_idx: int):
+    event_id = cohort_group["event_id"]
+    days = cohort_group.get("days")
+
+    date_query: str = ""
+    date_params: Dict[str, str] = {}
+    if days:
+        date_query, date_params = parse_action_timestamps(int(days))
+
+    extract_person = "SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND event = %(event)s".format(
+        date_query=date_query
+    )
+    return "distinct_id IN (" + extract_person + ")", {"event": event_id, **date_params}
 
 
 def parse_action_timestamps(days: int) -> Tuple[str, Dict[str, str]]:
