@@ -1,0 +1,76 @@
+general:
+    remote_storage: s3
+    max_file_size: 1099511627776
+    disable_progress_bar: false
+    backups_to_keep_local: 0
+    backups_to_keep_remote: 0
+    log_level: info
+    allow_empty_backups: false
+clickhouse:
+    username: default
+    password: ''
+    host: localhost
+    port: 9000
+    disk_mapping: {}
+    skip_tables:
+        - system.*
+    timeout: 5m
+    freeze_by_part: false
+    secure: false
+    skip_verify: false
+    sync_replicated_tables: true
+s3:
+    access_key: 'AKIAIOSFODNN7EXAMPLE'
+    secret_key: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+    bucket: 'posthog-ch-backups-test'
+    endpoint: 'http://s3:9090'
+    acl: private
+    force_path_style: true
+    path: 'backup'
+    disable_ssl: true
+    compression_level: 1
+    compression_format: tar
+gcs:
+    credentials_file: ''
+    credentials_json: ''
+    bucket: ''
+    path: ''
+    compression_level: 1
+    compression_format: tar
+cos:
+    url: ''
+    timeout: 2m
+    secret_id: ''
+    secret_key: ''
+    path: ''
+    compression_format: tar
+    compression_level: 1
+api:
+    listen: 0.0.0.0:7171
+    enable_metrics: true
+    enable_pprof: false
+    username: ''
+    password: ''
+    secure: false
+    certificate_file: ''
+    private_key_file: ''
+    create_integration_tables: false
+ftp:
+    address: ''
+    timeout: 2m
+    username: ''
+    password: ''
+    tls: false
+    path: ''
+    compression_format: tar
+    compression_level: 1
+azblob:
+    endpoint_suffix: core.windows.net
+    account_name: ''
+    account_key: ''
+    sas: ''
+    container: ''
+    path: ''
+    compression_level: 1
+    compression_format: tar
+    sse_key: ''

@@ -28,7 +28,7 @@ services:
             - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ../../clickhouse-backup/clickhouse-backup:/usr/bin/clickhouse-backup
-            - ../../clickhouse-backup/config.yml:/etc/clickhouse-backup/config.yml
+            - ./clickhouse-backup-config.yml:/etc/clickhouse-backup/config.yml
     zookeeper:
         image: wurstmeister/zookeeper
     kafka:
