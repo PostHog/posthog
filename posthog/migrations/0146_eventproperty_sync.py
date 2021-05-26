@@ -58,7 +58,7 @@ def sync_team_event_names_and_properties(apps, schema_editor):
     PropertyDefinition = apps.get_model("posthog", "PropertyDefinition")
     for team in Team.objects.all():
         try:
-            sync_event_and_properties_definitions(team.uuid, EventDefinition, PropertyDefinition)
+            sync_event_and_properties_definitions(team.uuid, Team, EventDefinition, PropertyDefinition)
         except Exception:
             pass
 
