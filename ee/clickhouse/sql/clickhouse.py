@@ -15,6 +15,12 @@ TABLE_MERGE_ENGINE = (
     else "MergeTree()"
 )
 
+COLLAPSING_TABLE_ENGINE = (
+    "ReplicatedCollapsingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}', {ver})"
+    if CLICKHOUSE_REPLICATION
+    else "CollapsingMergeTree({ver})"
+)
+
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
 
 KAFKA_PROTO_ENGINE = """
@@ -36,9 +42,13 @@ KAFKA_COLUMNS = """
 , _offset UInt64
 """
 
+COLLAPSING_MERGE_TREE = "collapsing_merge_tree"
 
-def table_engine(table: str, ver: Optional[str] = None) -> str:
-    if ver:
+
+def table_engine(table: str, ver: Optional[str] = None, engine_type: Optional[str] = None) -> str:
+    if engine_type == COLLAPSING_MERGE_TREE and ver:
+        return COLLAPSING_TABLE_ENGINE.format(table=table, ver=ver)
+    elif ver:
         return TABLE_ENGINE.format(table=table, ver=ver)
     else:
         return TABLE_MERGE_ENGINE.format(table=table)

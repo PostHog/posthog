@@ -1,3 +1,5 @@
+from .clickhouse import STORAGE_POLICY, table_engine
+
 CALCULATE_COHORT_PEOPLE_SQL = """
 SELECT distinct_id FROM ({latest_distinct_id_sql}) where {query} AND team_id = %(team_id)s
 """
@@ -9,9 +11,12 @@ CREATE TABLE cohortpeople
     cohort_id Int64,
     team_id Int64,
     sign Int8
-) ENGINE = CollapsingMergeTree(sign)
+) ENGINE = {engine}
 Order By (team_id, cohort_id, person_id)
-"""
+{storage_policy}
+""".format(
+    engine=table_engine("cohortpeople", "sign"), storage_policy=STORAGE_POLICY
+)
 
 DROP_COHORTPEOPLE_TABLE_SQL = """
 DROP TABLE cohortpeople
