@@ -28,8 +28,6 @@ class Command(BaseCommand):
                     "api_token": "e2e_token_1239",
                     "completed_snippet_onboarding": True,
                     "ingested_event": True,
-                    "event_names": ["$pageview", "$autocapture"],
-                    "event_properties": ["$current_url", "$browser", "$os"],
                 },
             )
             EventDefinition.objects.create(team=team, name="$pageview")

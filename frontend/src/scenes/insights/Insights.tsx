@@ -44,9 +44,7 @@ dayjs.extend(relativeTime)
 const { TabPane } = Tabs
 
 function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
-    /* Temporary element to only show hotkeys when feature flag is active */
-    const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags['hotkeys-3740'] && !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
+    return !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
 }
 
 export function Insights(): JSX.Element {
@@ -77,33 +75,29 @@ export function Insights(): JSX.Element {
         reportHotkeyNavigation('insights', hotkey)
     }
 
-    useKeyboardHotkeys(
-        featureFlags['hotkeys-3740']
-            ? {
-                  t: {
-                      action: () => handleHotkeyNavigation(ViewType.TRENDS, 't'),
-                  },
-                  f: {
-                      action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
-                  },
-                  s: {
-                      action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
-                  },
-                  r: {
-                      action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
-                  },
-                  p: {
-                      action: () => handleHotkeyNavigation(ViewType.PATHS, 'p'),
-                  },
-                  k: {
-                      action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'k'),
-                  },
-                  l: {
-                      action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
-                  },
-              }
-            : {}
-    )
+    useKeyboardHotkeys({
+        t: {
+            action: () => handleHotkeyNavigation(ViewType.TRENDS, 't'),
+        },
+        f: {
+            action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
+        },
+        s: {
+            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
+        },
+        r: {
+            action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
+        },
+        p: {
+            action: () => handleHotkeyNavigation(ViewType.PATHS, 'p'),
+        },
+        k: {
+            action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'k'),
+        },
+        l: {
+            action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
+        },
+    })
 
     return (
         <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>

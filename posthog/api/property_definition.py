@@ -12,7 +12,6 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "is_numerical",
-            "volume_30_day",
             "query_usage_30_day",
         )
 

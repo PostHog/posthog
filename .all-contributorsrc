@@ -1251,6 +1251,42 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "c3ho",
+      "name": "Calvin ",
+      "avatar_url": "https://avatars.githubusercontent.com/u/18711727?v=4",
+      "profile": "https://c3ho.blogspot.com/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "DimitrisMazarakis",
+      "name": "Dimitris Mazarakis",
+      "avatar_url": "https://avatars.githubusercontent.com/u/56391437?v=4",
+      "profile": "https://github.com/DimitrisMazarakis",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "pietrodevpiccini",
+      "name": "pietrodevpiccini",
+      "avatar_url": "https://avatars.githubusercontent.com/u/78323924?v=4",
+      "profile": "https://github.com/pietrodevpiccini",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "mands",
+      "name": "Mandeep Gill",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1010043?v=4",
+      "profile": "https://github.com/mands",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
