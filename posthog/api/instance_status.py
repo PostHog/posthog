@@ -1,4 +1,4 @@
-from typing import Dict, List, Union
+from typing import Any, Dict, List, Union
 
 from django.db import connection
 from rest_framework import viewsets
@@ -145,7 +145,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
     def create(self, request: Request) -> Response:
         from posthog.internal_metrics import incr, timing
 
-        method = timing if request.data["method"] == "timing" else incr
+        method: Any = timing if request.data["method"] == "timing" else incr
         method(request.data["metric"], request.data["value"], request.data.get("tags", None))
         return Response({"status": 1})
 
