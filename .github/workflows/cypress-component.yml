@@ -19,7 +19,7 @@ jobs:
               id: cypress-node-modules-cache
               with:
                   path: |
-                      node_modules
+                      **/node_modules
                   key: ${{ runner.os }}-cypress-node-modules-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
                       ${{ runner.os }}-cypress-node-modules
@@ -32,9 +32,9 @@ jobs:
               with:
                   path: |
                       ~/.cache/Cypress
-                      node_modules/cypress
-                      node_modules/cypress-terminal-report
-                      node_modules/@cypress
+                      **/node_modules/cypress
+                      **/node_modules/cypress-terminal-report
+                      **/node_modules/@cypress
                   key: ${{ runner.os }}-cypress-6.7.0
             - name: Install cypress
               if: steps.cypress-cache.outputs.cache-hit != 'true'
