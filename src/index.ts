@@ -1,6 +1,6 @@
 import { defaultConfig, formatConfigHelp } from './config/config'
 import { initApp } from './init'
-import { GraphileQueue } from './main/job-queues/graphile-queue'
+import { GraphileQueue } from './main/job-queues/concurrent/graphile-queue'
 import { startPluginsServer } from './main/pluginsServer'
 import { Status } from './utils/status'
 import { makePiscina } from './worker/piscina'
