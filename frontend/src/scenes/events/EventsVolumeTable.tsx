@@ -71,26 +71,28 @@ export function VolumeTable({
             ],
             onFilter: (value, record) => (value === 'warnings' ? !!record.warnings.length : !record.warnings.length),
         },
-        {
-            title: function VolumeTitle() {
-                return (
-                    <Tooltip
-                        placement="right"
-                        title="Total number of events over the last 30 days. Can be delayed by up to an hour."
-                    >
-                        30 day volume (delayed by up to an hour)
-                        <InfoCircleOutlined className="info-indicator" />
-                    </Tooltip>
-                )
-            },
-            render: function RenderVolume(_, record) {
-                return <span className="ph-no-capture">{humanizeNumber(record.eventOrProp.volume_30_day)}</span>
-            },
-            sorter: (a, b) =>
-                a.eventOrProp.volume_30_day == b.eventOrProp.volume_30_day
-                    ? (a.eventOrProp.volume_30_day || -1) - (b.eventOrProp.volume_30_day || -1)
-                    : (a.eventOrProp.volume_30_day || -1) - (b.eventOrProp.volume_30_day || -1),
-        },
+        type === 'event'
+            ? {
+                  title: function VolumeTitle() {
+                      return (
+                          <Tooltip
+                              placement="right"
+                              title="Total number of events over the last 30 days. Can be delayed by up to an hour."
+                          >
+                              30 day volume (delayed by up to an hour)
+                              <InfoCircleOutlined className="info-indicator" />
+                          </Tooltip>
+                      )
+                  },
+                  render: function RenderVolume(_, record) {
+                      return <span className="ph-no-capture">{humanizeNumber(record.eventOrProp.volume_30_day)}</span>
+                  },
+                  sorter: (a, b) =>
+                      a.eventOrProp.volume_30_day == b.eventOrProp.volume_30_day
+                          ? (a.eventOrProp.volume_30_day || -1) - (b.eventOrProp.volume_30_day || -1)
+                          : (a.eventOrProp.volume_30_day || -1) - (b.eventOrProp.volume_30_day || -1),
+              }
+            : {},
         {
             title: function QueriesTitle() {
                 return (
@@ -150,7 +152,7 @@ export function VolumeTable({
                 rowKey={(item) => item.eventOrProp.name}
                 size="small"
                 style={{ marginBottom: '4rem' }}
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                pagination={{ pageSize: 100, hideOnSinglePage: true }}
             />
         </>
     )

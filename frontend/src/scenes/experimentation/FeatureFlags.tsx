@@ -28,17 +28,16 @@ export function FeatureFlags(): JSX.Element {
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
-                    <div onClick={(e) => e.stopPropagation()}>
-                        <CopyToClipboardInline iconPosition="start" explicitValue={featureFlag.key}>
-                            <>
-                                {!featureFlag.active && (
-                                    <Tooltip title="This feature flag is disabled.">
-                                        <DisconnectOutlined style={{ marginRight: 4 }} />
-                                    </Tooltip>
-                                )}
-                                {featureFlag.key}
-                            </>
-                        </CopyToClipboardInline>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {!featureFlag.active && (
+                            <Tooltip title="This feature flag is disabled.">
+                                <DisconnectOutlined style={{ marginRight: 4 }} />
+                            </Tooltip>
+                        )}
+                        <span style={{ marginRight: 4 }}>{featureFlag.key}</span>
+                        <div onClick={(e) => e.stopPropagation()}>
+                            <CopyToClipboardInline iconPosition="start" explicitValue={featureFlag.key} />
+                        </div>
                     </div>
                 )
             },
