@@ -9,6 +9,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_DISTINCT_ID_BY_ENTITY_SQL,
+    GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
 )
@@ -79,6 +80,7 @@ def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx
 def get_action_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int):
     action_id = cohort_group["action_id"]
     days = cohort_group.get("days")
+    count = cohort_group.get("count")
 
     action = Action.objects.get(pk=action_id, team_id=cohort.team.pk)
     action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
@@ -88,21 +90,34 @@ def get_action_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
     if days:
         date_query, date_params = parse_action_timestamps(int(days))
 
-    extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=action_filter_query, date_query=date_query)
-    return "distinct_id IN (" + extract_person + ")", {**action_params, **date_params}
+    if count:
+        extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
+            entity_query=action_filter_query, date_query=date_query
+        )
+        return "person_id IN (" + extract_person + ")", {"count": int(count), **action_params, **date_params}
+    else:
+        extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=action_filter_query, date_query=date_query)
+        return "distinct_id IN (" + extract_person + ")", {**action_params, **date_params}
 
 
 def get_event_cohort_subquery(cohort_group: Dict, group_idx: int):
     event_id = cohort_group["event_id"]
     days = cohort_group.get("days")
+    count = cohort_group.get("count")
 
     date_query: str = ""
     date_params: Dict[str, str] = {}
     if days:
         date_query, date_params = parse_action_timestamps(int(days))
 
-    extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query="event = %(event)s", date_query=date_query,)
-    return "distinct_id IN (" + extract_person + ")", {"event": event_id, **date_params}
+    if count:
+        extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
+            entity_query="event = %(event)s", date_query=date_query
+        )
+        return "person_id IN (" + extract_person + ")", {"count": int(count), "event": event_id, **date_params}
+    else:
+        extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query="event = %(event)s", date_query=date_query,)
+        return "distinct_id IN (" + extract_person + ")", {"event": event_id, **date_params}
 
 
 def parse_action_timestamps(days: int) -> Tuple[str, Dict[str, str]]:
@@ -110,7 +125,7 @@ def parse_action_timestamps(days: int) -> Tuple[str, Dict[str, str]]:
     start_time = curr_time - timedelta(days=days)
 
     return (
-        "and timestamp >= %(date_from)s AND timestamp <= %(date_to)s",
+        "AND timestamp >= %(date_from)s AND timestamp <= %(date_to)s",
         {"date_from": start_time.strftime("%Y-%m-%d %H:%M:%S"), "date_to": curr_time.strftime("%Y-%m-%d %H:%M:%S")},
     )
 
@@ -154,9 +169,7 @@ def recalculate_cohortpeople(cohort: Cohort):
     cohort_filter = GET_PERSON_IDS_BY_FILTER.format(distinct_query="AND " + cohort_filter, query="")
 
     insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
-
     sync_execute(insert_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
 
     remove_cohortpeople_sql = REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
-
     sync_execute(remove_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})

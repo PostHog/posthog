@@ -34,6 +34,7 @@ class Group(object):
         action_id: Optional[int] = None,
         event_id: Optional[str] = None,
         days: Optional[int] = None,
+        count: Optional[int] = None,
     ):
         if not properties and not action_id and not event_id:
             raise ValueError("Cohort group needs properties or action_id or event_id")
@@ -41,6 +42,7 @@ class Group(object):
         self.action_id = action_id
         self.event_id = event_id
         self.days = days
+        self.count = count
 
 
 class CohortManager(models.Manager):

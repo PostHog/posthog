@@ -51,3 +51,29 @@ INSERT INTO cohortpeople
 GET_DISTINCT_ID_BY_ENTITY_SQL = """
 SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {entity_query}
 """
+
+GET_PERSON_ID_BY_ENTITY_COUNT_SQL = """
+SELECT person_id FROM events 
+INNER JOIN (
+    SELECT person_id,
+        distinct_id
+    FROM (
+            SELECT *
+            FROM person_distinct_id
+            JOIN (
+                    SELECT distinct_id,
+                        max(_offset) as _offset
+                    FROM person_distinct_id
+                    WHERE team_id = %(team_id)s
+                    GROUP BY distinct_id
+                ) as person_max
+                ON person_distinct_id.distinct_id = person_max.distinct_id
+            AND person_distinct_id._offset = person_max._offset
+            WHERE team_id = %(team_id)s
+        )
+    WHERE team_id = %(team_id)s
+) as pid
+ON events.distinct_id = pid.distinct_id
+WHERE team_id = %(team_id)s {date_query} AND {entity_query}
+GROUP BY person_id HAVING count(*) >= %(count)s
+"""
