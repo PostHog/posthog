@@ -33,11 +33,11 @@ class Migration(migrations.Migration):
                 (
                     "tags",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=32), blank=True, default=list, size=None
+                        base_field=models.CharField(max_length=32), blank=True, default=list, size=None,
                     ),
                 ),
             ],
-            options={"abstract": False,},
+            options={"abstract": False},
             bases=("posthog.propertydefinition",),
         ),
         migrations.CreateModel(
@@ -58,7 +58,7 @@ class Migration(migrations.Migration):
                 (
                     "tags",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=32), default=list, null=True, size=None
+                        base_field=models.CharField(max_length=32), default=list, null=True, size=None,
                     ),
                 ),
                 (
@@ -71,7 +71,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            options={"abstract": False,},
+            options={"abstract": False},
             bases=("posthog.eventdefinition",),
         ),
     ]
