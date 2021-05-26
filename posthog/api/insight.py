@@ -5,6 +5,7 @@ from django.core.cache import cache
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
 from django.utils.timezone import now
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -101,6 +102,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = DashboardItem.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["short_id"]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

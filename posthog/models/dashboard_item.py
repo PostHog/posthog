@@ -15,6 +15,7 @@ def generate_short_id():
     return secrets.token_urlsafe(6)  # will result in 8-char strings (after encoding)
 
 
+# TODO: Rename model to something more accurate like `Insight`
 class DashboardItem(models.Model):
     """
     Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone

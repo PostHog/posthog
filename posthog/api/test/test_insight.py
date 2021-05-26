@@ -11,6 +11,7 @@ from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.person import Person
+from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
 # TODO: two tests below fail in EE
@@ -60,6 +61,28 @@ def insight_test_factory(event_factory, person_factory):
 
             self.assertEqual(len(response.json()["results"]), 1)
             self.assertEqual(len(response.json()["results"][0]["short_id"]), 8)
+
+        def test_get_insight_by_short_id(self):
+            filter_dict = {
+                "events": [{"id": "$pageview"}],
+            }
+
+            DashboardItem.objects.create(
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+            )
+
+            # Red herring: Should be ignored because it's not on the current team (even though the user has access)
+            new_team = Team.objects.create(organization=self.organization)
+            DashboardItem.objects.create(
+                filters=Filter(data=filter_dict).to_dict(), team=new_team, short_id="12345678",
+            )
+
+            response = self.client.get("/api/insight/?short_id=12345678")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(len(response.json()["results"]), 1)
+            self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
+            self.assertEqual(response.json()["results"][0]["filters"]["events"][0]["id"], "$pageview")
 
         def test_create_insight_items(self):
             # Make sure the endpoint works with and without the trailing slash
