@@ -143,7 +143,7 @@ function DashboardView(): JSX.Element {
                             </div>
                         )}
                     </div>
-                    <DashboardItems inSharedMode={dashboardMode === DashboardMode.Public} />
+                    <DashboardItems />
                 </div>
             ) : (
                 <EmptyDashboardComponent />
