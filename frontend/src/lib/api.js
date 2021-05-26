@@ -150,6 +150,8 @@ function maybeAddEnvironmentProperty(url) {
             : urlObject.pathname + '?' + toParams(params)
     } else if (url.indexOf('http') !== 0) {
         return '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
+    } else {
+        return url
     }
 }
 
