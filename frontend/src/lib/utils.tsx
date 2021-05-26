@@ -470,6 +470,8 @@ export function eventToName(event: EventType): string {
         }
         if (event.elements[0].text) {
             name += ' with text "' + event.elements[0].text + '"'
+        } else if (event.elements[0].attributes['attr__aria-label']) {
+            name += ' with aria label "' + event.elements[0].attributes['attr__aria-label'] + '"'
         }
     }
     return name
@@ -515,16 +517,16 @@ export const dateMapping: Record<string, string[]> = {
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
 export function dateFilterToText(
-    dateFrom: string | dayjs.Dayjs | undefined,
-    dateTo: string | dayjs.Dayjs | undefined,
+    dateFrom: string | dayjs.Dayjs | null | undefined,
+    dateTo: string | dayjs.Dayjs | null | undefined,
     defaultValue: string
 ): string {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
         return `${dateFrom.format('YYYY-MM-DD')} - ${dateTo.format('YYYY-MM-DD')}`
     }
-    dateFrom = dateFrom as string
-    dateTo = dateTo as string
-    if (isDate.test(dateFrom) && isDate.test(dateTo)) {
+    dateFrom = (dateFrom || undefined) as string | undefined
+    dateTo = (dateTo || undefined) as string | undefined
+    if (isDate.test(dateFrom || '') && isDate.test(dateTo || '')) {
         return `${dateFrom} - ${dateTo}`
     }
     if (dateFrom === 'dStart') {

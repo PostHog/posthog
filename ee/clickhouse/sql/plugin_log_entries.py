@@ -1,4 +1,5 @@
 from ee.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
+from posthog.tasks.delete_old_plugin_logs import TTL_WEEKS
 
 from .clickhouse import KAFKA_COLUMNS, kafka_engine, table_engine, ttl_period
 
@@ -30,7 +31,7 @@ SETTINGS index_granularity=512
     table_name=PLUGIN_LOG_ENTRIES_TABLE,
     extra_fields=KAFKA_COLUMNS,
     engine=table_engine(PLUGIN_LOG_ENTRIES_TABLE, "_timestamp"),
-    ttl_period=ttl_period("timestamp", 1),
+    ttl_period=ttl_period("timestamp", TTL_WEEKS),
 )
 
 KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(

@@ -62,6 +62,7 @@ export const insightLogic = kea<insightLogicType>({
         setTimeout: (timeout) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
+        toggleControlsCollapsed: true,
     }),
 
     reducers: {
@@ -135,6 +136,12 @@ export const insightLogic = kea<insightLogicType>({
                 setNotFirstLoad: () => false,
             },
         ],
+        controlsCollapsed: [
+            false,
+            {
+                toggleControlsCollapsed: (state) => !state,
+            },
+        ],
     },
     listeners: ({ actions, values }) => ({
         setAllFilters: (filters) => {
@@ -175,6 +182,9 @@ export const insightLogic = kea<insightLogicType>({
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
             clearTimeout(values.timeout || undefined)
+        },
+        toggleControlsCollapsed: async () => {
+            eventUsageLogic.actions.reportInsightsControlsCollapseToggle(values.controlsCollapsed)
         },
     }),
     actionToUrl: ({ actions, values }) => ({
