@@ -149,7 +149,9 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 
 def recalculate_cohortpeople(cohort: Cohort):
-    cohort_filter, cohort_params = format_person_query(cohort, custom_match_field="person.id")
+    cohort_filter, cohort_params = format_person_query(cohort, custom_match_field="id")
+
+    cohort_filter = GET_PERSON_IDS_BY_FILTER.format(distinct_query="AND " + cohort_filter, query="")
 
     insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
 

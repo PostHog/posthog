@@ -5,7 +5,7 @@ import pytest
 from freezegun import freeze_time
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id, recalculate_cohortpeople
+from ee.clickhouse.models.cohort import get_person_ids_by_cohort_id, recalculate_cohortpeople
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -316,6 +316,43 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         cohort1.calculate_people_ch()
+
+        results = sync_execute("SELECT person_id FROM cohortpeople")
+        self.assertEqual(len(results), 2)
+
+    def test_cohortpeople_action_basic(self):
+        action = _create_action(team=self.team, name="$pageview")
+        p1 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="1",
+            properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 9, 12, 0, 1),
+        )
+
+        p2 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["2"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="2",
+            properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 9, 12, 0, 1),
+        )
+
+        cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort1",)
+        with freeze_time("2020-01-10"):
+            cohort1.calculate_people_ch()
 
         results = sync_execute("SELECT person_id FROM cohortpeople")
         self.assertEqual(len(results), 2)
