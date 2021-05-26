@@ -1,18 +1,14 @@
 FUNNEL_TREND_SQL = """
-select addDays(toDate('{start_timestamp}'), number) as date,
-       E.distinct_id,
-       E.max_step
-from numbers(
-    dateDiff('day', toDateTime('{start_timestamp}'), toDateTime('{end_timestamp}')) + 1
-) as N
-left outer join (
+select distinct_id, max_step, when
+from (
     select
         distinct_id,
-        windowFunnel(6048000000000000)(toUInt64(toUnixTimestamp64Micro(timestamp)), event = 'step one', event = 'step two', event = 'step three') as max_step,
-        arrayJoin(groupArray(toDate(timestamp))) as date
+        windowFunnel({window_in_milliseconds})(toUInt64(toUnixTimestamp64Milli(timestamp)), {steps}) as max_step,
+        groupArray(timestamp) as when
     from events
+    where timestamp >= '{start_timestamp}'
+    and timestamp <= '{end_timestamp}'
     group by distinct_id
-) as E
-on addDays(toDate('{start_timestamp}'), number) = E.date
-;
-        """
+)
+where max_step > 0
+"""

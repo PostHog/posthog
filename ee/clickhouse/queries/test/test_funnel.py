@@ -40,47 +40,45 @@ class TestFunnelTrends(ClickhouseTestMixin, funnel_trends_test_factory(Clickhous
         return my_dict
 
     def test_raw_query(self):
-        # four people
-        _create_person(distinct_ids=["query_one"], team=self.team)
-        _create_person(distinct_ids=["query_two"], team=self.team)
-        _create_person(distinct_ids=["query_three"], team=self.team)
-        _create_person(distinct_ids=["query_four"], team=self.team)
+        # five people, three steps
+        _create_person(distinct_ids=["user_one"], team=self.team)
+        _create_person(distinct_ids=["user_two"], team=self.team)
+        _create_person(distinct_ids=["user_three"], team=self.team)
+        _create_person(distinct_ids=["user_four"], team=self.team)
+        _create_person(distinct_ids=["user_five"], team=self.team)
 
-        # query_one, funnel steps: one, two three
-        _create_event(event="step one", distinct_id="query_one", team=self.team, timestamp="2021-05-01 00:00:00")
-        _create_event(event="step two", distinct_id="query_one", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step three", distinct_id="query_one", team=self.team, timestamp="2021-05-05 00:00:00")
+        # user_one, funnel steps: one, two three
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-03 00:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-05 00:00:00")
 
-        # query_two, funnel steps: one, two
-        _create_event(event="step one", distinct_id="query_two", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step two", distinct_id="query_two", team=self.team, timestamp="2021-05-04 00:00:00")
+        # user_two, funnel steps: one, two
+        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-02 00:00:00")
+        _create_event(event="step two", distinct_id="user_two", team=self.team, timestamp="2021-05-04 00:00:00")
 
-        # query_three, funnel steps: one
-        _create_event(event="step one", distinct_id="query_three", team=self.team, timestamp="2021-05-06 00:00:00")
+        # user_three, funnel steps: one
+        _create_event(event="step one", distinct_id="user_three", team=self.team, timestamp="2021-05-06 00:00:00")
 
-        # query_four, funnel steps: none
-        _create_event(event="step none", distinct_id="query_four", team=self.team, timestamp="2021-05-06 00:00:00")
+        # user_four, funnel steps: none
+        _create_event(event="step none", distinct_id="user_four", team=self.team, timestamp="2021-05-06 00:00:00")
+
+        # user_five, funnel steps: one, two, three in the same day
+        _create_event(event="step one", distinct_id="user_five", team=self.team, timestamp="2021-05-01 01:00:00")
+        _create_event(event="step two", distinct_id="user_five", team=self.team, timestamp="2021-05-01 02:00:00")
+        _create_event(event="step three", distinct_id="user_five", team=self.team, timestamp="2021-05-01 03:00:00")
+
+        one_day_in_milliseconds = 1000 * 60 * 60 * 24
 
         query = FUNNEL_TREND_SQL.format(
-            start_timestamp="2021-05-01 00:00:00", end_timestamp="2021-05-07 00:00:00", team_id=self.team.id,
+            start_timestamp="2021-05-01 00:00:00",
+            end_timestamp="2021-05-07 00:00:00",
+            team_id=self.team.id,
+            steps="event = 'step one', event = 'step two', event = 'step three'",
+            window_in_milliseconds=one_day_in_milliseconds,
         )
 
         results = sync_execute(query, {})
-        users = self._convert_to_users(results)
 
-        assert len(results) == 8
-        assert len(users) == 4
-
-        assert users["query_one"]["max_step"] == 3
-        assert len(users["query_one"]["dates"]) == 3
-
-        assert users["query_two"]["max_step"] == 2
-        assert len(users["query_two"]["dates"]) == 2
-
-        assert users["query_three"]["max_step"] == 1
-        assert len(users["query_three"]["dates"]) == 1
-
-        assert users["query_four"]["max_step"] == 0
-        assert len(users["query_four"]["dates"]) == 1
+        assert len(results) == 4
 
     pass
