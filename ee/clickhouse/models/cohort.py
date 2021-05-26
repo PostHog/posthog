@@ -62,7 +62,7 @@ def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx
     from ee.clickhouse.models.property import prop_filter_json_extract
 
     filter = Filter(data=cohort_group)
-    params = {}
+    params: Dict[str, Any] = {}
 
     query = ""
     for idx, prop in enumerate(filter.properties):
