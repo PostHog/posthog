@@ -32,7 +32,7 @@ JOIN (
 WHERE cohort_id = %(cohort_id)s
 AND 
     (
-        person.is_deleted = 1 OR NOT ({cohort_filter})
+        person.is_deleted = 1 OR NOT person_id IN ({cohort_filter})
     )
 """
 
@@ -45,5 +45,5 @@ INSERT INTO cohortpeople
     LEFT JOIN cohortpeople ON (person.id = cohortpeople.person_id)
     WHERE cohortpeople.person_id = '00000000-0000-0000-0000-000000000000'
     AND person.is_deleted = 0
-    AND {cohort_filter}
+    AND id IN ({cohort_filter})
 """
