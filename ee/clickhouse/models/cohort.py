@@ -94,7 +94,8 @@ def get_action_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
         extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
             entity_query=action_filter_query, date_query=date_query
         )
-        return "person_id IN (" + extract_person + ")", {"count": int(count), **action_params, **date_params}
+        params: Dict[str, Union[str, int]] = {"count": int(count), **action_params, **date_params}
+        return "person_id IN (" + extract_person + ")", params
     else:
         extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=action_filter_query, date_query=date_query)
         return "distinct_id IN (" + extract_person + ")", {**action_params, **date_params}
