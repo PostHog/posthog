@@ -1,5 +1,3 @@
-from posthog.models.user import User
-from django.contrib.postgres.fields.array import ArrayField
 from django.db import models
 
 from posthog.models.team import Team
@@ -10,12 +8,7 @@ class EventDefinition(UUIDModel):
     team: models.ForeignKey = models.ForeignKey(
         Team, on_delete=models.CASCADE, related_name="event_definitions", related_query_name="team",
     )
-    owner: models.ForeignKey = models.ForeignKey(
-        User, null=True, on_delete=models.SET_NULL, related_name="event_definitions", related_query_name="user",
-    )
     name: models.CharField = models.CharField(max_length=400)
-    description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
     volume_30_day: models.IntegerField = models.IntegerField(
         default=None, null=True,
     )  # Volume of events in the last 30 rolling days (computed asynchronously)
