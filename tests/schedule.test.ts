@@ -118,9 +118,7 @@ describe('startSchedule', () => {
         `
         await resetTestDatabase(testCode)
         piscina = setupPiscina(workerThreads, 10)
-        const [_hub, _closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log, SCHEDULE_LOCK_TTL: 3 })
-        hub = _hub
-        closeHub = _closeHub
+        ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log, SCHEDULE_LOCK_TTL: 3 })
 
         redis = await hub.redisPool.acquire()
         await redis.del(LOCKED_RESOURCE)

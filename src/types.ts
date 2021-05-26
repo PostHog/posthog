@@ -16,12 +16,21 @@ import { EventsProcessor } from './worker/ingestion/process-event'
 import { LazyPluginVM } from './worker/vm/lazy'
 
 export enum LogLevel {
+    None = 'none',
     Debug = 'debug',
     Info = 'info',
     Log = 'log',
     Warn = 'warn',
     Error = 'error',
-    None = 'none',
+}
+
+export const logLevelToNumber: Record<LogLevel, number> = {
+    [LogLevel.None]: 0,
+    [LogLevel.Debug]: 10,
+    [LogLevel.Info]: 20,
+    [LogLevel.Log]: 30,
+    [LogLevel.Warn]: 40,
+    [LogLevel.Error]: 50,
 }
 
 export interface PluginsServerConfig extends Record<string, any> {
@@ -318,6 +327,7 @@ export interface RawOrganization {
     name: string
     created_at: string
     updated_at: string
+    available_features: string[]
 }
 
 /** Usable Team model. */
@@ -427,6 +437,101 @@ export interface CohortPeople {
     id: number
     cohort_id: number
     person_id: number
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+export enum PropertyOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    IContains = 'icontains',
+    NotIContains = 'not_icontains',
+    Regex = 'regex',
+    NotRegex = 'not_regex',
+    GreaterThan = 'gt',
+    LessThan = 'lt',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+interface BasePropertyFilter {
+    key: string
+    value: string | number | Array<string | number> | null
+    label?: string
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+export interface EventPropertyFilter extends BasePropertyFilter {
+    type: 'event'
+    operator: PropertyOperator
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+export interface PersonPropertyFilter extends BasePropertyFilter {
+    type: 'person'
+    operator: PropertyOperator
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+export interface ElementPropertyFilter extends BasePropertyFilter {
+    type: 'element'
+    key: 'tag_name' | 'text' | 'href' | 'selector'
+    operator: PropertyOperator
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+export interface CohortPropertyFilter extends BasePropertyFilter {
+    type: 'cohort'
+    key: 'id'
+    value: number
+}
+
+/** Sync with posthog/frontend/src/types.ts */
+export type ActionStepProperties =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | CohortPropertyFilter
+
+/** Sync with posthog/frontend/src/types.ts */
+export enum ActionStepUrlMatching {
+    Contains = 'contains',
+    Regex = 'regex',
+    Exact = 'exact',
+}
+
+export interface ActionStep {
+    id: number
+    action_id: number
+    tag_name: string | null
+    text: string | null
+    href: string | null
+    selector: string | null
+    url: string | null
+    url_matching: ActionStepUrlMatching | null
+    name: string | null
+    event: string | null
+    properties: ActionStepProperties[] | null
+}
+
+/** Raw Action row from database. */
+export interface RawAction {
+    id: number
+    team_id: TeamId
+    name: string | null
+    created_at: string
+    created_by_id: number | null
+    deleted: boolean
+    post_to_slack: boolean
+    slack_message_format: string
+    is_calculating: boolean
+    updated_at: string
+    last_calculated_at: string
+}
+
+/** Usable Action model. */
+export interface Action extends RawAction {
+    steps: ActionStep[]
 }
 
 export interface SessionRecordingEvent {

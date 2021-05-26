@@ -128,6 +128,7 @@ export const createProcessEventTests = (
         returned.hub = hub
         returned.closeHub = closeHub
         eventsProcessor = new EventsProcessor(hub)
+        await eventsProcessor.prepare()
         queryCounter = 0
         processEventCounter = 0
         team = await getFirstTeam(hub)

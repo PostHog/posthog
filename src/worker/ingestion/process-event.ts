@@ -24,12 +24,15 @@ import { Client } from '../../utils/celery/client'
 import { DB } from '../../utils/db/db'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { elementsToString, personInitialAndUTMProperties, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
+import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, filterIncrementProperties, UUID, UUIDT } from '../../utils/utils'
+import { ActionManager } from './action-manager'
 import { PersonManager } from './person-manager'
 import { TeamManager } from './team-manager'
 
 export class EventsProcessor {
+    ready: boolean
     pluginsServer: Hub
     db: DB
     clickhouse: ClickHouse | undefined
@@ -38,8 +41,10 @@ export class EventsProcessor {
     posthog: ReturnType<typeof nodePostHog>
     teamManager: TeamManager
     personManager: PersonManager
+    actionManager: ActionManager
 
     constructor(pluginsServer: Hub) {
+        this.ready = false
         this.pluginsServer = pluginsServer
         this.db = pluginsServer.db
         this.clickhouse = pluginsServer.clickhouse
@@ -47,11 +52,17 @@ export class EventsProcessor {
         this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
         this.teamManager = new TeamManager(pluginsServer.db)
         this.personManager = new PersonManager(pluginsServer)
+        this.actionManager = new ActionManager(pluginsServer.db)
 
         this.posthog = nodePostHog('sTMFPsFhdP1Ssg', { fetch })
         if (process.env.NODE_ENV === 'test') {
             this.posthog.optOut()
         }
+    }
+
+    public async prepare(): Promise<void> {
+        await this.actionManager.prepare()
+        this.ready = true
     }
 
     public async processEvent(
@@ -64,6 +75,9 @@ export class EventsProcessor {
         sentAt: DateTime | null,
         eventUuid: string
     ): Promise<IEvent | SessionRecordingEvent> {
+        if (!this.ready) {
+            throw new Error('EventsProcessor is not ready! Run eventsProcessor.prepare() before this')
+        }
         if (!UUID.validateString(eventUuid, false)) {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
         }
