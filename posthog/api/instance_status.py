@@ -147,14 +147,12 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
     @action(methods=["POST"], detail=False)
     def create_backup(self, request: Request) -> Response:
-        print(request)
-        code, data = create_backup("my-test-backup-name")
+        code, data = create_backup(request.data["name"])
         return Response(data, status=status.HTTP_201_CREATED)  # todo we only ack actually
 
     @action(methods=["POST"], detail=False)
     def restore_from_backup(self, request: Request) -> Response:
-        print(request)
-        code, data = restore_from_backup("my-test-backup-name")
+        code, data = restore_from_backup(request.data["name"])
         return Response(data, status=status.HTTP_201_CREATED)  # todo we only ack actually
 
     @action(methods=["GET"], detail=False)

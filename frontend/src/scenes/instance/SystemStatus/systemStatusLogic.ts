@@ -88,11 +88,12 @@ export const systemStatusLogic = kea<
         createBackup: async ({ name }) => {
             console.log(`In createBackup listener with ${name}`)
             //await api.create('http://clickhouse:7171/backup/create?name=${name}')
-            await api.create('api/instance_status/create_backup')
+            await api.create('api/instance_status/create_backup', { name: name })
+            //await api.create('api/instance_status/create_backup')
         },
         restoreFromBackup: async ({ name }) => {
             console.log(`In restore listener with ${name}`)
-            await api.create('api/instance_status/restore_from_backup')
+            await api.create('api/instance_status/restore_from_backup', { name: name })
         },
     }),
 
