@@ -8,6 +8,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
+    GET_DISTINCT_ID_BY_ENTITY_SQL,
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
 )
@@ -87,9 +88,7 @@ def get_action_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
     if days:
         date_query, date_params = parse_action_timestamps(int(days))
 
-    extract_person = "SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {query}".format(
-        query=action_filter_query, date_query=date_query
-    )
+    extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=action_filter_query, date_query=date_query)
     return "distinct_id IN (" + extract_person + ")", {**action_params, **date_params}
 
 
@@ -102,9 +101,7 @@ def get_event_cohort_subquery(cohort_group: Dict, group_idx: int):
     if days:
         date_query, date_params = parse_action_timestamps(int(days))
 
-    extract_person = "SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND event = %(event)s".format(
-        date_query=date_query
-    )
+    extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query="event = %(event)s", date_query=date_query,)
     return "distinct_id IN (" + extract_person + ")", {"event": event_id, **date_params}
 
 
