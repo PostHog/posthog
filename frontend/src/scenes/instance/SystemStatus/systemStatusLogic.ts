@@ -2,13 +2,19 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import { systemStatusLogicType } from './systemStatusLogicType'
 import { userLogic } from 'scenes/userLogic'
-import { SystemStatus, SystemStatusRow, SystemStatusQueriesResult } from '~/types'
+import { SystemStatus, SystemStatusRow, SystemStatusQueriesResult, SystemStatusBackupStatusRow } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export type TabName = 'overview' | 'internal_metrics'
 
 export const systemStatusLogic = kea<
-    systemStatusLogicType<SystemStatus, SystemStatusRow, SystemStatusQueriesResult, TabName>
+    systemStatusLogicType<
+        SystemStatus,
+        SystemStatusRow,
+        SystemStatusQueriesResult,
+        SystemStatusBackupStatusRow,
+        TabName
+    >
 >({
     actions: {
         setTab: (tab: TabName) => ({ tab }),
@@ -32,6 +38,12 @@ export const systemStatusLogic = kea<
             null as SystemStatusQueriesResult | null,
             {
                 loadQueries: async () => (await api.get('api/instance_status/queries')).results,
+            },
+        ],
+        backupStatus: [
+            [] as SystemStatusBackupStatusRow[],
+            {
+                loadBackupStatus: async () => (await api.get('api/instance_status/backup_status')).results,
             },
         ],
     },
@@ -69,12 +81,18 @@ export const systemStatusLogic = kea<
             if (tab === 'internal_metrics') {
                 actions.loadQueries()
             }
+            if (tab === 'backup') {
+                actions.loadBackupStatus()
+            }
         },
         createBackup: async ({ name }) => {
             console.log(`In createBackup listener with ${name}`)
+            //await api.create('http://clickhouse:7171/backup/create?name=${name}')
+            await api.create('api/instance_status/create_backup')
         },
         restoreFromBackup: async ({ name }) => {
             console.log(`In restore listener with ${name}`)
+            await api.create('api/instance_status/restore_from_backup')
         },
     }),
 

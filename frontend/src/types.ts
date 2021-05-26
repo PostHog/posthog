@@ -576,6 +576,14 @@ export interface SystemStatusQueriesResult {
     clickhouse_slow_log?: QuerySummary[]
 }
 
+export interface SystemStatusBackupStatusRow {
+    command: string
+    status: string
+    start?: string
+    finish?: string
+    error?: string
+}
+
 export type PersonalizationData = Record<string, string | string[] | null>
 
 interface EnabledSetupState {

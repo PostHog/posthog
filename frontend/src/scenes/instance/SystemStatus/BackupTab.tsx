@@ -1,14 +1,19 @@
 import React, { useState } from 'react'
-import { Button, Card, Input, Select, Tooltip } from 'antd'
+import { Button, Card, Input, Select, Table, Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
+import { ReloadOutlined } from '@ant-design/icons'
 
 export function BackupTab(): JSX.Element {
-    const { systemStatus } = useValues(systemStatusLogic)
-    const { createBackup, restoreFromBackup } = useActions(systemStatusLogic)
+    const { systemStatus, backupStatus, backupStatusLoading } = useValues(systemStatusLogic)
+    const { createBackup, restoreFromBackup, loadBackupStatus } = useActions(systemStatusLogic)
     const [restoreCandidate, setRestoreCandidate] = useState('')
     const [backupSuffix, setBackupSuffix] = useState('')
     const defaultSuffix = 'ui'
+    const reloadStatus = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        loadBackupStatus()
+    }
 
     return (
         <Card>
@@ -63,6 +68,26 @@ export function BackupTab(): JSX.Element {
                     >
                         Restore From Backup
                     </Button>
+                    <br />
+                    <br />
+                    <Button style={{ marginLeft: 8 }} onClick={reloadStatus}>
+                        <ReloadOutlined /> Reload Queries
+                    </Button>
+                    <Table
+                        dataSource={backupStatus || []}
+                        columns={[
+                            { title: 'command', dataIndex: 'command' },
+                            { title: 'status', dataIndex: 'status' },
+                            { title: 'start', dataIndex: 'start' },
+                            { title: 'finish', dataIndex: 'finish' },
+                            { title: 'error', dataIndex: 'error' },
+                        ]}
+                        loading={backupStatusLoading}
+                        size="small"
+                        bordered
+                        style={{ overflowX: 'auto', overflowY: 'auto' }}
+                        locale={{ emptyText: 'No backup status found' }}
+                    />
                 </>
             ) : (
                 <b> Backups are currently not enabled, read how to enable backups TODO link. </b>

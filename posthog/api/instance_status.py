@@ -1,30 +1,25 @@
 from typing import Dict, List, Union
 
 from django.db import connection
-from rest_framework import viewsets
-from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.request import Request
-from rest_framework.response import Response
-
-from posthog.backup import get_backup_info
+from posthog.backup import create_backup, get_backup_info
+from posthog.backup import get_status as get_backup_status
+from posthog.backup import restore_from_backup
 from posthog.ee import is_clickhouse_enabled
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
 from posthog.permissions import SingleTenancyOrAdmin
-from posthog.utils import (
-    dict_from_cursor_fetchall,
-    get_plugin_server_job_queues,
-    get_plugin_server_version,
-    get_redis_info,
-    get_redis_queue_depth,
-    get_table_approx_count,
-    get_table_size,
-    is_plugin_server_alive,
-    is_postgres_alive,
-    is_redis_alive,
-)
+from posthog.utils import (dict_from_cursor_fetchall,
+                           get_plugin_server_job_queues,
+                           get_plugin_server_version, get_redis_info,
+                           get_redis_queue_depth, get_table_approx_count,
+                           get_table_size, is_plugin_server_alive,
+                           is_postgres_alive, is_redis_alive)
 from posthog.version import VERSION
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 
 class InstanceStatusViewSet(viewsets.ViewSet):
@@ -140,7 +135,31 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     {"metric": "Redis metrics", "value": f"Redis connected but then failed to return metrics: {e}"}
                 )
 
-        return Response({"results": {"overview": metrics, "internal_metrics": get_internal_metrics_dashboards(), 'backup': get_backup_info()}})
+        return Response(
+            {
+                "results": {
+                    "overview": metrics,
+                    "internal_metrics": get_internal_metrics_dashboards(),
+                    "backup": get_backup_info(),
+                }
+            }
+        )
+
+    @action(methods=["POST"], detail=False)
+    def create_backup(self, request: Request) -> Response:
+        print(request)
+        code, data = create_backup("my-test-backup-name")
+        return Response(data, status=status.HTTP_201_CREATED)  # todo we only ack actually
+
+    @action(methods=["POST"], detail=False)
+    def restore_from_backup(self, request: Request) -> Response:
+        print(request)
+        code, data = restore_from_backup("my-test-backup-name")
+        return Response(data, status=status.HTTP_201_CREATED)  # todo we only ack actually
+
+    @action(methods=["GET"], detail=False)
+    def backup_status(self, request: Request) -> Response:
+        return Response({"results": get_backup_status()})
 
     @action(methods=["GET"], detail=False)
     def queries(self, request: Request) -> Response:
