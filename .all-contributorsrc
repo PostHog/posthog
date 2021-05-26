@@ -1260,6 +1260,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "DimitrisMazarakis",
+      "name": "Dimitris Mazarakis",
+      "avatar_url": "https://avatars.githubusercontent.com/u/56391437?v=4",
+      "profile": "https://github.com/DimitrisMazarakis",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
