@@ -8,6 +8,9 @@ from ee.clickhouse.sql.funnels.funnel_trend import FUNNEL_TREND_SQL
 
 
 class ClickhouseFunnelTrends:
+    def run(self, format_dictionary):
+        return self._run_query(format_dictionary)
+
     @staticmethod
     def _run_query(format_dictionary):
         query = FUNNEL_TREND_SQL.format(**format_dictionary)
@@ -18,9 +21,6 @@ class ClickhouseFunnelTrends:
     def _milliseconds_from_days(days):
         second, minute, hour, day = [1000, 60, 60, 24]
         return second * minute * hour * day * days
-
-    def run(self, format_dictionary):
-        return self._run_query(format_dictionary)
 
     @staticmethod
     def _convert_to_users(results):
