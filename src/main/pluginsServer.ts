@@ -1,7 +1,6 @@
 import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
-import { FastifyInstance } from 'fastify'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
@@ -16,7 +15,6 @@ import { startQueue } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startSchedule } from './services/schedule'
-import { startFastifyInstance, stopFastifyInstance } from './services/web'
 
 const { version } = require('../../package.json')
 
@@ -43,7 +41,6 @@ export async function startPluginsServer(
 
     let pubSub: PubSub | undefined
     let hub: Hub | undefined
-    let fastifyInstance: FastifyInstance | undefined
     let actionsReloadJob: schedule.Job | undefined
     let pingJob: schedule.Job | undefined
     let piscinaStatsJob: schedule.Job | undefined
@@ -70,9 +67,6 @@ export async function startPluginsServer(
             process.exit()
         }
         status.info('💤', ' Shutting down gracefully...')
-        if (fastifyInstance && !serverConfig?.DISABLE_WEB) {
-            await stopFastifyInstance(fastifyInstance!)
-        }
         lastActivityCheck && clearInterval(lastActivityCheck)
         await queue?.stop()
         await pubSub?.stop()
@@ -132,9 +126,6 @@ export async function startPluginsServer(
         }
 
         piscina = makePiscina(serverConfig)
-        if (!hub.DISABLE_WEB) {
-            fastifyInstance = await startFastifyInstance(hub)
-        }
 
         scheduleControl = await startSchedule(hub, piscina)
         jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
