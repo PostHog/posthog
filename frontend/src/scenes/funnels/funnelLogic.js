@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
-import { autocorrectInterval, objectsEqual, toParams } from 'lib/utils'
+import { autocorrectInterval, objectsEqual, toParams, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '../../models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -82,7 +82,8 @@ export const funnelLogic = kea({
 
                 let result
 
-                insightLogic.actions.startQuery()
+                const queryId = uuid()
+                insightLogic.actions.startQuery(queryId)
 
                 const eventCount = params.events?.length
                 const actionCount = params.actions?.length
@@ -92,12 +93,12 @@ export const funnelLogic = kea({
                     result = await pollFunnel(params)
                     eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
                 } catch (e) {
-                    insightLogic.actions.endQuery(ViewType.FUNNELS, false, e)
+                    insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, false, e)
                     eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, false, e.message)
                     return []
                 }
                 breakpoint()
-                insightLogic.actions.endQuery(ViewType.FUNNELS, result.last_refresh)
+                insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                 actions.setSteps(result.result)
                 return result.result
             },
