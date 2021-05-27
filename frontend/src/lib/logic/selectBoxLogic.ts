@@ -102,12 +102,6 @@ export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem
     }),
     listeners: ({ props, values, actions }) => ({
         clickSelectedItem: ({ item, group }: { item: SelectedItem; group: SelectBoxItem }) => {
-            if (item.onSelect) {
-                item.onSelect({ item, group })
-                if (item.onSelectPreventDefault) {
-                    return
-                }
-            }
             props.updateFilter(group.type, group.getValue(item), group.getLabel(item))
         },
         setBlockMouseOver: ({ block }: { block: boolean }) => {
