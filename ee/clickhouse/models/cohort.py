@@ -128,7 +128,7 @@ def parse_entity_timestamps_in_days(days: int) -> Tuple[str, Dict[str, str]]:
     )
 
 
-def parse_cohort_timestamps(start_time: Optional[datetime], end_time: Optional[datetime]) -> Tuple[str, Dict[str, str]]:
+def parse_cohort_timestamps(start_time: Optional[str], end_time: Optional[str]) -> Tuple[str, Dict[str, str]]:
     clause = "AND "
     params: Dict[str, str] = {}
 
