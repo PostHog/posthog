@@ -32,7 +32,7 @@ import {
     RawOrganization,
     RawPerson,
     SessionRecordingEvent,
-    TeamId,
+    Team,
     TimestampFormat,
 } from '../../types'
 import { instrumentQuery } from '../metrics'
@@ -726,29 +726,32 @@ export class DB {
 
     // Action & ActionStep
 
-    public async fetchAllActionsMap(): Promise<Record<Action['id'], Action>> {
+    public async fetchAllActionsGroupedByTeam(): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
         const rawActions: RawAction[] = (
             await this.postgresQuery(`SELECT * FROM posthog_action WHERE deleted = FALSE`, undefined, 'fetchActions')
         ).rows
-        const actionSteps: ActionStep[] = (
+        const actionSteps: (ActionStep & { team_id: Team['id'] })[] = (
             await this.postgresQuery(
-                `SELECT posthog_actionstep.*, posthog_action.deleted FROM posthog_actionstep
-            JOIN posthog_action ON (posthog_action.id = posthog_actionstep.action_id)
-            WHERE posthog_action.deleted = FALSE`,
+                `SELECT posthog_actionstep.*, posthog_action.team_id
+                    FROM posthog_actionstep JOIN posthog_action ON (posthog_action.id = posthog_actionstep.action_id)
+                    WHERE posthog_action.deleted = FALSE`,
                 undefined,
                 'fetchActionSteps'
             )
         ).rows
-        const actionsMap: Record<Action['id'], Action> = {}
+        const actions: Record<Team['id'], Record<Action['id'], Action>> = {}
         for (const rawAction of rawActions) {
-            actionsMap[rawAction.id] = { ...rawAction, steps: [] }
+            if (!actions[rawAction.team_id]) {
+                actions[rawAction.team_id] = {}
+            }
+            actions[rawAction.team_id][rawAction.id] = { ...rawAction, steps: [] }
         }
         for (const actionStep of actionSteps) {
-            if (actionStep.action_id in actionsMap) {
-                actionsMap[actionStep.action_id].steps.push(actionStep)
+            if (actions[actionStep.team_id]?.[actionStep.action_id]) {
+                actions[actionStep.team_id][actionStep.action_id].steps.push(actionStep)
             }
         }
-        return actionsMap
+        return actions
     }
 
     public async fetchAction(id: Action['id']): Promise<Action | null> {
@@ -771,7 +774,7 @@ export class DB {
 
     // Team Internal Metrics
 
-    public async fetchInternalMetricsTeam(): Promise<TeamId | null> {
+    public async fetchInternalMetricsTeam(): Promise<Team['id'] | null> {
         const { rows } = await this.postgresQuery(
             `
             SELECT posthog_team.id as team_id

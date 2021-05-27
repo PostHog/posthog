@@ -320,15 +320,15 @@ describe('createTaskRunner()', () => {
     })
 
     it('handles `reloadAction` task', async () => {
-        await taskRunner({ task: 'reloadAction', args: { actionId: 777 } })
+        await taskRunner({ task: 'reloadAction', args: { teamId: 2, actionId: 777 } })
 
-        expect(hub.eventsProcessor.actionManager.reloadAction).toHaveBeenCalledWith(777)
+        expect(hub.eventsProcessor.actionManager.reloadAction).toHaveBeenCalledWith(2, 777)
     })
 
     it('handles `dropAction` task', async () => {
-        await taskRunner({ task: 'dropAction', args: { actionId: 777 } })
+        await taskRunner({ task: 'dropAction', args: { teamId: 2, actionId: 777 } })
 
-        expect(hub.eventsProcessor.actionManager.dropAction).toHaveBeenCalledWith(777)
+        expect(hub.eventsProcessor.actionManager.dropAction).toHaveBeenCalledWith(2, 777)
     })
 
     it('handles `teardownPlugin` task', async () => {

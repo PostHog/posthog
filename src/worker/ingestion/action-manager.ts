@@ -1,8 +1,9 @@
-import { Action, PluginsServerConfig } from '../../types'
+import { Action, Team } from '../../types'
 import { DB } from '../../utils/db/db'
 import { status } from '../../utils/status'
 
-type ActionCache = Record<Action['id'], Action>
+export type ActionMap = Record<Action['id'], Action>
+type ActionCache = Record<Team['id'], ActionMap>
 
 export class ActionManager {
     private ready: boolean
@@ -20,48 +21,52 @@ export class ActionManager {
         this.ready = true
     }
 
-    public getAction(id: Action['id']): Action | undefined {
+    public getTeamActions(teamId: Team['id']): ActionMap | null {
         if (!this.ready) {
             throw new Error('ActionManager is not ready! Run actionManager.prepare() before this')
         }
-        return this.actionCache[id]
+        return this.actionCache[teamId] || null
     }
 
     public async reloadAllActions(): Promise<void> {
-        this.actionCache = await this.db.fetchAllActionsMap()
+        this.actionCache = await this.db.fetchAllActionsGroupedByTeam()
         status.info('🍿', 'Fetched all actions from DB anew')
     }
 
-    public async reloadAction(id: Action['id']): Promise<void> {
-        const refetchedAction = await this.db.fetchAction(id)
+    public async reloadAction(teamId: Team['id'], actionId: Action['id']): Promise<void> {
+        const refetchedAction = await this.db.fetchAction(actionId)
+        const wasCachedAlready = teamId in this.actionCache && actionId in this.actionCache[teamId]
         if (refetchedAction) {
             status.info(
                 '🍿',
-                id in this.actionCache ? `Refetched action ID ${id} from DB` : `Fetched new action ID ${id} from DB`
+                wasCachedAlready
+                    ? `Refetched action ID ${actionId} (team ID ${teamId}) from DB`
+                    : `Fetched new action ID ${actionId} (team ID ${teamId}) from DB`
             )
-            this.actionCache[id] = refetchedAction
-        } else if (id in this.actionCache) {
+            this.actionCache[teamId][actionId] = refetchedAction
+        } else if (wasCachedAlready) {
             status.info(
                 '🍿',
-                `Tried to fetch action ID ${id} from DB, but it wasn't found in DB, so deleted from cache instead`
+                `Tried to fetch action ID ${actionId} (team ID ${teamId}) from DB, but it wasn't found in DB, so deleted from cache instead`
             )
-            delete this.actionCache[id]
+            delete this.actionCache[teamId][actionId]
         } else {
             status.info(
                 '🍿',
-                `Tried to fetch action ID ${id} from DB, but it wasn't found in DB or cache, so did nothing instead`
+                `Tried to fetch action ID ${actionId} (team ID ${teamId}) from DB, but it wasn't found in DB or cache, so did nothing instead`
             )
         }
     }
 
-    public dropAction(id: Action['id']): void {
-        if (id in this.actionCache) {
-            status.info('🍿', `Deleted action ID ${id} from cache`)
-            delete this.actionCache[id]
+    public dropAction(teamId: Team['id'], actionId: Action['id']): void {
+        const wasCachedAlready = teamId in this.actionCache && actionId in this.actionCache[teamId]
+        if (wasCachedAlready) {
+            status.info('🍿', `Deleted action ID ${actionId} (team ID ${teamId}) from cache`)
+            delete this.actionCache[teamId][actionId]
         } else {
             status.info(
                 '🍿',
-                `Tried to delete action ID ${id} from cache, but it wasn't found in cache, so did nothing instead`
+                `Tried to delete action ID ${actionId} (team ID ${teamId}) from cache, but it wasn't found in cache, so did nothing instead`
             )
         }
     }
