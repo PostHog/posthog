@@ -191,11 +191,13 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
     selectors: {
         currentViewSavedInsights: [
             (s) => [s.savedInsights, insightLogic.selectors.allFilters],
-            (savedInsights, filters) => savedInsights.filter((item) => item.filters.insight === filters.insight),
+            (savedInsights, filters): DashboardItemType[] =>
+                savedInsights.filter((item) => item.filters.insight === filters.insight),
         ],
         otherViewsSavedInsights: [
             (s) => [s.savedInsights, insightLogic.selectors.allFilters],
-            (savedInsights, filters) => savedInsights.filter((item) => item.filters.insight !== filters.insight),
+            (savedInsights, filters): DashboardItemType[] =>
+                savedInsights.filter((item) => item.filters.insight !== filters.insight),
         ],
     },
     events: ({ actions }) => ({

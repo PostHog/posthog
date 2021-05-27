@@ -1,0 +1,12 @@
+@import '~/vars';
+
+.insight-title {
+    .flex-contain {
+        display: flex;
+        align-items: center;
+    }
+
+    .select-box {
+        max-width: 340px;
+    }
+}

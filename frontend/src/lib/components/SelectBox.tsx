@@ -15,7 +15,7 @@ import { ListRowProps, ListRowRenderer } from 'react-virtualized'
 
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
-    renderInfo({ item }: { item: SelectedItem }): JSX.Element
+    renderInfo?({ item }: { item: SelectedItem }): JSX.Element
     key: string
     name: string
     header: (label: string) => JSX.Element
@@ -56,7 +56,8 @@ export function SelectBox({
     onSelect,
     onDismiss,
     inputPlaceholder,
-    disablePopover = false,
+    disablePopover,
+    disableInfoBox,
 }: {
     items: SelectBoxItem[]
     selectedItemKey?: string
@@ -64,6 +65,7 @@ export function SelectBox({
     onDismiss: (event?: MouseEvent) => void
     inputPlaceholder?: string
     disablePopover?: boolean // Disable PropertyKeyInfo popover
+    disableInfoBox?: boolean // Disable the lateral additional information box
 }): JSX.Element {
     const dropdownRef = useRef<HTMLDivElement>(null)
     const dropdownLogic = selectBoxLogic({ updateFilter: onSelect, items })
@@ -98,7 +100,10 @@ export function SelectBox({
     return (
         <div ref={dropdownRef} className="select-box" tabIndex={-1}>
             <Row style={{ height: '100%' }}>
-                <Col sm={14} style={{ borderRight: '1px solid rgba(0, 0, 0, 0.1)', maxHeight: '100%' }}>
+                <Col
+                    sm={disableInfoBox ? 24 : 14}
+                    style={{ borderRight: '1px solid rgba(0, 0, 0, 0.1)', maxHeight: '100%' }}
+                >
                     <Input
                         placeholder={inputPlaceholder || 'Search events'}
                         autoFocus
@@ -116,9 +121,13 @@ export function SelectBox({
                         />
                     </div>
                 </Col>
-                <Col sm={10} className="info-box">
-                    {selectedGroup && selectedItem ? selectedGroup.renderInfo({ item: selectedItem }) : null}
-                </Col>
+                {!disableInfoBox && (
+                    <Col sm={10} className="info-box">
+                        {selectedGroup?.renderInfo && selectedItem
+                            ? selectedGroup.renderInfo({ item: selectedItem })
+                            : null}
+                    </Col>
+                )}
             </Row>
         </div>
     )

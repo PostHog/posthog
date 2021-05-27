@@ -11,12 +11,12 @@ import { FilterType } from '~/types'
 
 export enum ViewType {
     TRENDS = 'TRENDS',
-    STICKINESS = 'STICKINESS',
-    LIFECYCLE = 'LIFECYCLE',
-    SESSIONS = 'SESSIONS',
     FUNNELS = 'FUNNELS',
+    SESSIONS = 'SESSIONS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
+    STICKINESS = 'STICKINESS',
+    LIFECYCLE = 'LIFECYCLE',
 }
 
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
