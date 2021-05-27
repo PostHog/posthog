@@ -10,6 +10,8 @@ from django.db.models import IntegerField, Min, Value
 from django.utils import timezone
 from psycopg2 import sql
 
+from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.property import parse_prop_clauses
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Action, Entity, Event, Filter, Person, Team
 from posthog.models.utils import namedtuplefetchall
@@ -197,6 +199,32 @@ class Funnel(BaseQuery):
             else sql.SQL("(\"step_0\" + interval '1 day') AT TIME ZONE 'UTC'"),
         )
         return trends_query
+
+    def _build_steps_query(self, entity: Entity, index: int) -> str:
+        filters = self._build_filters(entity, index)
+        if entity.type == TREND_FILTER_TYPE_ACTIONS:
+            action = Action.objects.get(pk=entity.id)
+            for action_step in action.steps.all():
+                self.params["events"].append(action_step.event)
+            action_query, action_params = format_action_filter(action, "step_{}".format(index))
+            if action_query == "":
+                return ""
+
+            self.params.update(action_params)
+            content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
+        else:
+            self.params["events"].append(entity.id)
+            content_sql = "event = '{event}' {filters}".format(event=entity.id, filters=filters)
+        return content_sql
+
+    def _build_filters(self, entity: Entity, index: int) -> str:
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            entity.properties, self._team.pk, prepend=str(index), allow_denormalized_props=True
+        )
+        self.params.update(prop_filter_params)
+        if entity.properties:
+            return prop_filters
+        return ""
 
     def _get_last_step_attr(self, step: object) -> int:
         if len(self._filter.entities) == 1:

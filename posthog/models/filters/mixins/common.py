@@ -321,3 +321,13 @@ class EntityTypeMixin(BaseParamMixin):
     @include_dict
     def entity_type_to_dict(self):
         return {"entity_type": self.target_entity_type} if self.target_entity_type else {}
+
+
+class WindowMixin(BaseParamMixin):
+    @cached_property
+    def target_entity_type(self) -> Optional[str]:
+        return self._data.get("type", None) or self._data.get("entity_type", None)
+
+    @include_dict
+    def entity_type_to_dict(self):
+        return {"entity_type": self.target_entity_type} if self.target_entity_type else {}

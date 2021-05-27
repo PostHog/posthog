@@ -3,6 +3,8 @@ from uuid import uuid4
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS, TRENDS_LINEAR
+from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
@@ -56,14 +58,24 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):  # type: ignore
     def test_raw_query(self):
         one_day_in_milliseconds = ClickhouseFunnelTrends._milliseconds_from_days(1)
 
-        results = ClickhouseFunnelTrends().run(
-            {
-                "start_timestamp": "2021-05-01 00:00:00",
-                "end_timestamp": "2021-05-07 00:00:00",
-                "team_id": self.team.id,
-                "steps": "event = 'step one', event = 'step two', event = 'step three'",
-                "window_in_milliseconds": one_day_in_milliseconds,
+        query_filter_params = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "events": [{"id": "sign up", "order": 0}, {"id": "pay", "order": 1},],
             }
         )
+
+        results = ClickhouseFunnelTrends().run(self.team, filter=Filter(query_filter_params))
+        # {
+        #     "start_timestamp": "2021-05-01 00:00:00",
+        #     "end_timestamp": "2021-05-07 00:00:00",
+        #     "team_id": self.team.id,
+        #     "steps": "event = 'step one', event = 'step two', event = 'step three'",
+        #     "window_in_milliseconds": one_day_in_milliseconds,
+        # }
 
         self.assertEqual(len(results), 4)
