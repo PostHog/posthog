@@ -134,10 +134,11 @@ def parse_cohort_timestamps(start_time: Optional[datetime], end_time: Optional[d
 
     if start_time:
         clause += "timestamp >= %(date_from)s"
-        params = {"date_from": start_time.strftime("%Y-%m-%d %H:%M:%S")}
+
+        params = {"date_from": datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")}
     if end_time:
         clause += "timestamp <= %(date_to)s"
-        params = {**params, "date_to": end_time.strftime("%Y-%m-%d %H:%M:%S")}
+        params = {**params, "date_to": datetime.strptime(end_time, "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")}
 
     return clause, params
 

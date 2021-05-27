@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -49,11 +50,17 @@ class Group(object):
         self.start_date = start_date
         self.end_date = end_date
 
+    def to_dict(self) -> Dict[str, Any]:
+        dup = self.__dict__.copy()
+        dup["start_date"] = self.start_date.isoformat() if self.start_date else self.start_date
+        dup["end_date"] = self.end_date.isoformat() if self.end_date else self.end_date
+        return dup
+
 
 class CohortManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
         if kwargs.get("groups"):
-            kwargs["groups"] = [Group(**group).__dict__ for group in kwargs["groups"]]
+            kwargs["groups"] = [Group(**group).to_dict() for group in kwargs["groups"]]
         cohort = super().create(*args, **kwargs)
         return cohort
 
