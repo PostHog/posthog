@@ -13,6 +13,7 @@ from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
+
 class TestEventDefinitionAPI(APIBaseTest):
 
     demo_team: Team = None  # type: ignore
@@ -105,26 +106,19 @@ class TestEventDefinitionAPI(APIBaseTest):
 
     @pytest.mark.ee
     def test_event_description(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7))
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+        )
         event = EventDefinition.objects.create(team=self.demo_team, name="description test")
         response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{event.id}/",
-            data={
-                "description": "test"
-            },
+            f"/api/projects/@current/event_definitions/{event.id}/", data={"description": "test"},
         )
         self.assertEqual(response.json()["description"], "test")
-
 
     def test_for_license(self):
         event = EventDefinition.objects.create(team=self.demo_team, name="description test")
         response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{event.id}/",
-            data={
-                "description": "test"
-            },
+            f"/api/projects/@current/event_definitions/{event.id}/", data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["detail"], "Enterprise plan feature")
-
-

@@ -9,6 +9,7 @@ from posthog.models import Organization, PropertyDefinition, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
+
 class TestPropertyDefinitionAPI(APIBaseTest):
 
     demo_team: Team = None  # type: ignore
