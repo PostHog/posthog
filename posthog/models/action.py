@@ -1,4 +1,5 @@
 import datetime
+import json
 
 import celery
 from django.core.exceptions import EmptyResultSet
@@ -121,9 +122,9 @@ class Action(models.Model):
 
 @receiver(post_save, sender=Action)
 def action_saved(sender, instance: Action, created, **kwargs):
-    get_client().publish("reload-action", str(instance.pk))
+    get_client().publish("reload-action", json.dumps({"teamId": instance.team_id, "actionId": instance.id}))
 
 
 @receiver(post_delete, sender=Action)
 def action_deleted(sender, instance: Action, **kwargs):
-    get_client().publish("drop-action", str(instance.pk))
+    get_client().publish("drop-action", json.dumps({"teamId": instance.team_id, "actionId": instance.id}))
