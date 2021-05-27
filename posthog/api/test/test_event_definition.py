@@ -1,15 +1,15 @@
-from django.utils import timezone
-from ee.models.license import License, LicenseManager
 import random
 from typing import Dict, cast
-import pytest
 
+import pytest
+from django.utils import timezone
 from rest_framework import status
 
+from ee.models.event_definition import EnterpriseEventDefinition
+from ee.models.license import License, LicenseManager
 from posthog.demo import create_demo_team
 from posthog.models import EventDefinition, Organization, Team
 from posthog.models.property_definition import PropertyDefinition
-from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
@@ -103,22 +103,3 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 2)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["installed_app", "rated_app"])
-
-    @pytest.mark.ee
-    def test_event_description(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
-        )
-        event = EventDefinition.objects.create(team=self.demo_team, name="description test")
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{event.id}/", data={"description": "test"},
-        )
-        self.assertEqual(response.json()["description"], "test")
-
-    def test_for_license(self):
-        event = EventDefinition.objects.create(team=self.demo_team, name="description test")
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{event.id}/", data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["detail"], "Enterprise plan feature")
