@@ -46,6 +46,7 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "id",
             "short_id",
             "name",
+            "filters",
             "dashboard",
             "color",
             "last_refresh",
@@ -53,8 +54,16 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "saved",
         ]
 
+    def create(self, validated_data: Any) -> None:
+        raise NotImplementedError()
 
-class InsightSerializer(serializers.ModelSerializer):
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters()
+        return representation
+
+
+class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
@@ -108,11 +117,6 @@ class InsightSerializer(serializers.ModelSerializer):
             return None
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
         return result.get("data")
-
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        representation["filters"] = instance.dashboard_filters()
-        return representation
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
