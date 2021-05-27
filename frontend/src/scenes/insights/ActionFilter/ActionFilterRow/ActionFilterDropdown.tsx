@@ -2,21 +2,14 @@ import React, { RefObject } from 'react'
 import { useActions, useValues } from 'kea'
 import { ActionFilter, ActionType, EntityTypes, EventDefinition } from '~/types'
 import { actionsModel } from '~/models/actionsModel'
-import {
-    FireOutlined,
-    InfoCircleOutlined,
-    AimOutlined,
-    ContainerOutlined,
-    QuestionCircleOutlined,
-} from '@ant-design/icons'
-import { Button, Tooltip } from 'antd'
+import { FireOutlined, InfoCircleOutlined, AimOutlined, ContainerOutlined } from '@ant-design/icons'
+import { Tooltip } from 'antd'
 import { ActionSelectInfo } from '../../ActionSelectInfo'
-import { RenderInfoProps, SelectBox, SelectedItem } from 'lib/components/SelectBox'
+import { SelectBox, SelectedItem } from 'lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { entityFilterLogic } from '../entityFilterLogic'
 import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
-import { router } from 'kea-router'
 
 const getSuggestions = (events: EventDefinition[]): EventDefinition[] => {
     return events
@@ -88,7 +81,25 @@ export function ActionFilterDropdown({
                         ...definition,
                         key: 'suggestions' + definition.id,
                     })),
-                    renderInfo: SuggestionsInfo,
+                    renderInfo: function renderSuggestions({ item }) {
+                        return (
+                            <>
+                                <FireOutlined /> Suggestions
+                                <br />
+                                <h3>{item.name}</h3>
+                                {(item?.volume_30_day ?? 0 > 0) && (
+                                    <>
+                                        Seen <strong>{item.volume_30_day}</strong> times.{' '}
+                                    </>
+                                )}
+                                {(item?.query_usage_30_day ?? 0 > 0) && (
+                                    <>
+                                        Used in <strong>{item.query_usage_30_day}</strong> queries.
+                                    </>
+                                )}
+                            </>
+                        )
+                    },
                     type: EntityTypes.EVENTS,
                     getValue: (item: SelectedItem) => item.name || '',
                     getLabel: (item: SelectedItem) => item.name || '',
@@ -103,48 +114,13 @@ export function ActionFilterDropdown({
                             </>
                         )
                     },
-                    dataSource: actions.length
-                        ? actions.map((action: ActionType) => ({
-                              key: EntityTypes.ACTIONS + action.id,
-                              name: action.name,
-                              volume: action.count,
-                              id: action.id,
-                              action,
-                          }))
-                        : [
-                              {
-                                  key: EntityTypes.ACTIONS + '_create_new',
-                                  name: `No actions found. Click to set up an action.`,
-                                  onSelect: () => {
-                                      router.actions.push('/actions')
-                                  },
-                                  onSelectPreventDefault: true,
-                                  renderInfo: function newActionInfo() {
-                                      return (
-                                          <>
-                                              <AimOutlined /> Actions
-                                              <p className="mt">
-                                                  Actions can retroactively group one or more raw events to help provide
-                                                  consistent analytics.{' '}
-                                                  <a
-                                                      href="https://posthog.com/docs/features/actions?utm_medium=in-product&utm_campaign=actions-table"
-                                                      target="_blank"
-                                                  >
-                                                      <QuestionCircleOutlined />
-                                                  </a>
-                                                  <Button
-                                                      block
-                                                      className="mt"
-                                                      onClick={() => router.actions.push('/actions')}
-                                                  >
-                                                      Set Up Actions
-                                                  </Button>
-                                              </p>
-                                          </>
-                                      )
-                                  },
-                              },
-                          ],
+                    dataSource: actions.map((action: ActionType) => ({
+                        key: EntityTypes.ACTIONS + action.id,
+                        name: action.name,
+                        volume: action.count,
+                        id: action.id,
+                        action,
+                    })),
                     renderInfo: ActionInfo,
                     type: EntityTypes.ACTIONS,
                     getValue: (item: SelectedItem) => item.action?.id || '',
@@ -165,7 +141,39 @@ export function ActionFilterDropdown({
                             ...definition,
                             key: EntityTypes.EVENTS + definition.id,
                         })) || [],
-                    renderInfo: EventInfo,
+                    renderInfo: function events({ item }) {
+                        const info = keyMapping.event[item.name]
+                        return (
+                            <>
+                                <ContainerOutlined /> Events
+                                <br />
+                                <h3>
+                                    <PropertyKeyInfo value={item.name} disablePopover={true} />
+                                </h3>
+                                {info?.description && <p>{info.description}</p>}
+                                {info?.examples?.length && (
+                                    <p>
+                                        <i>Example: </i>
+                                        {info.examples.join(', ')}
+                                    </p>
+                                )}
+                                <hr />
+                                <p>
+                                    Sent as <code>{item.name}</code>
+                                </p>
+                                {(item?.volume_30_day ?? 0 > 0) && (
+                                    <>
+                                        Seen <strong>{item.volume_30_day}</strong> times.{' '}
+                                    </>
+                                )}
+                                {(item?.query_usage_30_day ?? 0 > 0) && (
+                                    <>
+                                        Used in <strong>{item.query_usage_30_day}</strong> queries.
+                                    </>
+                                )}
+                            </>
+                        )
+                    },
                     type: EntityTypes.EVENTS,
                     getValue: (item: SelectedItem) => item.name || '',
                     getLabel: (item: SelectedItem) => item.name || '',
@@ -175,10 +183,7 @@ export function ActionFilterDropdown({
     )
 }
 
-export function ActionInfo({ item }: RenderInfoProps): JSX.Element {
-    if (item.renderInfo) {
-        return item.renderInfo({ item })
-    }
+export function ActionInfo({ item }: { item: SelectedItem }): JSX.Element {
     return (
         <>
             <AimOutlined /> Actions
@@ -196,65 +201,6 @@ export function ActionInfo({ item }: RenderInfoProps): JSX.Element {
                 <PropertyKeyInfo value={item.name} />
             </h3>
             {item.action && <ActionSelectInfo entity={item.action} />}
-        </>
-    )
-}
-function EventInfo({ item }: RenderInfoProps): JSX.Element {
-    if (item.renderInfo) {
-        return item.renderInfo({ item })
-    }
-    const info = keyMapping.event[item.name]
-    return (
-        <>
-            <ContainerOutlined /> Events
-            <br />
-            <h3>
-                <PropertyKeyInfo value={item.name} disablePopover={true} />
-            </h3>
-            {info?.description && <p>{info.description}</p>}
-            {info?.examples?.length && (
-                <p>
-                    <i>Example: </i>
-                    {info.examples.join(', ')}
-                </p>
-            )}
-            <hr />
-            <p>
-                Sent as <code>{item.name}</code>
-            </p>
-            {(item?.volume_30_day ?? 0 > 0) && (
-                <>
-                    Seen <strong>{item.volume_30_day}</strong> times.{' '}
-                </>
-            )}
-            {(item?.query_usage_30_day ?? 0 > 0) && (
-                <>
-                    Used in <strong>{item.query_usage_30_day}</strong> queries.
-                </>
-            )}
-        </>
-    )
-}
-
-function SuggestionsInfo({ item }: RenderInfoProps): JSX.Element {
-    if (item.renderInfo) {
-        return item.renderInfo({ item })
-    }
-    return (
-        <>
-            <FireOutlined /> Suggestions
-            <br />
-            <h3>{item.name}</h3>
-            {(item?.volume_30_day ?? 0 > 0) && (
-                <>
-                    Seen <strong>{item.volume_30_day}</strong> times.{' '}
-                </>
-            )}
-            {(item?.query_usage_30_day ?? 0 > 0) && (
-                <>
-                    Used in <strong>{item.query_usage_30_day}</strong> queries.
-                </>
-            )}
         </>
     )
 }
