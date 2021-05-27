@@ -44,7 +44,7 @@ export interface ProfilePictureProps {
 
 export function ProfilePicture({ name, email, small }: ProfilePictureProps): JSX.Element {
     const [didImageError, setDidImageError] = useState(false)
-    const pictureClass = small ? "profile-picture small" : "profile-picture"
+    const pictureClass = small ? 'profile-picture small' : 'profile-picture'
     if (email && !didImageError) {
         const emailHash = md5(email.trim().toLowerCase())
         const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`

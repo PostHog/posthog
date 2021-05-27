@@ -80,25 +80,26 @@ export function VolumeTable({
         },
         type === 'event' && isPremiumUser
             ? {
-                title: 'Owner',
-                render: function Render(_, record): JSX.Element {
-                    const owner = record.eventOrProp.owner
-                    return (
-                        <>
-                            {owner ? (
-                                <div style={{ display: 'flex', alignItems: 'center' }}>
-                                    <ProfilePicture name={owner.first_name} email={owner.email} small={true} />
-                                    <span style={{ paddingLeft: 8 }}>{owner.first_name}</span>
-                                </div>
-                            ) : (
-                                <span className="text-muted" style={{ fontStyle: 'italic' }}>
-                                    No Owner
-                                </span>
-                            )}
-                        </>
-                    )
-                },
-            } : {},
+                  title: 'Owner',
+                  render: function Render(_, record): JSX.Element {
+                      const owner = record.eventOrProp.owner
+                      return (
+                          <>
+                              {owner ? (
+                                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                                      <ProfilePicture name={owner.first_name} email={owner.email} small={true} />
+                                      <span style={{ paddingLeft: 8 }}>{owner.first_name}</span>
+                                  </div>
+                              ) : (
+                                  <span className="text-muted" style={{ fontStyle: 'italic' }}>
+                                      No Owner
+                                  </span>
+                              )}
+                          </>
+                      )
+                  },
+              }
+            : {},
         type === 'event'
             ? {
                   title: function VolumeTitle() {
