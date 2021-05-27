@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
@@ -35,6 +36,8 @@ class Group(object):
         event_id: Optional[str] = None,
         days: Optional[int] = None,
         count: Optional[int] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ):
         if not properties and not action_id and not event_id:
             raise ValueError("Cohort group needs properties or action_id or event_id")
@@ -43,6 +46,8 @@ class Group(object):
         self.event_id = event_id
         self.days = days
         self.count = count
+        self.start_date = start_date
+        self.end_date = end_date
 
 
 class CohortManager(models.Manager):
