@@ -1456,17 +1456,15 @@
   optionalDependencies:
     nice-napi "^1.0.2"
 
-"@posthog/plugin-contrib@^0.0.3":
-  version "0.0.3"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.3.tgz#d0772c6dd9ec9944ebee9dc475e1e781256b0b5f"
-  integrity sha512-0HrE8AuPv3OLZA93RrJDbljn9u5D/wmiIkBCeckU3LL67LNozDIJgKsY4Td91zgc+b4Rlx/X0MJNp2l6BHbQqg==
+"@posthog/plugin-contrib@^0.0.5":
+  version "0.0.5"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.5.tgz#6c55f39c39dd9dd8af558888558a69bc3fe19aff"
+  integrity sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==
 
-"@posthog/plugin-scaffold@0.5.0":
-  version "0.5.0"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.5.0.tgz#0d46d0f39700ebf3cf613ba80a2c9a4dc6d13805"
-  integrity sha512-gE12hy/gYdMOYLP/PhbC2XfqvCeoXrdkFeR9HFfSK31RWU+aW+JMK7pi+CATatXfNpMCvjGxIYJk3QBPwm0WDA==
-  dependencies:
-    "@maxmind/geoip2-node" "^2.3.1"
+"@posthog/plugin-scaffold@0.10.0":
+  version "0.10.0"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.10.0.tgz#e80f57c5d3833753632607bed3ca71ebf272b12b"
+  integrity sha512-c8lNzQTBMJ0X3SCjcaD+mXZIx2thc+ptf8G4gbfT9YBFFD6TMaxs+/APMUab2aRJRbVwOsCGj9poxwuF4wxPpA==
 
 "@protobufjs/aspromise@^1.1.1", "@protobufjs/aspromise@^1.1.2":
   version "1.1.2"

@@ -4,7 +4,7 @@ import {
     Hub,
     PluginCapabilities,
     PluginConfig,
-    PluginConfigVMReponse,
+    PluginConfigVMResponse,
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginTask,
@@ -18,7 +18,7 @@ import { createPluginConfigVM } from './vm'
 export class LazyPluginVM {
     initialize?: (hub: Hub, pluginConfig: PluginConfig, indexJs: string, logInfo: string) => Promise<void>
     failInitialization?: () => void
-    resolveInternalVm: Promise<PluginConfigVMReponse | null>
+    resolveInternalVm: Promise<PluginConfigVMResponse | null>
 
     constructor() {
         this.resolveInternalVm = new Promise((resolve) => {
@@ -56,23 +56,27 @@ export class LazyPluginVM {
         })
     }
 
-    async getOnEvent(): Promise<PluginConfigVMReponse['methods']['onEvent'] | null> {
+    async getExportEvents(): Promise<PluginConfigVMResponse['methods']['exportEvents'] | null> {
+        return (await this.resolveInternalVm)?.methods.exportEvents || null
+    }
+
+    async getOnEvent(): Promise<PluginConfigVMResponse['methods']['onEvent'] | null> {
         return (await this.resolveInternalVm)?.methods.onEvent || null
     }
 
-    async getOnSnapshot(): Promise<PluginConfigVMReponse['methods']['onSnapshot'] | null> {
+    async getOnSnapshot(): Promise<PluginConfigVMResponse['methods']['onSnapshot'] | null> {
         return (await this.resolveInternalVm)?.methods.onSnapshot || null
     }
 
-    async getProcessEvent(): Promise<PluginConfigVMReponse['methods']['processEvent'] | null> {
+    async getProcessEvent(): Promise<PluginConfigVMResponse['methods']['processEvent'] | null> {
         return (await this.resolveInternalVm)?.methods.processEvent || null
     }
 
-    async getProcessEventBatch(): Promise<PluginConfigVMReponse['methods']['processEventBatch'] | null> {
+    async getProcessEventBatch(): Promise<PluginConfigVMResponse['methods']['processEventBatch'] | null> {
         return (await this.resolveInternalVm)?.methods.processEventBatch || null
     }
 
-    async getTeardownPlugin(): Promise<PluginConfigVMReponse['methods']['teardownPlugin'] | null> {
+    async getTeardownPlugin(): Promise<PluginConfigVMResponse['methods']['teardownPlugin'] | null> {
         return (await this.resolveInternalVm)?.methods.teardownPlugin || null
     }
 
@@ -87,7 +91,7 @@ export class LazyPluginVM {
     private async inferPluginCapabilities(
         hub: Hub,
         pluginConfig: PluginConfig,
-        vm: PluginConfigVMReponse
+        vm: PluginConfigVMResponse
     ): Promise<void> {
         if (!pluginConfig.plugin) {
             throw new Error(`'PluginConfig missing plugin: ${pluginConfig}`)

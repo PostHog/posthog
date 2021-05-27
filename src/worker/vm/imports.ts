@@ -1,5 +1,6 @@
 import { BigQuery } from '@google-cloud/bigquery'
 import * as contrib from '@posthog/plugin-contrib'
+import * as scaffold from '@posthog/plugin-scaffold'
 import * as AWS from 'aws-sdk'
 import crypto from 'crypto'
 import * as genericPool from 'generic-pool'
@@ -17,6 +18,7 @@ export const imports = {
     'node-fetch': fetch,
     'snowflake-sdk': snowflake,
     '@google-cloud/bigquery': { BigQuery },
+    '@posthog/plugin-scaffold': scaffold,
     '@posthog/plugin-contrib': contrib,
     'aws-sdk': AWS,
     pg: pg,

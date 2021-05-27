@@ -1,5 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
-import { PluginAttachment, PluginConfigSchema, PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import { Meta, PluginAttachment, PluginConfigSchema, PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
@@ -293,18 +293,27 @@ export type WorkerMethods = {
     ingestEvent: (event: PluginEvent) => Promise<IngestEventResponse>
 }
 
-export interface PluginConfigVMReponse {
+export type VMMethods = {
+    setupPlugin?: () => Promise<void>
+    teardownPlugin?: () => Promise<void>
+    onEvent?: (event: PluginEvent) => Promise<void>
+    onSnapshot?: (event: PluginEvent) => Promise<void>
+    exportEvents?: (events: PluginEvent[]) => Promise<void>
+    processEvent?: (event: PluginEvent) => Promise<PluginEvent>
+    // DEPRECATED
+    processEventBatch?: (batch: PluginEvent[]) => Promise<PluginEvent[]>
+}
+
+export interface PluginConfigVMResponse {
     vm: VM
-    methods: {
-        setupPlugin?: () => Promise<void>
-        teardownPlugin?: () => Promise<void>
-        onEvent?: (event: PluginEvent) => Promise<void>
-        onSnapshot?: (event: PluginEvent) => Promise<void>
-        processEvent?: (event: PluginEvent) => Promise<PluginEvent>
-        // DEPRECATED
-        processEventBatch?: (batch: PluginEvent[]) => Promise<PluginEvent[]>
-    }
+    methods: VMMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
+}
+
+export interface PluginConfigVMInternalResponse<M extends Meta = Meta> {
+    methods: VMMethods
+    tasks: Record<PluginTaskType, Record<string, PluginTask>>
+    meta: M
 }
 
 export interface EventUsage {

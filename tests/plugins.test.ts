@@ -74,6 +74,7 @@ test('setupPlugins and runProcessEvent', async () => {
     expect(pluginConfig.vm).toBeDefined()
     const vm = await pluginConfig.vm!.resolveInternalVm
     expect(Object.keys(vm!.methods).sort()).toEqual([
+        'exportEvents',
         'onEvent',
         'onSnapshot',
         'processEvent',
