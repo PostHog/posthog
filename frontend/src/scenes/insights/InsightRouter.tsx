@@ -1,4 +1,4 @@
-import { Skeleton } from 'antd'
+import { Card, Col, Row, Skeleton } from 'antd'
 import { kea, useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
 import api from 'lib/api'
@@ -54,7 +54,20 @@ export function InsightRouter(): JSX.Element {
                 <NotFound object="insight" />
             ) : (
                 <>
-                    <Skeleton active />
+                    <Skeleton active paragraph={{ rows: 0 }} />
+                    <Card>
+                        <Row gutter={16}>
+                            <Col md={18}>
+                                <Skeleton active />
+                            </Col>
+                            <Col md={6} style={{ textAlign: 'center' }}>
+                                <Skeleton active paragraph={{ rows: 0 }} />
+                                <Skeleton active paragraph={{ rows: 0 }} />
+                                <Skeleton active paragraph={{ rows: 0 }} />
+                            </Col>
+                        </Row>
+                    </Card>
+                    <Card style={{ minHeight: 600, marginTop: 16 }} />
                 </>
             )}
         </>
