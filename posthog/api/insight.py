@@ -1,5 +1,5 @@
 from distutils.util import strtobool
-from typing import Any, Dict
+from typing import Any, Dict, Type
 
 from django.core.cache import cache
 from django.db.models import QuerySet
@@ -33,6 +33,25 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
 from posthog.utils import generate_cache_key, get_safe_cache
+
+
+class InsightBasicSerializer(serializers.ModelSerializer):
+    """
+    Simplified serializer to speed response times when loading large amounts of objects.
+    """
+
+    class Meta:
+        model = DashboardItem
+        fields = [
+            "id",
+            "short_id",
+            "name",
+            "dashboard",
+            "color",
+            "last_refresh",
+            "refreshing",
+            "saved",
+        ]
 
 
 class InsightSerializer(serializers.ModelSerializer):
@@ -104,6 +123,13 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]
+
+    def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+        if (self.action == "list" or self.action == "retrieve") and strtobool(
+            self.request.query_params.get("basic", "0"),
+        ):
+            return InsightBasicSerializer
+        return super().get_serializer_class()
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

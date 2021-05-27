@@ -84,6 +84,31 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
             self.assertEqual(response.json()["results"][0]["filters"]["events"][0]["id"], "$pageview")
 
+        def test_basic_results(self):
+            """
+            The `skip_results` query parameter can be passed so that only a list of objects is returned, without
+            the actual query data. This can speed things up if it's not needed.
+            """
+            filter_dict = {
+                "events": [{"id": "$pageview"}],
+            }
+
+            DashboardItem.objects.create(
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+            )
+            DashboardItem.objects.create(
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True,
+            )
+
+            response = self.client.get("/api/insight/?basic=true")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(len(response.json()["results"]), 2)
+            self.assertEqual(
+                list(response.json()["results"][0].keys()),
+                ["id", "short_id", "name", "dashboard", "color", "last_refresh", "refreshing", "saved",],
+            )
+
         def test_create_insight_items(self):
             # Make sure the endpoint works with and without the trailing slash
             response = self.client.post(
