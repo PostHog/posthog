@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Action, EnqueuedJob, Hub, PluginTaskType } from '../types'
+import { Action, EnqueuedJob, Hub, PluginTaskType, Team } from '../types'
 import { ingestEvent } from './ingestion/ingest-event'
 import { runOnEvent, runOnSnapshot, runPluginTask, runProcessEvent, runProcessEventBatch } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
@@ -48,11 +48,11 @@ export const workerTasks: Record<string, TaskRunner> = {
     reloadAllActions: async (hub) => {
         return await hub.eventsProcessor.actionManager.reloadAllActions()
     },
-    reloadAction: async (hub, args: { actionId: Action['id'] }) => {
-        return await hub.eventsProcessor.actionManager.reloadAction(args.actionId)
+    reloadAction: async (hub, args: { teamId: Team['id']; actionId: Action['id'] }) => {
+        return await hub.eventsProcessor.actionManager.reloadAction(args.teamId, args.actionId)
     },
-    dropAction: (hub, args: { actionId: Action['id'] }) => {
-        return hub.eventsProcessor.actionManager.dropAction(args.actionId)
+    dropAction: (hub, args: { teamId: Team['id']; actionId: Action['id'] }) => {
+        return hub.eventsProcessor.actionManager.dropAction(args.teamId, args.actionId)
     },
     teardownPlugins: async (hub) => {
         await teardownPlugins(hub)

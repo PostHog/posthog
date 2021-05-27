@@ -567,6 +567,37 @@ export function filterIncrementProperties(incrementProperties: unknown): Record<
     return filteredIncrementProperties
 }
 
+export function groupBy<T extends Record<string, any>, K extends keyof T>(
+    objects: T[],
+    key: K,
+    flat?: false
+): Record<T[K], T[]>
+export function groupBy<T extends Record<string, any>, K extends keyof T>(
+    objects: T[],
+    key: K,
+    flat: true
+): Record<T[K], T>
+export function groupBy<T extends Record<string, any>, K extends keyof T>(
+    objects: T[],
+    key: K,
+    flat = false
+): Record<T[K], T[] | T> {
+    return flat
+        ? objects.reduce((grouping, currentItem) => {
+              if (currentItem[key] in grouping) {
+                  throw new Error(
+                      `Key "${key}" has more than one matching value, which is not allowed in flat groupBy!`
+                  )
+              }
+              grouping[currentItem[key]] = currentItem
+              return grouping
+          }, {} as Record<T[K], T>)
+        : objects.reduce((grouping, currentItem) => {
+              ;(grouping[currentItem[key]] = grouping[currentItem[key]] || []).push(currentItem)
+              return grouping
+          }, {} as Record<T[K], T[]>)
+}
+
 export function clamp(value: number, min: number, max: number): number {
     return value > max ? max : value < min ? min : value
 }

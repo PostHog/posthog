@@ -8,6 +8,7 @@ import {
     getFileFromArchive,
     getFileFromTGZ,
     getFileFromZip,
+    groupBy,
     sanitizeSqlIdentifier,
     setLogLevel,
     UUID,
@@ -318,5 +319,78 @@ describe('escapeClickHouseString', () => {
         const sanitizedString = escapeClickHouseString(rawString)
 
         expect(sanitizedString).toStrictEqual("insert\\'escape \\\\")
+    })
+})
+
+describe('groupBy', () => {
+    it('groups simple objects', () => {
+        const objects = [
+            { i: 2, foo: 'x' },
+            { i: 2, foo: 'y' },
+            { i: 4, foo: 'x' },
+            { i: 7, foo: 'z' },
+        ]
+
+        const groupingByI = groupBy(objects, 'i')
+        expect(groupingByI).toEqual({
+            2: [
+                { i: 2, foo: 'x' },
+                { i: 2, foo: 'y' },
+            ],
+            4: [{ i: 4, foo: 'x' }],
+            7: [{ i: 7, foo: 'z' }],
+        })
+
+        const groupingByFoo = groupBy(objects, 'foo')
+        expect(groupingByFoo).toEqual({
+            x: [
+                { i: 2, foo: 'x' },
+                { i: 4, foo: 'x' },
+            ],
+            y: [{ i: 2, foo: 'y' }],
+            z: [{ i: 7, foo: 'z' }],
+        })
+    })
+
+    it('handles undefineds', () => {
+        const objects = [{ i: 2, foo: 'x' }, { i: 2, foo: 'y' }, { i: 4, foo: 'x' }, { foo: 'z' }]
+
+        const groupingByI = groupBy(objects, 'i')
+        expect(groupingByI).toEqual({
+            2: [
+                { i: 2, foo: 'x' },
+                { i: 2, foo: 'y' },
+            ],
+            4: [{ i: 4, foo: 'x' }],
+            undefined: [{ foo: 'z' }],
+        })
+    })
+
+    it('works in flat mode', () => {
+        const objects = [
+            { i: 2, foo: 'x' },
+            { i: 4, foo: 'x' },
+            { i: 7, foo: 'z' },
+        ]
+
+        const groupingByI = groupBy(objects, 'i', true)
+        expect(groupingByI).toEqual({
+            2: { i: 2, foo: 'x' },
+            4: { i: 4, foo: 'x' },
+            7: { i: 7, foo: 'z' },
+        })
+    })
+
+    it("doesn't work in flat mode if multiple values match a single key", () => {
+        const objects = [
+            { i: 2, foo: 'x' },
+            { i: 2, foo: 'y' },
+            { i: 4, foo: 'x' },
+            { i: 7, foo: 'z' },
+        ]
+
+        expect(() => groupBy(objects, 'i', true)).toThrowError(
+            'Key "i" has more than one matching value, which is not allowed in flat groupBy!'
+        )
     })
 })

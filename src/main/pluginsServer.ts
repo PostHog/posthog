@@ -153,9 +153,9 @@ export async function startPluginsServer(
                 await scheduleControl?.reloadSchedule()
             },
             'reload-action': async (message) =>
-                await piscina?.broadcastTask({ task: 'reloadAction', args: { actionId: parseInt(message) } }),
+                await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
             'drop-action': async (message) =>
-                await piscina?.broadcastTask({ task: 'dropAction', args: { actionId: parseInt(message) } }),
+                await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
         })
         await pubSub.start()
 
