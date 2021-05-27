@@ -1287,6 +1287,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "lutangar",
+      "name": "Johan Dufour",
+      "avatar_url": "https://avatars.githubusercontent.com/u/568769?v=4",
+      "profile": "https://larriereguichet.fr",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
