@@ -106,7 +106,7 @@ def _get_entity_query(
 
 
 def get_date_query(
-    days: Optional[str], start_time: Optional[datetime], end_time: Optional[datetime]
+    days: Optional[str], start_time: Optional[str], end_time: Optional[str]
 ) -> Tuple[str, Dict[str, str]]:
     date_query: str = ""
     date_params: Dict[str, str] = {}
