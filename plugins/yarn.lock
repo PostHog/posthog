@@ -949,15 +949,15 @@
   optionalDependencies:
     nice-napi "^1.0.2"
 
-"@posthog/plugin-contrib@^0.0.3":
-  version "0.0.3"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.3.tgz#d0772c6dd9ec9944ebee9dc475e1e781256b0b5f"
-  integrity sha512-0HrE8AuPv3OLZA93RrJDbljn9u5D/wmiIkBCeckU3LL67LNozDIJgKsY4Td91zgc+b4Rlx/X0MJNp2l6BHbQqg==
+"@posthog/plugin-contrib@^0.0.5":
+  version "0.0.5"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.5.tgz#6c55f39c39dd9dd8af558888558a69bc3fe19aff"
+  integrity sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==
 
-"@posthog/plugin-server@0.21.9":
-  version "0.21.9"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.21.9.tgz#0eee589db54f67cc172f7c9986a2d44f88a291a6"
-  integrity sha512-UuGopcJhKy8qfLSO9dk3QtExDPhQB/qH3yOrxL6IK7T1ABs0SBltTXjCctn2rF+uLGn1Qu8dIcKbz7NsuHtwxg==
+"@posthog/plugin-server@0.21.10":
+  version "0.21.10"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.21.10.tgz#e2f1251d3edc9b93a73abd950c982c45c8ab930e"
+  integrity sha512-JW1XpJb8+0sj4ED2juwpEbw7bdvn2QNGBUzABNi/E3tqkSgXL1xJV3Fj7RZcbtgCEmKM18XMapw8cuhfesbkyg==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
@@ -967,7 +967,7 @@
     "@maxmind/geoip2-node" "^2.3.1"
     "@posthog/clickhouse" "^1.7.0"
     "@posthog/piscina" "^2.2.0-posthog"
-    "@posthog/plugin-contrib" "^0.0.3"
+    "@posthog/plugin-contrib" "^0.0.5"
     "@sentry/node" "^5.29.0"
     "@sentry/tracing" "^5.29.0"
     "@types/lru-cache" "^5.1.0"
