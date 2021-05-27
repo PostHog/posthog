@@ -14,6 +14,7 @@ import { defaultConfig } from '../../config/config'
 import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
 import { Hub, PluginsServerConfig } from '../../types'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
+import { InternalMetrics } from '../internal-metrics'
 import { killProcess } from '../kill'
 import { status } from '../status'
 import { createPostgresPool, createRedis, logOrThrowJobQueueError, UUIDT } from '../utils'
@@ -177,6 +178,10 @@ export async function createHub(
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     await hub.eventsProcessor.prepare()
     hub.jobQueueManager = new JobQueueManager(hub as Hub)
+
+    if (serverConfig.CAPTURE_INTERNAL_METRICS) {
+        hub.internalMetrics = new InternalMetrics(hub as Hub)
+    }
 
     try {
         await hub.jobQueueManager.connectProducer()

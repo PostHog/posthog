@@ -67,11 +67,12 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | INTERNAL_MMDB_SERVER_PORT     | port of the internal server used for IP location (0 means random) | `0`                                   |
 | DISTINCT_ID_LRU_SIZE          | size of persons distinct ID LRU cache                             | `10000`                               |
 | PLUGIN_SERVER_IDLE            | whether to disengage the plugin server, e.g. for development      | `false`                               |
+| CAPTURE_INTERNAL_METRICS      | whether to capture internal metrics for posthog in posthog        | `false`                               |
 
 ## Releasing a new version
 
-It's magic! Just bump up `version` in `package.json` on the main branch and the new version will be published automatically, with a matching PR to the main PostHog repo created.  
-You can also use a `bump patch/minor/major` label on a PR - this will do the above for you when the PR is merged.  
+It's magic! Just bump up `version` in `package.json` on the main branch and the new version will be published automatically, with a matching PR to the main PostHog repo created.
+You can also use a `bump patch/minor/major` label on a PR - this will do the above for you when the PR is merged.
 Courtesy of GitHub Actions.
 
 ## Walkthrough

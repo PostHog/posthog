@@ -11,6 +11,7 @@ import { VM } from 'vm2'
 
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
+import { InternalMetrics } from './utils/internal-metrics'
 import { UUID } from './utils/utils'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { LazyPluginVM } from './worker/vm/lazy'
@@ -92,6 +93,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     JOB_QUEUE_S3_PREFIX: string
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean
     STALENESS_RESTART_SECONDS: number
+    CAPTURE_INTERNAL_METRICS: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -103,7 +105,9 @@ export interface Hub extends PluginsServerConfig {
     clickhouse?: ClickHouse
     kafka?: Kafka
     kafkaProducer?: KafkaProducerWrapper
+    // metrics
     statsd?: StatsD
+    internalMetrics?: InternalMetrics
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
     pluginConfigs: Map<PluginConfigId, PluginConfig>
