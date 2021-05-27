@@ -1,14 +1,18 @@
 import React from 'react'
-import { ActionFilter } from '~/types'
-import { operatorMap, capitalizeFirstLetter } from '~/lib/utils'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import './TooltipItem.scss'
 import { Tag } from 'antd'
+import { ActionFilter } from '~/types'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { operatorMap, capitalizeFirstLetter } from 'lib/utils'
 
-interface TooltipItemProps {
+import './index.scss'
+import { MATHS } from 'lib/constants'
+
+// InsightsLabel pretty-prints the action (or event) returned from /insights
+
+interface InsightsLabelProps {
     propertyValue: string
     action: ActionFilter
-    value: string
+    value?: string // Show inline value in bold
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
 }
 
@@ -22,7 +26,7 @@ function MathTag({ math, mathProperty }: Record<string, string | undefined>): JS
     if (math && ['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(math || '')) {
         return (
             <Tag>
-                {capitalizeFirstLetter(math)}
+                {MATHS[math]?.name || capitalizeFirstLetter(math)}
                 {mathProperty && (
                     <>
                         {' of '}
@@ -35,24 +39,26 @@ function MathTag({ math, mathProperty }: Record<string, string | undefined>): JS
     return <Tag>{capitalizeFirstLetter(math)}</Tag>
 }
 
-export default function TooltipItem({ propertyValue, action, value, showCountedByTag }: TooltipItemProps): JSX.Element {
+export default function InsightsLabel({
+    propertyValue,
+    action,
+    showCountedByTag,
+    value,
+}: InsightsLabelProps): JSX.Element {
     return (
-        <div className="tooltip-item">
+        <div className="insights-label">
             <PropertyKeyInfo disableIcon value={propertyValue} />
             {((action.math && action.math !== 'total') || showCountedByTag) && (
                 <MathTag math={action.math} mathProperty={action.math_property} />
             )}
             {action.properties?.length > 0 && (
                 <span>
-                    {' ('}
-                    {action.properties?.map((property, i, arr) => (
-                        <span key={i}>
+                    {action.properties?.map((property, i) => (
+                        <Tag key={i}>
                             {property.key && <PropertyKeyInfo disableIcon value={property.key} />}{' '}
                             {operatorMap[property.operator || 'exact'].split(' ')[0]} {property.value}
-                            {i !== arr.length - 1 && ', '}
-                        </span>
+                        </Tag>
                     ))}
-                    {')'}
                 </span>
             )}
             <span className="value">{value}</span>

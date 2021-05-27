@@ -4,25 +4,19 @@ import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
-import { MATHS } from 'lib/constants'
 import { cohortsModel } from '~/models'
 import { CohortType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { maybeAddCommasToInteger } from 'lib/utils'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import InsightsLabel from 'lib/components/InsightsLabel'
 
-function formatLabel(item: IndexedTrendResult): JSX.Element {
-    const name = <PropertyKeyInfo value={item.action?.name || item.label} disableIcon />
-    const math = item.action?.math
-    const mathLabel = math ? MATHS[math].name : ''
-    const propNum = item.action?.properties.length
-    const propLabel = propNum ? propNum + (propNum === 1 ? ' property' : ' properties') : ''
+function formatLabel(item: IndexedTrendResult, showCountedByTag?: boolean): JSX.Element {
     return (
-        <>
-            {name}
-            {mathLabel ? ' — ' + mathLabel : ''}
-            {propLabel ? ' — ' + propLabel : ''}
-        </>
+        <InsightsLabel
+            propertyValue={item.action?.name || item.label}
+            action={item.action}
+            showCountedByTag={showCountedByTag}
+        />
     )
 }
 
@@ -45,6 +39,7 @@ export function TrendLegend(): JSX.Element | null {
     if (indexedResults.length === 0) {
         return null
     }
+    const showCountedByTag = !!indexedResults.find(({ action: { math } }) => math && math !== 'total')
 
     const columns: ColumnsType<IndexedTrendResult> = [
         {
@@ -71,7 +66,7 @@ export function TrendLegend(): JSX.Element | null {
                         style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
                         onClick={() => !isSingleEntity && toggleVisibility(item.id)}
                     >
-                        {formatLabel(item)}
+                        {formatLabel(item, showCountedByTag)}
                     </span>
                 )
             },

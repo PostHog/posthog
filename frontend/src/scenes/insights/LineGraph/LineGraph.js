@@ -14,7 +14,7 @@ import dayjs from 'dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import './LineGraph.scss'
 import 'chartjs-plugin-crosshair'
-import TooltipItem from './TooltipItem'
+import InsightsLabel from 'lib/components/InsightsLabel'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -223,7 +223,7 @@ export function LineGraph({
                               ({ action: { math } }) => math && math !== 'total'
                           )
                           return (
-                              <TooltipItem
+                              <InsightsLabel
                                   propertyValue={label}
                                   action={action}
                                   value={value}
