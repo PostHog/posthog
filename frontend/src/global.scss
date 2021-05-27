@@ -6,6 +6,12 @@ style files without adding already imported styles. */
 @import 'node_modules/react-toastify/dist/ReactToastify';
 @import './vars';
 
+// https://github.com/PostHog/posthog/issues/4524
+@import './lib/components/ActionComponents.scss';
+@import './lib/components/PropertiesTable.scss';
+@import './lib/components/SelectBox.scss';
+@import './lib/components/SelectGradientOverflow.scss';
+
 @font-face {
     font-family: 'GoshaSans-Bold';
     src: url('../public/GoshaSans-Bold.woff2') format('woff2'), url('../public/GoshaSans-Bold.woff') format('woff');
@@ -263,6 +269,7 @@ code.code {
 }
 
 // Random general styles
+
 .cursor-pointer {
     cursor: pointer;
 }
@@ -279,6 +286,10 @@ code.code {
     100% {
         background-color: initial;
     }
+}
+
+.fullscreen-scroll {
+    overflow-y: auto;
 }
 
 // Toasts
@@ -448,6 +459,7 @@ code.code {
 }
 
 // Badges styles
+
 .badge {
     border-radius: 50%;
     width: 22px;
@@ -622,8 +634,4 @@ code.code {
         margin-left: 6px;
         font-size: 1rem;
     }
-}
-
-.fullscreen-scroll {
-    overflow-y: auto;
 }

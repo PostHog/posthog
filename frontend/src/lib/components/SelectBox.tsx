@@ -5,7 +5,7 @@ import { List } from 'antd'
 import { DownOutlined, RightOutlined } from '@ant-design/icons'
 import { ActionType, CohortType } from '~/types'
 import { selectBoxLogic } from 'lib/logic/selectBoxLogic'
-import './SelectBox.scss'
+// import './SelectBox.scss' // https://github.com/PostHog/posthog/issues/4524
 import { selectBoxLogicType } from 'lib/logic/selectBoxLogicType'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
@@ -25,14 +25,6 @@ export interface SelectBoxItem {
     metadata?: Record<string, any> // Used to store additional data (e.g. search term)
 }
 
-interface CustomOnSelectProps {
-    item: SelectedItem
-    group: SelectBoxItem
-}
-
-export interface RenderInfoProps {
-    item: SelectedItem
-}
 export interface SelectedItem {
     id?: number | string // Populated for actions (string is used for UUIDs)
     name: string
@@ -45,9 +37,6 @@ export interface SelectedItem {
     is_numerical?: boolean // Only for properties
     category?: string
     cohort?: CohortType
-    onSelect?: (props?: CustomOnSelectProps) => void // Custom handler on item select
-    onSelectPreventDefault?: boolean // Prevent default handler logic from running
-    renderInfo?: (props?: RenderInfoProps) => JSX.Element // Override group renderInfo for this item
 }
 
 export function SelectBox({

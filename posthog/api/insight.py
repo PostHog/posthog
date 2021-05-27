@@ -53,8 +53,9 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "refreshing",
             "saved",
         ]
+        read_only_fields = ("short_id",)
 
-    def create(self, validated_data: Any) -> None:
+    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
 
     def to_representation(self, instance):
@@ -90,6 +91,7 @@ class InsightSerializer(InsightBasicSerializer):
         read_only_fields = (
             "created_by",
             "created_at",
+            "short_id",
         )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
