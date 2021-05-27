@@ -5,7 +5,6 @@ import { toast } from 'react-toastify'
 import { DashboardItemType } from '~/types'
 import { insightHistoryLogicType } from './insightHistoryLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { insightLogic } from '../insightLogic'
 
 const updateInsightState = (
     state: DashboardItemType[],
@@ -188,18 +187,6 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
             actions.updateTeamInsights(response.results)
         },
     }),
-    selectors: {
-        currentViewSavedInsights: [
-            (s) => [s.savedInsights, insightLogic.selectors.allFilters],
-            (savedInsights, filters): DashboardItemType[] =>
-                savedInsights.filter((item) => item.filters.insight === filters.insight),
-        ],
-        otherViewsSavedInsights: [
-            (s) => [s.savedInsights, insightLogic.selectors.allFilters],
-            (savedInsights, filters): DashboardItemType[] =>
-                savedInsights.filter((item) => item.filters.insight !== filters.insight),
-        ],
-    },
     events: ({ actions }) => ({
         afterMount: [actions.loadSavedInsights],
     }),
