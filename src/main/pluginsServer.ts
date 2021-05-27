@@ -46,7 +46,8 @@ export async function startPluginsServer(
     let fastifyInstance: FastifyInstance | undefined
     let actionsReloadJob: schedule.Job | undefined
     let pingJob: schedule.Job | undefined
-    let statsJob: schedule.Job | undefined
+    let piscinaStatsJob: schedule.Job | undefined
+    let internalMetricsStatsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
     let queue: Queue | undefined
     let jobQueueConsumer: JobQueueConsumerControl | undefined
@@ -77,7 +78,8 @@ export async function startPluginsServer(
         await pubSub?.stop()
         actionsReloadJob && schedule.cancelJob(actionsReloadJob)
         pingJob && schedule.cancelJob(pingJob)
-        statsJob && schedule.cancelJob(statsJob)
+        piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
+        internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
         await jobQueueConsumer?.stop()
         await scheduleControl?.stopSchedule()
         await new Promise<void>((resolve, reject) =>
@@ -174,13 +176,20 @@ export async function startPluginsServer(
             await hub!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
         })
         // every 10 seconds sends stuff to StatsD
-        statsJob = schedule.scheduleJob('*/10 * * * * *', () => {
+        piscinaStatsJob = schedule.scheduleJob('*/10 * * * * *', () => {
             if (piscina) {
                 for (const [key, value] of Object.entries(getPiscinaStats(piscina))) {
                     hub!.statsd?.gauge(`piscina.${key}`, value)
                 }
             }
         })
+
+        // every minute flush internal metrics
+        if (hub.internalMetrics) {
+            internalMetricsStatsJob = schedule.scheduleJob('0 * * * * *', async () => {
+                await hub!.internalMetrics?.flush(piscina!)
+            })
+        }
 
         if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
             // check every 10 sec how long it has been since the last activity
