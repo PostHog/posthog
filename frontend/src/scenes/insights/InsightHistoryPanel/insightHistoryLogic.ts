@@ -185,7 +185,4 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
             actions.updateTeamInsights(response.results)
         },
     }),
-    events: ({ actions }) => ({
-        afterMount: [actions.loadSavedInsights],
-    }),
 })
