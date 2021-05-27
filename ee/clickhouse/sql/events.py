@@ -1,6 +1,6 @@
 from ee.kafka_client.topics import KAFKA_EVENTS
 
-from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
 from .person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 
 DROP_EVENTS_TABLE_SQL = """
@@ -46,7 +46,7 @@ SAMPLE BY uuid
 """
 ).format(
     table_name=EVENTS_TABLE,
-    engine=table_engine(EVENTS_TABLE, "_timestamp"),
+    engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     storage_policy=STORAGE_POLICY,

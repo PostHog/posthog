@@ -5,7 +5,7 @@ import { List } from 'antd'
 import { DownOutlined, RightOutlined } from '@ant-design/icons'
 import { ActionType, CohortType } from '~/types'
 import { selectBoxLogic } from 'lib/logic/selectBoxLogic'
-import './SelectBox.scss'
+// import './SelectBox.scss' // https://github.com/PostHog/posthog/issues/4524
 import { selectBoxLogicType } from 'lib/logic/selectBoxLogicType'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
