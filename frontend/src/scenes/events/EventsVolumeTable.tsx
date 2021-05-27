@@ -10,7 +10,6 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { eventDefinitionsLogic } from './eventDefinitionsLogic'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
-import { ObjectTags } from 'lib/components/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import './VolumeTable.scss'
 import { ProfilePicture } from '~/layout/navigation/TopNavigation'
@@ -42,8 +41,7 @@ export function VolumeTable({
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
     const { user } = useValues(userLogic)
-    // const isPremiumUser = user?.organization?.available_features?.includes('dashboard_collaboration')
-    const isPremiumUser = true
+    const isPremiumUser = user?.organization?.available_features?.includes('dashboard_collaboration')
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {
@@ -54,7 +52,9 @@ export function VolumeTable({
                         <span className="ph-no-capture">
                             <PropertyKeyInfo style={{ fontWeight: 'bold' }} value={record.eventOrProp.name} />
                         </span>
-                        {isPremiumUser && type === 'event' && <VolumeTableRecordDescription record={record.eventOrProp}/>}
+                        {isPremiumUser && type === 'event' && (
+                            <VolumeTableRecordDescription record={record.eventOrProp} />
+                        )}
                         {record.warnings?.map((warning) => (
                             <Tooltip
                                 key={warning}
@@ -78,26 +78,27 @@ export function VolumeTable({
             ],
             onFilter: (value, record) => (value === 'warnings' ? !!record.warnings.length : !record.warnings.length),
         },
-        {
-            title: 'Owner',
-            render: function Render(_, record): JSX.Element {
-                const owner = record.eventOrProp.owner
-                return (
-                    <>
-                        {owner ? (
-                                <div style={{display: 'flex', alignItems: 'center', }}>
-                                    <ProfilePicture name={owner.first_name} email={owner.email} small={true}/>
-                                    <span style={{paddingLeft: 8}}>{owner.first_name}</span>
+        type === 'event' && isPremiumUser
+            ? {
+                title: 'Owner',
+                render: function Render(_, record): JSX.Element {
+                    const owner = record.eventOrProp.owner
+                    return (
+                        <>
+                            {owner ? (
+                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                    <ProfilePicture name={owner.first_name} email={owner.email} small={true} />
+                                    <span style={{ paddingLeft: 8 }}>{owner.first_name}</span>
                                 </div>
-                            )
-                            : (
-                                <span className="text-muted" style={{fontStyle: 'italic'}}>No Owner</span>
-                            )
-                        }
-                    </>
-                )
-            },
-        },
+                            ) : (
+                                <span className="text-muted" style={{ fontStyle: 'italic' }}>
+                                    No Owner
+                                </span>
+                            )}
+                        </>
+                    )
+                },
+            } : {},
         type === 'event'
             ? {
                   title: function VolumeTitle() {
@@ -175,7 +176,7 @@ export function VolumeTable({
             <br />
             <Table
                 dataSource={searchTerm ? search(dataWithWarnings, searchTerm) : dataWithWarnings}
-                columns={type === 'event' ? columns : columns.filter((col) => col.title !== 'Owner')}
+                columns={columns}
                 rowKey={(item) => item.eventOrProp.name}
                 size="small"
                 style={{ marginBottom: '4rem' }}
@@ -185,20 +186,24 @@ export function VolumeTable({
     )
 }
 
-export function VolumeTableRecordDescription({ record }: { record: EventDefinition | PropertyDefinition }): JSX.Element {
+export function VolumeTableRecordDescription({
+    record,
+}: {
+    record: EventDefinition | PropertyDefinition
+}): JSX.Element {
     const [newDescription, setNewDescription] = useState(record.description)
     const [bordered, setBordered] = useState(false)
     const { updateEventDefinition } = useActions(eventDefinitionsLogic)
 
     return (
-        <div style={{display: 'flex', minWidth: 300, marginRight: 32}}>
+        <div style={{ display: 'flex', minWidth: 300, marginRight: 32 }}>
             <Input.TextArea
                 className="definition-description"
                 placeholder="Click to add description"
                 onClick={() => setBordered(true)}
                 bordered={bordered}
                 maxLength={400}
-                style={{padding: 0, marginRight: 16, minWidth: 300}}
+                style={{ padding: 0, marginRight: 16, minWidth: 300 }}
                 autoSize={true}
                 value={newDescription || undefined}
                 onChange={(e) => setNewDescription(e.target.value)}
@@ -206,7 +211,7 @@ export function VolumeTableRecordDescription({ record }: { record: EventDefiniti
             {bordered && (
                 <>
                     <Button
-                        style={{marginRight: 8}}
+                        style={{ marginRight: 8 }}
                         size="small"
                         type="primary"
                         onClick={() => updateEventDefinition(record.id, newDescription)}

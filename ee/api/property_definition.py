@@ -18,7 +18,9 @@ class EnterprisePropertyDefinitionSerializer(PropertyDefinitionSerializer):
             "query_usage_30_day",
         )
 
-        def update(self, property_definition: EnterprisePropertyDefinition, validated_data) -> EnterprisePropertyDefinition:
+        def update(
+            self, property_definition: EnterprisePropertyDefinition, validated_data
+        ) -> EnterprisePropertyDefinition:
             response = super().update(property_definition, validated_data)
             return response
 
@@ -30,7 +32,9 @@ class EnterprisePropertyDefinitionViewSet(
     ordering = PropertyDefinitionViewSet.ordering
 
     def get_queryset(self):
-        return self.filter_queryset_by_parents_lookups(EnterprisePropertyDefinition.objects.all()).order_by(self.ordering)
+        return self.filter_queryset_by_parents_lookups(EnterprisePropertyDefinition.objects.all()).order_by(
+            self.ordering,
+        )
 
     def retrieve(self, request, **kwargs):
         id = kwargs["pk"]

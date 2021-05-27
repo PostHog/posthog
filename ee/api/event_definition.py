@@ -19,7 +19,9 @@ class EnterpriseEventDefinitionSerializer(EventDefinitionSerializer):
             "query_usage_30_day",
         )
 
-    def update(self, event_definition: EnterpriseEventDefinition, validated_data, **kwargs) -> EnterpriseEventDefinition:
+    def update(
+        self, event_definition: EnterpriseEventDefinition, validated_data, **kwargs,
+    ) -> EnterpriseEventDefinition:
         response = super().update(event_definition, validated_data)
         return response
 

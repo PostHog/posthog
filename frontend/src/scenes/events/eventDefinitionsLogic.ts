@@ -20,7 +20,7 @@ export const eventDefinitionsLogic = kea<
 >({
     actions: () => ({
         updateEventDefinition: (id: string, description: string | null) => ({ id, description }),
-        setEventDefinitions: (event) => ({ event })
+        setEventDefinitions: (event) => ({ event }),
     }),
     loaders: ({ values }) => ({
         eventStorage: [
@@ -41,11 +41,11 @@ export const eventDefinitionsLogic = kea<
                     }
                 },
                 setEventDefinitions: ({ event }) => {
-                    const updatedDefinitions = values.eventDefinitions.map(e => (event.id === e.id ? event : e))
+                    const updatedDefinitions = values.eventDefinitions.map((e) => (event.id === e.id ? event : e))
                     return {
                         count: values.eventStorage.count,
                         results: updatedDefinitions,
-                        next: values.eventStorage.next
+                        next: values.eventStorage.next,
                     }
                 },
             },
@@ -61,7 +61,7 @@ export const eventDefinitionsLogic = kea<
             const response = await api.update(`api/projects/@current/event_definitions/${id}`, { description })
             actions.setEventDefinitions(response)
             return response
-        }
+        },
     }),
     events: ({ actions }) => ({
         afterMount: () => {
