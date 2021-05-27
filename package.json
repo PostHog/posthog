@@ -55,6 +55,7 @@
         "@posthog/clickhouse": "^1.7.0",
         "@posthog/piscina": "^2.2.0-posthog",
         "@posthog/plugin-contrib": "^0.0.5",
+        "@posthog/plugin-scaffold": "0.10.0",
         "@sentry/node": "^5.29.0",
         "@sentry/tracing": "^5.29.0",
         "@types/lru-cache": "^5.1.0",
@@ -83,7 +84,6 @@
     },
     "devDependencies": {
         "@babel/cli": "^7.13.0",
-        "@posthog/plugin-scaffold": "0.10.0",
         "@types/adm-zip": "^0.4.33",
         "@types/babel__standalone": "^7.1.3",
         "@types/generic-pool": "^3.1.9",
