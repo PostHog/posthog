@@ -1,3 +1,4 @@
+from posthog.models.event_definition import EventDefinition
 import random
 from typing import Dict
 
@@ -7,7 +8,6 @@ from posthog.demo import create_demo_team
 from posthog.models import Organization, PropertyDefinition, Team
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
-
 
 class TestPropertyDefinitionAPI(APIBaseTest):
 

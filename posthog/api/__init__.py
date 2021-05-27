@@ -73,7 +73,6 @@ organizations_router.register(
 
 # Project nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet, "projects")
-# if not is_ee_enabled():
 projects_router.register(
     r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
 )

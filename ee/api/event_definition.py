@@ -1,12 +1,18 @@
-from rest_framework import mixins, viewsets
+from typing import Optional
+
+from rest_framework import mixins, serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.api.event_definition import EventDefinitionSerializer, EventDefinitionViewSet
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.models.event_definition import EventDefinition
 
 
 class EnterpriseEventDefinitionSerializer(EventDefinitionSerializer):
+    description = serializers.SerializerMethodField()
+
     class Meta:
         model = EnterpriseEventDefinition
         fields = (
@@ -18,12 +24,25 @@ class EnterpriseEventDefinitionSerializer(EventDefinitionSerializer):
             "volume_30_day",
             "query_usage_30_day",
         )
+        read_only_fields= ["id", "name", "owner", "tags", "volume_30_day", "query_usage_30_day"]
 
     def update(
-        self, event_definition: EnterpriseEventDefinition, validated_data, **kwargs,
+        self, event_definition: EventDefinition, validated_data, **kwargs,
     ) -> EnterpriseEventDefinition:
-        response = super().update(event_definition, validated_data)
-        return response
+        if self.context['request'].user.organization.is_feature_available("event_property_collaboration"):
+            data = self.context['request'].data
+            event = EnterpriseEventDefinition.objects.update_or_create(eventdefinition_ptr_id=event_definition.id, team=event_definition.team, defaults=data)
+            return event[0]
+
+        raise PermissionDenied("Enterprise plan feature")
+
+
+    def get_description(self, event_definition: EventDefinition) -> Optional[str]:
+        if self.context['request'].user.organization.is_feature_available("event_property_collaboration"):
+            event = EnterpriseEventDefinition.objects.filter(id=event_definition.id)
+            if event.exists():
+                return event.first().description
+        return None
 
 
 class EnterpriseEventDefinitionViewSet(
@@ -33,7 +52,7 @@ class EnterpriseEventDefinitionViewSet(
     ordering = EventDefinitionViewSet.ordering
 
     def get_queryset(self):
-        return self.filter_queryset_by_parents_lookups(EnterpriseEventDefinition.objects.all()).order_by(self.ordering)
+        return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)
 
     def retrieve(self, request, **kwargs):
         id = kwargs["pk"]
