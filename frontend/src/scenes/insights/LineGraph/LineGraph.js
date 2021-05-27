@@ -219,7 +219,17 @@ export function LineGraph({
                               const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
                               value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
                           }
-                          return <TooltipItem propertyValue={label} action={action} value={value} />
+                          const showCountedByTag = !!data.datasets.find(
+                              ({ action: { math } }) => math && math !== 'total'
+                          )
+                          return (
+                              <TooltipItem
+                                  propertyValue={label}
+                                  action={action}
+                                  value={value}
+                                  showCountedByTag={showCountedByTag}
+                              />
+                          )
                       },
                   },
                   custom: function (tooltipModel) {
