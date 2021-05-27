@@ -1,15 +1,10 @@
 import random
-from typing import Dict, cast
+from typing import Dict
 
-import pytest
-from django.utils import timezone
 from rest_framework import status
 
-from ee.models.event_definition import EnterpriseEventDefinition
-from ee.models.license import License, LicenseManager
 from posthog.demo import create_demo_team
 from posthog.models import EventDefinition, Organization, Team
-from posthog.models.property_definition import PropertyDefinition
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
