@@ -60,7 +60,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.DashboardInsight]: () =>
         import(/* webpackChunkName: 'dashboardInsight' */ './dashboard-insight/DashboardInsight'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
-    [Scene.InsightRouter]: () => import(/* webpackChunkName: 'insights' */ './insights/InsightRouter'),
+    [Scene.InsightRouter]: () => import(/* webpackChunkName: 'insightRouter' */ './insights/InsightRouter'),
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './persons/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
