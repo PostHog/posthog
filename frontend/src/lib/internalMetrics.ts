@@ -8,5 +8,5 @@ interface InternalMetricsPayload {
 }
 
 export function captureInternalMetric(payload: InternalMetricsPayload): Promise<void> {
-    return api.create('api/instance_status', payload)
+    return api.create('api/instance_status/capture', payload)
 }

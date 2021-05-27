@@ -15,10 +15,10 @@ class TestInstanceStatus(APIBaseTest):
     @patch("posthog.internal_metrics.timing")
     @patch("posthog.internal_metrics.incr")
     def test_create_internal_metrics_route(self, incr_mock, timing_mock):
-        self.client.post("/api/instance_status", {"method": "incr", "metric": "foo", "value": 1})
+        self.client.post("/api/instance_status/capture", {"method": "incr", "metric": "foo", "value": 1})
         incr_mock.assert_called_with("foo", 1, None)
 
         self.client.post(
-            "/api/instance_status", {"method": "timing", "metric": "bar", "value": 15.2, "tags": {"team_id": 1}}
+            "/api/instance_status/capture", {"method": "timing", "metric": "bar", "value": 15.2, "tags": {"team_id": 1}}
         )
         timing_mock.assert_called_with("bar", 15.2, {"team_id": 1})

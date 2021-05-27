@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Union
 from django.db import connection
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -142,7 +142,8 @@ class InstanceStatusViewSet(viewsets.ViewSet):
         return Response({"results": {"overview": metrics, "internal_metrics": get_internal_metrics_dashboards()}})
 
     # Used to capture internal metrics shown on dashboards
-    def create(self, request: Request) -> Response:
+    @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
+    def capture(self, request: Request) -> Response:
         from posthog.internal_metrics import incr, timing
 
         method: Any = timing if request.data["method"] == "timing" else incr
