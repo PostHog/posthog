@@ -1,7 +1,7 @@
-from ee.models.event_definition import EnterpriseEventDefinition
 from rest_framework import mixins, viewsets
 from rest_framework.response import Response
 
+from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.api.event_definition import EventDefinitionSerializer, EventDefinitionViewSet
 from posthog.api.routing import StructuredViewSetMixin
 

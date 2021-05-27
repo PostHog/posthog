@@ -1,7 +1,7 @@
-from ee.models.property_definition import EnterprisePropertyDefinition
 from rest_framework import mixins, viewsets
 from rest_framework.response import Response
 
+from ee.models.property_definition import EnterprisePropertyDefinition
 from posthog.api.property_definition import PropertyDefinitionSerializer, PropertyDefinitionViewSet
 from posthog.api.routing import StructuredViewSetMixin
 
