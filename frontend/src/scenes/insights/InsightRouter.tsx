@@ -2,7 +2,7 @@ import { Skeleton } from 'antd'
 import { kea, useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
 import api from 'lib/api'
-import { Link } from 'lib/components/Link'
+import { NotFound } from 'lib/components/NotFound'
 import React from 'react'
 import { DashboardItemType } from '~/types'
 import { insightRouterLogicType } from './InsightRouterType'
@@ -51,23 +51,7 @@ export function InsightRouter(): JSX.Element {
     return (
         <>
             {error ? (
-                <div className="dashboard not-found">
-                    <div className="graphic" />
-                    <h1 className="page-title">Insight not found</h1>
-                    <b>It seems this page may have been lost in space.</b>
-                    <p>
-                        It’s possible this insight may have been deleted or its sharing settings changed. Please check
-                        with the person who sent you here, or{' '}
-                        <Link
-                            to="https://posthog.com/support?utm_medium=in-product&utm_campaign=insight-not-found"
-                            target="_blank"
-                            rel="noopener"
-                        >
-                            contact support
-                        </Link>{' '}
-                        if you think this is a mistake.
-                    </p>
-                </div>
+                <NotFound object="insight" />
             ) : (
                 <>
                     <Skeleton active />
