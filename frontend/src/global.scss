@@ -12,6 +12,10 @@ style files without adding already imported styles. */
 @import './lib/components/SelectBox.scss';
 @import './lib/components/SelectGradientOverflow.scss';
 @import './scenes/insights/InsightHistoryPanel/InsightHistoryPanel.scss';
+@import './scenes/insights/LineGraph/LineGraph.scss';
+@import './scenes/dashboard/DashboardItems.scss';
+@import './lib/components/ResizableTable/index.scss';
+@import './lib/components/ResizableTable/TableConfig.scss';
 
 @font-face {
     font-family: 'GoshaSans-Bold';

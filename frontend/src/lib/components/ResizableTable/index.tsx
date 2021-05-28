@@ -8,7 +8,7 @@ import { getActiveBreakpoint, getFullwidthColumnSize, getMinColumnWidth, parsePi
 import VirtualTableHeader from './VirtualTableHeader'
 import { TableConfig as _TableConfig } from './TableConfig'
 
-import './index.scss'
+// import './index.scss' // https://github.com/PostHog/posthog/issues/4524
 
 export const TableConfig = _TableConfig
 
