@@ -46,12 +46,10 @@ test('empty plugins', async () => {
         'onEvent',
         'onSnapshot',
         'processEvent',
-        'processEventBatch',
         'setupPlugin',
         'teardownPlugin',
     ])
     expect(vm.methods.processEvent).toEqual(undefined)
-    expect(vm.methods.processEventBatch).toEqual(undefined)
 })
 
 test('setupPlugin sync', async () => {
@@ -121,7 +119,6 @@ test('processEvent', async () => {
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
     expect(vm.methods.processEvent).not.toEqual(undefined)
-    expect(vm.methods.processEventBatch).not.toEqual(undefined)
 
     const event: PluginEvent = {
         ...defaultEvent,
@@ -131,17 +128,6 @@ test('processEvent', async () => {
     expect(event.event).toEqual('changed event')
     expect(newEvent.event).toEqual('changed event')
     expect(newEvent).toBe(event)
-
-    const batch: PluginEvent[] = [
-        {
-            ...defaultEvent,
-            event: 'original event',
-        },
-    ]
-    const newBatch = await vm.methods.processEventBatch!(batch)
-    expect(batch[0].event).toEqual('changed event')
-    expect(newBatch[0].event).toEqual('changed event')
-    expect(newBatch[0]).toBe(batch[0])
 })
 
 test('async processEvent', async () => {
@@ -154,7 +140,6 @@ test('async processEvent', async () => {
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
     expect(vm.methods.processEvent).not.toEqual(undefined)
-    expect(vm.methods.processEventBatch).not.toEqual(undefined)
 
     const event: PluginEvent = {
         ...defaultEvent,
@@ -164,19 +149,9 @@ test('async processEvent', async () => {
     expect(event.event).toEqual('changed event')
     expect(newEvent.event).toEqual('changed event')
     expect(newEvent).toBe(event)
-
-    const batch: PluginEvent[] = [
-        {
-            ...defaultEvent,
-            event: 'original event',
-        },
-    ]
-    const newBatch = await vm.methods.processEventBatch!(batch)
-    expect(batch[0].event).toEqual('changed event')
-    expect(newBatch[0].event).toEqual('changed event')
-    expect(newBatch[0]).toBe(batch[0])
 })
 
+// this is deprecated, but still works
 test('processEventBatch', async () => {
     const indexJs = `
         function processEventBatch (events, meta) {
@@ -189,7 +164,6 @@ test('processEventBatch', async () => {
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
     expect(vm.methods.processEvent).not.toEqual(undefined)
-    expect(vm.methods.processEventBatch).not.toEqual(undefined)
 
     const event: PluginEvent = {
         ...defaultEvent,
@@ -199,17 +173,6 @@ test('processEventBatch', async () => {
     expect(event.event).toEqual('changed event')
     expect(newEvent.event).toEqual('changed event')
     expect(newEvent).toBe(event)
-
-    const batch: PluginEvent[] = [
-        {
-            ...defaultEvent,
-            event: 'original event',
-        },
-    ]
-    const newBatch = await vm.methods.processEventBatch!(batch)
-    expect(batch[0].event).toEqual('changed event')
-    expect(newBatch[0].event).toEqual('changed event')
-    expect(newBatch[0]).toBe(batch[0])
 })
 
 test('async processEventBatch', async () => {
@@ -224,7 +187,6 @@ test('async processEventBatch', async () => {
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
     expect(vm.methods.processEvent).not.toEqual(undefined)
-    expect(vm.methods.processEventBatch).not.toEqual(undefined)
 
     const event: PluginEvent = {
         ...defaultEvent,
@@ -234,17 +196,6 @@ test('async processEventBatch', async () => {
     expect(event.event).toEqual('changed event')
     expect(newEvent.event).toEqual('changed event')
     expect(newEvent).toBe(event)
-
-    const batch: PluginEvent[] = [
-        {
-            ...defaultEvent,
-            event: 'original event',
-        },
-    ]
-    const newBatch = await vm.methods.processEventBatch!(batch)
-    expect(batch[0].event).toEqual('changed event')
-    expect(newBatch[0].event).toEqual('changed event')
-    expect(newBatch[0]).toBe(batch[0])
 })
 
 test('processEvent && processEventBatch', async () => {
@@ -263,7 +214,6 @@ test('processEvent && processEventBatch', async () => {
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
     expect(vm.methods.processEvent).not.toEqual(undefined)
-    expect(vm.methods.processEventBatch).not.toEqual(undefined)
 
     const event: PluginEvent = {
         ...defaultEvent,
@@ -273,17 +223,6 @@ test('processEvent && processEventBatch', async () => {
     expect(event.event).toEqual('changed event 1')
     expect(newEvent.event).toEqual('changed event 1')
     expect(newEvent).toBe(event)
-
-    const batch: PluginEvent[] = [
-        {
-            ...defaultEvent,
-            event: 'original event',
-        },
-    ]
-    const newBatch = await vm.methods.processEventBatch!(batch)
-    expect(batch[0].event).toEqual('changed event 2')
-    expect(newBatch[0].event).toEqual('changed event 2')
-    expect(newBatch[0]).toBe(batch[0])
 })
 
 test('processEvent without returning', async () => {

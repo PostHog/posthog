@@ -5,7 +5,7 @@ import { Hub, LogLevel, PluginTaskType } from '../src/types'
 import { clearError, processError } from '../src/utils/db/error'
 import { createHub } from '../src/utils/db/hub'
 import { loadPlugin } from '../src/worker/plugins/loadPlugin'
-import { IllegalOperationError, runProcessEvent, runProcessEventBatch } from '../src/worker/plugins/run'
+import { IllegalOperationError, runProcessEvent } from '../src/worker/plugins/run'
 import { loadSchedule, setupPlugins } from '../src/worker/plugins/setup'
 import {
     commonOrganizationId,
@@ -78,7 +78,6 @@ test('setupPlugins and runProcessEvent', async () => {
         'onEvent',
         'onSnapshot',
         'processEvent',
-        'processEventBatch',
         'setupPlugin',
         'teardownPlugin',
     ])
@@ -90,7 +89,7 @@ test('setupPlugins and runProcessEvent', async () => {
             60,
             {
                 ...plugin60,
-                capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent', 'processEventBatch'] },
+                capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
             },
         ],
     ])
@@ -211,7 +210,7 @@ test('local plugin with broken index.js does not do much', async () => {
     unlink()
 })
 
-test('plugin changing event.team_id throws error (single)', async () => {
+test('plugin changing event.team_id throws error', async () => {
     getPluginRows.mockReturnValueOnce([
         mockPluginWithArchive(`
             function processEvent (event, meta) {
@@ -239,45 +238,6 @@ test('plugin changing event.team_id throws error (single)', async () => {
         team_id: 2,
     }
     expect(returnedEvent).toEqual(expectedReturnedEvent)
-
-    expect(processError).toHaveBeenCalledWith(
-        hub,
-        pluginConfigs.get(39)!,
-        new IllegalOperationError('Plugin tried to change event.team_id'),
-        expectedReturnedEvent
-    )
-})
-
-test('plugin changing event.team_id throws error (batch)', async () => {
-    getPluginRows.mockReturnValueOnce([
-        mockPluginWithArchive(`
-            function processEventBatch (events, meta) {
-                for (const event of events) {
-                    event.team_id = 400
-                }
-                return events
-            }
-        `),
-    ])
-
-    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-    getPluginAttachmentRows.mockReturnValueOnce([])
-
-    await setupPlugins(hub)
-    const { pluginConfigs } = hub
-
-    const events = [{ event: '$test', properties: {}, team_id: 2 } as PluginEvent]
-    const returnedEvent = await runProcessEventBatch(hub, events)
-
-    const expectedReturnedEvent = {
-        event: '$test',
-        properties: {
-            $plugins_failed: ['test-maxmind-plugin (39)'],
-            $plugins_succeeded: [],
-        },
-        team_id: 2,
-    }
-    expect(returnedEvent).toEqual([expectedReturnedEvent])
 
     expect(processError).toHaveBeenCalledWith(
         hub,
@@ -506,11 +466,7 @@ test('plugin with archive loads capabilities', async () => {
     await pluginConfig.vm?.resolveInternalVm
     // async loading of capabilities
 
-    expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual([
-        'processEvent',
-        'processEventBatch',
-        'setupPlugin',
-    ])
+    expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['processEvent', 'setupPlugin'])
     expect(pluginConfig.plugin!.capabilities!.jobs).toHaveLength(0)
     expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toHaveLength(0)
 })
@@ -540,7 +496,7 @@ test('plugin with archive loads all capabilities, no random caps', async () => {
     await pluginConfig.vm?.resolveInternalVm
     // async loading of capabilities
 
-    expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent', 'processEventBatch'])
+    expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
     expect(pluginConfig.plugin!.capabilities!.jobs).toEqual(['x'])
     expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual(['runEveryHour'])
 })
@@ -564,7 +520,7 @@ test('plugin with source file loads capabilities', async () => {
     await pluginConfig.vm?.resolveInternalVm
     // async loading of capabilities
 
-    expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent', 'processEventBatch'])
+    expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
     expect(pluginConfig.plugin!.capabilities!.jobs).toEqual([])
     expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
 
@@ -590,11 +546,7 @@ test('plugin with source code loads capabilities', async () => {
     await pluginConfig.vm?.resolveInternalVm
     // async loading of capabilities
 
-    expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual([
-        'onSnapshot',
-        'processEvent',
-        'processEventBatch',
-    ])
+    expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onSnapshot', 'processEvent'])
     expect(pluginConfig.plugin!.capabilities!.jobs).toEqual([])
     expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
 })
@@ -677,7 +629,7 @@ test("capabilities don't reload without changes", async () => {
     getPluginRows.mockReturnValueOnce([{ ...plugin60 }]).mockReturnValueOnce([
         {
             ...plugin60,
-            capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent', 'processEventBatch'] },
+            capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
         },
     ]) // updated in DB via first `setPluginCapabilities` call.
     getPluginAttachmentRows.mockReturnValue([pluginAttachment1])

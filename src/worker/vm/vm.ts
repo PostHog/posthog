@@ -140,23 +140,8 @@ export async function createPluginConfigVM(
                 if (func) return func(...args);
             }
 
-            // we have processEvent, but not processEventBatch
-            if (!__getExported('processEventBatch') && __getExported('processEvent')) {
-                exports.processEventBatch = async function __processEventBatch${pluginConfigIdentifier} (batch, meta) {
-                    const processEvent = __getExported('processEvent');
-                    let waitFor = false
-                    const processedEvents = batch.map(function __eventBatchToEvent${pluginConfigIdentifier} (event) {
-                        const e = processEvent(event, meta)
-                        if (e && typeof e.then !== 'undefined') {
-                            waitFor = true
-                        }
-                        return e
-                    })
-                    const response = waitFor ? (await Promise.all(processedEvents)) : processedEvents;
-                    return response.filter(r => r)
-                }
             // we have processEventBatch, but not processEvent
-            } else if (!__getExported('processEvent') && __getExported('processEventBatch')) {
+            if (!__getExported('processEvent') && __getExported('processEventBatch')) {
                 exports.processEvent = async function __processEvent${pluginConfigIdentifier} (event, meta) {
                     return (await (__getExported('processEventBatch'))([event], meta))?.[0]
                 }
@@ -170,7 +155,6 @@ export async function createPluginConfigVM(
                 onEvent: __asyncFunctionGuard(__bindMeta('onEvent')),
                 onSnapshot: __asyncFunctionGuard(__bindMeta('onSnapshot')),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent')),
-                processEventBatch: __asyncFunctionGuard(__bindMeta('processEventBatch')),
             };
 
             const __tasks = {

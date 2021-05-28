@@ -63,7 +63,6 @@ test('pause and resume queue', async () => {
     const piscina = setupPiscina(2, 2)
     const queue = await startQueue(hub, piscina, {
         processEvent: (event) => runProcessEvent(hub, event),
-        processEventBatch: (events) => Promise.all(events.map((event) => runProcessEvent(hub, event))),
         ingestEvent: () => Promise.resolve({ success: true }),
     })
     await advanceOneTick()

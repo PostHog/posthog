@@ -31,13 +31,10 @@ describe('e2e kafka & clickhouse benchmark', () => {
 
     beforeEach(async () => {
         await resetTestDatabase(`
-            async function processEventBatch (batch) {
-                // console.log(\`Received batch of \${batch.length} events\`)
-                return batch.map(event => {
-                    event.properties.processed = 'hell yes'
-                    event.properties.upperUuid = event.properties.uuid?.toUpperCase()
-                    return event
-                })
+            async function processEvent (event) {
+                event.properties.processed = 'hell yes'
+                event.properties.upperUuid = event.properties.uuid?.toUpperCase()
+                return event
             }
         `)
         await resetKafka(extraServerConfig)
