@@ -26,6 +26,7 @@ jobs:
               with:
                   service_account_key: ${{ secrets.GKE_SA_KEY_EE_TEST }}
                   project_id: ${{ secrets.GKE_PROJECT_EE_TEST }}
+                  export_default_credentials: true
 
             # Configure docker to use the gcloud command-line tool as a credential helper
             - run: |-
