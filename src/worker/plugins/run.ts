@@ -58,6 +58,7 @@ export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<
 
     const pluginsSucceeded = []
     const pluginsFailed = []
+    const pluginsDeferred = []
     for (const pluginConfig of pluginsToRun) {
         const processEvent = await pluginConfig.vm?.getProcessEvent()
 
@@ -85,13 +86,20 @@ export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<
                 return null
             }
         }
+
+        const onEvent = await pluginConfig.vm?.getOnEvent()
+        const onSnapshot = await pluginConfig.vm?.getOnSnapshot()
+        if (onEvent || onSnapshot) {
+            pluginsDeferred.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
+        }
     }
 
-    if (pluginsSucceeded.length > 0 || pluginsFailed.length > 0) {
+    if (pluginsSucceeded.length > 0 || pluginsFailed.length > 0 || pluginsDeferred.length > 0) {
         event.properties = {
             ...event.properties,
             $plugins_succeeded: pluginsSucceeded,
             $plugins_failed: pluginsFailed,
+            $plugins_deferred: pluginsDeferred,
         }
     }
 
