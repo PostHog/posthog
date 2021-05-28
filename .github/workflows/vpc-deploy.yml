@@ -5,8 +5,6 @@ on:
 
 env:
     PROJECT_ID: ${{ secrets.GKE_PROJECT_EE_TEST }}
-    GCLOUD_PROJECT: ${{ secrets.GKE_PROJECT_EE_TEST }}
-    GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GKE_SA_KEY_TEST_EE }}
     GKE_CLUSTER: ee_test # Add your cluster name here.
     GKE_ZONE: us-central1-c # Add your cluster zone here.
     DEPLOYMENT_NAME: posthog # Add your deployment name here.
