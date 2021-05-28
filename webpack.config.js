@@ -7,8 +7,22 @@ const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin')
 const AntdDayjsWebpackPlugin = require('antd-dayjs-webpack-plugin')
 
+if (process.env.NODE_ENV === 'production' && process.env.PROD_BUILD_LOCAL_DEBUG) {
+    console.log('PROD_BUILD_LOCAL_DEBUG: Building for production, but using dev output folder.')
+}
+
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0.0.1' : webpackDevServerHost
+
+function getPublicOutputPath() {
+    if (process.env.JS_URL) {
+        return `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
+    } else if (process.env.NODE_ENV === 'production' && !process.env.PROD_BUILD_LOCAL_DEBUG) {
+        return '/static/'
+    } else {
+        return `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`
+    }
+}
 
 function createEntry(entry) {
     const commonLoadersForSassAndLess = [
@@ -70,11 +84,7 @@ function createEntry(entry) {
             path: path.resolve(__dirname, 'frontend', 'dist'),
             filename: '[name].js',
             chunkFilename: '[name].[contenthash].js',
-            publicPath: process.env.JS_URL
-                ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
-                : process.env.NODE_ENV === 'production'
-                ? '/static/'
-                : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
+            publicPath: getPublicOutputPath(),
         },
         resolve: {
             extensions: ['.js', '.ts', '.tsx'],

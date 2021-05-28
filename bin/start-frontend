@@ -4,5 +4,10 @@ set -e
 # pass first argument to WEBPACK_HOT_RELOAD_HOST
 [ $# -ge 1 ] && export WEBPACK_HOT_RELOAD_HOST=$1
 
-yarn install
-yarn start
+if [ $PROD_BUILD_LOCAL_DEBUG == 1 ]; then
+    yarn install --production=false
+    NODE_ENV=production yarn start
+else
+    yarn install
+    yarn start
+fi
