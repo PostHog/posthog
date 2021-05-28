@@ -4,7 +4,7 @@ select interval_date,
     sum(total) as all_funnels_entries
 from (
     SELECT toUInt16(0) AS completed,
-        {interval_method}(toDateTime('2021-05-07 00:00:00') - number * 86400) as interval_date,
+        {interval_method}(toDateTime('{parsed_date_to}') - number * 86400) as interval_date,
         toUInt16(0) AS total
     FROM numbers(7)
     union all
