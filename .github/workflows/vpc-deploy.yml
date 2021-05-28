@@ -6,7 +6,7 @@ on:
 env:
     PROJECT_ID: ${{ secrets.GKE_PROJECT_EE_TEST }}
     GCLOUD_PROJECT: ${{ secrets.GKE_PROJECT_EE_TEST }}
-    GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GKE_SA_KEY_EE_TEST }}
+    GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GKE_SA_KEY_TEST_EE }}
     GKE_CLUSTER: ee_test # Add your cluster name here.
     GKE_ZONE: us-central1-c # Add your cluster zone here.
     DEPLOYMENT_NAME: posthog # Add your deployment name here.
@@ -25,7 +25,7 @@ jobs:
             # Setup gcloud CLI
             - uses: google-github-actions/setup-gcloud@master
               with:
-                  service_account_key: ${{ secrets.GKE_SA_KEY_EE_TEST }}
+                  service_account_key: ${{ secrets.GKE_SA_KEY_TEST_EE }}
                   project_id: ${{ secrets.GKE_PROJECT_EE_TEST }}
                   export_default_credentials: true
 
@@ -38,7 +38,7 @@ jobs:
               with:
                   cluster_name: ${{ env.GKE_CLUSTER }}
                   location: ${{ env.GKE_ZONE }}
-                  credentials: ${{ secrets.GKE_SA_KEY_EE_TEST }}
+                  credentials: ${{ secrets.GKE_SA_KEY_TEST_EE }}
 
             # Build the Docker image
             - name: Build
