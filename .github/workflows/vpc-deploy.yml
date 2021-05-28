@@ -5,7 +5,7 @@ on:
 
 env:
     PROJECT_ID: ${{ secrets.GKE_PROJECT_EE_TEST }}
-    GKE_CLUSTER: ee_test # Add your cluster name here.
+    GKE_CLUSTER: ee-test # Add your cluster name here.
     GKE_ZONE: us-central1-c # Add your cluster zone here.
     DEPLOYMENT_NAME: posthog # Add your deployment name here.
     IMAGE: posthog # the image name that's pushed to google
