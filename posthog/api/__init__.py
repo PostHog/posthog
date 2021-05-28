@@ -1,8 +1,8 @@
-from ee.models.license import License
 from rest_framework import decorators, exceptions
 
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.ee import is_clickhouse_enabled
+
 from . import (
     action,
     annotation,
@@ -73,25 +73,35 @@ organizations_router.register(
 
 # Project nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet, "projects")
-license = License.objects.first_valid()
-if license:
-    from ee.api import enterprise_event_definition, enterprise_property_definition
 
-    projects_router.register(
-        r"event_definitions", enterprise_event_definition.EnterpriseEventDefinitionViewSet, "project_event_definitions", ["team_id"],
-    )
-    projects_router.register(
-        r"property_definitions", enterprise_property_definition.EnterprisePropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
-    )
+try:
+    from ee.models.license import License
+except ImportError:
+    pass
 else:
-    projects_router.register(
-        r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
-    )
-    projects_router.register(
-        r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
-    )
+    license = License.objects.first_valid()
+    if license:
+        from ee.api import enterprise_event_definition, enterprise_property_definition
 
+        projects_router.register(
+            r"event_definitions",
+            enterprise_event_definition.EnterpriseEventDefinitionViewSet,
+            "project_event_definitions",
+            ["team_id"],
+        )
+        projects_router.register(
+            r"property_definitions",
+            enterprise_property_definition.EnterprisePropertyDefinitionViewSet,
+            "project_property_definitions",
+            ["team_id"],
+        )
 
+projects_router.register(
+    r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
+)
+projects_router.register(
+    r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
+)
 
 
 # General endpoints (shared across EE & FOSS)

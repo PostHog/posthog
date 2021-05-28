@@ -10,4 +10,3 @@ class EnterpriseEventDefinition(EventDefinition):
     tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, default=list)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey("posthog.User", null=True, on_delete=models.PROTECT, blank=True)
-

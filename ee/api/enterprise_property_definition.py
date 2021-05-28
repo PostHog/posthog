@@ -10,6 +10,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.property_definition import PropertyDefinition
 from itertools import chain
 
+
 class EnterprisePropertyDefinitionSerializer(PropertyDefinitionSerializer):
     # description = serializers.SerializerMethodField()
 
@@ -69,4 +70,3 @@ class EnterprisePropertyDefinitionViewSet(
         new_property_def.__dict__.update(property_def.__dict__)
         new_property_def.save()
         return Response(EnterprisePropertyDefinitionSerializer(new_property_def).data)
-
