@@ -1,8 +1,8 @@
+from ee.models.license import License
 from rest_framework import decorators, exceptions
 
 from posthog.api.routing import DefaultRouterPlusPlus
-from posthog.ee import is_clickhouse_enabled, is_ee_enabled
-
+from posthog.ee import is_clickhouse_enabled
 from . import (
     action,
     annotation,
@@ -73,7 +73,8 @@ organizations_router.register(
 
 # Project nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet, "projects")
-if is_ee_enabled():
+license = License.objects.first_valid()
+if license:
     from ee.api import enterprise_event_definition, enterprise_property_definition
 
     projects_router.register(
