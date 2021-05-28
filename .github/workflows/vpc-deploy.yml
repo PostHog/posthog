@@ -23,7 +23,7 @@ jobs:
             # Setup gcloud CLI
             - uses: google-github-actions/setup-gcloud@master
               with:
-                  service_account_key: ${{ secrets.GKE_SA_KEY_EE_TEST }}
+                  service_account_key: ${{ secrets.GKE_SA_KEY_TEST_EE }}
                   project_id: ${{ secrets.GKE_PROJECT_EE_TEST }}
                   export_default_credentials: true
 
@@ -36,7 +36,7 @@ jobs:
               with:
                   cluster_name: ${{ env.GKE_CLUSTER }}
                   location: ${{ env.GKE_ZONE }}
-                  credentials: ${{ secrets.GKE_SA_KEY_EE_TEST }}
+                  credentials: ${{ secrets.GKE_SA_KEY_TEST_EE }}
 
             # Build the Docker image
             - name: Build
