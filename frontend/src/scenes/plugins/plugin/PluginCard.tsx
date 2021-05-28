@@ -158,7 +158,8 @@ export function PluginCard({
                                         </Tag>
                                     ) : checkingForUpdates &&
                                       !updateStatus &&
-                                      pluginType !== PluginInstallationType.Source ? (
+                                      pluginType !== PluginInstallationType.Source &&
+                                      !url?.startsWith('file:') ? (
                                         <Tag color="blue">
                                             <LoadingOutlined /> Checking for updates…
                                         </Tag>
