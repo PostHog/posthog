@@ -42,7 +42,9 @@ INSERT INTO cohortpeople
     FROM (
         SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
     ) as person
-    LEFT JOIN cohortpeople ON (person.id = cohortpeople.person_id)
+    LEFT JOIN (
+        SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s
+    ) as cohortpeople ON (person.id = cohortpeople.person_id)
     WHERE cohortpeople.person_id = '00000000-0000-0000-0000-000000000000'
     AND person.is_deleted = 0
     AND id IN ({cohort_filter})
@@ -75,5 +77,5 @@ INNER JOIN (
 ) as pid
 ON events.distinct_id = pid.distinct_id
 WHERE team_id = %(team_id)s {date_query} AND {entity_query}
-GROUP BY person_id HAVING count(*) >= %(count)s
+GROUP BY person_id HAVING count(*) {count_operator} %(count)s
 """

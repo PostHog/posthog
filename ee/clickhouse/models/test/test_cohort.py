@@ -432,16 +432,69 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team=self.team,
             distinct_id="2",
             properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 8, 12, 0, 1),
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="2",
+            properties={"attr": "some_val"},
             timestamp=datetime(2020, 1, 9, 12, 0, 1),
         )
 
+        p3 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["3"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="3",
+            properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 9, 12, 0, 1),
+        )
+
+        # test operators
         cohort1 = Cohort.objects.create(
-            team=self.team, groups=[{"action_id": action.pk, "days": 3, "count": 2}], name="cohort1",
+            team=self.team,
+            groups=[{"action_id": action.pk, "days": 3, "count": 2, "count_operator": "gte"}],
+            name="cohort1",
         )
         with freeze_time("2020-01-10"):
             cohort1.calculate_people_ch()
 
-        results = sync_execute("SELECT person_id FROM cohortpeople")
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
+        )
+        self.assertEqual(len(results), 2)
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"action_id": action.pk, "days": 3, "count": 1, "count_operator": "lte"}],
+            name="cohort2",
+        )
+        with freeze_time("2020-01-10"):
+            cohort2.calculate_people_ch()
+
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort2.pk}
+        )
+        self.assertEqual(len(results), 1)
+
+        cohort3 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"action_id": action.pk, "days": 3, "count": 1, "count_operator": "eq"}],
+            name="cohort3",
+        )
+        with freeze_time("2020-01-10"):
+            cohort3.calculate_people_ch()
+
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort3.pk}
+        )
         self.assertEqual(len(results), 1)
 
     def test_cohortpeople_deleted_person(self):

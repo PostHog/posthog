@@ -37,6 +37,7 @@ class Group(object):
         event_id: Optional[str] = None,
         days: Optional[int] = None,
         count: Optional[int] = None,
+        count_operator: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
     ):
@@ -47,6 +48,7 @@ class Group(object):
         self.event_id = event_id
         self.days = days
         self.count = count
+        self.count_operator = count_operator
         self.start_date = start_date
         self.end_date = end_date
 

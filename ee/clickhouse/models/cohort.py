@@ -79,17 +79,32 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
     start_time = cohort_group.get("start_date")
     end_time = cohort_group.get("end_date")
     count = cohort_group.get("count")
+    count_operator = cohort_group.get("count_operator")
 
     date_query, date_params = get_date_query(days, start_time, end_time)
     entity_query, entity_params = _get_entity_query(event_id, action_id, cohort.team.pk, group_idx)
 
     if count:
-        extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(entity_query=entity_query, date_query=date_query)
+        count_operator = _get_count_operator(count_operator)
+        extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
+            entity_query=entity_query, date_query=date_query, count_operator=count_operator
+        )
         params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
         return f"person_id IN ({extract_person})", params
     else:
         extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query,)
         return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
+
+
+def _get_count_operator(count_operator: Optional[str]) -> str:
+    if count_operator == "gte":
+        return ">="
+    elif count_operator == "lte":
+        return "<="
+    elif count_operator == "eq" or count_operator is None:
+        return "="
+    else:
+        raise ValueError("count_operator must be gte, lte, eq, or None")
 
 
 def _get_entity_query(
