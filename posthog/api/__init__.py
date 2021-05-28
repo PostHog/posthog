@@ -73,12 +73,25 @@ organizations_router.register(
 
 # Project nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet, "projects")
-projects_router.register(
-    r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
-)
-projects_router.register(
-    r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
-)
+if is_ee_enabled():
+    from ee.api import enterprise_event_definition, enterprise_property_definition
+
+    projects_router.register(
+        r"event_definitions", enterprise_event_definition.EnterpriseEventDefinitionViewSet, "project_event_definitions", ["team_id"],
+    )
+    projects_router.register(
+        r"property_definitions", enterprise_property_definition.EnterprisePropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
+    )
+else:
+    projects_router.register(
+        r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"],
+    )
+    projects_router.register(
+        r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
+    )
+
+
+
 
 # General endpoints (shared across EE & FOSS)
 router.register(r"login", authentication.LoginViewSet)
