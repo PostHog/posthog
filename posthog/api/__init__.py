@@ -75,12 +75,12 @@ organizations_router.register(
 projects_router = router.register(r"projects", team.TeamViewSet, "projects")
 
 try:
-    from ee.models.license import License
+    from posthog.models import User
 except ImportError:
     pass
 else:
-    license = License.objects.first_valid()
-    if license:
+    feature_available = User.objects.first().organization.is_feature_available('event_property_collaboration')
+    if feature_available:
         from ee.api import enterprise_event_definition, enterprise_property_definition
 
         projects_router.register(
