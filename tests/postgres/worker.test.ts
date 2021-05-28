@@ -12,7 +12,7 @@ import { delay, UUIDT } from '../../src/utils/utils'
 import { ActionManager } from '../../src/worker/ingestion/action-manager'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
 import { makePiscina } from '../../src/worker/piscina'
-import { runPluginTask, runProcessEvent, runProcessEventBatch } from '../../src/worker/plugins/run'
+import { runPluginTask, runProcessEvent } from '../../src/worker/plugins/run'
 import { loadSchedule, setupPlugins } from '../../src/worker/plugins/setup'
 import { teardownPlugins } from '../../src/worker/plugins/teardown'
 import { createTaskRunner } from '../../src/worker/worker'
@@ -62,7 +62,6 @@ test('piscina worker test', async () => {
     const piscina = setupPiscina(workerThreads, 10)
 
     const processEvent = (event: PluginEvent) => piscina.runTask({ task: 'processEvent', args: { event } })
-    const processEventBatch = (batch: PluginEvent[]) => piscina.runTask({ task: 'processEventBatch', args: { batch } })
     const runEveryDay = (pluginConfigId: number) => piscina.runTask({ task: 'runEveryDay', args: { pluginConfigId } })
     const ingestEvent = (event: PluginEvent) => piscina.runTask({ task: 'ingestEvent', args: { event } })
 
@@ -71,9 +70,6 @@ test('piscina worker test', async () => {
 
     const event = await processEvent(createEvent())
     expect(event.properties['somewhere']).toBe('over the rainbow')
-
-    const eventBatch = await processEventBatch([createEvent()])
-    expect(eventBatch[0]!.properties['somewhere']).toBe('over the rainbow')
 
     const everyDayReturn = await runEveryDay(39)
     expect(everyDayReturn).toBe(4)
@@ -255,16 +251,6 @@ describe('createTaskRunner()', () => {
         )
 
         expect(runProcessEvent).toHaveBeenCalledWith(hub, 'someEvent')
-    })
-
-    it('handles `processEventBatch` task', async () => {
-        mocked(runProcessEventBatch).mockReturnValue(['runProcessEventBatch response'] as any)
-
-        expect(await taskRunner({ task: 'processEventBatch', args: { batch: 'someBatch' } })).toEqual([
-            'runProcessEventBatch response',
-        ])
-
-        expect(runProcessEventBatch).toHaveBeenCalledWith(hub, 'someBatch')
     })
 
     it('handles `getPluginSchedule` task', async () => {

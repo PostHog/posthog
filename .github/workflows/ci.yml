@@ -105,33 +105,45 @@ jobs:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
               run: |
+                  echo "🔗 Linking this plugin server into posthog(master)/plugins/"
                   cd posthog/plugins
                   yarn link "@posthog/plugin-server"
                   yarn
 
-                  # start this in the background
-                  yarn start &> tmplog.txt &
+                  echo "🏁 Starting the plugin server dist/ (compiled JS) via posthog(master)/plugins/"
+                  mkdir -p tmp
+                  yarn start &> tmp/plugin-server.log &
                   pid=$!
 
+                  echo "⏳ Waiting 10 seconds to see if it runs"
                   sleep 10
 
-                  # check if it's still running, as it should be
+                  echo "🤔 Checking if it's still running, as it should be"
                   if ! kill $pid > /dev/null 2>&1; then
-                      echo "Could not send SIGTERM to process $pid" >&2
+                      echo "😵 It was not running!"
+                      echo "🪵 Here's the log:"
                       echo ""
-                      cat tmplog.txt
+                      cat tmp/plugin-server.log
                       exit 1
                   fi
 
-                  str=`cat tmplog.txt | grep "All systems go"`
+                  echo '🤔 Checking if it logged "All systems go"'
+                  str=`cat tmp/plugin-server.log | grep "All systems go"`
                   if [ ! "$str" ];then
-                      echo 'Did not find "All systems go" in plugin server log output!'
+                      sleep 5
+                      echo '😵 Did not find "All systems go" in plugin server log output!'
+                      echo "🪵 Here's the log:"
                       echo ""
-                      cat tmplog.txt
+                      cat tmp/plugin-server.log
                       exit 1
                   fi
 
-                  rm tmplog.txt
+                  sleep 5
+                  echo '✅ All systems went!'
+                  echo "🪵 Here's the complete log:"
+                  echo ""
+                  cat tmp/plugin-server.log
+                  rm -f tmp/plugin-server.log
 
     tests-postgres-1:
         name: Tests / Postgres + Redis (1)

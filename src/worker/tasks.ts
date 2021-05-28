@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { Action, EnqueuedJob, Hub, PluginTaskType, Team } from '../types'
 import { ingestEvent } from './ingestion/ingest-event'
-import { runOnEvent, runOnSnapshot, runPluginTask, runProcessEvent, runProcessEventBatch } from './plugins/run'
+import { runOnEvent, runOnSnapshot, runPluginTask, runProcessEvent } from './plugins/run'
 import { loadSchedule, setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
 
@@ -17,9 +17,6 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     processEvent: (hub, args: { event: PluginEvent }) => {
         return runProcessEvent(hub, args.event)
-    },
-    processEventBatch: (hub, args: { batch: PluginEvent[] }) => {
-        return runProcessEventBatch(hub, args.batch)
     },
     runJob: (hub, { job }: { job: EnqueuedJob }) => {
         return runPluginTask(hub, job.type, PluginTaskType.Job, job.pluginConfigId, job.payload)
