@@ -16,11 +16,18 @@ interface FormatLabelProps {
     item: IndexedTrendResult
     index: number
     showSeriesIndex?: boolean
+    useNeutralColor?: boolean
     showCountedByTag?: boolean
 }
 
-function SeriesLabel({ item, index, showSeriesIndex, showCountedByTag }: FormatLabelProps): JSX.Element {
-    const seriesColor = getChartColors('white')[index]
+function SeriesLabel({
+    item,
+    index,
+    showSeriesIndex,
+    useNeutralColor,
+    showCountedByTag,
+}: FormatLabelProps): JSX.Element {
+    const seriesColor = useNeutralColor ? null : getChartColors('white')[index]
     return (
         <div style={{ display: 'flex', alignItems: 'center' }}>
             {showSeriesIndex && alphabet[index] && <SeriesBadge color={seriesColor}>{alphabet[index]}</SeriesBadge>}
@@ -84,16 +91,19 @@ export function TrendLegend(): JSX.Element | null {
         {
             title: 'Event/Action',
             render: function RenderLabel({}, item: IndexedTrendResult, index: number) {
+                const isBreakdown = Boolean(filters.breakdown)
+                const seriesIndex = isBreakdown ? item.action.order ?? index : index
                 return (
                     <span
                         style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
                         onClick={() => !isSingleEntity && toggleVisibility(item.id)}
                     >
                         <SeriesLabel
-                            index={index}
+                            index={seriesIndex}
                             item={item}
-                            showCountedByTag={showCountedByTag}
                             showSeriesIndex={indexedResults.length > 1}
+                            useNeutralColor={isBreakdown}
+                            showCountedByTag={showCountedByTag}
                         />
                     </span>
                 )
