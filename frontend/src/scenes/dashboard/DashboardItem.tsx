@@ -1,4 +1,4 @@
-import './DashboardItems.scss'
+// import './DashboardItems.scss' //https://github.com/PostHog/posthog/issues/4524
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
 import { Dropdown, Menu, Tooltip, Alert, Button, Skeleton } from 'antd'
