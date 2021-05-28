@@ -31,6 +31,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):  # type: ignore
         _create_person(distinct_ids=["user_three"], team=self.team)
         _create_person(distinct_ids=["user_four"], team=self.team)
         _create_person(distinct_ids=["user_five"], team=self.team)
+        _create_person(distinct_ids=["user_six"], team=self.team)
+        _create_person(distinct_ids=["user_seven"], team=self.team)
 
         # user_one, funnel steps: one, two three
         _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
@@ -51,6 +53,15 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):  # type: ignore
         _create_event(event="step one", distinct_id="user_five", team=self.team, timestamp="2021-05-01 01:00:00")
         _create_event(event="step two", distinct_id="user_five", team=self.team, timestamp="2021-05-01 02:00:00")
         _create_event(event="step three", distinct_id="user_five", team=self.team, timestamp="2021-05-01 03:00:00")
+
+        # user_six, funnel steps: one, two three
+        _create_event(event="step one", distinct_id="user_six", team=self.team, timestamp="2021-05-01 00:00:00")
+        _create_event(event="step two", distinct_id="user_six", team=self.team, timestamp="2021-05-03 00:00:00")
+        _create_event(event="step three", distinct_id="user_six", team=self.team, timestamp="2021-05-05 00:00:00")
+
+        # user_seven, funnel steps: one, two
+        _create_event(event="step one", distinct_id="user_seven", team=self.team, timestamp="2021-05-02 00:00:00")
+        _create_event(event="step two", distinct_id="user_seven", team=self.team, timestamp="2021-05-04 00:00:00")
 
     def test_milliseconds_from_days_conversion(self):
         self.assertEqual(ClickhouseFunnelTrends._milliseconds_from_days(1), 86400000)
