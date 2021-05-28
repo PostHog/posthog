@@ -13,6 +13,7 @@ import {
     HotKeys,
     GlobalHotKeys,
     EntityType,
+    InsightType,
 } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import dayjs from 'dayjs'
@@ -32,7 +33,15 @@ export enum DashboardEventSource {
 }
 
 export const eventUsageLogic = kea<
-    eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardMode, DashboardEventSource>
+    eventUsageLogicType<
+        AnnotationType,
+        FilterType,
+        DashboardType,
+        PersonType,
+        DashboardMode,
+        DashboardEventSource,
+        InsightType
+    >
 >({
     connect: [preflightLogic],
     actions: {
@@ -123,6 +132,7 @@ export const eventUsageLogic = kea<
         reportSavedInsightToDashboard: true,
         reportInsightsTabReset: true,
         reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
+        reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -429,6 +439,9 @@ export const eventUsageLogic = kea<
         },
         reportInsightsControlsCollapseToggle: async ({ collapsed }) => {
             posthog.capture('insight controls collapse toggled', { collapsed })
+        },
+        reportInsightShortUrlVisited: (props) => {
+            posthog.capture('insight short url visited', props)
         },
     },
 })
