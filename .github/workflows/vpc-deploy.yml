@@ -39,14 +39,13 @@ jobs:
                     --build-arg GITHUB_REF="$GITHUB_REF" \
                     .
 
-            # Push the Docker image to Google Container Registry
-            - name: Publish
-              run: |-
-                  docker push "$REGISTRY_HOSTNAME/$PROJECT_ID/$IMAGE:$GITHUB_SHA"
-
             # Get the GKE credentials so we can deploy to the cluster
             - uses: google-github-actions/get-gke-credentials@v0.2.1
               with:
                   cluster_name: ${{ env.GKE_CLUSTER }}
                   location: ${{ env.GKE_ZONE }}
                   credentials: ${{ secrets.GKE_SA_KEY_EE_TEST }}
+            # Push the Docker image to Google Container Registry
+            - name: Publish
+              run: |-
+                  docker push "$REGISTRY_HOSTNAME/$PROJECT_ID/$IMAGE:$GITHUB_SHA"
