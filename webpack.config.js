@@ -26,33 +26,25 @@ function getPublicOutputPath() {
 
 function createEntry(entry) {
     const commonLoadersForSassAndLess = [
-        entry === 'toolbar'
-            ? {
-                  loader: 'style-loader',
-                  options: {
-                      insert: function insertAtTop(element) {
-                          // tunnel behind the shadow root
-                          if (window.__PHGTLB_ADD_STYLES__) {
-                              window.__PHGTLB_ADD_STYLES__(element)
-                          } else {
-                              if (!window.__PHGTLB_STYLES__) {
-                                  window.__PHGTLB_STYLES__ = []
+        {
+            loader: 'style-loader',
+            options:
+                entry === 'toolbar'
+                    ? {
+                          insert: function insertAtTop(element) {
+                              // tunnel behind the shadow root
+                              if (window.__PHGTLB_ADD_STYLES__) {
+                                  window.__PHGTLB_ADD_STYLES__(element)
+                              } else {
+                                  if (!window.__PHGTLB_STYLES__) {
+                                      window.__PHGTLB_STYLES__ = []
+                                  }
+                                  window.__PHGTLB_STYLES__.push(element)
                               }
-                              window.__PHGTLB_STYLES__.push(element)
-                          }
-                      },
-                  },
-              }
-            : entry === 'cypress'
-            ? {
-                  loader: 'style-loader',
-              }
-            : {
-                  // After all CSS loaders we use plugin to do his work.
-                  // It gets all transformed CSS and extracts it into separate
-                  // single bundled file
-                  loader: MiniCssExtractPlugin.loader,
-              },
+                          },
+                      }
+                    : undefined,
+        },
         {
             // This loader resolves url() and @imports inside CSS
             loader: 'css-loader',
