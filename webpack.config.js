@@ -195,7 +195,7 @@ function createEntry(entry) {
                       hot: true,
                       host: webpackDevServerHost,
                       port: 8234,
-                      stats: 'minimal',
+                      stats: process.env.PROD_BUILD_LOCAL_DEBUG ? 'verbose' : 'minimal',
                       disableHostCheck: !!process.env.LOCAL_HTTPS,
                       public: process.env.JS_URL
                           ? new URL(process.env.JS_URL).host
