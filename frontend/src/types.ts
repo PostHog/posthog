@@ -682,6 +682,7 @@ export enum DashboardMode { // Default mode is null
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
     Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Internal = 'internal', // When embedded into another page (e.g. /instance/status)
 }
 
 export enum DashboardItemMode {

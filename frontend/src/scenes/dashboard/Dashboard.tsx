@@ -18,11 +18,12 @@ import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 interface Props {
     id: string
     shareToken?: string
+    internal?: boolean
 }
 
-export function Dashboard({ id, shareToken }: Props): JSX.Element {
+export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parseInt(id), shareToken }}>
+        <BindLogic logic={dashboardLogic} props={{ id: parseInt(id), shareToken, internal }}>
             <DashboardView />
         </BindLogic>
     )
@@ -34,7 +35,7 @@ function DashboardView(): JSX.Element {
     const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
 
     useKeyboardHotkeys(
-        dashboardMode === DashboardMode.Public
+        dashboardMode === DashboardMode.Public || dashboardMode === DashboardMode.Internal
             ? {}
             : {
                   e: {
@@ -102,7 +103,7 @@ function DashboardView(): JSX.Element {
 
     return (
         <div className="dashboard">
-            {dashboardMode !== DashboardMode.Public && <DashboardHeader />}
+            {dashboardMode !== DashboardMode.Public && dashboardMode !== DashboardMode.Internal && <DashboardHeader />}
             {items && items.length ? (
                 <div>
                     <div className="dashboard-items-actions">
@@ -142,7 +143,7 @@ function DashboardView(): JSX.Element {
                             </div>
                         )}
                     </div>
-                    <DashboardItems inSharedMode={dashboardMode === DashboardMode.Public} />
+                    <DashboardItems />
                 </div>
             ) : (
                 <EmptyDashboardComponent />
