@@ -7504,10 +7504,10 @@ kea-router@^0.5.2:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^0.7.1:
-  version "0.7.1"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.7.1.tgz#069b230fe00d10ca575bcd45c190bb1a2723dbd7"
-  integrity sha512-THW71IMnHX5Rra3wbUxGLX0tDPH51EOdbJo79aW4Wg4lZY18NP/VXWO/fF1D7zdJrKrvjI+Zych7m3+ufs84Qw==
+kea-typegen@^0.7.2:
+  version "0.7.2"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.7.2.tgz#859b3ffefafef0c8cf6aa3a9fb5931787b55f90f"
+  integrity sha512-PXlLRWpIKQcIaFx7RrrAIJBdh1/qA5u+8Romo55607JZuX1N68A94sqO+fp/0ZIVkxwRRi77ham0rvsrhdRipA==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.18"
     diff "^5.0.0"
