@@ -45,7 +45,7 @@ export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
                 <h4 className="secondary">Steps</h4>
                 <ActionFilter
                     filters={filters}
-                    setFilters={(filters: Record<string, any>): void => setFilters(filters, false)}
+                    setFilters={(newFilters: Record<string, any>): void => setFilters(newFilters, false)}
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
                     buttonCopy="Add funnel step"
