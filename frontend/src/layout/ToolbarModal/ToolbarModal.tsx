@@ -1,4 +1,3 @@
-import './ToolbarModal.scss'
 import React from 'react'
 import { useValues } from 'kea'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
