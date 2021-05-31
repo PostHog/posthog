@@ -19,6 +19,7 @@ export enum ViewType {
     PATHS = 'PATHS',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',
+    HISTORY = 'HISTORY',
 }
 
 type Timeout = NodeJS.Timeout

@@ -1,9 +1,11 @@
 from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
+from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
-from posthog.constants import WEEKLY_ACTIVE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, WEEKLY_ACTIVE
+from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
@@ -86,3 +88,20 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict
             )
 
     return params
+
+
+def populate_entity_params(entity: Entity) -> Tuple[Dict, Dict]:
+    params, content_sql_params = {}, {}
+    if entity.type == TREND_FILTER_TYPE_ACTIONS:
+        try:
+            action = Action.objects.get(pk=entity.id)
+            action_query, action_params = format_action_filter(action)
+            params = {**action_params}
+            content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}
+        except:
+            raise ValueError("Action does not exist")
+    else:
+        content_sql_params = {"entity_query": "AND event = %(event)s"}
+        params = {"event": entity.id}
+
+    return params, content_sql_params
