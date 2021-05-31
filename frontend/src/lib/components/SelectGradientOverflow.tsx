@@ -1,7 +1,7 @@
 import React, { ReactElement, RefObject, useEffect, useRef, useState } from 'react'
 import { Select, Tag, Tooltip } from 'antd'
 import { RefSelectProps, SelectProps } from 'antd/lib/select'
-// import './SelectGradientOverflow.scss' //https://github.com/PostHog/posthog/issues/4524
+import './SelectGradientOverflow.scss'
 import { CloseButton } from './CloseButton'
 
 interface DropdownGradientRendererProps {
