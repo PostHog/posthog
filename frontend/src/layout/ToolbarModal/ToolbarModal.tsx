@@ -1,24 +1,34 @@
-import './ToolbarModal.scss'
 import React from 'react'
 import { useValues } from 'kea'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 import { userLogic } from 'scenes/userLogic'
 import { ToolbarSettings } from 'scenes/project/Settings/ToolbarSettings'
+import { Modal } from 'antd'
 
-export function ToolbarModal(): JSX.Element {
+interface ToolbarModalProps {
+    visible: boolean
+    onClose: () => void
+}
+
+export function ToolbarModal({ visible, onClose }: ToolbarModalProps): JSX.Element {
     const { user } = useValues(userLogic)
     const toolbarEnabled = user?.toolbar_mode !== 'disabled'
 
     return (
-        <div className="toolbar-modal">
+        <Modal
+            visible={visible}
+            title={
+                user?.toolbar_mode !== 'disabled'
+                    ? 'Toolbar – Permitted Domains/URLs'
+                    : 'Enable the Toolbar to continue'
+            }
+            footer={null}
+            onCancel={onClose}
+        >
             {!toolbarEnabled ? (
-                <>
-                    <h2>Enable the Toolbar to continue</h2>
-                    <ToolbarSettings />
-                </>
+                <ToolbarSettings />
             ) : (
                 <>
-                    <h2>Toolbar – Permitted Domains/URLs</h2>
                     <p>
                         Make sure you're using the snippet or the latest <code>posthog-js</code> version.
                         <br />
@@ -27,6 +37,6 @@ export function ToolbarModal(): JSX.Element {
                     <EditAppUrls allowNavigation />
                 </>
             )}
-        </div>
+        </Modal>
     )
 }

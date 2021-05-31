@@ -87,6 +87,26 @@ function createEntry(entry) {
                 cypress: path.resolve(__dirname, 'cypress'),
             },
         },
+        optimization:
+            entry === 'toolbar'
+                ? undefined
+                : {
+                      splitChunks: {
+                          cacheGroups: {
+                              // Hotfix: merge all CSS into one big .css file, instead of splitting by entrypoint
+                              // Issue: https://github.com/PostHog/posthog/issues/4524
+                              // Fix from: https://github.com/webpack-contrib/mini-css-extract-plugin#extracting-all-css-in-a-single-file
+                              styles: {
+                                  name: 'styles',
+                                  // NB! Uncomment `type` and remove `test` when upgrading to Webpack 5
+                                  // type: 'css/mini-extract',
+                                  test: /\.s?css$/,
+                                  chunks: 'all',
+                                  enforce: true,
+                              },
+                          },
+                      },
+                  },
         module: {
             rules: [
                 {
