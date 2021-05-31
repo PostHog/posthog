@@ -5,7 +5,7 @@ import { Dropdown, Input, Menu, Popconfirm, Table, Tooltip } from 'antd'
 import { NumberOutlined, BulbOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
 import { IconExternalLink, IconText } from 'lib/components/icons'
-// import './PropertiesTable.scss' //https://github.com/PostHog/posthog/issues/4524
+import './PropertiesTable.scss'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'

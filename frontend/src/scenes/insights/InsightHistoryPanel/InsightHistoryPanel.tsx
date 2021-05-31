@@ -5,7 +5,7 @@ import { useValues, useActions } from 'kea'
 import { insightHistoryLogic } from './insightHistoryLogic'
 import { DashboardItemType } from '~/types'
 import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
-// import './InsightHistoryPanel.scss' //https://github.com/PostHog/posthog/issues/4524
+import './InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { router } from 'kea-router'

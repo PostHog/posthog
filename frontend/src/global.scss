@@ -6,17 +6,6 @@ style files without adding already imported styles. */
 @import 'node_modules/react-toastify/dist/ReactToastify';
 @import './vars';
 
-// https://github.com/PostHog/posthog/issues/4524
-@import './lib/components/ActionComponents.scss';
-@import './lib/components/PropertiesTable.scss';
-@import './lib/components/SelectBox.scss';
-@import './lib/components/SelectGradientOverflow.scss';
-@import './scenes/insights/InsightHistoryPanel/InsightHistoryPanel.scss';
-@import './scenes/insights/LineGraph/LineGraph.scss';
-@import './scenes/dashboard/DashboardItems.scss';
-@import './lib/components/ResizableTable/index.scss';
-@import './lib/components/ResizableTable/TableConfig.scss';
-
 @font-face {
     font-family: 'GoshaSans-Bold';
     src: url('../public/GoshaSans-Bold.woff2') format('woff2'), url('../public/GoshaSans-Bold.woff') format('woff');

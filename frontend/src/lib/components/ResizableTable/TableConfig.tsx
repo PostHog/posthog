@@ -1,7 +1,7 @@
 import { Button, Card, Col, Input, Row, Tooltip } from 'antd'
 import React, { useEffect, useState } from 'react'
 import { DownloadOutlined, SettingOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
-// import './TableConfig.scss' // https://github.com/PostHog/posthog/issues/4524
+import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
 import { tableConfigLogic } from './tableConfigLogic'
 import Modal from 'antd/lib/modal/Modal'
