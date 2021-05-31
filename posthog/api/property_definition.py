@@ -1,4 +1,5 @@
 from typing import Any, Type
+
 from rest_framework import filters, mixins, permissions, response, serializers, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
@@ -53,4 +54,4 @@ class PropertyDefinitionViewSet(
             return response.Response(
                 EnterprisePropertyDefinitionSerializer(self.get_queryset().get(id=kwargs["id"])).data
             )
-        raise PermissionDenied("For enterprise version only")
+        raise PermissionDenied("This is an Enterprise plan feature.")
