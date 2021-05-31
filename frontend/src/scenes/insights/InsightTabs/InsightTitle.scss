@@ -4,9 +4,42 @@
     .flex-contain {
         display: flex;
         align-items: center;
+        max-width: 100%;
+    }
+
+    .title-container {
+        cursor: pointer;
+        max-width: calc(100% - 208px); // 208px is the action bar
     }
 
     .select-box {
         max-width: 340px;
+    }
+
+    h3.l3 {
+        margin-bottom: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .insights-tab-actions {
+        display: flex;
+
+        .ant-btn {
+            padding-right: 0;
+            padding-left: $default_spacing * 0.75;
+        }
+
+        .text-muted {
+            span {
+                color: $text_muted;
+            }
+            &:hover {
+                span {
+                    color: lighten($text_muted, 25%);
+                }
+            }
+        }
     }
 }

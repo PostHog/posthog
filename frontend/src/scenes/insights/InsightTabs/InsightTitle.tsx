@@ -17,8 +17,7 @@ export function InsightTitle({ actionBar = null }: { actionBar?: JSX.Element | n
         <div className="insight-title">
             <div className="flex-contain">
                 <div
-                    className="flex-contain"
-                    style={{ cursor: 'pointer' }}
+                    className="flex-contain title-container"
                     onClick={() => setSavedInsightsOpen(!savedInsightsOpen)}
                     ref={buttonRef}
                 >
@@ -28,9 +27,7 @@ export function InsightTitle({ actionBar = null }: { actionBar?: JSX.Element | n
                             title="Insight saved on dashboard"
                         />
                     )}
-                    <h3 className="l3" style={{ marginBottom: 0 }}>
-                        {fromItemName || 'Unsaved query'}
-                    </h3>
+                    <h3 className="l3">{fromItemName || 'Unsaved query'}</h3>
                     <DownOutlined style={{ marginLeft: 4 }} />
                 </div>
                 {actionBar}
