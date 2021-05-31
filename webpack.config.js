@@ -209,6 +209,7 @@ function createEntry(entry) {
                       // other bundles include the css in js via style-loader
                       new MiniCssExtractPlugin({
                           filename: '[name].css',
+                          chunkFilename: '[name].css',
                           ignoreOrder: true,
                       }),
                       // we need these only once per build
