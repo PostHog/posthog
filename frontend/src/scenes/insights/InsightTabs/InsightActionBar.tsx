@@ -1,4 +1,4 @@
-import { Button, Modal } from 'antd'
+import { Button, Modal, Tooltip } from 'antd'
 import React from 'react'
 import { InsightType } from '~/types'
 import { SaveOutlined, PlusOutlined, ShareAltOutlined, QuestionCircleOutlined } from '@ant-design/icons'
@@ -51,15 +51,42 @@ export function InsightActionBar({ shortId, annotations, insight, onReset }: Pro
 
     return (
         <div className="insights-tab-actions">
-            <Button type="link" icon={<PlusOutlined />} className="text-muted" onClick={handleNew}>
-                New
-            </Button>
-            <Button type="link" icon={<ShareAltOutlined />} onClick={handleShare} disabled={!shortId}>
-                Share
-            </Button>
-            <Button type="link" icon={<SaveOutlined />}>
-                Save
-            </Button>
+            <Tooltip
+                title={
+                    <>
+                        Start new insight
+                        <span className="hotkey menu-tooltip-hotkey">N</span>
+                    </>
+                }
+            >
+                <Button type="link" icon={<PlusOutlined />} className="text-muted" onClick={handleNew}>
+                    New
+                </Button>
+            </Tooltip>
+            <Tooltip
+                title={
+                    <>
+                        Copy share link to clipboard
+                        <span className="hotkey menu-tooltip-hotkey">K</span>
+                    </>
+                }
+            >
+                <Button type="link" icon={<ShareAltOutlined />} onClick={handleShare} disabled={!shortId}>
+                    Share
+                </Button>
+            </Tooltip>
+            <Tooltip
+                title={
+                    <>
+                        Save or add to dashboard
+                        <span className="hotkey menu-tooltip-hotkey">S</span>
+                    </>
+                }
+            >
+                <Button type="link" icon={<SaveOutlined />}>
+                    Save
+                </Button>
+            </Tooltip>
         </div>
     )
 }
