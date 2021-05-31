@@ -48,7 +48,6 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                         actionBar={
                             <InsightActionBar
                                 shortId={currentShortId}
-                                filters={filters}
                                 annotations={annotationsToCreate}
                                 insight={filters.insight}
                             />

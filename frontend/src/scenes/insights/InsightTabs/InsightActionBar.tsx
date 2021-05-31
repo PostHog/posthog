@@ -1,6 +1,6 @@
 import { Button, Modal } from 'antd'
 import React from 'react'
-import { FilterType, InsightType } from '~/types'
+import { InsightType } from '~/types'
 import { SaveOutlined, PlusOutlined, ShareAltOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
@@ -10,17 +10,16 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 interface Props {
     shortId: string | null
-    filters: FilterType
     annotations: any[] // TODO: Type properly
     insight?: InsightType
     onReset?: () => void
 }
 
-export function InsightActionBar({ shortId, filters, annotations, insight, onReset }: Props): JSX.Element {
+export function InsightActionBar({ shortId, annotations, insight, onReset }: Props): JSX.Element {
     const { push } = useActions(router)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
-    console.log(filters, annotations)
+    console.log(annotations)
 
     const handleShare = (): void => {
         // TODO: Prompt saving insight first
