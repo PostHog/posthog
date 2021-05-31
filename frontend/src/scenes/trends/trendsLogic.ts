@@ -15,8 +15,17 @@ import {
 import { ViewType, insightLogic, defaultFilterTestAccounts, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
-import { ActionFilter, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes, PathType } from '~/types'
-import { cohortLogic } from 'scenes/persons/cohortLogic'
+import {
+    ActionFilter,
+    ActionType,
+    FilterType,
+    PersonType,
+    PropertyFilter,
+    TrendResult,
+    EntityTypes,
+    PathType,
+} from '~/types'
+import { cohortLogic } from 'scenes/cohorts/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'

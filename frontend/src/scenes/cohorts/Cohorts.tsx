@@ -7,7 +7,7 @@ import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
-import { Cohort } from './Cohort'
+import { CohortV2 } from './CohortV2'
 import { Drawer } from 'lib/components/Drawer'
 import { CohortType } from '~/types'
 import api from 'lib/api'
@@ -194,7 +194,7 @@ export function Cohorts(): JSX.Element {
                     destroyOnClose={true}
                     visible={!!openCohort}
                 >
-                    {openCohort && <Cohort cohort={openCohort} />}
+                    {openCohort && <CohortV2 cohort={openCohort} />}
                 </Drawer>
             </div>
         </div>

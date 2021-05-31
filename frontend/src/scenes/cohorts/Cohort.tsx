@@ -5,7 +5,7 @@ import { Button, Card, Col, Divider, Input, Row } from 'antd'
 import { AimOutlined, ArrowLeftOutlined, InboxOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import { useValues, useActions, BuiltLogic } from 'kea'
 import { CohortGroupType, CohortType } from '~/types'
-import { Persons } from './Persons'
+import { Persons } from '../persons/Persons'
 import Dragger from 'antd/lib/upload/Dragger'
 
 const isSubmitDisabled = (cohort: CohortType): boolean => {
