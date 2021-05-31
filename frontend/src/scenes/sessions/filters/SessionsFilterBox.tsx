@@ -43,6 +43,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
             })),
             renderInfo: ActionInfo,
             type: 'action_type',
+            key: 'action_type',
             getValue: (item: SelectedItem) => item.action?.id || '',
             getLabel: (item: SelectedItem) => item.action?.name || '',
         },
@@ -80,6 +81,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 )
             },
             type: 'event_type',
+            key: 'event_type',
             getValue: (item: SelectedItem) => item.name,
             getLabel: (item: SelectedItem) => item.name,
         },
@@ -121,6 +123,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 )
             },
             type: 'cohort',
+            key: 'cohort',
             getValue: (item: SelectedItem) => item.id || '',
             getLabel: (item: SelectedItem) => item.name,
         },
@@ -155,6 +158,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                     </>
                 )
             },
+            key: 'person',
             type: 'person',
             getValue: (item: SelectedItem) => item.name,
             getLabel: (item: SelectedItem) => item.name,
@@ -183,6 +187,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 </>
             )
         },
+        key: 'recording',
         type: 'recording',
         getValue: (item: SelectedItem) => item.value || '',
         getLabel: (item: SelectedItem) => item.name,
