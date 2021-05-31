@@ -34,7 +34,7 @@ class PropertyDefinitionViewSet(
     search_fields = ["name"]
 
     def get_queryset(self):
-        if self.request.user.organization.is_feature_available("event_property_collaboration"):
+        if self.request.user.organization.is_feature_available("event_property_collaboration"):  # type: ignore
             from ee.models.property_definition import EnterprisePropertyDefinition
 
             return self.filter_queryset_by_parents_lookups(EnterprisePropertyDefinition.objects.all()).order_by(
@@ -44,14 +44,14 @@ class PropertyDefinitionViewSet(
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if self.request.user.organization.is_feature_available("event_property_collaboration"):
+        if self.request.user.organization.is_feature_available("event_property_collaboration"):  # type: ignore
             from ee.api.enterprise_property_definition import EnterprisePropertyDefinitionSerializer
 
-            serializer_class = EnterprisePropertyDefinitionSerializer
+            serializer_class = EnterprisePropertyDefinitionSerializer  # type: ignore
         return serializer_class
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any):
-        if self.request.user.organization.is_feature_available("event_property_collaboration"):
+        if self.request.user.organization.is_feature_available("event_property_collaboration"):  # type: ignore
             from ee.api.enterprise_property_definition import EnterprisePropertyDefinitionSerializer
 
             return response.Response(
