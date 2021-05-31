@@ -20,7 +20,7 @@ import { InsightTitle } from '../InsightTitle'
 import { InsightActionBar } from '../InsightActionBar'
 
 export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
-    const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
+    const { filters, filtersLoading, currentShortId } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
@@ -47,6 +47,7 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                     <InsightTitle
                         actionBar={
                             <InsightActionBar
+                                shortId={currentShortId}
                                 filters={filters}
                                 annotations={annotationsToCreate}
                                 insight={filters.insight}

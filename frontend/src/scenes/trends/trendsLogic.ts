@@ -15,9 +15,17 @@ import {
     ShownAsValue,
 } from 'lib/constants'
 import { ViewType, insightLogic, defaultFilterTestAccounts, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
-import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
-import { ActionFilter, ActionType, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes } from '~/types'
+import {
+    ActionFilter,
+    ActionType,
+    FilterType,
+    PersonType,
+    PropertyFilter,
+    TrendResult,
+    EntityTypes,
+    DashboardItemType,
+} from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -145,7 +153,16 @@ function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: stri
 // - dashboardItemId
 // - filters
 export const trendsLogic = kea<
-    trendsLogicType<TrendResponse, IndexedTrendResult, TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter>
+    trendsLogicType<
+        TrendResponse,
+        IndexedTrendResult,
+        TrendResult,
+        FilterType,
+        ActionType,
+        TrendPeople,
+        PropertyFilter,
+        DashboardItemType
+    >
 >({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
@@ -162,6 +179,7 @@ export const trendsLogic = kea<
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return { result: props.cachedResults } as TrendResponse
                 }
+
                 const queryId = uuid()
                 insightLogic.actions.startQuery(queryId)
                 let response
@@ -191,12 +209,25 @@ export const trendsLogic = kea<
                 return response
             },
         },
+        // Stores the object of the latest trend insight as saved on the DB
+        savedInsight: [
+            null as Partial<DashboardItemType> | null,
+            {
+                saveInsight: async ({ filters }: { filters: FilterType }, breakpoint) => {
+                    await breakpoint()
+                    if (objectsEqual(values.savedInsight?.filters, filters)) {
+                        return values.savedInsight
+                    }
+                    return await api.create('api/insight', {
+                        filters,
+                    })
+                },
+            },
+        ],
     }),
-
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
-
         loadPeople: (action, label, date_from, date_to, breakdown_value) => ({
             action,
             label,
@@ -224,8 +255,8 @@ export const trendsLogic = kea<
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
+        setSavedInsight: (savedInsight: Partial<DashboardItemType>) => ({ savedInsight }),
     }),
-
     reducers: ({ props }) => ({
         filters: [
             (props.filters
@@ -300,8 +331,13 @@ export const trendsLogic = kea<
                 setBreakdownValuesLoading: (_, { loading }) => loading,
             },
         ],
+        savedInsight: [
+            null as Partial<DashboardItemType> | null,
+            {
+                setSavedInsight: (_, { savedInsight }) => savedInsight,
+            },
+        ],
     }),
-
     selectors: () => ({
         filtersLoading: [
             () => [eventDefinitionsLogic.selectors.loaded, propertyDefinitionsLogic.selectors.loaded],
@@ -356,8 +392,12 @@ export const trendsLogic = kea<
                 })}`,
             }),
         ],
+        currentShortId: [
+            /* Returns the Short ID of the current insight being displayed for easy sharing */
+            (selectors) => [selectors.savedInsight, selectors.savedInsightLoading],
+            (savedInsight, loading): string | null => (!loading && savedInsight?.short_id) || null,
+        ],
     }),
-
     listeners: ({ actions, values, props }) => ({
         setDisplay: async ({ display }) => {
             actions.setFilters({ display })
@@ -459,10 +499,7 @@ export const trendsLogic = kea<
         },
         loadResultsSuccess: () => {
             if (!props.dashboardItemId) {
-                insightHistoryLogic.actions.createInsight({
-                    ...values.filters,
-                    insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
-                })
+                actions.saveInsight({ filters: values.filters })
             }
 
             let indexedResults
@@ -525,12 +562,12 @@ export const trendsLogic = kea<
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.filters, router.values.hashParams]
+            return ['/insights', values.filters, { ...router.values.hashParams, id: undefined }]
         },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '/insights': ({}, searchParams: Partial<FilterType>) => {
+        '/insights': ({}, searchParams: Partial<FilterType>, { id }: { id?: string }) => {
             if (props.dashboardItemId) {
                 return
             }
@@ -569,6 +606,10 @@ export const trendsLogic = kea<
                     cleanSearchParams,
                     getDefaultFilters(cleanSearchParams, eventDefinitionsLogic.values.eventNames)
                 )
+
+                if (id) {
+                    actions.setSavedInsight({ short_id: id, filters: cleanSearchParams })
+                }
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)

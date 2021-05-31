@@ -8,20 +8,21 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { copyToClipboard } from 'lib/utils'
 
 interface Props {
+    shortId: string | null
     filters: FilterType
     annotations: any[] // TODO: Type properly
     insight?: InsightType
     onReset?: () => void
 }
 
-export function InsightActionBar({ filters, annotations, insight, onReset }: Props): JSX.Element {
+export function InsightActionBar({ shortId, filters, annotations, insight, onReset }: Props): JSX.Element {
     const { push } = useActions(router)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
     console.log(push, reportInsightsTabReset, filters, annotations, insight, onReset)
 
     const handleShare = (): void => {
-        copyToClipboard(`${window.location.origin}/i/short_id`, 'Share link')
+        copyToClipboard(`${window.location.origin}/i/${shortId}`, 'Share link')
     }
 
     return (
@@ -29,7 +30,7 @@ export function InsightActionBar({ filters, annotations, insight, onReset }: Pro
             <Button type="link" icon={<PlusOutlined />} className="text-muted">
                 New
             </Button>
-            <Button type="link" icon={<ShareAltOutlined />} onClick={handleShare}>
+            <Button type="link" icon={<ShareAltOutlined />} onClick={handleShare} disabled={!shortId}>
                 Share
             </Button>
             <Button type="link" icon={<SaveOutlined />}>

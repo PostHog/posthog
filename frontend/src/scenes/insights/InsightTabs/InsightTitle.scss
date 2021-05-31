@@ -25,6 +25,8 @@
 
     .insights-tab-actions {
         display: flex;
+        flex-grow: 1;
+        justify-content: flex-end;
 
         .ant-btn {
             padding-right: 0;
