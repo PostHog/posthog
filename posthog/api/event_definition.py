@@ -19,6 +19,9 @@ class EventDefinitionSerializer(serializers.ModelSerializer):
             "query_usage_30_day",
         )
 
+    def update(self, event_definition: EventDefinition, validated_data):
+        raise PermissionDenied("This is an Enterprise plan feature.")
+
 
 class EventDefinitionViewSet(
     StructuredViewSetMixin, mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet,

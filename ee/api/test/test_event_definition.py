@@ -21,8 +21,8 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.json()["description"], "This is a description.")
 
     def test_for_license(self):
-        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="description test")
-        response = self.client.get(
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="description test")
+        response = self.client.patch(
             f"/api/projects/@current/event_definitions/{str(event.id)}/", data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

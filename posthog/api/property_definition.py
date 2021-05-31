@@ -19,6 +19,9 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
             "query_usage_30_day",
         )
 
+    def update(self, property_definition: PropertyDefinition, validated_data):
+        raise PermissionDenied("This is an Enterprise plan feature.")
+
 
 class PropertyDefinitionViewSet(
     StructuredViewSetMixin, mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet,
