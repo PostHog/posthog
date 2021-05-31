@@ -320,6 +320,7 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
     ],
+    "filters": {"interval": "hour", "date_from": "-24h",},
 }
 
 
@@ -372,7 +373,11 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
     if dashboard is None:
         Dashboard.objects.filter(team_id=team_id, name=definition["name"]).delete()
         dashboard = Dashboard.objects.create(
-            name=definition["name"], description=description, team_id=team_id, share_token=secrets.token_urlsafe(22)
+            name=definition["name"],
+            filters=definition["filters"],
+            description=description,
+            team_id=team_id,
+            share_token=secrets.token_urlsafe(22),
         )
 
         for index, item in enumerate(definition["items"]):

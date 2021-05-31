@@ -63,10 +63,10 @@ export function MergePerson({
                 {persons.results &&
                     persons.results
                         .filter((p) => p.uuid !== person.uuid)
-                        .map((person) =>
-                            person.id ? (
-                                <Select.Option value={person.id} key={person.id}>
-                                    {person.name}
+                        .map((p) =>
+                            p.id ? (
+                                <Select.Option value={p.id} key={p.id}>
+                                    {p.name}
                                 </Select.Option>
                             ) : undefined
                         )}
