@@ -1,14 +1,14 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { PropertySelect } from 'lib/components/PropertyFilters/components/PropertySelect'
-import { EventTypePropertyFilter, PropertyOperator } from '~/types'
+import { ActionTypePropertyFilter, EventTypePropertyFilter, PropertyOperator } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 
 interface Props {
-    filter: EventTypePropertyFilter
+    filter: EventTypePropertyFilter | ActionTypePropertyFilter
     selector: number
 }
 
