@@ -1,7 +1,7 @@
 import React, { RefObject, useMemo, useRef, useState } from 'react'
 import { DashboardOutlined, DownOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { insightHistoryLogic } from '../InsightHistoryPanel/insightHistoryLogic'
 import { SelectBox, SelectedItem } from 'lib/components/SelectBox'
 import './InsightTitle.scss'
@@ -53,6 +53,7 @@ function SavedInsightsDropdown({
     onClose: () => void
 }): JSX.Element | null {
     const { savedInsights } = useValues(insightHistoryLogic)
+    const { push } = useActions(router)
 
     const items = useMemo(
         () =>
@@ -65,9 +66,9 @@ function SavedInsightsDropdown({
                 dataSource: savedInsights.reduce((accumulator, item) => {
                     if (item.filters.insight === view) {
                         accumulator.push({
-                            id: item.id,
+                            id: item.short_id,
                             value: item.name,
-                            key: item.id.toString(),
+                            key: item.short_id,
                             name: item.name,
                             groupName: view,
                         })
@@ -95,7 +96,7 @@ function SavedInsightsDropdown({
     return (
         <SelectBox
             items={items}
-            onSelect={(type, id, name) => console.log(type, id, name)}
+            onSelect={({}, id) => push(`/i/${id}`)}
             onDismiss={handleDismiss}
             disablePopover
             disableInfoBox
