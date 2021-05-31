@@ -100,7 +100,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 id: cohort.id,
                 cohort,
             })),
-            renderInfo: function cohorts({ item }) {
+            renderInfo: function renderCohorts({ item }) {
                 return (
                     <>
                         <UsergroupAddOutlined /> Cohorts
@@ -144,7 +144,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 name: name,
                 usage_count: count,
             })),
-            renderInfo: function userProperty({ item }) {
+            renderInfo: function renderUserProperty({ item }) {
                 return (
                     <>
                         <UsergroupAddOutlined /> User property

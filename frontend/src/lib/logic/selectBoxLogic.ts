@@ -151,7 +151,7 @@ export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem
                 for (const item of values.data) {
                     extraProps[`count_${item.key}`] = item.dataSource.length
                     if (item.key === 'events') {
-                        extraProps.count_posthog_events = item.dataSource.filter((item) => item.name[0] === '$').length
+                        extraProps.count_posthog_events = item.dataSource.filter(({ name }) => name[0] === '$').length
                     }
                 }
                 eventUsageLogic.actions.reportEventSearched(search, extraProps)

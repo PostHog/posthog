@@ -1,6 +1,6 @@
 import React from 'react'
 import { Button } from 'antd'
-import { ActionStepType } from '~/types'
+import { ActionStepType, ActionStepUrlMatching } from '~/types'
 
 interface UrlMatchingToggleProps {
     value?: ActionStepType['url_matching']
@@ -13,14 +13,20 @@ export function UrlMatchingToggle({ value, onChange, style }: UrlMatchingToggleP
         <Button.Group size="small" style={style}>
             <Button
                 type={value === 'contains' ? 'primary' : 'default'}
-                onClick={() => onChange && onChange('contains')}
+                onClick={() => onChange && onChange(ActionStepUrlMatching.Contains)}
             >
                 Contains
             </Button>
-            <Button type={value === 'regex' ? 'primary' : 'default'} onClick={() => onChange && onChange('regex')}>
+            <Button
+                type={value === 'regex' ? 'primary' : 'default'}
+                onClick={() => onChange && onChange(ActionStepUrlMatching.Regex)}
+            >
                 Regex
             </Button>
-            <Button type={value === 'exact' ? 'primary' : 'default'} onClick={() => onChange && onChange('exact')}>
+            <Button
+                type={value === 'exact' ? 'primary' : 'default'}
+                onClick={() => onChange && onChange(ActionStepUrlMatching.Exact)}
+            >
                 Exact match
             </Button>
         </Button.Group>

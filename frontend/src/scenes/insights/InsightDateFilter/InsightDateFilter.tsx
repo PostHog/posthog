@@ -17,9 +17,9 @@ export function InsightDateFilter(props: DateFilterProps): JSX.Element {
                 {...props}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
-                onChange={(dateFrom, dateTo) => {
-                    setDates(dateFrom, dateTo)
-                    props.onChange?.(dateFrom, dateTo)
+                onChange={(changedDateFrom, changedDateTo) => {
+                    setDates(changedDateFrom, changedDateTo)
+                    props.onChange?.(changedDateFrom, changedDateTo)
                 }}
             />
         </span>

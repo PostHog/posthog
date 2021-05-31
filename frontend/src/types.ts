@@ -255,11 +255,11 @@ export type ActionStepProperties =
     | ElementPropertyFilter
     | CohortPropertyFilter
 
-interface RecordingDurationFilter extends BasePropertyFilter {
+export interface RecordingDurationFilter extends BasePropertyFilter {
     type: 'recording'
     key: 'duration'
     value: number
-    operator: 'lt' | 'gt'
+    operator: PropertyOperator
 }
 
 interface RecordingNotViewedFilter extends BasePropertyFilter {
@@ -269,7 +269,7 @@ interface RecordingNotViewedFilter extends BasePropertyFilter {
 
 export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
 
-interface ActionTypePropertyFilter extends BasePropertyFilter {
+export interface ActionTypePropertyFilter extends BasePropertyFilter {
     type: typeof ACTION_TYPE
     properties?: Array<EventPropertyFilter>
 }
