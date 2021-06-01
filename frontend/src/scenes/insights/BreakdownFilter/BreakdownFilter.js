@@ -17,6 +17,8 @@ function PropertyFilter({ breakdown, onChange }) {
         <SelectGradientOverflow
             showSearch
             autoFocus
+            delayBeforeAutoOpen={150}
+            placement="bottomLeft"
             style={{ width: '100%' }}
             placeholder={'Break down by'}
             value={breakdown ? breakdown : undefined}
@@ -61,6 +63,8 @@ function CohortFilter({ breakdown, onChange }) {
     return (
         <SelectGradientOverflow
             autoFocus
+            delayBeforeAutoOpen={150}
+            placement="bottomLeft"
             mode="multiple"
             style={{ width: '100%' }}
             placeholder={'Break down by'}
@@ -134,6 +138,7 @@ export function BreakdownFilter({ filters, onChange }) {
     return (
         <Popover
             visible={open}
+            destroyTooltipOnHide
             onVisibleChange={setOpen}
             content={
                 <Content
