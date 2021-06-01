@@ -34,27 +34,6 @@ class ClickhouseFunnelTrends(Funnel):
         summary = self._summarize_data(results)
         return summary
 
-    def _summarize_data(self, results):
-        total = 0
-        for result in results:
-            total += result[ALL_FUNNELS_ENTRIES]
-
-        out = []
-
-        for result in results:
-            percent_complete = round(result[TOTAL_COMPLETED_FUNNELS] / total * 100, 2)
-            record = {
-                "timestamp": result[DAY_START],
-                "completed_funnels": result[TOTAL_COMPLETED_FUNNELS],
-                "total": total,
-                "percent_complete": percent_complete,
-                "complete": self._determine_complete(result[DAY_START]),
-                "cohort": result[PERSON_IDS],
-            }
-            out.append(record)
-
-        return out
-
     def _configure_sql(self):
         funnel_trend_null_sql = self._get_funnel_trend_null_sql()
         parsed_date_from, parsed_date_to, _ = self._get_dates()
@@ -76,6 +55,27 @@ class ClickhouseFunnelTrends(Funnel):
             interval_method=interval_method,
         )
         return sql
+
+    def _summarize_data(self, results):
+        total = 0
+        for result in results:
+            total += result[ALL_FUNNELS_ENTRIES]
+
+        out = []
+
+        for result in results:
+            percent_complete = round(result[TOTAL_COMPLETED_FUNNELS] / total * 100, 2)
+            record = {
+                "timestamp": result[DAY_START],
+                "completed_funnels": result[TOTAL_COMPLETED_FUNNELS],
+                "total": total,
+                "percent_complete": percent_complete,
+                "complete": self._determine_complete(result[DAY_START]),
+                "cohort": result[PERSON_IDS],
+            }
+            out.append(record)
+
+        return out
 
     def _get_funnel_trend_null_sql(self):
         interval_annotation = get_trunc_func_ch(self._filter.interval)
