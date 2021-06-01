@@ -30,7 +30,6 @@ const updateInsightState = (
     return map
 }
 
-/* insightHistoryLogic - Handles all logic for saved insights and recent history */
 export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType>>({
     loaders: ({ actions }) => ({
         insights: {
@@ -84,17 +83,20 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
         insights: {
             updateInsights: (state, { insights }) => [...state, ...insights],
             updateInsightSuccess: updateInsightState,
-            [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: updateInsightState,
+            // @ts-expect-error - kea.js typing issue
+            [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         savedInsights: {
             updateSavedInsights: (state, { insights }) => [...state, ...insights],
             updateInsightSuccess: (state, itemOrInsight) => updateInsightState(state, itemOrInsight, true),
-            [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: updateInsightState,
+            // @ts-expect-error - kea.js typing issue
+            [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         teamInsights: {
             updateTeamInsights: (state, { insights }) => [...state, ...insights],
             updateInsightSuccess: (state, itemOrInsight) => updateInsightState(state, itemOrInsight, true),
-            [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: updateInsightState,
+            // @ts-expect-error - kea.js typing issue
+            [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
         },
         insightsNext: [
             null as null | string,

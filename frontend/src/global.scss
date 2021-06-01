@@ -263,7 +263,6 @@ code.code {
 }
 
 // Random general styles
-
 .cursor-pointer {
     cursor: pointer;
 }
@@ -280,10 +279,6 @@ code.code {
     100% {
         background-color: initial;
     }
-}
-
-.fullscreen-scroll {
-    overflow-y: auto;
 }
 
 // Toasts
@@ -453,7 +448,6 @@ code.code {
 }
 
 // Badges styles
-
 .badge {
     border-radius: 50%;
     width: 22px;
@@ -628,4 +622,8 @@ code.code {
         margin-left: 6px;
         font-size: 1rem;
     }
+}
+
+.fullscreen-scroll {
+    overflow-y: auto;
 }

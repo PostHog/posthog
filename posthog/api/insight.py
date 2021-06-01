@@ -1,11 +1,10 @@
 from distutils.util import strtobool
-from typing import Any, Dict, Type
+from typing import Any, Dict
 
 from django.core.cache import cache
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
 from django.utils.timezone import now
-from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -35,36 +34,7 @@ from posthog.queries.sessions.sessions import Sessions
 from posthog.utils import generate_cache_key, get_safe_cache
 
 
-class InsightBasicSerializer(serializers.ModelSerializer):
-    """
-    Simplified serializer to speed response times when loading large amounts of objects.
-    """
-
-    class Meta:
-        model = DashboardItem
-        fields = [
-            "id",
-            "short_id",
-            "name",
-            "filters",
-            "dashboard",
-            "color",
-            "last_refresh",
-            "refreshing",
-            "saved",
-        ]
-        read_only_fields = ("short_id",)
-
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Any:
-        raise NotImplementedError()
-
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        representation["filters"] = instance.dashboard_filters()
-        return representation
-
-
-class InsightSerializer(InsightBasicSerializer):
+class InsightSerializer(serializers.ModelSerializer):
     result = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
@@ -72,7 +42,6 @@ class InsightSerializer(InsightBasicSerializer):
         model = DashboardItem
         fields = [
             "id",
-            "short_id",
             "name",
             "filters",
             "filters_hash",
@@ -91,7 +60,6 @@ class InsightSerializer(InsightBasicSerializer):
         read_only_fields = (
             "created_by",
             "created_at",
-            "short_id",
         )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
@@ -105,7 +73,7 @@ class InsightSerializer(InsightBasicSerializer):
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
             dashboard_item = DashboardItem.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, **validated_data,
+                team=team, last_refresh=now(), created_by=created_by, **validated_data
             )
             return dashboard_item
         else:
@@ -120,6 +88,11 @@ class InsightSerializer(InsightBasicSerializer):
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
         return result.get("data")
 
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters()
+        return representation
+
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
@@ -127,15 +100,6 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = DashboardItem.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["short_id"]
-
-    def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
-        if (self.action == "list" or self.action == "retrieve") and strtobool(
-            self.request.query_params.get("basic", "0"),
-        ):
-            return InsightBasicSerializer
-        return super().get_serializer_class()
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
