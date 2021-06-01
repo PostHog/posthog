@@ -6,6 +6,35 @@ import api from 'lib/api'
 import { router } from 'kea-router'
 import { cohortsModel } from '~/models/cohortsModel'
 import { Link } from 'lib/components/Link'
+import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+
+function formatGroupPayload(group) {
+    const { id, matchType, ...restGroup } = group
+    return restGroup
+}
+
+function addLocalCohortGroupId(group) {
+    return {
+        id: Math.random().toString().substr(2, 5),
+        matchType: determineMatchType(group),
+        ...group,
+    }
+}
+
+function determineMatchType(group) {
+    if (group.action_id || group.event_id) {
+        return ENTITY_MATCH_TYPE
+    } else {
+        return PROPERTY_MATCH_TYPE
+    }
+}
+
+function processCohortOnSet(cohort) {
+    if (cohort.groups) {
+        cohort.groups = cohort.groups.map((group) => addLocalCohortGroupId(group))
+    }
+    return cohort
+}
 
 export const cohortLogic = kea({
     key: (props) => props.cohort.id || 'new',
@@ -28,9 +57,9 @@ export const cohortLogic = kea({
             },
         ],
         cohort: [
-            props.cohort,
+            processCohortOnSet(props.cohort),
             {
-                setCohort: (_, { cohort }) => cohort,
+                setCohort: (_, { cohort }) => processCohortOnSet(cohort),
             },
         ],
         toastId: [
@@ -53,8 +82,9 @@ export const cohortLogic = kea({
             const cohortFormData = new FormData()
             for (const [key, value] of Object.entries(cohort)) {
                 if (key === 'groups') {
+                    const formattedGroups = value.map((group) => formatGroupPayload(group))
                     if (!cohort.csv) {
-                        cohortFormData.append(key, JSON.stringify(value))
+                        cohortFormData.append(key, JSON.stringify(formattedGroups))
                     } else {
                         // If we have a static cohort uploaded by CSV we don't need to send groups
                         cohortFormData.append(key, '[]')

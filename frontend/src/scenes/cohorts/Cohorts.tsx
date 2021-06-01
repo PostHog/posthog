@@ -1,13 +1,13 @@
 import React, { useState } from 'react'
 import dayjs from 'dayjs'
 import { DeleteWithUndo, toParams } from 'lib/utils'
-import { Tooltip, Table, Spin, Button, Input, Row } from 'antd'
+import { Tooltip, Table, Spin, Button, Input } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
-import { CohortV2 } from './CohortV2'
+import { CohortV2, CohortV2Footer } from './CohortV2'
 import { Drawer } from 'lib/components/Drawer'
 import { CohortType } from '~/types'
 import api from 'lib/api'
@@ -204,18 +204,7 @@ export function Cohorts(): JSX.Element {
                     onClose={() => setOpenCohort(null)}
                     destroyOnClose={true}
                     visible={!!openCohort}
-                    footer={
-                        <Row justify="end">
-                            <Button
-                                type="primary"
-                                htmlType="submit"
-                                data-attr="save-cohort"
-                                style={{ marginTop: '1rem' }}
-                            >
-                                Save cohort
-                            </Button>
-                        </Row>
-                    }
+                    footer={openCohort ? <CohortV2Footer cohort={openCohort} /> : null}
                 >
                     {openCohort && <CohortV2 cohort={openCohort} />}
                 </Drawer>

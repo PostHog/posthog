@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { CohortNameInput } from './CohortNameInput'
 import { CohortDescriptionInput } from './CohortDescriptionInput'
 import { CohortTypeSelector } from './CohortTypeSelector'
-import { Divider } from 'antd'
+import { Button, Divider, Row } from 'antd'
 import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
 import { CohortGroupType, CohortType } from '~/types'
 import { cohortLogic } from '../cohortLogic'
@@ -30,9 +30,16 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
 
     const onCriteriaChange = (_group: Partial<CohortGroupType>, id: string): void => {
         const index = cohort.groups.findIndex((group: CohortGroupType) => group.id === id)
-        cohort.groups[index] = {
-            ...cohort.groups[index],
-            ..._group,
+        if (_group.matchType) {
+            cohort.groups[index] = {
+                id: cohort.groups[index].id,
+                ..._group,
+            }
+        } else {
+            cohort.groups[index] = {
+                ...cohort.groups[index],
+                ..._group,
+            }
         }
         setCohort({ ...cohort })
     }
@@ -78,5 +85,30 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
                 onRemoveGroup={onRemoveGroup}
             />
         </div>
+    )
+}
+
+export function CohortV2Footer(props: { cohort: CohortType }): JSX.Element {
+    const logic = cohortLogic(props)
+    const { cohort } = useValues(logic)
+    const { saveCohort } = useActions(logic)
+
+    const onSave = (): void => {
+        saveCohort()
+    }
+
+    return (
+        <Row justify="end">
+            <Button
+                disabled={!cohort.name || !cohort.description}
+                type="primary"
+                htmlType="submit"
+                data-attr="save-cohort"
+                style={{ marginTop: '1rem' }}
+                onClick={() => onSave()}
+            >
+                Save cohort
+            </Button>
+        </Row>
     )
 }

@@ -153,7 +153,7 @@ function EntityCriteriaRow({
                     required
                     value={count}
                     data-attr="entity-count"
-                    onChange={(e) => onEntityCountChange(e.target.value)}
+                    onChange={(e) => onEntityCountChange(parseInt(e.target.value))}
                 />
             </div>
             <div style={{ flex: 2, marginLeft: 2, marginRight: 2, textAlign: 'center' }}>times in the last</div>
