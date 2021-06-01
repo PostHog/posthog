@@ -27,7 +27,7 @@ const MyPlugin: MyPluginType = {
     
   },
   onEvent: async (event, meta) => {
-    console.log(`Event ${event.event} has been processed!`)
+    console.log(\`Event \${event.event} has been processed!\`)
   },
 }
 
