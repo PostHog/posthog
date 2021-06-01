@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { autocorrectInterval, errorToast, objectsEqual, toParams as toAPIParams } from 'lib/utils'
+import { autocorrectInterval, errorToast, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
 import {
@@ -162,7 +162,8 @@ export const trendsLogic = kea<
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return { result: props.cachedResults } as TrendResponse
                 }
-                insightLogic.actions.startQuery()
+                const queryId = uuid()
+                insightLogic.actions.startQuery(queryId)
                 let response
                 try {
                     if (values.filters?.insight === ViewType.SESSIONS || values.filters?.session) {
@@ -181,11 +182,11 @@ export const trendsLogic = kea<
                 } catch (e) {
                     console.error(e)
                     breakpoint()
-                    insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, null, e)
+                    insightLogic.actions.endQuery(queryId, values.filters.insight || ViewType.TRENDS, null, e)
                     return []
                 }
                 breakpoint()
-                insightLogic.actions.endQuery(values.filters.insight || ViewType.TRENDS, response.last_refresh)
+                insightLogic.actions.endQuery(queryId, values.filters.insight || ViewType.TRENDS, response.last_refresh)
 
                 return response
             },
@@ -490,9 +491,10 @@ export const trendsLogic = kea<
                 return
             }
             actions.setBreakdownValuesLoading(true)
+
             const response = await api.get(values.loadMoreBreakdownUrl)
             actions.loadResultsSuccess({
-                result: [...values.results, ...response.result],
+                result: [...values.results, ...(response.result ? response.result : [])],
                 next: response.next,
             })
             actions.setBreakdownValuesLoading(false)

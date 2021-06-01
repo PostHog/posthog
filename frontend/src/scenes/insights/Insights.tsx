@@ -109,14 +109,14 @@ export function Insights(): JSX.Element {
                         overflow: 'visible',
                     }}
                     className="top-bar"
-                    onChange={(key) => setActiveView(key)}
+                    onChange={(key) => setActiveView(key as ViewType)}
                     animated={false}
                     tabBarExtraContent={{
                         right: (
                             <Button
-                                type={activeView === 'history' ? 'primary' : undefined}
+                                type={activeView === ViewType.HISTORY ? 'primary' : undefined}
                                 data-attr="insight-history-button"
-                                onClick={() => setActiveView('history')}
+                                onClick={() => setActiveView(ViewType.HISTORY)}
                             >
                                 History
                             </Button>
@@ -214,7 +214,7 @@ export function Insights(): JSX.Element {
                 </Tabs>
             </Row>
             <Row gutter={16}>
-                {activeView === 'history' ? (
+                {activeView === ViewType.HISTORY ? (
                     <Col xs={24} xl={24}>
                         <Card className="" style={{ overflow: 'visible' }}>
                             <InsightHistoryPanel />

@@ -35,7 +35,7 @@ jobs:
                       **/node_modules/cypress
                       **/node_modules/cypress-terminal-report
                       **/node_modules/@cypress
-                  key: ${{ runner.os }}-cypress-6.7.0
+                  key: ${{ runner.os }}-cypress-6.7.0-v1
             - name: Install cypress
               if: steps.cypress-cache.outputs.cache-hit != 'true'
               run: |

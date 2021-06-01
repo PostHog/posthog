@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { toParams, objectsEqual } from 'lib/utils'
+import { toParams, objectsEqual, uuid } from 'lib/utils'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
@@ -68,17 +68,18 @@ export const retentionTableLogic = kea<
                 if (!refresh && (props.cachedResults || props.preventLoading) && values.filters === props.filters) {
                     return props.cachedResults
                 }
-                insightLogic.actions.startQuery()
+                const queryId = uuid()
+                insightLogic.actions.startQuery(queryId)
                 let res
                 const urlParams = toParams({ ...values.filters, ...(refresh ? { refresh: true } : {}) })
                 try {
                     res = await api.get(`api/insight/retention/?${urlParams}`)
                 } catch (e) {
-                    insightLogic.actions.endQuery(ViewType.RETENTION, null, e)
+                    insightLogic.actions.endQuery(queryId, ViewType.RETENTION, null, e)
                     return []
                 }
                 breakpoint()
-                insightLogic.actions.endQuery(ViewType.RETENTION, res.last_refresh)
+                insightLogic.actions.endQuery(queryId, ViewType.RETENTION, res.last_refresh)
                 return res.result
             },
         },

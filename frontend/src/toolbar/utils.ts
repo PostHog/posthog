@@ -1,6 +1,6 @@
 import Simmer, { Simmer as SimmerType } from '@posthog/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
-import { ActionStepType, ElementType } from '~/types'
+import { ActionStepType, ActionStepUrlMatching, ElementType } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 
@@ -54,7 +54,7 @@ export function elementToActionStep(element: HTMLElement, dataAttributes: string
         text: getSafeText(element) || '',
         selector: query || '',
         url: window.location.protocol + '//' + window.location.host + window.location.pathname,
-        url_matching: 'exact',
+        url_matching: ActionStepUrlMatching.Exact,
     }
 }
 
@@ -336,12 +336,13 @@ export function actionStepToAntdForm(step: ActionStepType, isNew = false): Actio
 
     const newStep = {
         ...step,
-        url_matching: step.url_matching || 'exact',
+        url_matching: step.url_matching || ActionStepUrlMatching.Exact,
         href_selected: typeof step.href !== 'undefined' && step.href !== null,
         text_selected: typeof step.text !== 'undefined' && step.text !== null,
         selector_selected: typeof step.selector !== 'undefined' && step.selector !== null,
         url_selected: typeof step.url !== 'undefined' && step.url !== null,
     }
+
     return newStep
 }
 
