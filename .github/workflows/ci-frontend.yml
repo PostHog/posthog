@@ -15,8 +15,18 @@ jobs:
               with:
                   node-version: 14
 
+            - uses: actions/cache@v2
+              id: node-modules-cache
+              with:
+                  path: |
+                      node_modules
+                  key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-node-modules
+
             - name: Install package.json dependencies with Yarn
-              run: yarn
+              if: steps.node-modules-cache.outputs.cache-hit != 'true'
+              run: yarn install --frozen-lockfile
 
             - name: Check formatting with prettier
               run: yarn prettier:check
@@ -41,8 +51,18 @@ jobs:
               with:
                   node-version: 14
 
+            - uses: actions/cache@v2
+              id: node-modules-cache
+              with:
+                  path: |
+                      node_modules
+                  key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-node-modules
+
             - name: Install package.json dependencies with Yarn
-              run: yarn
+              if: steps.node-modules-cache.outputs.cache-hit != 'true'
+              run: yarn install --frozen-lockfile
 
             - name: Test with Jest
               run: yarn test

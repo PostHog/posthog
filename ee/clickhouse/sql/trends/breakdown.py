@@ -2,7 +2,10 @@ BREAKDOWN_QUERY_SQL = """
 SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value FROM (
     SELECT SUM(total) as count, day_start, breakdown_value FROM (
         SELECT * FROM (
-            {null_sql} as main
+            SELECT 
+            toUInt16(0) AS total, 
+            {interval}(toDateTime(%(date_to)s) - number * %(seconds_in_interval)s) as day_start, 
+            breakdown_value from numbers(%(num_intervals)s) as main
             CROSS JOIN
                 (
                     SELECT breakdown_value
@@ -13,6 +16,7 @@ SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value
             ORDER BY breakdown_value, day_start
             UNION ALL
             {inner_sql}
+            {none_union}
         )
     )
     GROUP BY day_start, breakdown_value
@@ -75,35 +79,6 @@ events e {event_join} {breakdown_filter}
 GROUP BY breakdown_value
 """
 
-
-BREAKDOWN_DEFAULT_SQL = """
-SELECT groupArray(day_start) as date, groupArray(count) as data FROM (
-    SELECT SUM(total) as count, day_start FROM (
-        SELECT * FROM (
-            {null_sql} as main
-            ORDER BY day_start
-            UNION ALL
-            SELECT {aggregate_operation} as total, toDateTime({interval_annotation}(timestamp), 'UTC') as day_start
-            FROM
-            events e {event_join} {breakdown_filter}
-            GROUP BY day_start
-        )
-    )
-    GROUP BY day_start
-    ORDER BY day_start
-)
-"""
-
-BREAKDOWN_AGGREGATE_DEFAULT_SQL = """
-SELECT {aggregate_operation} as total
-FROM
-events e {event_join} {breakdown_filter}
-"""
-
-BREAKDOWN_CONDITIONS_SQL = """
-WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {actions_query}
-"""
-
 BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_range} {parsed_date_to} {actions_query}
 """
@@ -130,11 +105,25 @@ ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {filters} {par
 AND breakdown_value in (%(values)s) {actions_query}
 """
 
+NONE_BREAKDOWN_PERSON_PROP_JOIN_SQL = """
+INNER JOIN (
+    SELECT * FROM ({latest_person_sql}) ep WHERE team_id = %(team_id)s AND NOT JSONHas(properties, %(key)s)
+) ep
+ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
+{actions_query}
+"""
 
 BREAKDOWN_PROP_JOIN_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
   AND JSONHas(properties, %(key)s)
-  AND JSONExtractRaw(properties, %(key)s) in (%(values)s) {actions_query}
+  AND JSONExtractRaw(properties, %(key)s) in (%(values)s) 
+  {actions_query}
+"""
+
+NONE_BREAKDOWN_PROP_JOIN_SQL = """
+WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
+  AND NOT JSONHas(properties, %(key)s) 
+  {actions_query}
 """
 
 BREAKDOWN_COHORT_JOIN_SQL = """
