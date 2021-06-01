@@ -44,9 +44,7 @@ dayjs.extend(relativeTime)
 const { TabPane } = Tabs
 
 function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
-    /* Temporary element to only show hotkeys when feature flag is active */
-    const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags['hotkeys-3740'] && !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
+    return !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
 }
 
 export function Insights(): JSX.Element {
@@ -77,33 +75,29 @@ export function Insights(): JSX.Element {
         reportHotkeyNavigation('insights', hotkey)
     }
 
-    useKeyboardHotkeys(
-        featureFlags['hotkeys-3740']
-            ? {
-                  t: {
-                      action: () => handleHotkeyNavigation(ViewType.TRENDS, 't'),
-                  },
-                  f: {
-                      action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
-                  },
-                  s: {
-                      action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
-                  },
-                  r: {
-                      action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
-                  },
-                  p: {
-                      action: () => handleHotkeyNavigation(ViewType.PATHS, 'p'),
-                  },
-                  k: {
-                      action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'k'),
-                  },
-                  l: {
-                      action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
-                  },
-              }
-            : {}
-    )
+    useKeyboardHotkeys({
+        t: {
+            action: () => handleHotkeyNavigation(ViewType.TRENDS, 't'),
+        },
+        f: {
+            action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
+        },
+        s: {
+            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
+        },
+        r: {
+            action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
+        },
+        p: {
+            action: () => handleHotkeyNavigation(ViewType.PATHS, 'p'),
+        },
+        k: {
+            action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'k'),
+        },
+        l: {
+            action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
+        },
+    })
 
     return (
         <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>
@@ -115,14 +109,14 @@ export function Insights(): JSX.Element {
                         overflow: 'visible',
                     }}
                     className="top-bar"
-                    onChange={(key) => setActiveView(key)}
+                    onChange={(key) => setActiveView(key as ViewType)}
                     animated={false}
                     tabBarExtraContent={{
                         right: (
                             <Button
-                                type={activeView === 'history' ? 'primary' : undefined}
+                                type={activeView === ViewType.HISTORY ? 'primary' : undefined}
                                 data-attr="insight-history-button"
-                                onClick={() => setActiveView('history')}
+                                onClick={() => setActiveView(ViewType.HISTORY)}
                             >
                                 History
                             </Button>
@@ -220,7 +214,7 @@ export function Insights(): JSX.Element {
                 </Tabs>
             </Row>
             <Row gutter={16}>
-                {activeView === 'history' ? (
+                {activeView === ViewType.HISTORY ? (
                     <Col xs={24} xl={24}>
                         <Card className="" style={{ overflow: 'visible' }}>
                             <InsightHistoryPanel />

@@ -64,16 +64,15 @@ jobs:
               with:
                   node-version: 14
             - uses: actions/cache@v2
-              id: node-modules-cache
+              id: cypress-node-modules-cache
               with:
                   path: |
-                      ~/.cache/Cypress
-                      node_modules
-                  key: ${{ runner.os }}-node-cypress-${{ hashFiles('**/yarn.lock') }}
+                      **/node_modules
+                  key: ${{ runner.os }}-cypress-node-modules-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-node-cypress-
+                      ${{ runner.os }}-cypress-node-modules
             - name: Yarn install deps
-              if: steps.node-modules-cache.outputs.cache-hit != 'true'
+              if: steps.cypress-node-modules-cache.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
             - uses: actions/cache@v2
@@ -81,10 +80,10 @@ jobs:
               with:
                   path: |
                       ~/.cache/Cypress
-                      node_modules/cypress
-                      node_modules/cypress-terminal-report
-                      node_modules/@cypress
-                  key: ${{ runner.os }}-cypress-6.7.0
+                      **/node_modules/cypress
+                      **/node_modules/cypress-terminal-report
+                      **/node_modules/@cypress
+                  key: ${{ runner.os }}-cypress-6.7.0-v1
             - name: Install cypress
               if: steps.cypress-cache.outputs.cache-hit != 'true'
               run: |

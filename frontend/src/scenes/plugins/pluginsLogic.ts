@@ -485,10 +485,17 @@ export const pluginsLogic = kea<
                 return names
             },
         ],
-        hasUpdateablePlugins: [
-            (s) => [s.installedPluginUrls],
-            (installedPluginUrls) => Object.keys(installedPluginUrls).length > 0,
+        updatablePlugins: [
+            (s) => [s.installedPlugins, userLogic.selectors.user],
+            (installedPlugins, user) =>
+                installedPlugins.filter(
+                    (plugin) =>
+                        plugin.plugin_type !== PluginInstallationType.Source &&
+                        !plugin.url?.startsWith('file:') &&
+                        user?.organization?.id === plugin.organization_id
+                ),
         ],
+        hasUpdatablePlugins: [(s) => [s.updatablePlugins], (updatablePlugins) => updatablePlugins.length > 0],
         uninstalledPlugins: [
             (s) => [s.installedPluginUrls, s.repository],
             (installedPluginUrls, repository) => {
@@ -523,16 +530,10 @@ export const pluginsLogic = kea<
     listeners: ({ actions, values }) => ({
         checkForUpdates: async ({ checkAll }, breakpoint) => {
             breakpoint()
-            const { installedPlugins } = values
+            const { updatablePlugins } = values
+            const pluginsToCheck = checkAll ? updatablePlugins : updatablePlugins.filter((plugin) => !plugin.latest_tag)
 
-            for (const plugin of installedPlugins) {
-                if (
-                    plugin.plugin_type === PluginInstallationType.Source ||
-                    (!checkAll && plugin.latest_tag) ||
-                    userLogic.values.user?.organization?.id !== plugin.organization_id
-                ) {
-                    continue
-                }
+            for (const plugin of pluginsToCheck) {
                 try {
                     const updates = await api.get(`api/organizations/@current/plugins/${plugin.id}/check_for_updates`)
                     actions.setUpdateStatus(plugin.id, updates.plugin.tag, updates.plugin.latest_tag)

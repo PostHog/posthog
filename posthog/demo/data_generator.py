@@ -32,14 +32,22 @@ class DataGenerator:
     def create_people(self):
         self.people = [self.make_person(i) for i in range(self.n_people)]
         self.distinct_ids = [str(UUIDT()) for _ in self.people]
-
         Person.objects.bulk_create(self.people)
-        PersonDistinctId.objects.bulk_create(
-            [
-                PersonDistinctId(team=self.team, person=person, distinct_id=distinct_id)
-                for person, distinct_id in zip(self.people, self.distinct_ids)
-            ]
-        )
+
+        pids = [
+            PersonDistinctId(team=self.team, person=person, distinct_id=distinct_id)
+            for person, distinct_id in zip(self.people, self.distinct_ids)
+        ]
+        PersonDistinctId.objects.bulk_create(pids)
+        if is_clickhouse_enabled():
+            from ee.clickhouse.models.person import create_person, create_person_distinct_id
+
+            for person in self.people:
+                create_person(team_id=person.team.pk, properties=person.properties, is_identified=person.is_identified)
+            for pid in pids:
+                create_person_distinct_id(
+                    0, pid.team.pk, pid.distinct_id, str(pid.person.uuid)
+                )  # use dummy number for id
 
     def make_person(self, index):
         return Person(team=self.team, properties={"is_demo": True})

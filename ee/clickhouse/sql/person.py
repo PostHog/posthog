@@ -1,6 +1,6 @@
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 
-from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
 
 DROP_PERSON_TABLE_SQL = """
 DROP TABLE person
@@ -33,7 +33,7 @@ PERSONS_TABLE_SQL = (
 """
 ).format(
     table_name=PERSONS_TABLE,
-    engine=table_engine(PERSONS_TABLE, "_timestamp"),
+    engine=table_engine(PERSONS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
@@ -106,7 +106,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
 """
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
-    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp"),
+    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
@@ -153,7 +153,7 @@ PERSON_STATIC_COHORT_TABLE_SQL = (
 """
 ).format(
     table_name=PERSON_STATIC_COHORT_TABLE,
-    engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp"),
+    engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     storage_policy=STORAGE_POLICY,
     extra_fields=KAFKA_COLUMNS,
 )
