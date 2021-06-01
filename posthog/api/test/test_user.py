@@ -62,7 +62,7 @@ class TestUserAPI(APIBaseTest):
         )  # Ensure we're not returning the full `Team`
         self.assertNotIn("event_names", response_data["organization"]["teams"][0])
 
-        self.assertEqual(
+        self.assertCountEqual(
             response_data["organizations"],
             [
                 {"id": str(self.organization.id), "name": self.organization.name},
@@ -160,7 +160,7 @@ class TestUserAPI(APIBaseTest):
             user.distinct_id,
             "user updated",
             properties={
-                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name",]
+                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name"],
             },
         )
 
@@ -479,29 +479,6 @@ class TestUserAPILegacy(APIBaseTest):
         team = Team.objects.get(id=self.team.id)
         self.assertEqual(team.anonymize_ips, False)
         self.assertEqual(team.session_recording_opt_in, True)
-
-    def test_event_names_job_not_run_yet(self):
-        self.team.event_names = ["test event", "another event"]
-        # test event not in event_names_with_usage
-        self.team.event_names_with_usage = [{"event": "another event", "volume": 1, "usage_count": 1}]
-        self.team.event_properties = ["test prop", "another prop"]
-        self.team.event_properties_with_usage = [{"key": "another prop", "volume": 1, "usage_count": 1}]
-        self.team.save()
-        response = self.client.get("/api/user/")
-        self.assertEqual(
-            response.json()["team"]["event_names_with_usage"],
-            [
-                {"event": "test event", "volume": None, "usage_count": None},
-                {"event": "another event", "volume": 1, "usage_count": 1},
-            ],
-        )
-        self.assertEqual(
-            response.json()["team"]["event_properties_with_usage"],
-            [
-                {"key": "test prop", "volume": None, "usage_count": None},
-                {"key": "another prop", "volume": 1, "usage_count": 1},
-            ],
-        )
 
     def test_redirect_to_site(self):
         self.team.app_urls = ["http://somewebsite.com"]

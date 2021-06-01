@@ -5,6 +5,7 @@ from rest_framework import status
 
 from posthog.demo import create_demo_team
 from posthog.models import EventDefinition, Organization, Team
+from posthog.models.property_definition import PropertyDefinition
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
@@ -19,6 +20,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         {"name": "purchase", "volume_30_day": 16, "query_usage_30_day": 0},
         {"name": "entered_free_trial", "volume_30_day": 0, "query_usage_30_day": 0},
         {"name": "watched_movie", "volume_30_day": 87, "query_usage_30_day": 0},
+        {"name": "$pageview", "volume_30_day": 327, "query_usage_30_day": 0},
     ]
 
     @classmethod
@@ -39,26 +41,28 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         for item in self.EXPECTED_EVENT_DEFINITIONS:
             response_item: Dict = next((_i for _i in response.json()["results"] if _i["name"] == item["name"]), {})
-            self.assertEqual(response_item["volume_30_day"], item["volume_30_day"])
-            self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"])
+            self.assertEqual(response_item["volume_30_day"], item["volume_30_day"], item)
+            self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"], item)
             self.assertEqual(
-                response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day,
+                response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day, item,
             )
 
     def test_pagination_of_event_definitions(self):
-        self.demo_team.event_names = self.demo_team.event_names + [f"z_event_{i}" for i in range(1, 301)]
-        self.demo_team.save()
+        EventDefinition.objects.bulk_create(
+            [EventDefinition(team=self.demo_team, name="z_event_{}".format(i)) for i in range(1, 301)]
+        )
 
         response = self.client.get("/api/projects/@current/event_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 305)
+        self.assertEqual(response.json()["count"], 306)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
-        self.assertEqual(response.json()["results"][0]["name"], "entered_free_trial")  # Order by name (ascending)
+        self.assertEqual(response.json()["results"][0]["name"], "$pageview")  # Order by name (ascending)
+        self.assertEqual(response.json()["results"][1]["name"], "entered_free_trial")  # Order by name (ascending)
 
         event_checkpoints = [
-            185,
-            275,
-            95,
+            184,
+            274,
+            94,
         ]  # Because Postgres's sorter does this: event_1; event_100, ..., event_2, event_200, ..., it's
         # easier to deterministically set the expected events
 
@@ -66,17 +70,17 @@ class TestEventDefinitionAPI(APIBaseTest):
             response = self.client.get(response.json()["next"])
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            self.assertEqual(response.json()["count"], 305)
+            self.assertEqual(response.json()["count"], 306)
             self.assertEqual(
-                len(response.json()["results"]), 100 if i < 2 else 5,
+                len(response.json()["results"]), 100 if i < 2 else 6,
             )  # Each page has 100 except the last one
             self.assertEqual(response.json()["results"][0]["name"], f"z_event_{event_checkpoints[i]}")
 
     def test_cant_see_event_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")
         team = Team.objects.create(organization=org, name="Default Project")
-        team.event_names = self.demo_team.event_names + [f"should_be_invisible_{i}" for i in range(0, 5)]
-        team.save()
+
+        EventDefinition.objects.create(team=team, name="should_be_invisible")
 
         response = self.client.get("/api/projects/@current/event_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

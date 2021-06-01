@@ -15,21 +15,31 @@ jobs:
             - uses: actions/setup-node@v1
               with:
                   node-version: 14
-            - name: Get yarn cache directory path
-              id: yarn-dep-cache-dir-path
-              run: echo "::set-output name=dir::$(yarn cache dir)"
-            - uses: actions/cache@v1
-              name: Setup Yarn dep cache
-              id: yarn-dep-cache
+            - uses: actions/cache@v2
+              id: cypress-node-modules-cache
               with:
-                  path: ${{ steps.yarn-dep-cache-dir-path.outputs.dir }}
-                  key: ${{ runner.os }}-yarn-dep-${{ hashFiles('**/yarn.lock') }}
+                  path: |
+                      **/node_modules
+                  key: ${{ runner.os }}-cypress-node-modules-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-yarn-dep-
+                      ${{ runner.os }}-cypress-node-modules
             - name: Yarn install deps
+              if: steps.cypress-node-modules-cache.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
-                  yarn add cypress@6.7.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
+            - uses: actions/cache@v2
+              id: cypress-cache
+              with:
+                  path: |
+                      ~/.cache/Cypress
+                      **/node_modules/cypress
+                      **/node_modules/cypress-terminal-report
+                      **/node_modules/@cypress
+                  key: ${{ runner.os }}-cypress-6.7.0-v1
+            - name: Install cypress
+              if: steps.cypress-cache.outputs.cache-hit != 'true'
+              run: |
+                  yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
             - uses: actions/cache@v1
               name: Setup Yarn build cache
               id: yarn-build-cache
@@ -39,9 +49,10 @@ jobs:
                   restore-keys: |
                       ${{ runner.os }}-yarn-build-
             - name: Yarn build
+              if: steps.yarn-build-cache.outputs.cache-hit != 'true'
               run: |
                   yarn build
-              if: steps.yarn-build-cache.outputs.cache-hit != 'true'
+
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:
@@ -49,6 +60,11 @@ jobs:
                   record: true
                   parallel: true
                   group: 'PostHog Component'
+                  # We're already installing cypress above
+                  # We have to install it separately otherwise the tests fail.
+                  install: false
+                  # We already install cypress separately, we don't need to install it again here
+                  install-command: echo "no"
               env:
                   # pass the Dashboard record key as an environment variable
                   CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}

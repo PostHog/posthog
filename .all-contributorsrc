@@ -3,7 +3,7 @@
     "README.md"
   ],
   "imageSize": 50,
-  "badgeTemplate": "<a href='#contributors-'><img src='https://img.shields.io/badge/all_contributors-<%= contributors.length %>-orange.svg?style=flat-square' /></a>",
+  "badgeTemplate": "<a href='https://posthog.com/contributors'><img src='https://img.shields.io/badge/all_contributors-<%= contributors.length %>-orange.svg?style=flat-square' /></a>",
   "commit": false,
   "contributors": [
     {
@@ -971,7 +971,8 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/11272509?v=4",
       "profile": "https://github.com/joesaunderson",
       "contributions": [
-        "ideas"
+        "ideas",
+        "code"
       ]
     },
     {
@@ -1239,7 +1240,8 @@
       "profile": "https://github.com/tobiastornros",
       "contributions": [
         "bug",
-        "doc"
+        "doc",
+        "code"
       ]
     },
     {
@@ -1247,6 +1249,51 @@
       "name": "abhijitghate",
       "avatar_url": "https://avatars.githubusercontent.com/u/11834249?v=4",
       "profile": "https://github.com/abhijitghate",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "c3ho",
+      "name": "Calvin ",
+      "avatar_url": "https://avatars.githubusercontent.com/u/18711727?v=4",
+      "profile": "https://c3ho.blogspot.com/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "DimitrisMazarakis",
+      "name": "Dimitris Mazarakis",
+      "avatar_url": "https://avatars.githubusercontent.com/u/56391437?v=4",
+      "profile": "https://github.com/DimitrisMazarakis",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "pietrodevpiccini",
+      "name": "pietrodevpiccini",
+      "avatar_url": "https://avatars.githubusercontent.com/u/78323924?v=4",
+      "profile": "https://github.com/pietrodevpiccini",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "mands",
+      "name": "Mandeep Gill",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1010043?v=4",
+      "profile": "https://github.com/mands",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "lutangar",
+      "name": "Johan Dufour",
+      "avatar_url": "https://avatars.githubusercontent.com/u/568769?v=4",
+      "profile": "https://larriereguichet.fr",
       "contributions": [
         "code"
       ]
