@@ -3,8 +3,9 @@ from uuid import uuid4
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS, TRENDS_LINEAR
+from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
 from posthog.models.filters import Filter
+from posthog.models.filters.mixins.funnel_window import FunnelWindowMixin
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
@@ -64,29 +65,19 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):  # type: ignore
         _create_event(event="step two", distinct_id="user_seven", team=self.team, timestamp="2021-05-04 00:00:00")
 
     def test_milliseconds_from_days_conversion(self):
-        self.assertEqual(ClickhouseFunnelTrends._milliseconds_from_days(1), 86400000)
+        self.assertEqual(FunnelWindowMixin._milliseconds_from_days(1), 86400000)
 
     def test_raw_query(self):
-        one_day_in_milliseconds = ClickhouseFunnelTrends._milliseconds_from_days(1)
-
-        query_filter_params = Filter(
+        filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
                 "interval": "day",
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-07 00:00:00",
-                "events": [{"id": "sign up", "order": 0}, {"id": "pay", "order": 1},],
+                "funnel_window": 7,
+                "events": [{"id": "step one", "order": 0}, {"id": "step two", "order": 1},],
             }
         )
-
-        results = ClickhouseFunnelTrends().run(self.team, filter=Filter(query_filter_params))
-        # {
-        #     "start_timestamp": "2021-05-01 00:00:00",
-        #     "end_timestamp": "2021-05-07 00:00:00",
-        #     "team_id": self.team.id,
-        #     "steps": "event = 'step one', event = 'step two', event = 'step three'",
-        #     "window_in_milliseconds": one_day_in_milliseconds,
-        # }
-
+        results = ClickhouseFunnelTrends(self.team, filter).run()
         self.assertEqual(len(results), 4)

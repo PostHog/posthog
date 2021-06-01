@@ -1,11 +1,7 @@
-# [x] Move query logic to here
-# [x] Get test framework working
-# [x] Change assertions normal assertions
-# [ ] Convert query results to interval (hours, partial days, days, weeks, months, years)
-# [ ] Follow existing code patterns (Integrate filter class)
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.funnels.funnel_trend import FUNNEL_TREND_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.models.filters import Filter
@@ -21,17 +17,57 @@ class ClickhouseFunnelTrends(Funnel):
         self._filter = filter
         self._team = team
         self.params = {
-            "team_id": self._team.pk,
+            "team_id": self._team.id,
             "events": [],  # purely a speed optimization, don't need this for filtering
         }
 
     def run(self):
-        query = self.configure_query()
-        results = sync_execute(query, self.params)
-        interval_results = self._transform_to_interval(results)
-        return interval_results
+        sql = self.configure_sql()
+        results = sync_execute(sql, self.params)
+        return results
 
-    def configure_query(self):
+    def configure_sql(self):
+        null_sql = self._get_null_sql()
+        parsed_date_from, parsed_date_to, _ = self._get_dates()
+        prop_filters, prop_filter_params = self._get_filters()
+        steps = self._get_steps()
+        step_count = len(steps)
+        interval_method = get_trunc_func_ch(self._filter.interval)
+
+        sql = FUNNEL_TREND_SQL.format(
+            team_id=self._team.id,
+            steps=", ".join(steps),
+            step_count=step_count,
+            filters=prop_filters.replace("uuid IN", "events.uuid IN", 1),
+            parsed_date_from=parsed_date_from,
+            parsed_date_to=parsed_date_to,
+            within_time=self._filter.funnel_window,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            null_sql=null_sql,
+            interval_method=interval_method,
+            # top_level_groupby=", date",
+            # extra_select="{}(timestamp) as date,".format(get_trunc_func_ch(self._filter.interval)),
+            # extra_groupby=",{}(timestamp)".format(get_trunc_func_ch(self._filter.interval)),
+        )
+        return sql
+
+    def _get_null_sql(self):
+        interval_annotation = get_trunc_func_ch(self._filter.interval)
+        num_intervals, seconds_in_interval, round_interval = get_time_diff(
+            self._filter.interval or "day", self._filter.date_from, self._filter.date_to, team_id=self._team.id
+        )
+        null_sql = NULL_SQL.format(
+            interval=interval_annotation,
+            seconds_in_interval=seconds_in_interval,
+            num_intervals=num_intervals,
+            date_to=self._filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        return null_sql
+
+    def _get_dates(self):
+        return parse_timestamps(filter=self._filter, table="events.", team_id=self._team.pk)
+
+    def _get_filters(self):
         prop_filters, prop_filter_params = parse_prop_clauses(
             self._filter.properties,
             self._team.pk,
@@ -39,40 +75,17 @@ class ClickhouseFunnelTrends(Funnel):
             allow_denormalized_props=True,
             filter_test_accounts=self._filter.filter_test_accounts,
         )
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(
-            filter=self._filter, table="events.", team_id=self._team.pk
-        )
         self.params.update(prop_filter_params)
-        steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
-        # TODO: determine within_time
-        query = FUNNEL_TREND_SQL.format(
-            team_id=self._team.id,
-            steps=", ".join(steps),
-            filters=prop_filters.replace("uuid IN", "events.uuid IN", 1),
-            parsed_date_from=parsed_date_from,
-            parsed_date_to=parsed_date_to,
-            within_time="86400000000",
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
-            # top_level_groupby=", date",
-            # extra_select="{}(timestamp) as date,".format(get_trunc_func_ch(self._filter.interval)),
-            # extra_groupby=",{}(timestamp)".format(get_trunc_func_ch(self._filter.interval)),
-        )
-        return query
+        return prop_filters, prop_filter_params
 
-    @staticmethod
-    def _transform_to_interval(self, results):
-        return results
+    def _get_steps(self):
+        return [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
 
     @staticmethod
     def _run_query(format_dictionary):
         query = FUNNEL_TREND_SQL.format(**format_dictionary)
         results = sync_execute(query, {})
         return results
-
-    @staticmethod
-    def _milliseconds_from_days(days):
-        second, minute, hour, day = [1000, 60, 60, 24]
-        return second * minute * hour * day * days
 
     @staticmethod
     def _convert_to_users(results):
