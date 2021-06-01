@@ -23,8 +23,5 @@ class Migration(migrations.Migration):
             model_name="dashboarditem", name="short_id", field=models.CharField(blank=True, max_length=12),
         ),
         migrations.RunPython(create_short_ids, migrations.RunPython.noop),
-        migrations.AlterField(
-            model_name="dashboarditem", name="short_id", field=models.CharField(blank=True, max_length=12),
-        ),
         migrations.AlterUniqueTogether(name="dashboarditem", unique_together={("team", "short_id")},),
     ]
