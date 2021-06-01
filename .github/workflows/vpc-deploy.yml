@@ -51,3 +51,9 @@ jobs:
             - name: Publish
               run: |-
                   docker push "$REGISTRY_HOSTNAME/$PROJECT_ID/$IMAGE:$GITHUB_SHA"
+
+            # Checkout vpc repo for values.yaml
+
+            # Helm update
+            - name: Helm upgrade
+              run: helm upgrade posthog posthog-vpc/posthog --set image.repository="$REGISTRY_HOSTNAME/$PROJECT_ID/posthog" --set image.sha="$GITHUB_SHA"
