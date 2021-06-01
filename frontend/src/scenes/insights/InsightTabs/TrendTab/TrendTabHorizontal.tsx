@@ -100,6 +100,10 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                                     ))}
                                 </div>
                             )}
+
+                            <hr />
+                            <h4 className="secondary">Filters</h4>
+                            <TestAccountFilter filters={filters} onChange={setFilters} />
                         </>
                     )}
                     {filters.insight !== ViewType.LIFECYCLE && (
