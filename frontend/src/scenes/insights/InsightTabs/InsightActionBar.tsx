@@ -1,16 +1,17 @@
 import { Button, Modal, Tooltip } from 'antd'
-import React from 'react'
-import { InsightType } from '~/types'
+import React, { useState } from 'react'
+import { InsightType, AnnotationType } from '~/types'
 import { SaveOutlined, PlusOutlined, ShareAltOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { copyToClipboard } from 'lib/utils'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { SaveInsightModal } from './SaveInsightModal'
 
 interface Props {
     shortId: string | null
-    annotations: any[] // TODO: Type properly
+    annotations: AnnotationType[]
     insight?: InsightType
     onReset?: () => void
 }
@@ -18,8 +19,7 @@ interface Props {
 export function InsightActionBar({ shortId, annotations, insight, onReset }: Props): JSX.Element {
     const { push } = useActions(router)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
-
-    console.log(annotations)
+    const [saving, setSaving] = useState(false)
 
     const handleShare = (): void => {
         // TODO: Prompt saving insight first
@@ -27,7 +27,7 @@ export function InsightActionBar({ shortId, annotations, insight, onReset }: Pro
     }
 
     const handleNew = (): void => {
-        // TODO: UX improvemement. At a later point, we could implement an undo feature instead of prompting to confirm.
+        // UX improvemement. At a later point, we could implement an undo feature instead of prompting to confirm.
         Modal.confirm({
             title: 'Start fresh?',
             icon: <QuestionCircleOutlined />,
@@ -46,47 +46,57 @@ export function InsightActionBar({ shortId, annotations, insight, onReset }: Pro
         },
         k: {
             action: handleShare,
+            disabled: !shortId,
+        },
+        s: {
+            action: () => setSaving(true),
+            disabled: !shortId,
         },
     })
 
     return (
-        <div className="insights-tab-actions">
-            <Tooltip
-                title={
-                    <>
-                        Start new insight
-                        <span className="hotkey menu-tooltip-hotkey">N</span>
-                    </>
-                }
-            >
-                <Button type="link" icon={<PlusOutlined />} className="text-muted" onClick={handleNew}>
-                    New
-                </Button>
-            </Tooltip>
-            <Tooltip
-                title={
-                    <>
-                        Copy share link to clipboard
-                        <span className="hotkey menu-tooltip-hotkey">K</span>
-                    </>
-                }
-            >
-                <Button type="link" icon={<ShareAltOutlined />} onClick={handleShare} disabled={!shortId}>
-                    Share
-                </Button>
-            </Tooltip>
-            <Tooltip
-                title={
-                    <>
-                        Save or add to dashboard
-                        <span className="hotkey menu-tooltip-hotkey">S</span>
-                    </>
-                }
-            >
-                <Button type="link" icon={<SaveOutlined />}>
-                    Save
-                </Button>
-            </Tooltip>
-        </div>
+        <>
+            <div className="insights-tab-actions">
+                <Tooltip
+                    title={
+                        <>
+                            Start new insight
+                            <span className="hotkey menu-tooltip-hotkey">N</span>
+                        </>
+                    }
+                >
+                    <Button type="link" icon={<PlusOutlined />} className="text-muted" onClick={handleNew}>
+                        New
+                    </Button>
+                </Tooltip>
+                <Tooltip
+                    title={
+                        <>
+                            Copy share link to clipboard
+                            <span className="hotkey menu-tooltip-hotkey">K</span>
+                        </>
+                    }
+                >
+                    <Button type="link" icon={<ShareAltOutlined />} onClick={handleShare} disabled={!shortId}>
+                        Share
+                    </Button>
+                </Tooltip>
+                <Tooltip
+                    title={
+                        <>
+                            Save or add to dashboard
+                            <span className="hotkey menu-tooltip-hotkey">S</span>
+                        </>
+                    }
+                >
+                    <Button type="link" icon={<SaveOutlined />} disabled={!shortId} onClick={() => setSaving(true)}>
+                        Save
+                    </Button>
+                </Tooltip>
+            </div>
+            {saving && shortId && (
+                <SaveInsightModal shortId={shortId} annotations={annotations} onClose={() => setSaving(false)} />
+            )}
+        </>
     )
 }
