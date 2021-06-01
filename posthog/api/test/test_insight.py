@@ -6,12 +6,12 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.constants import INSIGHT_STICKINESS
 from posthog.ee import is_clickhouse_enabled
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.person import Person
+from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
 # TODO: two tests below fail in EE
@@ -45,24 +45,73 @@ def insight_test_factory(event_factory, person_factory):
             }
 
             DashboardItem.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), saved=True, team=self.team, created_by=self.user
+                filters=Filter(data=filter_dict).to_dict(), saved=True, team=self.team, created_by=self.user,
             )
 
             # create without saved
             DashboardItem.objects.create(
-                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user,
             )
 
             # create without user
             DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
-            response = self.client.get("/api/insight/", data={"saved": "true", "user": "true",},).json()
+            response = self.client.get("/api/insight/", data={"saved": "true", "user": "true"})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            self.assertEqual(len(response["results"]), 1)
+            self.assertEqual(len(response.json()["results"]), 1)
+            self.assertEqual(len(response.json()["results"][0]["short_id"]), 8)
+
+        def test_get_insight_by_short_id(self):
+            filter_dict = {
+                "events": [{"id": "$pageview"}],
+            }
+
+            DashboardItem.objects.create(
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+            )
+
+            # Red herring: Should be ignored because it's not on the current team (even though the user has access)
+            new_team = Team.objects.create(organization=self.organization)
+            DashboardItem.objects.create(
+                filters=Filter(data=filter_dict).to_dict(), team=new_team, short_id="12345678",
+            )
+
+            response = self.client.get("/api/insight/?short_id=12345678")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(len(response.json()["results"]), 1)
+            self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
+            self.assertEqual(response.json()["results"][0]["filters"]["events"][0]["id"], "$pageview")
+
+        def test_basic_results(self):
+            """
+            The `skip_results` query parameter can be passed so that only a list of objects is returned, without
+            the actual query data. This can speed things up if it's not needed.
+            """
+            filter_dict = {
+                "events": [{"id": "$pageview"}],
+            }
+
+            DashboardItem.objects.create(
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+            )
+            DashboardItem.objects.create(
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True,
+            )
+
+            response = self.client.get("/api/insight/?basic=true")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(len(response.json()["results"]), 2)
+            self.assertEqual(
+                list(response.json()["results"][0].keys()),
+                ["id", "short_id", "name", "filters", "dashboard", "color", "last_refresh", "refreshing", "saved"],
+            )
 
         def test_create_insight_items(self):
             # Make sure the endpoint works with and without the trailing slash
-            self.client.post(
+            response = self.client.post(
                 "/api/insight",
                 data={
                     "filters": {
@@ -71,12 +120,14 @@ def insight_test_factory(event_factory, person_factory):
                         "date_from": "-90d",
                     },
                 },
-            ).json()
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-            response = DashboardItem.objects.all()
-            self.assertEqual(len(response), 1)
-            self.assertEqual(response[0].filters["events"][0]["id"], "$pageview")
-            self.assertEqual(response[0].filters["date_from"], "-90d")
+            objects = DashboardItem.objects.all()
+            self.assertEqual(len(objects), 1)
+            self.assertEqual(objects[0].filters["events"][0]["id"], "$pageview")
+            self.assertEqual(objects[0].filters["date_from"], "-90d")
+            self.assertEqual(len(objects[0].short_id), 8)
 
         # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
