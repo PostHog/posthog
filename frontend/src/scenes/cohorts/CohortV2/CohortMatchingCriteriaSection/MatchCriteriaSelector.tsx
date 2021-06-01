@@ -26,7 +26,7 @@ export function MatchCriteriaSelector({
     }
 
     return (
-        <div style={{ padding: 15, border: '1px solid rgba(0, 0, 0, 0.1)', borderRadius: 4 }}>
+        <div style={{ padding: 15, border: '1px solid rgba(0, 0, 0, 0.1)', borderRadius: 4, width: '100%' }}>
             <Row align="middle" justify="space-between">
                 <div>
                     Match users who have

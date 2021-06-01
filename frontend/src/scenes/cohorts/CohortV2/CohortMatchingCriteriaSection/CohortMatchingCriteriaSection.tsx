@@ -25,17 +25,18 @@ export function CohortMatchingCriteriaSection({
             <div style={{ marginTop: 20, marginBottom: 20 }}>
                 {cohort.groups.map((group: CohortGroupType, index: number) => (
                     <React.Fragment key={index}>
-                        <MatchCriteriaSelector
-                            onCriteriaChange={(newGroup) => onCriteriaChange(newGroup, group.id)}
-                            onRemove={() => onRemoveGroup(index)}
-                            group={group}
-                        />
-                        {index < cohort.groups.length - 1 && (
-                            <div key={index} className="secondary" style={{ textAlign: 'center', margin: 8 }}>
-                                {' '}
-                                OR{' '}
-                            </div>
-                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+                            <MatchCriteriaSelector
+                                onCriteriaChange={(newGroup) => onCriteriaChange(newGroup, group.id)}
+                                onRemove={() => onRemoveGroup(index)}
+                                group={group}
+                            />
+                            {index < cohort.groups.length - 1 && (
+                                <div className="stateful-badge mc-main or" style={{ marginTop: 15, marginBottom: 15 }}>
+                                    OR
+                                </div>
+                            )}
+                        </div>
                     </React.Fragment>
                 ))}
             </div>
