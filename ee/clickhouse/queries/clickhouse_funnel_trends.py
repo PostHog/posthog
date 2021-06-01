@@ -116,24 +116,3 @@ class ClickhouseFunnelTrends(Funnel):
         compare_timestamp = timestamp.date() if type(timestamp) is datetime else timestamp
         is_incomplete = compare_timestamp > completed_end
         return not is_incomplete
-
-    @staticmethod
-    def _run_query(format_dictionary):
-        query = FUNNEL_TREND_SQL.format(**format_dictionary)
-        results = sync_execute(query, {})
-        return results
-
-    @staticmethod
-    def _convert_to_users(results):
-        my_dict = dict()
-        for index, value in enumerate(results):
-            [date, distinct_id, max_step] = value
-            if distinct_id in my_dict:
-                my_dict[distinct_id]["dates"].append(date)
-            elif distinct_id:
-                my_dict[distinct_id] = {
-                    "distinct_id": distinct_id,
-                    "max_step": max_step,
-                    "dates": [date],
-                }
-        return my_dict
