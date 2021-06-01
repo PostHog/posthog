@@ -73,6 +73,7 @@ services:
         command: ./ee/bin/docker-ch-dev-web
         ports:
             - '8000:8000'
+            - '8234:8234'
     plugins:
         image: posthog/plugin-server:latest
         restart: on-failure
