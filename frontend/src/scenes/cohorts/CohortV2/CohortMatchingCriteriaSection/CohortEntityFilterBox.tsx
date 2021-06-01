@@ -8,7 +8,13 @@ import { EntityTypes } from '~/types'
 import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterDropdown'
 import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
 
-export function CohortEntityFilterBox({ open = false }: { open: boolean }): JSX.Element | null {
+export function CohortEntityFilterBox({
+    open = false,
+    onSelect,
+}: {
+    open: boolean
+    onSelect: (type: any, id: string | number, name: string) => void
+}): JSX.Element | null {
     const { eventDefinitions } = useValues(eventDefinitionsLogic)
     const { actions } = useValues(actionsModel)
 
@@ -77,5 +83,5 @@ export function CohortEntityFilterBox({ open = false }: { open: boolean }): JSX.
         },
     ]
 
-    return <SelectBox selectedItemKey={undefined} onDismiss={() => {}} onSelect={() => {}} items={groups} />
+    return <SelectBox selectedItemKey={undefined} onDismiss={() => {}} onSelect={onSelect} items={groups} />
 }

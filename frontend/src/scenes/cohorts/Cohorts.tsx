@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import dayjs from 'dayjs'
 import { DeleteWithUndo, toParams } from 'lib/utils'
-import { Tooltip, Table, Spin, Button, Input } from 'antd'
+import { Tooltip, Table, Spin, Button, Input, Row } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
@@ -17,6 +17,7 @@ import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
+import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 
 dayjs.extend(relativeTime)
 
@@ -167,7 +168,17 @@ export function Cohorts(): JSX.Element {
                     <Button
                         type="primary"
                         data-attr="create-cohort"
-                        onClick={() => setOpenCohort({ id: 'new', groups: [{}] })}
+                        onClick={() =>
+                            setOpenCohort({
+                                id: 'new',
+                                groups: [
+                                    {
+                                        id: Math.random().toString().substr(2, 5),
+                                        matchType: PROPERTY_MATCH_TYPE,
+                                    },
+                                ],
+                            })
+                        }
                         icon={<PlusOutlined />}
                     >
                         New Cohort
@@ -193,6 +204,18 @@ export function Cohorts(): JSX.Element {
                     onClose={() => setOpenCohort(null)}
                     destroyOnClose={true}
                     visible={!!openCohort}
+                    footer={
+                        <Row justify="end">
+                            <Button
+                                type="primary"
+                                htmlType="submit"
+                                data-attr="save-cohort"
+                                style={{ marginTop: '1rem' }}
+                            >
+                                Save cohort
+                            </Button>
+                        </Row>
+                    }
                 >
                     {openCohort && <CohortV2 cohort={openCohort} />}
                 </Drawer>

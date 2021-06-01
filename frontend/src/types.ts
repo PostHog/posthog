@@ -329,13 +329,22 @@ export interface PersonType {
 }
 
 export interface CohortGroupType {
+    id: string
     days?: string
     action_id?: number
+    event_id?: string
+    label?: string
+    count?: number
+    operator?: string
     properties?: Record<string, any>
+    matchType: MatchType
 }
+
+export type MatchType = 'entities' | 'properties'
 
 export interface CohortType {
     count?: number
+    description?: string
     created_by?: UserBasicType | null
     created_at?: string
     deleted?: boolean
