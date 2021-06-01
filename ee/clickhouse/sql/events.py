@@ -191,10 +191,11 @@ SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seco
 """
 
 NULL_SQL_FUNNEL_TRENDS = """
-SELECT toUInt16(0) AS completed,
-       {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start,
-       toUInt16(0) AS total
-  FROM numbers({num_intervals})
+SELECT {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start,
+       completed,
+       total,
+       cohort
+  FROM numbers({num_intervals}) as num
 """
 
 NULL_BREAKDOWN_SQL = """

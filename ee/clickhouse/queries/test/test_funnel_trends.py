@@ -5,7 +5,7 @@ from ee.clickhouse.queries.clickhouse_funnel_trends import ClickhouseFunnelTrend
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
 from posthog.models.filters import Filter
-from posthog.models.filters.mixins.funnel_window import FunnelWindowMixin
+from posthog.models.filters.mixins.funnel_window_days import FunnelWindowDaysMixin
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
@@ -65,9 +65,29 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):  # type: ignore
         _create_event(event="step two", distinct_id="user_seven", team=self.team, timestamp="2021-05-04 00:00:00")
 
     def test_milliseconds_from_days_conversion(self):
-        self.assertEqual(FunnelWindowMixin._milliseconds_from_days(1), 86400000)
+        self.assertEqual(FunnelWindowDaysMixin.milliseconds_from_days(1), 86400000)
 
-    def test_raw_query(self):
+    # minute, hour, day, week, month
+    def test_hour_interval(self):
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "hour",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team).run()
+        self.assertEqual(len(results), 145)
+
+    def test_day_interval(self):
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
@@ -75,9 +95,70 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):  # type: ignore
                 "interval": "day",
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-07 00:00:00",
-                "funnel_window": 7,
-                "events": [{"id": "step one", "order": 0}, {"id": "step two", "order": 1},],
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
             }
         )
         results = ClickhouseFunnelTrends(filter, self.team).run()
-        self.assertEqual(len(results), 4)
+        self.assertEqual(len(results), 7)
+
+    def test_week_interval(self):
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "week",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team).run()
+        self.assertEqual(2, len(results))
+
+    def test_month_interval(self):
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "month",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team).run()
+        self.assertEqual(len(results), 1)
+
+    def test_month_interval(self):
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "month",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team).run()
+        self.assertEqual(len(results), 1)

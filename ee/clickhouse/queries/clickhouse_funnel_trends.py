@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
@@ -7,6 +9,11 @@ from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.funnel import Funnel
+
+DAY_START = 0
+TOTAL_COMPLETED_FUNNELS = 1
+ALL_FUNNELS_ENTRIES = 2
+PERSON_IDS = 3
 
 
 class ClickhouseFunnelTrends(Funnel):
@@ -22,11 +29,33 @@ class ClickhouseFunnelTrends(Funnel):
         }
 
     def run(self):
-        sql = self.configure_sql()
+        sql = self._configure_sql()
         results = sync_execute(sql, self.params)
-        return results
+        summary = self._summarize_data(results)
+        return summary
 
-    def configure_sql(self):
+    def _summarize_data(self, results):
+        total = 0
+        for result in results:
+            total += result[ALL_FUNNELS_ENTRIES]
+
+        out = []
+
+        for result in results:
+            percent_complete = round(result[TOTAL_COMPLETED_FUNNELS] / total * 100, 2)
+            record = {
+                "timestamp": result[DAY_START],
+                "completed_funnels": result[TOTAL_COMPLETED_FUNNELS],
+                "total": total,
+                "percent_complete": percent_complete,
+                "complete": self._determine_complete(result[DAY_START]),
+                "cohort": result[PERSON_IDS],
+            }
+            out.append(record)
+
+        return out
+
+    def _configure_sql(self):
         funnel_trend_null_sql = self._get_funnel_trend_null_sql()
         parsed_date_from, parsed_date_to, _ = self._get_dates()
         prop_filters, prop_filter_params = self._get_filters()
@@ -41,13 +70,10 @@ class ClickhouseFunnelTrends(Funnel):
             filters=prop_filters.replace("uuid IN", "events.uuid IN", 1),
             parsed_date_from=parsed_date_from,
             parsed_date_to=parsed_date_to,
-            within_time=self._filter.funnel_window,
+            within_time=self._filter.milliseconds_from_days(self._filter.funnel_window_days),
             latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             funnel_trend_null_sql=funnel_trend_null_sql,
             interval_method=interval_method,
-            # top_level_groupby=", date",
-            # extra_select="{}(timestamp) as date,".format(get_trunc_func_ch(self._filter.interval)),
-            # extra_groupby=",{}(timestamp)".format(get_trunc_func_ch(self._filter.interval)),
         )
         return sql
 
@@ -80,6 +106,16 @@ class ClickhouseFunnelTrends(Funnel):
 
     def _get_steps(self):
         return [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
+
+    def _determine_complete(self, timestamp):
+        # difference between current date and timestamp greater than window
+        now = datetime.utcnow().date()
+        days_to_subtract = self._filter.funnel_window_days * -1
+        delta = timedelta(days=days_to_subtract)
+        completed_end = now + delta
+        compare_timestamp = timestamp.date() if type(timestamp) is datetime else timestamp
+        is_incomplete = compare_timestamp > completed_end
+        return not is_incomplete
 
     @staticmethod
     def _run_query(format_dictionary):
