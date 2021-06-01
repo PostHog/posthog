@@ -190,6 +190,13 @@ NULL_SQL = """
 SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start from numbers({num_intervals})
 """
 
+NULL_SQL_FUNNEL_TRENDS = """
+SELECT toUInt16(0) AS completed,
+       {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start,
+       toUInt16(0) AS total
+  FROM numbers({num_intervals})
+"""
+
 NULL_BREAKDOWN_SQL = """
 SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start, breakdown_value from numbers({num_intervals})
 """

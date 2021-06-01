@@ -79,5 +79,5 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):  # type: ignore
                 "events": [{"id": "step one", "order": 0}, {"id": "step two", "order": 1},],
             }
         )
-        results = ClickhouseFunnelTrends(self.team, filter).run()
+        results = ClickhouseFunnelTrends(filter, self.team).run()
         self.assertEqual(len(results), 4)

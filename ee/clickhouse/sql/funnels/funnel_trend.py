@@ -1,9 +1,9 @@
 FUNNEL_TREND_SQL = """
-select interval_date,
+select day_start,
     sum(completed) as total_completed_funnels,
     sum(total) as all_funnels_entries
 from (
-    {null_sql}
+    {funnel_trend_null_sql}
     union all
     select countIf(max_step={step_count}) as completed,
         {interval_method}(when) as start,
@@ -34,6 +34,6 @@ from (
     )
     group by start
 )
-group by interval_date
-order by interval_date;
+group by day_start
+order by day_start;
 """
