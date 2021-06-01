@@ -10,6 +10,7 @@ env:
     DEPLOYMENT_NAME: posthog # Add your deployment name here.
     IMAGE: posthog # the image name that's pushed to google
     REGISTRY_HOSTNAME: gcr.io
+    AWS_REGION: us-east-2 # for helm repo and update
 
 jobs:
     setup-build-publish-deploy:
