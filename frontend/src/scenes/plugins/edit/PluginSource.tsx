@@ -13,7 +13,9 @@ const defaultSource = `// Learn more about plugins at: https://posthog.com/docs/
 import { Plugin } from '@posthog/plugin-scaffold'
 
 type MyPluginType = Plugin<{
-  config: {},
+  config: {
+    username: string
+  },
   global: {},
 }>
 
