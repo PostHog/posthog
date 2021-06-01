@@ -12,8 +12,8 @@ import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
 import { DashboardMode } from '../../types'
 import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import { Link } from 'lib/components/Link'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+import { NotFound } from 'lib/components/NotFound'
 
 interface Props {
     id: string
@@ -80,25 +80,7 @@ function DashboardView(): JSX.Element {
     }
 
     if (!dashboard) {
-        return (
-            <div className="dashboard not-found">
-                <div className="graphic" />
-                <h1 className="page-title">Dashboard not found</h1>
-                <b>It seems this page may have been lost in space.</b>
-                <p>
-                    It’s possible this dashboard may have been deleted or its sharing settings changed. Please check
-                    with the person who sent you here, or{' '}
-                    <Link
-                        to="https://posthog.com/support?utm_medium=in-product&utm_campaign=dashboard-not-found"
-                        target="_blank"
-                        rel="noopener"
-                    >
-                        contact support
-                    </Link>{' '}
-                    if you think this is a mistake
-                </p>
-            </div>
-        )
+        return <NotFound object="dashboard" />
     }
 
     return (
