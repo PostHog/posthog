@@ -70,7 +70,7 @@ class ClickhouseFunnelTrends(Funnel):
                 "completed_funnels": result[TOTAL_COMPLETED_FUNNELS],
                 "total": total,
                 "percent_complete": percent_complete,
-                "complete": self._determine_complete(result[DAY_START]),
+                "is_complete": self._determine_complete(result[DAY_START]),
                 "cohort": result[PERSON_IDS],
             }
             out.append(record)

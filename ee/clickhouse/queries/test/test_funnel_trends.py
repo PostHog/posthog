@@ -162,3 +162,73 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):  # type: ignore
         )
         results = ClickhouseFunnelTrends(filter, self.team).run()
         self.assertEqual(len(results), 1)
+
+    def test_all_results_for_day_interval(self):
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team).run()
+
+        saturday = results[0]  # 5/1
+        self.assertEqual(1, saturday["completed_funnels"])
+        self.assertEqual(6, saturday["total"])
+        self.assertEqual(16.67, saturday["percent_complete"])
+        self.assertEqual(True, saturday["is_complete"])
+        self.assertEqual(1, len(saturday["cohort"]))
+
+        sunday = results[1]  # 5/2
+        self.assertEqual(0, sunday["completed_funnels"])
+        self.assertEqual(6, sunday["total"])
+        self.assertEqual(0.00, sunday["percent_complete"])
+        self.assertEqual(True, sunday["is_complete"])
+        self.assertEqual(0, len(sunday["cohort"]))
+
+        monday = results[2]  # 5/3
+        self.assertEqual(0, monday["completed_funnels"])
+        self.assertEqual(6, monday["total"])
+        self.assertEqual(0.00, monday["percent_complete"])
+        self.assertEqual(True, monday["is_complete"])
+        self.assertEqual(0, len(monday["cohort"]))
+
+        tuesday = results[3]  # 5/4
+        self.assertEqual(0, tuesday["completed_funnels"])
+        self.assertEqual(6, tuesday["total"])
+        self.assertEqual(0.00, tuesday["percent_complete"])
+        self.assertEqual(True, tuesday["is_complete"])
+        self.assertEqual(0, len(tuesday["cohort"]))
+
+        wednesday = results[4]  # 5/5
+        self.assertEqual(2, wednesday["completed_funnels"])
+        self.assertEqual(6, wednesday["total"])
+        self.assertEqual(33.33, wednesday["percent_complete"])
+        self.assertEqual(True, wednesday["is_complete"])
+        self.assertEqual(2, len(wednesday["cohort"]))
+
+        thursday = results[5]  # 5/6
+        self.assertEqual(0, thursday["completed_funnels"])
+        self.assertEqual(6, thursday["total"])
+        self.assertEqual(0.00, thursday["percent_complete"])
+        self.assertEqual(True, thursday["is_complete"])
+        self.assertEqual(0, len(thursday["cohort"]))
+
+        friday = results[6]  # 5/7
+        self.assertEqual(0, friday["completed_funnels"])
+        self.assertEqual(6, friday["total"])
+        self.assertEqual(0.00, friday["percent_complete"])
+        self.assertEqual(True, friday["is_complete"])
+        self.assertEqual(0, len(friday["cohort"]))
+
+    def test_window(self):
+        pass
