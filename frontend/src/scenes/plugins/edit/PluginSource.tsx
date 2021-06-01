@@ -5,8 +5,11 @@ import { Button, Form, Input } from 'antd'
 import MonacoEditor from '@monaco-editor/react'
 import { Drawer } from 'lib/components/Drawer'
 
+// @ts-ignore
 import SCAFFOLD_index from '!raw-loader!@posthog/plugin-scaffold/dist/index.d.ts'
+// @ts-ignore
 import SCAFFOLD_errors from '!raw-loader!@posthog/plugin-scaffold/dist/errors.d.ts'
+// @ts-ignore
 import SCAFFOLD_types from '!raw-loader!@posthog/plugin-scaffold/dist/types.d.ts'
 
 const defaultSource = `// Learn more about plugins at: https://posthog.com/docs/plugins/overview
