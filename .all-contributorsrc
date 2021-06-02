@@ -1297,6 +1297,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "taobojlen",
+      "name": "Tao Bojlén",
+      "avatar_url": "https://avatars.githubusercontent.com/u/66130243?v=4",
+      "profile": "https://www.btao.org/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
