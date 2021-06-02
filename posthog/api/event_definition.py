@@ -74,6 +74,7 @@ class EventDefinitionViewSet(
                 )
                 new_enterprise_event.__dict__.update(non_enterprise_event.__dict__)
                 new_enterprise_event.save()
+                return new_enterprise_event
         return EventDefinition.objects.get(id=id)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:

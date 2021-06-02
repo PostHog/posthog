@@ -84,4 +84,5 @@ class PropertyDefinitionViewSet(
                 )
                 new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
                 new_enterprise_property.save()
+                return new_enterprise_property
         return PropertyDefinition.objects.get(id=id)
