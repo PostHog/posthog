@@ -73,7 +73,7 @@ export const insightDataCachingLogic = kea<insightDataCachingLogicType>({
             {} as Record<string, boolean | undefined>,
             {
                 startLoading: (state, { key }) => ({ ...state, [key]: true }),
-                finishLoading: (state, { key }) => ({ ...state, [key]: true }),
+                finishLoading: (state, { key }) => ({ ...state, [key]: false }),
             },
         ],
     },
