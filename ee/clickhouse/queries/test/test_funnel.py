@@ -6,7 +6,7 @@ from ee.clickhouse.queries.clickhouse_funnel import ClickhouseFunnel
 from ee.clickhouse.sql.funnels.funnel_trend import FUNNEL_TREND_SQL
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.person import Person
-from posthog.queries.test.test_funnel import funnel_test_factory, funnel_trends_test_factory
+from posthog.queries.test.test_funnel import funnel_test_factory
 
 
 def _create_person(**kwargs):
@@ -19,9 +19,9 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
+class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):
     pass
 
 
-class TestFunnelTrends(ClickhouseTestMixin, funnel_trends_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
-    pass
+# class TestFunnelTrends(ClickhouseTestMixin, funnel_trends_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
+#     pass
