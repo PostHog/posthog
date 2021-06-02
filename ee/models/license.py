@@ -58,7 +58,7 @@ class License(models.Model):
         "organizations_projects",
         "google_login",
         "dashboard_collaboration",
-        "event_property_collaboration",
+        "ingestion_taxonomy",
     ]  # Base premium features
     PLANS = {
         ENTERPRISE_PLAN: ENTERPRISE_FEATURES + ["clickhouse"],

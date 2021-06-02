@@ -1,9 +1,8 @@
-from ee.models.event_definition import EnterpriseEventDefinition
-from typing import Any, Type
+from posthog.exceptions import EnterpriseFeatureException
+from typing import Type
 
-from rest_framework import filters, mixins, permissions, response, serializers, viewsets
+from rest_framework import filters, mixins, permissions, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import EventDefinition
@@ -21,11 +20,15 @@ class EventDefinitionSerializer(serializers.ModelSerializer):
         )
 
     def update(self, event_definition: EventDefinition, validated_data):
-        raise PermissionDenied("This is an Enterprise plan feature.")
+        raise EnterpriseFeatureException()
 
 
 class EventDefinitionViewSet(
-    StructuredViewSetMixin, mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet,
+    StructuredViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
 ):
     serializer_class = EventDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
@@ -34,35 +37,52 @@ class EventDefinitionViewSet(
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
 
-
     def get_queryset(self):
-        if self.request.user.organization.is_feature_available("event_property_collaboration"):  # type: ignore
-            from ee.models.event_definition import EnterpriseEventDefinition
-            ee_event_definitions = EnterpriseEventDefinition.objects.raw(
-                """
-                SELECT *
-                FROM ee_enterpriseeventdefinition
-                FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-                WHERE team_id = %s
-                ORDER BY name
-                """,
-                params=[self.request.user.team.id]
-            )
-            return ee_event_definitions
-            # return self.filter_queryset_by_parents_lookups(EnterpriseEventDefinition.objects.all()).order_by(self.ordering)
+        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
+            try:
+                from ee.models.event_definition import EnterpriseEventDefinition
+            except ImportError:
+                pass
+            else:
+                ee_event_definitions = EnterpriseEventDefinition.objects.raw(
+                    """
+                    SELECT *
+                    FROM ee_enterpriseeventdefinition
+                    FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
+                    WHERE team_id = %s
+                    ORDER BY name
+                    """,
+                    params=[self.request.user.team.id],
+                )
+                return ee_event_definitions
         return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)
+
+    def get_object(self):
+        id = self.kwargs["id"]
+        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
+            try:
+                from ee.models.event_definition import EnterpriseEventDefinition
+            except ImportError:
+                pass
+            else:
+                enterprise_event = EnterpriseEventDefinition.objects.filter(id=id).first()
+                if enterprise_event:
+                    return enterprise_event
+                non_enterprise_event = EventDefinition.objects.get(id=id)
+                new_enterprise_event = EnterpriseEventDefinition(
+                    eventdefinition_ptr_id=non_enterprise_event.id, description=""
+                )
+                new_enterprise_event.__dict__.update(non_enterprise_event.__dict__)
+                new_enterprise_event.save()
+        return EventDefinition.objects.get(id=id)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if self.request.user.organization.is_feature_available("event_property_collaboration"):  # type: ignore
-            from ee.api.enterprise_event_definition import EnterpriseEventDefinitionSerializer
-
-            serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
+        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
+            try:
+                from ee.api.enterprise_event_definition import EnterpriseEventDefinitionSerializer
+            except ImportError:
+                pass
+            else:
+                serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
         return serializer_class
-
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any):
-        if self.request.user.organization.is_feature_available("event_property_collaboration"):  # type: ignore
-            from ee.api.enterprise_event_definition import EnterpriseEventDefinitionSerializer
-            return response.Response(EnterpriseEventDefinitionSerializer(EnterpriseEventDefinition.objects.get(id=kwargs["id"])).data)
-            # return response.Response(EnterpriseEventDefinitionSerializer(self.get_queryset().get(id=kwargs["id"])).data)
-        raise PermissionDenied("This is an Enterprise plan feature.")

@@ -10,6 +10,11 @@ class RequestParsingError(Exception):
     pass
 
 
+class EnterpriseFeatureException(APIException):
+    status_code = status.HTTP_402_PAYMENT_REQUIRED
+    default_detail = "This is an Enterprise feature."
+
+
 def exception_reporting(exception: Exception, *args, **kwargs) -> None:
     """
     Determines which exceptions to report and sends them to Sentry.
