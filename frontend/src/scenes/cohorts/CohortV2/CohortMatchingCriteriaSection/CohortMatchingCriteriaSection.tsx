@@ -22,7 +22,7 @@ export function CohortMatchingCriteriaSection({
             </span>
             <br />
             <span>
-                Users who match the following criteria will be part of the cohort. Autonomatically updated continuously
+                Users who match the following criteria will be part of the cohort. Automatically updated continuously
             </span>
             <div style={{ marginTop: 20, marginBottom: 20 }}>
                 {cohort.groups.map((group: CohortGroupType, index: number) => (
@@ -42,7 +42,9 @@ export function CohortMatchingCriteriaSection({
                     </React.Fragment>
                 ))}
             </div>
-            <span onClick={() => onAddGroup()}>+ Add Matching Criteria</span>
+            <span style={{ cursor: 'pointer' }} onClick={() => onAddGroup()}>
+                + Add Matching Criteria
+            </span>
         </Col>
     )
 }

@@ -167,7 +167,7 @@ export function CohortV2Footer(props: { cohort: CohortType }): JSX.Element {
     const { saveCohort } = useActions(logic)
 
     const isDisabled = (): boolean => {
-        return !cohort.name || !cohort.description || objectsEqual(props.cohort, cohort)
+        return !cohort.name || objectsEqual(props.cohort, cohort)
     }
 
     const onSave = (): void => {

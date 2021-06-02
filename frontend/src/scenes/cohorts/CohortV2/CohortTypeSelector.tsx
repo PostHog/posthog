@@ -82,6 +82,7 @@ export function CohortTypeSelector({
                         display: 'flex',
                         flexDirection: 'row',
                         alignItems: 'center',
+                        cursor: 'pointer',
                     }}
                     onClick={(e) => e.preventDefault()}
                 >
