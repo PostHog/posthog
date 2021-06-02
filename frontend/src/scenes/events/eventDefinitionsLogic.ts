@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import api from 'lib/api'
+import { insightDataCachingLogic } from 'lib/logic/insightDataCachingLogic'
 import { posthogEvents } from 'lib/utils'
 import { EventDefinition, SelectOption } from '~/types'
 import { eventDefinitionsLogicType } from './eventDefinitionsLogicType'
@@ -18,44 +18,33 @@ interface EventsGroupedInterface {
 export const eventDefinitionsLogic = kea<
     eventDefinitionsLogicType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface, SelectOption>
 >({
-    loaders: ({ values }) => ({
-        eventStorage: [
-            { results: [], next: null, count: 0 } as EventDefinitionStorage,
-            {
-                loadEventDefinitions: async (initial?: boolean) => {
-                    const url = initial
-                        ? 'api/projects/@current/event_definitions/?limit=5000'
-                        : values.eventStorage.next
-                    if (!url) {
-                        throw new Error('Incorrect call to eventDefinitionsLogic.loadEventDefinitions')
-                    }
-                    const eventStorage = await api.get(url)
-                    return {
-                        count: eventStorage.count,
-                        results: [...values.eventStorage.results, ...eventStorage.results],
-                        next: eventStorage.next,
-                    }
-                },
-            },
-        ],
-    }),
-    listeners: ({ actions }) => ({
-        loadEventDefinitionsSuccess: ({ eventStorage }) => {
-            if (eventStorage.next) {
-                actions.loadEventDefinitions()
-            }
-        },
-    }),
+    connect: {
+        actions: [insightDataCachingLogic, ['maybeLoadData']],
+        values: [insightDataCachingLogic, ['cachedData', 'cacheLoading']],
+    },
     events: ({ actions }) => ({
         afterMount: () => {
-            actions.loadEventDefinitions(true)
+            actions.maybeLoadData({
+                key: 'eventDefinitions',
+                endpoint: 'api/projects/@current/event_definitions/?limit=5000',
+                paginated: true,
+            })
         },
     }),
     selectors: {
+        eventStorage: [
+            (s) => [s.cachedData],
+            (cachedData): EventDefinitionStorage => {
+                if (cachedData['eventDefinitions']) {
+                    return cachedData['eventDefinitions']
+                }
+                return { results: [], next: null, count: 0 }
+            },
+        ],
         loaded: [
             // Whether *all* the event definitions are fully loaded
-            (s) => [s.eventStorage, s.eventStorageLoading],
-            (eventStorage, eventStorageLoading): boolean => !eventStorageLoading && !eventStorage.next,
+            (s) => [s.eventStorage, s.cacheLoading],
+            (eventStorage, cacheLoading): boolean => !cacheLoading['eventDefinitions'] && !eventStorage.next,
         ],
         eventDefinitions: [(s) => [s.eventStorage], (eventStorage): EventDefinition[] => eventStorage.results],
         eventNames: [

@@ -9,6 +9,7 @@ import { eventUsageLogic } from '../lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { insightDataCachingLogic } from 'lib/logic/insightDataCachingLogic'
 
 export enum Scene {
     Dashboards = 'dashboards',
@@ -193,6 +194,8 @@ export const routes: Record<string, Scene> = {
 }
 
 export const sceneLogic = kea<sceneLogicType>({
+    connect: [insightDataCachingLogic],
+
     actions: {
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
