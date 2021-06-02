@@ -51,7 +51,7 @@ class PropertyDefinitionViewSet(
                     WHERE team_id = %s
                     ORDER BY name
                     """,
-                    params=[self.request.user.team.id],
+                    params=[self.request.user.team.id],  # type: ignore
                 )
                 return ee_property_definitions
         return self.filter_queryset_by_parents_lookups(PropertyDefinition.objects.all()).order_by(self.ordering)

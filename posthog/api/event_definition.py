@@ -52,7 +52,7 @@ class EventDefinitionViewSet(
                     WHERE team_id = %s
                     ORDER BY name
                     """,
-                    params=[self.request.user.team.id],
+                    params=[self.request.user.team.id],  # type: ignore
                 )
                 return ee_event_definitions
         return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)

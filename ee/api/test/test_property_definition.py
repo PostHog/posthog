@@ -33,9 +33,9 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         enterprise_property = EnterprisePropertyDefinition.objects.all().first()
         property.refresh_from_db()
-        self.assertEqual(enterprise_property.propertydefinition_ptr_id, property.id)
-        self.assertEqual(enterprise_property.name, property.name)
-        self.assertEqual(enterprise_property.team.id, property.team.id)
+        self.assertEqual(enterprise_property.propertydefinition_ptr_id, property.id)  # type: ignore
+        self.assertEqual(enterprise_property.name, property.name)  # type: ignore
+        self.assertEqual(enterprise_property.team.id, property.team.id)  # type: ignore
 
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

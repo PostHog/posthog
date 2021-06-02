@@ -36,9 +36,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         enterprise_event = EnterpriseEventDefinition.objects.all().first()
         event.refresh_from_db()
-        self.assertEqual(enterprise_event.eventdefinition_ptr_id, event.id)
-        self.assertEqual(enterprise_event.name, event.name)
-        self.assertEqual(enterprise_event.team.id, event.team.id)
+        self.assertEqual(enterprise_event.eventdefinition_ptr_id, event.id)  # type: ignore
+        self.assertEqual(enterprise_event.name, event.name)  # type: ignore
+        self.assertEqual(enterprise_event.team.id, event.team.id)  # type: ignore
 
     def test_update_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -55,7 +55,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["tags"], ["official", "internal"])
 
         event.refresh_from_db()
-        self.assertEqual(event.description, "This is a description")
+        self.assertEqual(event.description, "This is a description.")
         self.assertEqual(event.tags, ["official", "internal"])
 
     def test_update_event_without_license(self):
