@@ -2,9 +2,15 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
 import dayjs from 'dayjs'
-import { getNextKey } from 'lib/components/Annotations/utils'
+import { insightDataCachingLogic } from 'lib/logic/insightDataCachingLogic'
+
+const endpoint = 'api/annotation/?' + toParams({ scope: 'organization', deleted: false })
 
 export const annotationsModel = kea({
+    connect: {
+        actions: [insightDataCachingLogic, ['maybeLoadData', 'refreshData']],
+        values: [insightDataCachingLogic, ['cachedData', 'cacheLoading']],
+    },
     actions: () => ({
         createGlobalAnnotation: (content, date_marker, dashboard_item) => ({
             content,
@@ -14,33 +20,11 @@ export const annotationsModel = kea({
         }),
         deleteGlobalAnnotation: (id) => ({ id }),
     }),
-    loaders: () => ({
-        globalAnnotations: {
-            __default: [],
-            loadGlobalAnnotations: async () => {
-                const response = await api.get(
-                    'api/annotation/?' +
-                        toParams({
-                            scope: 'organization',
-                            deleted: false,
-                        })
-                )
-                return response.results
-            },
-        },
-    }),
-    reducers: () => ({
-        globalAnnotations: {
-            createGlobalAnnotation: (state, { content, date_marker, created_at }) => [
-                ...state,
-                { id: getNextKey(state), content, date_marker, created_at, created_by: 'local', scope: 'organization' },
-            ],
-            deleteGlobalAnnotation: (state, { id }) => {
-                return state.filter((a) => a.id !== id)
-            },
-        },
-    }),
     selectors: ({ selectors }) => ({
+        globalAnnotations: [
+            (s) => [s.cachedData],
+            (cachedData) => (cachedData['globalAnnotations'] ? cachedData['globalAnnotations'].results : []),
+        ],
         activeGlobalAnnotations: [
             () => [selectors.globalAnnotations],
             (globalAnnotations) => {
@@ -57,18 +41,20 @@ export const annotationsModel = kea({
                 dashboard_item,
                 scope: 'organization',
             })
-            actions.loadGlobalAnnotations()
+            actions.refreshData({ key: 'globalAnnotations', endpoint })
         },
         deleteGlobalAnnotation: async ({ id }) => {
             id >= 0 &&
                 deleteWithUndo({
                     endpoint: 'annotation',
                     object: { name: 'Annotation', id },
-                    callback: () => actions.loadGlobalAnnotations(),
+                    callback: () => actions.refreshData({ key: 'globalAnnotations', endpoint }),
                 })
         },
     }),
     events: ({ actions }) => ({
-        afterMount: actions.loadGlobalAnnotations,
+        afterMount: () => {
+            actions.maybeLoadData({ key: 'globalAnnotations', endpoint })
+        },
     }),
 })
