@@ -15,7 +15,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"])
+        event = EnterpriseEventDefinition.objects.create(
+            team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
+        )
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -45,10 +47,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user)
         response = self.client.patch(
             f"/api/projects/@current/event_definitions/{str(event.id)}/",
-            {
-                "description": "This is a description.",
-                "tags": ["official", "internal"],
-            },
+            {"description": "This is a description.", "tags": ["official", "internal"],},
         )
         response_data = response.json()
         self.assertEqual(response_data["description"], "This is a description.")
@@ -58,7 +57,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         event.refresh_from_db()
         self.assertEqual(event.description, "This is a description")
         self.assertEqual(event.tags, ["official", "internal"])
-
 
     def test_update_event_without_license(self):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")
@@ -78,5 +76,3 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertEqual(response.json()["detail"], "This is an Enterprise feature.")
-
-

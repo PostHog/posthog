@@ -3,9 +3,11 @@ from rest_framework import serializers
 from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.api.shared import UserBasicSerializer
 
+
 class EnterpriseEventDefinitionSerializer(serializers.ModelSerializer):
     owner = UserBasicSerializer(read_only=True)
     updated_by = UserBasicSerializer(read_only=False)
+
     class Meta:
         model = EnterpriseEventDefinition
         fields = (

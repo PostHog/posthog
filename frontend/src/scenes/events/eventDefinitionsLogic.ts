@@ -60,7 +60,6 @@ export const eventDefinitionsLogic = kea<
         updateEventDefinition: async ({ id, description }) => {
             const response = await api.update(`api/projects/@current/event_definitions/${id}`, { description })
             actions.setEventDefinitions(response)
-            return response
         },
     }),
     events: ({ actions }) => ({

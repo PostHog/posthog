@@ -41,7 +41,7 @@ export function VolumeTable({
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
     const { user } = useValues(userLogic)
-    const isPremiumUser = user?.organization?.available_features?.includes('dashboard_collaboration')
+    const hasTaxonomyFeatures = user?.organization?.available_features?.includes('ingestion_taxonomy')
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {
@@ -52,7 +52,7 @@ export function VolumeTable({
                         <span className="ph-no-capture">
                             <PropertyKeyInfo style={{ fontWeight: 'bold' }} value={record.eventOrProp.name} />
                         </span>
-                        {isPremiumUser && type === 'event' && (
+                        {hasTaxonomyFeatures && type === 'event' && (
                             <VolumeTableRecordDescription record={record.eventOrProp} />
                         )}
                         {record.warnings?.map((warning) => (
@@ -78,7 +78,7 @@ export function VolumeTable({
             ],
             onFilter: (value, record) => (value === 'warnings' ? !!record.warnings.length : !record.warnings.length),
         },
-        type === 'event' && isPremiumUser
+        type === 'event' && hasTaxonomyFeatures
             ? {
                   title: 'Owner',
                   render: function Render(_, record): JSX.Element {
@@ -193,7 +193,7 @@ export function VolumeTableRecordDescription({
     record: EventDefinition | PropertyDefinition
 }): JSX.Element {
     const [newDescription, setNewDescription] = useState(record.description)
-    const [bordered, setBordered] = useState(false)
+    const [editing, setEditing] = useState(false)
     const { updateEventDefinition } = useActions(eventDefinitionsLogic)
 
     return (
@@ -201,15 +201,15 @@ export function VolumeTableRecordDescription({
             <Input.TextArea
                 className="definition-description"
                 placeholder="Click to add description"
-                onClick={() => setBordered(true)}
-                bordered={bordered}
+                onClick={() => setEditing(true)}
+                bordered={editing}
                 maxLength={400}
                 style={{ padding: 0, marginRight: 16, minWidth: 300 }}
                 autoSize={true}
                 value={newDescription || undefined}
                 onChange={(e) => setNewDescription(e.target.value)}
             />
-            {bordered && (
+            {editing && (
                 <>
                     <Button
                         style={{ marginRight: 8 }}
@@ -222,7 +222,7 @@ export function VolumeTableRecordDescription({
                     <Button
                         onClick={() => {
                             setNewDescription(record.description)
-                            setBordered(false)
+                            setEditing(false)
                         }}
                         size="small"
                     >

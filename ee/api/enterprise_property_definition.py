@@ -3,8 +3,10 @@ from rest_framework import serializers
 from ee.models.property_definition import EnterprisePropertyDefinition
 from posthog.api.shared import UserBasicSerializer
 
+
 class EnterprisePropertyDefinitionSerializer(serializers.ModelSerializer):
     updated_by = UserBasicSerializer(read_only=False)
+
     class Meta:
         model = EnterprisePropertyDefinition
         fields = (

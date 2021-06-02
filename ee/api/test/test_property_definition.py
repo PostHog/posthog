@@ -14,7 +14,9 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property", tags=["deprecated"])
+        property = EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="enterprise property", tags=["deprecated"]
+        )
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -42,10 +44,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(
             f"/api/projects/@current/property_definitions/{str(property.id)}/",
-            {
-                "description": "This is a description.",
-                "tags": ["official", "internal"],
-            },
+            {"description": "This is a description.", "tags": ["official", "internal"],},
         )
         response_data = response.json()
         self.assertEqual(response_data["description"], "This is a description.")
@@ -54,7 +53,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         property.refresh_from_db()
         self.assertEqual(property.tags, ["official", "internal"])
-
 
     def test_update_property_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
