@@ -18,7 +18,7 @@ import { objectsEqual } from 'lib/utils'
 export function CohortV2(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
     const { setCohort } = useActions(logic)
-    const { cohort } = useValues(logic)
+    const { cohort, lastSavedAt } = useValues(logic)
 
     const onNameChange = (name: string): void => {
         setCohort({
@@ -74,63 +74,16 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
         }
     }
 
-    const StaticCohortField = (): JSX.Element => {
-        const props = {
-            name: 'file',
-            multiple: false,
-            fileList: cohort.csv ? [cohort.csv] : [],
-            beforeUpload(file: File) {
-                setCohort({ ...cohort, csv: file })
+    const staticCSVDraggerProps = {
+        name: 'file',
+        multiple: false,
+        fileList: cohort.csv ? [cohort.csv] : [],
+        beforeUpload(file: File) {
+            setCohort({ ...cohort, csv: file })
 
-                return false
-            },
-            accept: '.csv',
-        }
-
-        return (
-            <div>
-                <span className="sub-header" style={{ fontSize: 16 }}>
-                    Add Users
-                </span>
-                <br />
-                <span>Drop a .csv file here to add users to your cohort</span>
-                <Dragger {...props}>
-                    <p className="ant-upload-drag-icon">
-                        <InboxOutlined />
-                    </p>
-                    <p className="ant-upload-text">Click or drag CSV to this area to upload</p>
-                    <p className="ant-upload-hint">
-                        Make sure the file has a single column with the user's distinct_id.
-                    </p>
-                </Dragger>
-            </div>
-        )
-    }
-
-    const DynamicCohortField = (): JSX.Element => {
-        return (
-            <CohortMatchingCriteriaSection
-                onCriteriaChange={onCriteriaChange}
-                cohort={cohort}
-                onAddGroup={onAddGroup}
-                onRemoveGroup={onRemoveGroup}
-            />
-        )
-    }
-
-    const MatchPersons = (): JSX.Element => {
-        return (
-            <div>
-                <span className="sub-header" style={{ fontSize: 16 }}>
-                    Matched Users
-                </span>
-                <br />
-                <span>List of users that currently match the criteria defined</span>
-                <div style={{ marginTop: 15 }}>
-                    <Persons cohort={cohort} key={cohort.last_calculation} />
-                </div>
-            </div>
-        )
+            return false
+        },
+        accept: '.csv',
     }
 
     return (
@@ -154,9 +107,44 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
             </div>
             {cohort.id && cohort.id !== 'new' && <CohortDetailsRow cohort={cohort} />}
             <Divider />
-            {cohort.is_static ? <StaticCohortField /> : <DynamicCohortField />}
+            {cohort.is_static ? (
+                <div>
+                    <span className="sub-header" style={{ fontSize: 16 }}>
+                        Add Users
+                    </span>
+                    <br />
+                    <span>Drop a .csv file here to add users to your cohort</span>
+                    <Dragger {...staticCSVDraggerProps}>
+                        <p className="ant-upload-drag-icon">
+                            <InboxOutlined />
+                        </p>
+                        <p className="ant-upload-text">Click or drag CSV to this area to upload</p>
+                        <p className="ant-upload-hint">
+                            Make sure the file has a single column with the user's distinct_id.
+                        </p>
+                    </Dragger>
+                </div>
+            ) : (
+                <CohortMatchingCriteriaSection
+                    onCriteriaChange={onCriteriaChange}
+                    cohort={cohort}
+                    onAddGroup={onAddGroup}
+                    onRemoveGroup={onRemoveGroup}
+                />
+            )}
             <Divider />
-            {cohort.id !== 'new' && <MatchPersons />}
+            {cohort.id !== 'new' && (
+                <div>
+                    <span className="sub-header" style={{ fontSize: 16 }}>
+                        Matched Users
+                    </span>
+                    <br />
+                    <span>List of users that currently match the criteria defined</span>
+                    <div style={{ marginTop: 15 }}>
+                        <Persons cohort={cohort} key={lastSavedAt} />
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
