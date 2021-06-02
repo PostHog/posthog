@@ -14,6 +14,8 @@ DAY_START = 0
 TOTAL_COMPLETED_FUNNELS = 1
 ALL_FUNNELS_ENTRIES = 2
 PERSON_IDS = 3
+TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+HUMAN_READABLE_TIMESTAMP_FORMAT = "%a. %-d %b"
 
 
 class ClickhouseFunnelTrends(Funnel):
@@ -29,6 +31,15 @@ class ClickhouseFunnelTrends(Funnel):
         }
 
     def run(self):
+        self.setup_filter_defaults()
+        summary = self.perform_query()
+        ui_response = self._get_ui_response(summary)
+        return ui_response
+
+    def setup_filter_defaults(self):
+        pass
+
+    def perform_query(self):
         sql = self._configure_sql()
         results = sync_execute(sql, self.params)
         summary = self._summarize_data(results)
@@ -76,6 +87,20 @@ class ClickhouseFunnelTrends(Funnel):
             out.append(record)
 
         return out
+
+    @staticmethod
+    def _get_ui_response(summary):
+        count = len(summary)
+        data = []
+        days = []
+        labels = []
+
+        for row in summary:
+            data.append(row["percent_complete"])
+            days.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
+            labels.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
+
+        return [{"count": count, "data": data, "days": days, "labels": labels,}]
 
     def _get_funnel_trend_null_sql(self):
         interval_annotation = get_trunc_func_ch(self._filter.interval)

@@ -6,7 +6,7 @@ from posthog.models.filters.mixins.utils import cached_property, include_dict
 class FunnelWindowDaysMixin(BaseParamMixin):
     @cached_property
     def funnel_window_days(self) -> int:
-        _days = int(self._data.get(FUNNEL_WINDOW_DAYS, 7))
+        _days = int(self._data.get(FUNNEL_WINDOW_DAYS, 14))
         return _days
 
     @include_dict

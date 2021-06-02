@@ -94,7 +94,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).run()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
         self.assertEqual(len(results), 145)
 
     def test_day_interval(self):
@@ -113,7 +113,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).run()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
         self.assertEqual(len(results), 7)
 
     def test_week_interval(self):
@@ -132,7 +132,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).run()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
         self.assertEqual(2, len(results))
 
     def test_month_interval(self):
@@ -151,7 +151,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).run()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
         self.assertEqual(len(results), 1)
 
     def test_month_interval(self):
@@ -170,7 +170,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).run()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
         self.assertEqual(len(results), 1)
 
     def test_all_results_for_day_interval(self):
@@ -189,7 +189,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).run()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
 
         saturday = results[0]  # 5/1
         self.assertEqual(1, saturday["completed_funnels"])
@@ -256,7 +256,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).run()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
 
         saturday = results[0]  # 5/1
         self.assertEqual(1, saturday["completed_funnels"])
@@ -326,7 +326,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).run()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
 
         current = results[0]  # today
         self.assertEqual(1, current["completed_funnels"])
