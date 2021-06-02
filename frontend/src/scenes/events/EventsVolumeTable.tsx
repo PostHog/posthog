@@ -13,6 +13,8 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { userLogic } from 'scenes/userLogic'
 import './VolumeTable.scss'
 import { ProfilePicture } from '~/layout/navigation/TopNavigation'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 type EventTableType = 'event' | 'property'
 
 type EventOrPropType = EventDefinition & PropertyDefinition
@@ -41,7 +43,11 @@ export function VolumeTable({
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
     const { user } = useValues(userLogic)
-    const hasTaxonomyFeatures = user?.organization?.available_features?.includes('ingestion_taxonomy')
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const hasTaxonomyFeatures =
+        featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
+        user?.organization?.available_features?.includes('ingestion_taxonomy')
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {
@@ -50,7 +56,10 @@ export function VolumeTable({
                 return (
                     <span>
                         <span className="ph-no-capture">
-                            <PropertyKeyInfo style={{ fontWeight: 'bold' }} value={record.eventOrProp.name} />
+                            <PropertyKeyInfo
+                                style={hasTaxonomyFeatures ? { fontWeight: 'bold' } : {}}
+                                value={record.eventOrProp.name}
+                            />
                         </span>
                         {hasTaxonomyFeatures && type === 'event' && (
                             <VolumeTableRecordDescription record={record.eventOrProp} />

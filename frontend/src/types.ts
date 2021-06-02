@@ -24,6 +24,7 @@ export type AvailableFeatures =
     | 'google_login'
     | 'dashboard_collaboration'
     | 'clickhouse'
+    | 'ingestion_taxonomy'
 
 export interface ColumnConfig {
     active: string[] | 'DEFAULT'
