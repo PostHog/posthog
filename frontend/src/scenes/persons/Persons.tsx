@@ -16,7 +16,7 @@ import { IconExternalLink } from 'lib/components/icons'
 export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { persons, listFilters, personsLoading } = useValues(personsLogic)
-    console.log(cohort)
+
     useEffect(() => {
         if (cohort) {
             setListFilters({ cohort: cohort.id })
