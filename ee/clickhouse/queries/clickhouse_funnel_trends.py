@@ -2,13 +2,11 @@ from datetime import datetime, timedelta
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.clickhouse_funnel_base import ClickhouseFunnelBase
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import NULL_SQL_FUNNEL_TRENDS
 from ee.clickhouse.sql.funnels.funnel_trend import FUNNEL_TREND_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
-from posthog.models.filters import Filter
-from posthog.models.team import Team
-from posthog.queries.funnel import Funnel
 
 DAY_START = 0
 TOTAL_COMPLETED_FUNNELS = 1
@@ -18,26 +16,11 @@ TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%a. %-d %b"
 
 
-class ClickhouseFunnelTrends(Funnel):
-    _filter: Filter
-    _team: Team
-
-    def __init__(self, filter: Filter, team: Team):
-        self._filter = filter
-        self._team = team
-        self.params = {
-            "team_id": self._team.id,
-            "events": [],  # purely a speed optimization, don't need this for filtering
-        }
-
+class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     def run(self):
-        self.setup_filter_defaults()
         summary = self.perform_query()
         ui_response = self._get_ui_response(summary)
         return ui_response
-
-    def setup_filter_defaults(self):
-        pass
 
     def perform_query(self):
         sql = self._configure_sql()
