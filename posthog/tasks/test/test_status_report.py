@@ -45,7 +45,7 @@ class TestStatusReport(APIBaseTest):
             self.assertEqual(team_report["persons_count_new_in_period"], 2)
             self.assertEqual(team_report["persons_count_active_in_period"], 1)
 
-            usage_summary = status_report(dry_run=True).get("usage_summary")
+            usage_summary = status_report(dry_run=True).get("usage_summary")  # type: ignore
             self.assertEqual(usage_summary["events_used_in_period"], 3)
             self.assertEqual(usage_summary["events_used_all_time"], 4)
             self.assertEqual(usage_summary["persons_seen_all_time"], 4)
