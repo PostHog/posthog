@@ -2,11 +2,9 @@ from unittest.mock import patch
 
 from freezegun import freeze_time
 
-from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS, TRENDS_LINEAR
+from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
 from posthog.models import Action, ActionStep, Element, Event, Person
 from posthog.models.filters import Filter
-from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
-from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.queries.funnel import Funnel
 from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.tasks.update_cache import update_cache_item
