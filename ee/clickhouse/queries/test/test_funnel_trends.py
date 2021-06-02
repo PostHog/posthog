@@ -328,9 +328,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):  # type: ignore
         )
         results = ClickhouseFunnelTrends(filter, self.team).run()
 
-        saturday = results[0]  # 5/1
-        self.assertEqual(1, saturday["completed_funnels"])
-        self.assertEqual(1, saturday["total"])
-        self.assertEqual(100.00, saturday["percent_complete"])
-        self.assertEqual(False, saturday["is_complete"])
-        self.assertEqual(1, len(saturday["cohort"]))
+        current = results[0]  # today
+        self.assertEqual(1, current["completed_funnels"])
+        self.assertEqual(1, current["total"])
+        self.assertEqual(100.00, current["percent_complete"])
+        self.assertEqual(False, current["is_complete"])
+        self.assertEqual(1, len(current["cohort"]))
