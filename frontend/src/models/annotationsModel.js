@@ -57,7 +57,6 @@ export const annotationsModel = kea({
                 dashboard_item,
                 scope: 'organization',
             })
-            actions.loadGlobalAnnotations()
         },
         deleteGlobalAnnotation: async ({ id }) => {
             id >= 0 &&

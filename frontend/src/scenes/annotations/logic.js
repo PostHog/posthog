@@ -65,7 +65,8 @@ export const annotationsTableLogic = kea({
             }
             actions.appendAnnotations(results)
         },
-        [annotationsModel.actions.createGlobalAnnotation]: () => {
+        [annotationsModel.actions.createGlobalAnnotation]: async ({}, breakpoint) => {
+            await breakpoint(200)
             actions.loadAnnotations({})
         },
     }),
