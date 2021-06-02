@@ -5,6 +5,7 @@ import { toast } from 'react-toastify'
 import { SESSIONS_WITH_RECORDINGS_FILTER, SESSIONS_WITH_UNSEEN_RECORDINGS } from 'scenes/sessions/filters/constants'
 import { sessionsFiltersLogicType } from './sessionsFiltersLogicType'
 import { PropertyOperator, SessionsPropertyFilter } from '~/types'
+import { insightDataCachingLogic } from 'lib/logic/insightDataCachingLogic'
 
 export type FilterSelector = number | string
 
@@ -27,6 +28,11 @@ type FilterPropertyType = SessionsPropertyFilter['type']
 export const sessionsFiltersLogic = kea<
     sessionsFiltersLogicType<SessionsPropertyFilter, FilterSelector, PersonProperty, SavedFilter, FilterPropertyType>
 >({
+    connect: {
+        actions: [insightDataCachingLogic, ['maybeLoadData']],
+        values: [insightDataCachingLogic, ['cachedData', 'cacheLoading']],
+    },
+
     actions: () => ({
         openFilterSelect: (selector: FilterSelector) => ({ selector }),
         closeFilterSelect: true,
@@ -121,15 +127,12 @@ export const sessionsFiltersLogic = kea<
             (filters: Array<SessionsPropertyFilter>, savedFilters: Array<SavedFilter>): SavedFilter | null =>
                 savedFilters.filter((savedFilter) => equal(savedFilter.filters.properties, filters))[0],
         ],
+        personProperties: [
+            (s) => [s.cachedData],
+            (cachedData): Array<PersonProperty> => cachedData['personProperties'] || [],
+        ],
     },
     loaders: () => ({
-        personProperties: [
-            [] as Array<PersonProperty>,
-            {
-                loadPersonProperties: async (): Promise<Array<PersonProperty>> =>
-                    await api.get('api/person/properties'),
-            },
-        ],
         customFilters: [
             [] as Array<SavedFilter>,
             {
@@ -183,7 +186,10 @@ export const sessionsFiltersLogic = kea<
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            actions.loadPersonProperties()
+            actions.maybeLoadData({
+                key: 'personProperties',
+                endpoint: 'api/person/properties',
+            })
             actions.loadCustomFilters()
         },
     }),

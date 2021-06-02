@@ -1,8 +1,8 @@
 import { kea } from 'kea'
-import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'
 import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { insightDataCachingLogic } from 'lib/logic/insightDataCachingLogic'
 
 export function parseProperties(input) {
     if (Array.isArray(input) || !input) {
@@ -23,6 +23,11 @@ export function parseProperties(input) {
 export const propertyFilterLogic = kea({
     key: (props) => props.pageKey,
 
+    connect: {
+        actions: [insightDataCachingLogic, ['maybeLoadData']],
+        values: [insightDataCachingLogic, ['cachedData', 'cacheLoading']],
+    },
+
     actions: () => ({
         setProperties: (properties) => ({ properties }),
         update: (filters) => ({ filters }),
@@ -30,17 +35,6 @@ export const propertyFilterLogic = kea({
         setFilters: (filters) => ({ filters }),
         newFilter: true,
         remove: (index) => ({ index }),
-    }),
-
-    loaders: () => ({
-        personProperties: {
-            loadPersonProperties: async () => {
-                return (await api.get('api/person/properties')).map((property) => ({
-                    label: property.name,
-                    value: property.name,
-                }))
-            },
-        },
     }),
 
     reducers: ({ actions, props }) => ({
@@ -137,12 +131,24 @@ export const propertyFilterLogic = kea({
 
     selectors: {
         filtersLoading: [() => [propertyDefinitionsLogic.selectors.loaded], (loaded) => !loaded],
+        personProperties: [
+            (s) => [s.cachedData],
+            (cachedData) =>
+                (cachedData['personProperties'] || []).map((property) => ({
+                    label: property.name,
+                    value: property.name,
+                })),
+        ],
     },
 
     events: ({ actions, props }) => ({
         afterMount: () => {
             actions.newFilter()
-            actions.loadPersonProperties()
+            actions.maybeLoadData({
+                key: 'personProperties',
+                endpoint: 'api/person/properties',
+            })
+
             // TODO: Event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
             if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
                 actions.setProperties(propertyDefinitionsLogic.values.transformedPropertyDefinitions)
