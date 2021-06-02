@@ -13,6 +13,7 @@ import Dragger from 'antd/lib/upload/Dragger'
 import './cohort.scss'
 import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
+import { objectsEqual } from 'lib/utils'
 
 export function CohortV2(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
@@ -35,16 +36,9 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
 
     const onCriteriaChange = (_group: Partial<CohortGroupType>, id: string): void => {
         const index = cohort.groups.findIndex((group: CohortGroupType) => group.id === id)
-        if (_group.matchType) {
-            cohort.groups[index] = {
-                id: cohort.groups[index].id,
-                ..._group,
-            }
-        } else {
-            cohort.groups[index] = {
-                ...cohort.groups[index],
-                ..._group,
-            }
+        cohort.groups[index] = {
+            id: cohort.groups[index].id,
+            ..._group,
         }
         setCohort({ ...cohort })
     }
@@ -55,6 +49,7 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
             {
                 id: Math.random().toString().substr(2, 5),
                 matchType: PROPERTY_MATCH_TYPE,
+                properties: [],
             },
         ]
         setCohort({ ...cohort })
@@ -171,6 +166,10 @@ export function CohortV2Footer(props: { cohort: CohortType }): JSX.Element {
     const { cohort } = useValues(logic)
     const { saveCohort } = useActions(logic)
 
+    const isDisabled = (): boolean => {
+        return !cohort.name || !cohort.description || objectsEqual(props.cohort, cohort)
+    }
+
     const onSave = (): void => {
         saveCohort()
     }
@@ -178,7 +177,7 @@ export function CohortV2Footer(props: { cohort: CohortType }): JSX.Element {
     return (
         <Row justify="end">
             <Button
-                disabled={!cohort.name || !cohort.description}
+                disabled={isDisabled()}
                 type="primary"
                 htmlType="submit"
                 data-attr="save-cohort"

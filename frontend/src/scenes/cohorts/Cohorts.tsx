@@ -175,6 +175,7 @@ export function Cohorts(): JSX.Element {
                                     {
                                         id: Math.random().toString().substr(2, 5),
                                         matchType: PROPERTY_MATCH_TYPE,
+                                        properties: [],
                                     },
                                 ],
                             })
