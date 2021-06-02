@@ -1,9 +1,9 @@
-from posthog.exceptions import EnterpriseFeatureException
 from typing import Type
 
 from rest_framework import filters, mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import PropertyDefinition
 from posthog.permissions import OrganizationMemberPermissions
 

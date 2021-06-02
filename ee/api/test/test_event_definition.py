@@ -1,5 +1,3 @@
-from posthog.models.event_definition import EventDefinition
-from posthog.models import team
 from typing import cast
 
 from django.utils import timezone
@@ -7,6 +5,8 @@ from rest_framework import status
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
+from posthog.models import team
+from posthog.models.event_definition import EventDefinition
 from posthog.test.base import APIBaseTest
 
 

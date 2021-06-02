@@ -1,4 +1,3 @@
-from posthog.models.property_definition import PropertyDefinition
 from typing import cast
 
 from django.utils import timezone
@@ -6,6 +5,7 @@ from rest_framework import status
 
 from ee.models.license import License, LicenseManager
 from ee.models.property_definition import EnterprisePropertyDefinition
+from posthog.models.property_definition import PropertyDefinition
 from posthog.test.base import APIBaseTest
 
 

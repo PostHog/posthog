@@ -1,10 +1,10 @@
-from posthog.exceptions import EnterpriseFeatureException
 from typing import Type
 
 from rest_framework import filters, mixins, permissions, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import EventDefinition
 from posthog.permissions import OrganizationMemberPermissions
 
