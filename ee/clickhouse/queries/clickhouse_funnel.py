@@ -71,95 +71,11 @@ class ClickhouseFunnel(Funnel):
         )
         return sync_execute(query, self.params)
 
-    # def _get_trends(self) -> List[Dict[str, Any]]:
-    #     prop_filters, prop_filter_params = parse_prop_clauses(
-    #         self._filter.properties,
-    #         self._team.pk,
-    #         prepend="global",
-    #         allow_denormalized_props=True,
-    #         filter_test_accounts=self._filter.filter_test_accounts,
-    #     )
-    #     parsed_date_from, parsed_date_to, _ = parse_timestamps(
-    #         filter=self._filter, table="events.", team_id=self._team.pk
-    #     )
-    #     self.params.update(prop_filter_params)
-    #     steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
-    #     funnel_query = FUNNEL_SQL.format(
-    #         team_id=self._team.id,
-    #         steps=", ".join(steps),
-    #         filters=prop_filters.replace("uuid IN", "events.uuid IN", 1),
-    #         parsed_date_from=parsed_date_from,
-    #         parsed_date_to=parsed_date_to,
-    #         top_level_groupby=", date",
-    #         extra_select="{}(timestamp) as date,".format(get_trunc_func_ch(self._filter.interval)),
-    #         extra_groupby=",{}(timestamp)".format(get_trunc_func_ch(self._filter.interval)),
-    #         within_time="86400000000",
-    #         latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
-    #     )
-    #     raw_sql = format_sql(funnel_query, self.params)
-    #     print(raw_sql)
-    #     results = sync_execute(funnel_query, self.params)
-    #     serialized = self._transform_trends_with_dates(results)
-    #     return [serialized]
-
-    # def _transform_trends_with_dates(self, results):
-    #     serialized: Dict[str, Any] = {"count": 0, "data": [], "days": [], "labels": []}
-    #     parsed_results = []
-    #
-    #     for result in results:
-    #         temp = [item for item in result]
-    #         temp[1] = datetime(
-    #             result[1].year,
-    #             result[1].month,
-    #             result[1].day,
-    #             getattr(result[1], "hour", 0),
-    #             getattr(result[1], "minute", 0),
-    #             getattr(result[1], "second", 0),
-    #             tzinfo=pytz.utc,
-    #         )
-    #         parsed_results.append(temp)
-    #
-    #     date_range = get_daterange(
-    #         self._filter.date_from or parsed_results[0][1], self._filter.date_to, frequency=self._filter.interval
-    #     )
-    #
-    #     # Rejig the data from a row for each date and step to one row per date
-    #     data_dict: Dict[datetime, Dict] = {}
-    #     for item in parsed_results:
-    #         if not data_dict.get(item[1]):
-    #             data_dict[item[1]] = {"date": item[1], "total_people": item[2], "count": 0}
-    #         else:
-    #             # the query gives people who made it to that step
-    #             # so we need to count all the people from each step
-    #             data_dict[item[1]]["total_people"] += item[2]
-    #             data_dict[item[1]]["count"] = round(item[2] / data_dict[item[1]]["total_people"] * 100)
-    #     data_array = [value for _, value in data_dict.items()]
-    #
-    #     if self._filter.interval == "week":
-    #         for df in data_array:
-    #             df["date"] -= timedelta(days=df["date"].weekday() + 1)
-    #     elif self._filter.interval == "month":
-    #         for df in data_array:
-    #             df["date"] = df["date"].replace(day=1)
-    #     for df in data_array:
-    #         df["date"] = df["date"].isoformat()
-    #
-    #     datewise_data = {d["date"]: d["count"] for d in data_array}
-    #     values = [(key, datewise_data.get(key.isoformat(), 0)) for key in date_range]
-    #
-    #     for data_item in values:
-    #         serialized["days"].append(data_item[0])
-    #         serialized["data"].append(data_item[1])
-    #         serialized["labels"].append(format_label_date(data_item[0], self._filter.interval))
-    #
-    #     return serialized
-
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
         if len(self._filter.entities) == 0:
             return []
 
         if self._filter.display == TRENDS_LINEAR:
-            # return self._get_trends()
             return ClickhouseFunnelTrends(self._filter, self._team).run()
         else:
             # Format of this is [step order, person count (that reached that step), array of person uuids]
