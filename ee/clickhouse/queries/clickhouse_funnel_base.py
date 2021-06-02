@@ -22,7 +22,7 @@ class ClickhouseFunnelBase(Funnel):
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             for action_step in action.steps.all():
-                self.params["events"].append(action_step.event)  # type: ignore
+                self.params["events"].append(action_step.event)
             action_query, action_params = format_action_filter(action, "step_{}".format(index))
             if action_query == "":
                 return ""
@@ -30,7 +30,6 @@ class ClickhouseFunnelBase(Funnel):
             self.params.update(action_params)
             content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
-            self.params["events"].append(entity.id)  # type: ignore
             content_sql = "event = '{event}' {filters}".format(event=entity.id, filters=filters)
         return content_sql
 
