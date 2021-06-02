@@ -27,6 +27,10 @@ class Funnel(BaseQuery):
     def __init__(self, filter: Filter, team: Team) -> None:
         self._filter = filter
         self._team = team
+        self.params = {
+            "team_id": self._team.id,
+            "events": [],  # purely a speed optimization, don't need this for filtering
+        }
 
     def _gen_lateral_bodies(self, within_time: Optional[str] = None):
         annotations = {}
@@ -205,7 +209,7 @@ class Funnel(BaseQuery):
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             for action_step in action.steps.all():
-                self.params["events"].append(action_step.event)
+                self.params["events"].append(action_step.event)  # type: ignore
             action_query, action_params = format_action_filter(action, "step_{}".format(index))
             if action_query == "":
                 return ""
@@ -213,7 +217,7 @@ class Funnel(BaseQuery):
             self.params.update(action_params)
             content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
-            self.params["events"].append(entity.id)
+            self.params["events"].append(entity.id)  # type: ignore
             content_sql = "event = '{event}' {filters}".format(event=entity.id, filters=filters)
         return content_sql
 

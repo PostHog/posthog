@@ -1,26 +1,18 @@
-import uuid
-from collections import defaultdict
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Match, Tuple
+from typing import Any, Dict, List, Tuple
 
-import pytz
 from django.utils import timezone
 
-from ee.clickhouse.client import format_sql, sync_execute
-from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_funnel_trends import ClickhouseFunnelTrends
-from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_LINEAR
-from posthog.models.action import Action
-from posthog.models.entity import Entity
+from posthog.constants import TRENDS_LINEAR
 from posthog.models.filters import Filter
-from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.funnel import Funnel
-from posthog.utils import format_label_date, get_daterange, relative_date_parse
+from posthog.utils import relative_date_parse
 
 
 class ClickhouseFunnel(Funnel):

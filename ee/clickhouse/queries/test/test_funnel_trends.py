@@ -154,25 +154,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         results = ClickhouseFunnelTrends(filter, self.team).perform_query()
         self.assertEqual(len(results), 1)
 
-    def test_month_interval(self):
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "display": TRENDS_LINEAR,
-                "interval": "month",
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
-                "funnel_window_days": 7,
-                "events": [
-                    {"id": "step one", "order": 0},
-                    {"id": "step two", "order": 1},
-                    {"id": "step three", "order": 2},
-                ],
-            }
-        )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
-        self.assertEqual(len(results), 1)
-
     def test_all_results_for_day_interval(self):
         filter = Filter(
             data={
@@ -309,8 +290,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_incomplete_status(self):
         today = datetime.utcnow().strftime(FORMAT_TIME)
-        tomorrow = datetime.utcnow() + timedelta(days=1)
-        tomorrow = tomorrow.strftime(FORMAT_TIME)
+        tomorrow_delta = datetime.utcnow() + timedelta(days=1)
+        tomorrow = tomorrow_delta.strftime(FORMAT_TIME)
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
