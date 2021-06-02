@@ -1,5 +1,6 @@
 import React from 'react'
 import { Input } from 'antd'
+import './cohort.scss'
 
 interface CohortDescriptionInputProps {
     description?: string
@@ -9,7 +10,7 @@ interface CohortDescriptionInputProps {
 export function CohortDescriptionInput({ description, onChange }: CohortDescriptionInputProps): JSX.Element {
     return (
         <>
-            <span className="header">Description</span>
+            <span className="sub-header">Description</span>
             <Input.TextArea
                 required
                 autoFocus

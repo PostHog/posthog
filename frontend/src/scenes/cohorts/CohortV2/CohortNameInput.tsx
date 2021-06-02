@@ -10,7 +10,7 @@ interface CohortNameInputProps {
 export function CohortNameInput({ input, onChange }: CohortNameInputProps): JSX.Element {
     return (
         <Col>
-            <span className="header">Name</span>
+            <span className="sub-header">Name</span>
             <Input
                 required
                 autoFocus

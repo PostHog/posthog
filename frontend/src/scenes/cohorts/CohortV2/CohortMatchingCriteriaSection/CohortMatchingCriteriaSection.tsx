@@ -17,7 +17,9 @@ export function CohortMatchingCriteriaSection({
 }): JSX.Element {
     return (
         <Col>
-            <span className="header">Matching Criteria</span>
+            <span className="sub-header" style={{ fontSize: 16 }}>
+                Matching Criteria
+            </span>
             <br />
             <span>
                 Users who match the following criteria will be part of the cohort. Autonomatically updated continuously

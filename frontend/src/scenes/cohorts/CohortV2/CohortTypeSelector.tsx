@@ -7,58 +7,95 @@ function SelectItem({
     Icon,
     text,
     description,
+    onClick,
 }: {
     Icon: React.ComponentType
     text: string
     description: string
+    onClick: () => void
 }): JSX.Element {
     return (
-        <div>
+        <div onClick={onClick}>
             <Row align={'middle'}>
                 <Icon />
-                <div>{text}</div>
+                <div style={{ fontSize: 14, fontWeight: 'bold', marginLeft: 4 }}>{text}</div>
             </Row>
-            <div>{description}</div>
+            <div style={{ fontSize: 12, color: 'rgba(0, 0, 0, 0.5)' }}>{description}</div>
         </div>
     )
 }
 
-const menu = (
-    <Menu>
-        <Menu.Item key="0">
-            <SelectItem
-                Icon={() => <DownOutlined />}
-                text={'Dynamic'}
-                description={'Cohort updates dynamically based on properties'}
-             />
-        </Menu.Item>
-        <Menu.Item key="1">
-            <SelectItem
-                Icon={() => <DownOutlined />}
-                text={'Static'}
-                description={'Upload a list of users. Updates manually'}
-             />
-        </Menu.Item>
-    </Menu>
-)
+export const STATIC = 'static'
+export const DYNAMIC = 'dynamic'
 
-export function CohortTypeSelector(): JSX.Element {
+export function CohortTypeSelector({
+    type,
+    onTypeChange,
+}: {
+    type: string
+    onTypeChange: (type: string) => void
+}): JSX.Element {
+    const options = {
+        [`${STATIC}`]: {
+            text: 'Static',
+            description: 'Upload a list of users. Updates manually',
+            onClick: () => onTypeChange(STATIC),
+        },
+        [`${DYNAMIC}`]: {
+            text: 'Dynamic',
+            description: 'Cohort updates dynamically based on properties',
+            onClick: () => onTypeChange(DYNAMIC),
+        },
+    }
+
+    const menu = (
+        <Menu>
+            <Menu.Item key="0">
+                <SelectItem
+                    Icon={() => <DownOutlined />}
+                    text={options[DYNAMIC].text}
+                    description={options[DYNAMIC].description}
+                    onClick={options[DYNAMIC].onClick}
+                />
+            </Menu.Item>
+            <Menu.Item key="1">
+                <SelectItem
+                    Icon={() => <DownOutlined />}
+                    text={options[STATIC].text}
+                    description={options[STATIC].description}
+                    onClick={options[STATIC].onClick}
+                />
+            </Menu.Item>
+        </Menu>
+    )
+
     return (
         <Col>
-            <span className="header">Type of cohort</span>
+            <span className="sub-header">Type of cohort</span>
             <Dropdown overlay={menu} trigger={['click']}>
                 <div
-                    style={{ padding: 10, border: '1px solid rgba(0, 0, 0, 0.3)', borderRadius: 4, maxWidth: 300 }}
+                    style={{
+                        padding: 10,
+                        border: '1px solid rgba(0, 0, 0, 0.3)',
+                        borderRadius: 4,
+                        maxWidth: 300,
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                    }}
                     onClick={(e) => e.preventDefault()}
                 >
-                    <Row align="middle">
+                    <div style={{ flex: 5 }}>
                         <SelectItem
                             Icon={() => <DownOutlined />}
-                            text={'Dynamic'}
-                            description={'Cohort updates dynamically based on properties'}
-                         />
+                            text={options[type].text}
+                            description={options[type].description}
+                            onClick={options[type].onClick}
+                        />
+                    </div>
+                    <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                         <DownOutlined />
-                    </Row>
+                    </div>
                 </div>
             </Dropdown>
         </Col>
