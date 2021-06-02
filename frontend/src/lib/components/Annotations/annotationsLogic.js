@@ -32,10 +32,8 @@ export const annotationsLogic = kea({
     loaders: ({ props }) => ({
         annotations: {
             __default: [],
-            loadAnnotations: async ({ before, after }) => {
+            loadAnnotations: async () => {
                 const params = {
-                    ...(before ? { before } : {}),
-                    ...(after ? { after } : {}),
                     ...(props.pageKey ? { dashboardItemId: props.pageKey } : {}),
                     scope: 'dashboard_item',
                     deleted: false,
@@ -126,14 +124,14 @@ export const annotationsLogic = kea({
                 dashboard_item: props.pageKey,
                 scope,
             })
-            actions.loadAnnotations({})
+            actions.loadAnnotations()
         },
         deleteAnnotation: async ({ id }) => {
             id >= 0 &&
                 deleteWithUndo({
                     endpoint: 'annotation',
                     object: { name: 'Annotation', id },
-                    callback: () => actions.loadAnnotations({}),
+                    callback: () => actions.loadAnnotations(),
                 })
         },
         updateDiffType: ({ dates }) => {
@@ -141,6 +139,6 @@ export const annotationsLogic = kea({
         },
     }),
     events: ({ actions, props }) => ({
-        afterMount: () => props.pageKey && actions.loadAnnotations({}),
+        afterMount: () => props.pageKey && actions.loadAnnotations(),
     }),
 })
