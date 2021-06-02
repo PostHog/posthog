@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { insightDataCachingLogicType } from './insightDataCachingLogicType'
 
-const STALENESS_THRESHOLD_MS = 300000
+const CACHE_DURATION_MS = 300000
 
 export const insightDataCachingLogic = kea<insightDataCachingLogicType>({
     actions: {
@@ -97,5 +97,5 @@ function shouldLoadData(
 ): boolean {
     const time = new Date().getTime()
     const lastFetch = cacheTime[key] || 0
-    return !cacheLoading[key] && time - lastFetch >= STALENESS_THRESHOLD_MS
+    return !cacheLoading[key] && time - lastFetch >= CACHE_DURATION_MS
 }
