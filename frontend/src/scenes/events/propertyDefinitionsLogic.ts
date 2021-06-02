@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import api from 'lib/api'
+import { insightDataCachingLogic } from 'lib/logic/insightDataCachingLogic'
 import { PropertyDefinition, SelectOption } from '~/types'
 import { propertyDefinitionsLogicType } from './propertyDefinitionsLogicType'
 
@@ -16,44 +16,33 @@ interface PropertyDefinitionStorage {
 export const propertyDefinitionsLogic = kea<
     propertyDefinitionsLogicType<PropertyDefinitionStorage, PropertyDefinition, PropertySelectOption>
 >({
-    loaders: ({ values }) => ({
-        propertyStorage: [
-            { results: [], next: null, count: 0 } as PropertyDefinitionStorage,
-            {
-                loadPropertyDefinitions: async (initial?: boolean) => {
-                    const url = initial
-                        ? 'api/projects/@current/property_definitions/?limit=5000'
-                        : values.propertyStorage.next
-                    if (!url) {
-                        throw new Error('Incorrect call to propertyDefinitionsLogic.loadPropertyDefinitions')
-                    }
-                    const propertyStorage = await api.get(url)
-                    return {
-                        count: propertyStorage.count,
-                        results: [...(values.propertyStorage.results || []), ...(propertyStorage.results || [])],
-                        next: propertyStorage.next,
-                    }
-                },
-            },
-        ],
-    }),
-    listeners: ({ actions }) => ({
-        loadPropertyDefinitionsSuccess: ({ propertyStorage }) => {
-            if (propertyStorage.next) {
-                actions.loadPropertyDefinitions()
-            }
-        },
-    }),
+    connect: {
+        actions: [insightDataCachingLogic, ['maybeLoadData']],
+        values: [insightDataCachingLogic, ['cachedData', 'cacheLoading']],
+    },
     events: ({ actions }) => ({
         afterMount: () => {
-            actions.loadPropertyDefinitions(true)
+            actions.maybeLoadData({
+                key: 'propertyDefinitions',
+                endpoint: 'api/projects/@current/property_definitions/?limit=5000',
+                paginated: true,
+            })
         },
     }),
     selectors: {
+        propertyStorage: [
+            (s) => [s.cachedData],
+            (cachedData): PropertyDefinitionStorage => {
+                if (cachedData['propertyDefinitions']) {
+                    return cachedData['propertyDefinitions']
+                }
+                return { results: [], next: null, count: 0 }
+            },
+        ],
         loaded: [
-            // Whether *all* the property definitions are fully loaded
-            (s) => [s.propertyStorage, s.propertyStorageLoading],
-            (propertyStorage, propertyStorageLoading): boolean => !propertyStorageLoading && !propertyStorage.next,
+            // Whether *all* the event definitions are fully loaded
+            (s) => [s.propertyStorage, s.cacheLoading],
+            (propertyStorage, cacheLoading): boolean => !cacheLoading['propertyDefinitions'] && !propertyStorage.next,
         ],
         propertyDefinitions: [
             (s) => [s.propertyStorage],
