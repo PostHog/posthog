@@ -128,7 +128,6 @@ else:
             try:
                 sql, tags = _annotate_tagged_query(query, args)
                 result = client.execute(sql, args, settings=settings, with_column_types=with_column_types)
-                print(result)
             except Exception as e:
                 tags["failed"] = True
                 tags["reason"] = str(e)
