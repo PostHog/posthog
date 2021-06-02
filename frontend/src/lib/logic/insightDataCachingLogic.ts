@@ -17,7 +17,11 @@ export const insightDataCachingLogic = kea<insightDataCachingLogicType>({
                 actions.startLoading(payload.key)
                 const response = await api.get(payload.endpoint)
 
-                actions.finishLoading(payload.key)
+                setTimeout(() => {
+                    if (actions) {
+                        actions.finishLoading(payload.key)
+                    }
+                }, 0)
 
                 return {
                     ...values.cachedData,
@@ -40,16 +44,16 @@ export const insightDataCachingLogic = kea<insightDataCachingLogicType>({
                     throw err
                 }
 
-                if (response.next) {
-                    // :TRICKY: Fetch next page once this loader has resolved.
-                    setTimeout(() => {
-                        if (actions) {
+                setTimeout(() => {
+                    if (actions) {
+                        if (response.next) {
+                            // :TRICKY: Fetch next page once this loader has resolved.
                             actions.refreshPaginatedData({ key: payload.key, endpoint: response.next })
+                        } else {
+                            actions.finishLoading(payload.key)
                         }
-                    }, 0)
-                } else {
-                    actions.finishLoading(payload.key)
-                }
+                    }
+                }, 0)
 
                 return {
                     ...values.cachedData,
