@@ -18,19 +18,6 @@ $dashboard-title-size: 32px;
         }
     }
 
-    &.not-found {
-        text-align: center;
-        .graphic {
-            background: url('../../../public/not-found-rocket.svg') no-repeat center center;
-            height: 270px;
-            width: 100%;
-        }
-        p {
-            margin: 0 auto;
-            max-width: 600px;
-        }
-    }
-
     .dashboard-description {
         margin-bottom: $default_spacing;
 

@@ -15,6 +15,7 @@ export enum Scene {
     Dashboard = 'dashboard',
     DashboardInsight = 'dashboardInsight',
     Insights = 'insights',
+    InsightRouter = 'insightRouter',
     Cohorts = 'cohorts',
     Events = 'events',
     Sessions = 'sessions',
@@ -59,6 +60,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.DashboardInsight]: () =>
         import(/* webpackChunkName: 'dashboardInsight' */ './dashboard-insight/DashboardInsight'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
+    [Scene.InsightRouter]: () => import(/* webpackChunkName: 'insightRouter' */ './insights/InsightRouter'),
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './persons/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
@@ -138,6 +140,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.ProjectSettings]: {
         hideDemoWarnings: true,
     },
+    [Scene.InsightRouter]: {
+        dark: true,
+    },
 }
 
 export const redirects: Record<string, string | ((params: Params) => any)> = {
@@ -154,6 +159,7 @@ export const routes: Record<string, Scene> = {
     '/action/:id': Scene.Action,
     '/action': Scene.Action,
     '/insights': Scene.Insights,
+    '/i/:id': Scene.InsightRouter,
     '/events': Scene.Events,
     '/events/*': Scene.Events,
     '/sessions': Scene.Sessions,

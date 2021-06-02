@@ -212,6 +212,8 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
+    context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
+
     html = template.render(context, request=request)
     return HttpResponse(html)
 
@@ -501,9 +503,14 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
 
 def get_instance_realm() -> str:
     """
-    Returns the realm for the current instance. `cloud` or `hosted`.
+    Returns the realm for the current instance. `cloud` or `hosted` or `hosted-clickhouse`.
     """
-    return "cloud" if getattr(settings, "MULTI_TENANCY", False) else "hosted"
+    if settings.MULTI_TENANCY:
+        return "cloud"
+    elif os.getenv("HELM_INSTALL_INFO", False):
+        return "hosted-clickhouse"
+    else:
+        return "hosted"
 
 
 def get_available_social_auth_providers() -> Dict[str, bool]:

@@ -148,6 +148,13 @@ export interface ActionType {
     created_by: UserBasicType | null
 }
 
+/** Sync with plugin-server/src/types.ts */
+export enum ActionStepUrlMatching {
+    Contains = 'contains',
+    Regex = 'regex',
+    Exact = 'exact',
+}
+
 export interface ActionStepType {
     event?: string
     href?: string
@@ -158,7 +165,7 @@ export interface ActionStepType {
     tag_name?: string
     text?: string
     url?: string
-    url_matching?: 'contains' | 'regex' | 'exact'
+    url_matching?: ActionStepUrlMatching
 }
 
 export interface ElementType {
@@ -194,43 +201,65 @@ export interface PropertyFilter {
     value: string | number | (string | number)[]
 }
 
+/** Sync with plugin-server/src/types.ts */
+export enum PropertyOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    IContains = 'icontains',
+    NotIContains = 'not_icontains',
+    Regex = 'regex',
+    NotRegex = 'not_regex',
+    GreaterThan = 'gt',
+    LessThan = 'lt',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+}
+
+/** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
     value: string | number | Array<string | number> | null
     label?: string
 }
 
-export type PropertyOperator =
-    | 'exact'
-    | 'is_not'
-    | 'icontains'
-    | 'not_icontains'
-    | 'regex'
-    | 'not_regex'
-    | 'gt'
-    | 'lt'
-    | 'is_set'
-    | 'is_not_set'
-
-interface EventPropertyFilter extends BasePropertyFilter {
+/** Sync with plugin-server/src/types.ts */
+export interface EventPropertyFilter extends BasePropertyFilter {
     type: 'event'
     operator: PropertyOperator
 }
 
+/** Sync with plugin-server/src/types.ts */
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: 'person'
     operator: PropertyOperator
 }
 
-interface CohortPropertyFilter extends BasePropertyFilter {
-    type: 'cohort'
+/** Sync with plugin-server/src/types.ts */
+export interface ElementPropertyFilter extends BasePropertyFilter {
+    type: 'element'
+    key: 'tag_name' | 'text' | 'href' | 'selector'
+    operator: PropertyOperator
 }
 
-interface RecordingDurationFilter extends BasePropertyFilter {
+/** Sync with plugin-server/src/types.ts */
+export interface CohortPropertyFilter extends BasePropertyFilter {
+    type: 'cohort'
+    key: 'id'
+    value: number
+}
+
+/** Sync with plugin-server/src/types.ts */
+export type ActionStepProperties =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | CohortPropertyFilter
+
+export interface RecordingDurationFilter extends BasePropertyFilter {
     type: 'recording'
     key: 'duration'
     value: number
-    operator: 'lt' | 'gt'
+    operator: PropertyOperator
 }
 
 interface RecordingNotViewedFilter extends BasePropertyFilter {
@@ -240,7 +269,7 @@ interface RecordingNotViewedFilter extends BasePropertyFilter {
 
 export type RecordingPropertyFilter = RecordingDurationFilter | RecordingNotViewedFilter
 
-interface ActionTypePropertyFilter extends BasePropertyFilter {
+export interface ActionTypePropertyFilter extends BasePropertyFilter {
     type: typeof ACTION_TYPE
     properties?: Array<EventPropertyFilter>
 }
@@ -383,6 +412,7 @@ export interface PlanInterface {
 export interface DashboardItemType {
     id: number
     name: string
+    short_id: string
     description?: string
     filters: Record<string, any>
     filters_hash: string
@@ -682,6 +712,7 @@ export enum DashboardMode { // Default mode is null
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
     Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Internal = 'internal', // When embedded into another page (e.g. /instance/status)
 }
 
 export enum DashboardItemMode {

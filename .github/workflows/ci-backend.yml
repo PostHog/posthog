@@ -33,8 +33,6 @@ jobs:
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
-              with:
-                  requirement_files: requirements.txt # this is optional
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
             - name: Install python dependencies
@@ -98,8 +96,6 @@ jobs:
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
-              with:
-                  requirement_files: requirements.txt # this is optional
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
             - name: Install python dependencies
@@ -185,8 +181,6 @@ jobs:
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
-              with:
-                  requirement_files: requirements.txt # this is optional
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
             - name: Install python dependencies
@@ -295,8 +289,6 @@ jobs:
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
-              with:
-                  requirement_files: requirements.txt # this is optional
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
             - name: Install python dependencies
