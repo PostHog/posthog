@@ -97,7 +97,7 @@ export const propertyFilterLogic = kea({
                 }
             }
         },
-        [propertyDefinitionsLogic.actionTypes.loadPropertyDefinitionsSuccess]: async () => {
+        [propertyDefinitionsLogic.actionTypes.propertyDefinitionsUpdated]: async () => {
             /* Set the event properties in case the `loadPropertyDefinitions` request came later, or the event
             properties were updated. */
             if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {

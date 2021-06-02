@@ -20,6 +20,9 @@ export const propertyDefinitionsLogic = kea<
         actions: [insightDataCachingLogic, ['maybeLoadData']],
         values: [insightDataCachingLogic, ['cachedData', 'cacheLoading']],
     },
+    actions: {
+        propertyDefinitionsUpdated: true,
+    },
     events: ({ actions }) => ({
         afterMount: () => {
             actions.maybeLoadData({
@@ -68,4 +71,11 @@ export const propertyDefinitionsLogic = kea<
                 transformedPropertyDefinitions.filter((definition) => definition.is_numerical),
         ],
     },
+    listeners: ({ actions }) => ({
+        finishLoading: ({ key }) => {
+            if (key === 'propertyDefinitions') {
+                actions.propertyDefinitionsUpdated()
+            }
+        },
+    }),
 })
