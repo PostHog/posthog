@@ -29,7 +29,6 @@ export const insightDataCachingLogic = kea<insightDataCachingLogicType>({
                 }
             },
             refreshPaginatedData: async (payload: { key: string; endpoint: string; initial?: boolean }) => {
-                console.log('refreshPaginatedData called', payload)
                 if (payload.initial) {
                     actions.startLoading(payload.key)
                 }
