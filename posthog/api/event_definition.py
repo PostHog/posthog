@@ -1,3 +1,4 @@
+from ee.models.event_definition import EnterpriseEventDefinition
 from typing import Any, Type
 
 from rest_framework import filters, mixins, permissions, response, serializers, viewsets
@@ -33,13 +34,22 @@ class EventDefinitionViewSet(
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
 
+
     def get_queryset(self):
         if self.request.user.organization.is_feature_available("event_property_collaboration"):  # type: ignore
             from ee.models.event_definition import EnterpriseEventDefinition
-
-            return self.filter_queryset_by_parents_lookups(EnterpriseEventDefinition.objects.all()).order_by(
-                self.ordering
+            ee_event_definitions = EnterpriseEventDefinition.objects.raw(
+                """
+                SELECT *
+                FROM ee_enterpriseeventdefinition
+                FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
+                WHERE team_id = %s
+                ORDER BY name
+                """,
+                params=[self.request.user.team.id]
             )
+            return ee_event_definitions
+            # return self.filter_queryset_by_parents_lookups(EnterpriseEventDefinition.objects.all()).order_by(self.ordering)
         return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
@@ -53,6 +63,6 @@ class EventDefinitionViewSet(
     def retrieve(self, request: Request, *args: Any, **kwargs: Any):
         if self.request.user.organization.is_feature_available("event_property_collaboration"):  # type: ignore
             from ee.api.enterprise_event_definition import EnterpriseEventDefinitionSerializer
-
-            return response.Response(EnterpriseEventDefinitionSerializer(self.get_queryset().get(id=kwargs["id"])).data)
+            return response.Response(EnterpriseEventDefinitionSerializer(EnterpriseEventDefinition.objects.get(id=kwargs["id"])).data)
+            # return response.Response(EnterpriseEventDefinitionSerializer(self.get_queryset().get(id=kwargs["id"])).data)
         raise PermissionDenied("This is an Enterprise plan feature.")
