@@ -2,21 +2,22 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { insightDataCachingLogicType } from './insightDataCachingLogicType'
 
-const STALENESS_THRESHOLD_MS = 180000
+const STALENESS_THRESHOLD_MS = 300000
 
 export const insightDataCachingLogic = kea<insightDataCachingLogicType>({
     actions: {
         maybeLoadData: (payload: { key: string; endpoint: string; paginated?: boolean }) => payload,
-        setLoading: (key: string, loading: boolean) => ({ key, loading }),
+        startLoading: (key: string) => ({ key }),
+        finishLoading: (key: string) => ({ key }),
     },
     loaders: ({ values, actions }) => ({
         cachedData: {
             __default: {} as Record<string, any>,
             refreshData: async (payload: { key: string; endpoint: string }) => {
-                actions.setLoading(payload.key, true)
+                actions.startLoading(payload.key)
                 const response = await api.get(payload.endpoint)
 
-                actions.setLoading(payload.key, false)
+                actions.finishLoading(payload.key)
 
                 return {
                     ...values.cachedData,
@@ -26,7 +27,7 @@ export const insightDataCachingLogic = kea<insightDataCachingLogicType>({
             refreshPaginatedData: async (payload: { key: string; endpoint: string; initial?: boolean }) => {
                 console.log('refreshPaginatedData called', payload)
                 if (payload.initial) {
-                    actions.setLoading(payload.key, true)
+                    actions.startLoading(payload.key)
                 }
 
                 const results = payload.initial ? [] : values.cachedData[payload.key].results
@@ -35,7 +36,7 @@ export const insightDataCachingLogic = kea<insightDataCachingLogicType>({
                 try {
                     response = await api.get(payload.endpoint)
                 } catch (err) {
-                    actions.setLoading(payload.key, false)
+                    actions.finishLoading(payload.key)
                     throw err
                 }
 
@@ -47,7 +48,7 @@ export const insightDataCachingLogic = kea<insightDataCachingLogicType>({
                         }
                     }, 0)
                 } else {
-                    actions.setLoading(payload.key, false)
+                    actions.finishLoading(payload.key)
                 }
 
                 return {
@@ -65,13 +66,14 @@ export const insightDataCachingLogic = kea<insightDataCachingLogicType>({
         cacheTime: [
             {} as Record<string, number | undefined>,
             {
-                setLoading: (state, { key, loading }) => (loading ? state : { ...state, [key]: new Date().getTime() }),
+                finishLoading: (state, { key }) => ({ ...state, [key]: new Date().getTime() }),
             },
         ],
         cacheLoading: [
             {} as Record<string, boolean | undefined>,
             {
-                setLoading: (state, { key, loading }) => ({ ...state, [key]: loading }),
+                startLoading: (state, { key }) => ({ ...state, [key]: true }),
+                finishLoading: (state, { key }) => ({ ...state, [key]: true }),
             },
         ],
     },

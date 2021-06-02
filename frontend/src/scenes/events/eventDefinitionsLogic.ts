@@ -19,8 +19,11 @@ export const eventDefinitionsLogic = kea<
     eventDefinitionsLogicType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface, SelectOption>
 >({
     connect: {
-        actions: [insightDataCachingLogic, ['maybeLoadData']],
+        actions: [insightDataCachingLogic, ['maybeLoadData', 'finishLoading']],
         values: [insightDataCachingLogic, ['cachedData', 'cacheLoading']],
+    },
+    actions: {
+        eventDefinitionsUpdated: true,
     },
     events: ({ actions }) => ({
         afterMount: () => {
@@ -75,4 +78,11 @@ export const eventDefinitionsLogic = kea<
             },
         ],
     },
+    listeners: ({ actions }) => ({
+        finishLoading: ({ key }) => {
+            if (key === 'eventDefinitions') {
+                actions.eventDefinitionsUpdated()
+            }
+        },
+    }),
 })
