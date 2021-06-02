@@ -1,21 +1,35 @@
 import { kea } from 'kea'
-import api from 'lib/api'
+import { insightDataCachingLogic } from 'lib/logic/insightDataCachingLogic'
 import { ActionType } from '~/types'
 import { actionsModelType } from './actionsModelType'
 
-export const actionsModel = kea<actionsModelType>({
-    loaders: ({ props }) => ({
-        actions: {
-            __default: [] as ActionType[],
-            loadActions: async () => {
-                const response = await api.get(`api/action/?${props.params ? props.params : ''}`)
-                return response.results
-            },
-        },
-    }),
-    selectors: ({ selectors }) => ({
+export const actionsModel = kea<actionsModelType<ActionType>>({
+    connect: {
+        actions: [insightDataCachingLogic, ['maybeLoadData', 'refreshData']],
+        values: [insightDataCachingLogic, ['cachedData', 'cacheLoading']],
+    },
+
+    actions: {
+        loadActions: true,
+    },
+
+    // @ts-ignore
+    selectors: ({ props }) => ({
+        endpoint: [
+            // Kea.js bug - for some reason removing `s.cachedData` from first selector causes selectors to go missing from types
+            (s) => [s.cachedData],
+            () => `api/action/?${props.params ? props.params : ''}`,
+        ],
+        actions: [
+            (s) => [s.cachedData, s.endpoint],
+            (cachedData, endpoint): ActionType[] => cachedData[endpoint]?.results || [],
+        ],
+        actionsLoading: [
+            (s) => [s.cacheLoading, s.endpoint],
+            (cacheLoading, endpoint): boolean => !!cacheLoading[endpoint],
+        ],
         actionsGrouped: [
-            () => [selectors.actions],
+            (s) => [s.actions],
             (actions: ActionType[]) => {
                 return [
                     {
@@ -29,7 +43,21 @@ export const actionsModel = kea<actionsModelType>({
         ],
     }),
 
-    events: ({ actions }) => ({
-        afterMount: actions.loadActions,
+    listeners: ({ values, actions }) => ({
+        loadActions: () => {
+            actions.refreshData({
+                key: values.endpoint,
+                endpoint: values.endpoint,
+            })
+        },
+    }),
+
+    events: ({ values, actions }) => ({
+        afterMount: () => {
+            actions.maybeLoadData({
+                key: values.endpoint,
+                endpoint: values.endpoint,
+            })
+        },
     }),
 })
