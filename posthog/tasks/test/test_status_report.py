@@ -45,6 +45,12 @@ class TestStatusReport(APIBaseTest):
             self.assertEqual(team_report["persons_count_new_in_period"], 2)
             self.assertEqual(team_report["persons_count_active_in_period"], 1)
 
+            usage_summary = status_report(dry_run=True).get("usage_summary")
+            self.assertEqual(usage_summary["events_used_in_period"], 3)
+            self.assertEqual(usage_summary["events_used_all_time"], 4)
+            self.assertEqual(usage_summary["persons_seen_all_time"], 4)
+            self.assertEqual(usage_summary["new_persons_seen_in_period"], 2)
+
     def test_status_report_plugins(self) -> None:
         self._create_plugin("Installed but not enabled", False)
         self._create_plugin("Installed and enabled", True)

@@ -62,7 +62,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         try:
             team_report: Dict[str, Any] = {}
             events_considered_total = Event.objects.filter(team_id=team.id)
-            org_usage_summary["events_used_all_time"] += events_considered_total
+            org_usage_summary["events_used_all_time"] += events_considered_total.count()
             events_considered_new_in_period = events_considered_total.filter(
                 timestamp__gte=period_start, timestamp__lte=period_end,
             )
