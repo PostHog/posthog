@@ -64,7 +64,7 @@ export const annotationsModel = kea({
                 deleteWithUndo({
                     endpoint: 'annotation',
                     object: { name: 'Annotation', id },
-                    callback: () => actions.loadGlobalAnnotations({}),
+                    callback: () => actions.loadGlobalAnnotations(),
                 })
         },
     }),
