@@ -57,7 +57,9 @@ class TestStatusReport(APIBaseTest):
             self.create_event(
                 "new_user1", "$event1", "$web", now() - relativedelta(weeks=1, hours=2), team=team_in_other_org
             )
-            _test_team_report()  # make sure the original team report is unchanged
+
+            # Make sure the original team report is unchanged
+            _test_team_report()
 
             instance_usage_summary = status_report(dry_run=True).get("instance_usage_summary")
             self.assertEqual(
