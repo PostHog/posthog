@@ -1,4 +1,3 @@
-from typing import Optional
 from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
@@ -22,7 +21,7 @@ class TestStatusReport(APIBaseTest):
         self.assertLess(report["table_sizes"]["posthog_event"], 10 ** 7)  # <10MB
         self.assertLess(report["table_sizes"]["posthog_sessionrecordingevent"], 10 ** 7)  # <10MB
 
-    def test_team_status_report_event_counts(self) -> None:
+    def test_instance_status_report_event_counts(self) -> None:
         with freeze_time("2020-11-02"):
             self.create_person("old_user1", team=self.team)
             self.create_person("old_user2", team=self.team)
