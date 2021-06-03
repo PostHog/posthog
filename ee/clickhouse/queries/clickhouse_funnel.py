@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Tuple
 
 from django.utils import timezone
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import format_sql, sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_funnel_base import ClickhouseFunnelBase
 from ee.clickhouse.queries.clickhouse_funnel_trends import ClickhouseFunnelTrends

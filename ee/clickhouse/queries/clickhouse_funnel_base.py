@@ -30,6 +30,7 @@ class ClickhouseFunnelBase(Funnel):
             self.params.update(action_params)
             content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
+            self.params["events"].append(entity.id)
             content_sql = "event = '{event}' {filters}".format(event=entity.id, filters=filters)
         return content_sql
 
