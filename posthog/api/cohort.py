@@ -138,6 +138,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 self._handle_static(cohort, request)
             else:
                 calculate_cohort.delay(cohort_id=cohort.pk)
+                calculate_cohort_ch.delay(cohort_id=cohort.pk)
 
         posthoganalytics.capture(
             request.user.distinct_id,
