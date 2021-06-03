@@ -354,7 +354,18 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         with freeze_time("2020-01-10"):
             cohort1.calculate_people_ch()
 
-        results = sync_execute("SELECT person_id FROM cohortpeople")
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
+        )
+        self.assertEqual(len(results), 2)
+
+        cohort2 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort2",)
+        with freeze_time("2020-01-10"):
+            cohort2.calculate_people_ch()
+
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s", {"cohort_id": cohort2.pk}
+        )
         self.assertEqual(len(results), 2)
 
     def test_cohortpeople_timestamp(self):
