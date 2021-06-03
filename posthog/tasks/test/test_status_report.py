@@ -101,6 +101,28 @@ class TestStatusReport(APIBaseTest):
                 instance_usage_summary["events_count_new_in_period"],
             )
 
+            # Create an internal metrics org
+            internal_metrics_team = self.create_new_org_and_team(for_internal_metrics=True)
+            self.create_person("new_user1", team=internal_metrics_team)
+            self.create_event(
+                "new_user1", "$event1", "$web", now() - relativedelta(weeks=1, hours=2), team=internal_metrics_team
+            )
+            self.create_event(
+                "new_user1", "$event2", "$web", now() - relativedelta(weeks=1, hours=2), team=internal_metrics_team
+            )
+            self.create_event(
+                "new_user1", "$event3", "$web", now() - relativedelta(weeks=1, hours=2), team=internal_metrics_team
+            )
+            # Verify that internal metrics events are not counted
+            self.assertEqual(
+                status_report(dry_run=True).get("teams")[self.team.id]["events_count_total"],
+                updated_team_report["events_count_total"],
+            )
+            self.assertEqual(
+                status_report(dry_run=True).get("instance_usage_summary")["events_count_total"],
+                updated_instance_usage_summary["events_count_total"],
+            )
+
     def test_status_report_plugins(self) -> None:
         self._create_plugin("Installed but not enabled", False)
         self._create_plugin("Installed and enabled", True)
@@ -114,8 +136,8 @@ class TestStatusReport(APIBaseTest):
         Person.objects.create(team=team, distinct_ids=[distinct_id])
 
     @staticmethod
-    def create_new_org_and_team() -> Team:
-        org = Organization.objects.create(name="New Org")
+    def create_new_org_and_team(for_internal_metrics=False) -> Team:
+        org = Organization.objects.create(name="New Org", for_internal_metrics=for_internal_metrics)
         team = Team.objects.create(organization=org, name="Default Project")
         return team
 
