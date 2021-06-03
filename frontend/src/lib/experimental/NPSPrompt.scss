@@ -64,23 +64,27 @@
     .action-buttons {
         .ant-btn {
             margin-bottom: $default_spacing / 2;
+            width: 100%;
         }
         width: 60%;
         margin: 0 auto;
         padding-top: $default_spacing / 2;
     }
 
-    .prompt-button {
-        margin: 0 auto;
+    .ant-btn:not(.ant-btn-link) {
         background-color: $bg_depth;
         border: 1px solid #000;
         color: $text_light;
-        width: 100%;
     }
 
     textarea {
         color: $text_light;
         background-color: $bg_depth;
         border-color: #000;
+    }
+
+    .ant-btn-link span {
+        color: $text_light;
+        text-decoration: underline !important;
     }
 }
