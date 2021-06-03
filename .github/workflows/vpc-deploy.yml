@@ -65,4 +65,4 @@ jobs:
             - name: Helm upgrade
               run: |-
                   helm plugin install https://github.com/hypnoglow/helm-s3.git
-                  helm upgrade posthog vpc/charts/posthog -f vpc/client_values/posthog/values.yaml --set image.repository="$REGISTRY_HOSTNAME/$PROJECT_ID/posthog" --set image.sha="$GITHUB_SHA"
+                  helm upgrade --debug posthog vpc/charts/posthog -f vpc/client_values/posthog/values.yaml --set image.repository="$REGISTRY_HOSTNAME/$PROJECT_ID/posthog" --set image.sha="$GITHUB_SHA"
