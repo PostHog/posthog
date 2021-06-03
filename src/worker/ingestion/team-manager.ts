@@ -1,9 +1,9 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { nodePostHog } from 'posthog-js-lite/dist/src/targets/node'
 
 import { Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
+import { posthog } from '../../utils/posthog'
 import { UUIDT } from '../../utils/utils'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
@@ -83,12 +83,7 @@ export class TeamManager {
         }
     }
 
-    public async updateEventNamesAndProperties(
-        teamId: number,
-        event: string,
-        properties: Properties,
-        posthog: ReturnType<typeof nodePostHog>
-    ): Promise<void> {
+    public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
         const team: Team | null = await this.fetchTeam(teamId)
 
         if (!team) {

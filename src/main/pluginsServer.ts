@@ -10,6 +10,7 @@ import { createHub } from '../utils/db/hub'
 import { killProcess } from '../utils/kill'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
+import { statusReport } from '../utils/status-report'
 import { delay, getPiscinaStats } from '../utils/utils'
 import { startQueue } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
@@ -72,6 +73,7 @@ export async function startPluginsServer(
         await pubSub?.stop()
         actionsReloadJob && schedule.cancelJob(actionsReloadJob)
         pingJob && schedule.cancelJob(pingJob)
+        statusReport.stopStatusReportSchedule()
         piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
         internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
         await jobQueueConsumer?.stop()
