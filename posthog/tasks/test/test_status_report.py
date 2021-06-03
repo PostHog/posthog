@@ -57,6 +57,7 @@ class TestStatusReport(APIBaseTest):
             self.create_event(
                 "new_user1", "$event1", "$web", now() - relativedelta(weeks=1, hours=2), team=team_in_other_org
             )
+            _test_team_report()  # make sure the original team report is unchanged
 
             instance_usage_summary = status_report(dry_run=True).get("instance_usage_summary")
             self.assertEqual(
@@ -71,7 +72,32 @@ class TestStatusReport(APIBaseTest):
             self.assertEqual(
                 instance_usage_summary["persons_count_new_in_period"], team_report["persons_count_new_in_period"]
             )  # type: ignore
-            _test_team_report()  # make sure the original team report is unchanged
+
+            # Create an event before and after this current period
+            self.create_event(
+                "new_user1", "$eventBefore", "$web", now() + relativedelta(weeks=2, hours=2), team=self.team
+            )
+            self.create_event(
+                "new_user1", "$eventAfter", "$web", now() - relativedelta(weeks=2, hours=2), team=self.team
+            )
+
+            updated_team_report = status_report(dry_run=True).get("teams")[self.team.id]  # type: ignore
+            updated_instance_usage_summary = status_report(dry_run=True).get("instance_usage_summary")
+
+            # Check event totals are updated
+            self.assertEqual(updated_team_report["events_count_total"], team_report["events_count_total"] + 2)
+            self.assertEqual(
+                updated_instance_usage_summary["events_count_total"], instance_usage_summary["events_count_total"] + 2
+            )
+
+            # Check event usage in current period is unchanged
+            self.assertEqual(
+                updated_team_report["events_count_new_in_period"], team_report["events_count_new_in_period"]
+            )
+            self.assertEqual(
+                updated_instance_usage_summary["events_count_new_in_period"],
+                instance_usage_summary["events_count_new_in_period"],
+            )
 
     def test_status_report_plugins(self) -> None:
         self._create_plugin("Installed but not enabled", False)
