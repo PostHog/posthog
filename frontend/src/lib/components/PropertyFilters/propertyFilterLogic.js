@@ -126,6 +126,10 @@ export const propertyFilterLogic = kea({
                 // {} adds an empty row, which shows 'New Filter'
                 actions.setFilters(properties ? [...properties, {}] : [{}])
             }
+
+            if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
+                actions.setProperties(propertyDefinitionsLogic.values.transformedPropertyDefinitions)
+            }
         },
     }),
 

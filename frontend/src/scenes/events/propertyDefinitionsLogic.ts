@@ -17,7 +17,7 @@ export const propertyDefinitionsLogic = kea<
     propertyDefinitionsLogicType<PropertyDefinitionStorage, PropertyDefinition, PropertySelectOption>
 >({
     connect: {
-        actions: [insightDataCachingLogic, ['maybeLoadData']],
+        actions: [insightDataCachingLogic, ['maybeLoadData', 'finishLoading']],
         values: [insightDataCachingLogic, ['cachedData', 'cacheLoading']],
     },
     actions: {
