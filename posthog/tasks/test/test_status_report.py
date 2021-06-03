@@ -63,19 +63,19 @@ class TestStatusReport(APIBaseTest):
             instance_usage_summary = status_report(dry_run=True).get("instance_usage_summary")
             self.assertEqual(
                 instance_usage_summary["events_count_new_in_period"],  # type: ignore
-                team_report["events_count_new_in_period"] + 1,  # type: ignore
+                team_report["events_count_new_in_period"] + 1,
             )
             self.assertEqual(
                 instance_usage_summary["events_count_total"],  # type: ignore
-                team_report["events_count_total"] + 1,  # type: ignore
+                team_report["events_count_total"] + 1,
             )
             self.assertEqual(
                 instance_usage_summary["persons_count_total"],  # type: ignore
-                team_report["persons_count_total"] + 2,  # type: ignore
+                team_report["persons_count_total"] + 2,
             )
             self.assertEqual(
                 instance_usage_summary["persons_count_new_in_period"],  # type: ignore
-                team_report["persons_count_new_in_period"],  # type: ignore
+                team_report["persons_count_new_in_period"],
             )
             # Create an event before and after this current period
             self.create_event(
@@ -90,8 +90,7 @@ class TestStatusReport(APIBaseTest):
 
             # Check event totals are updated
             self.assertEqual(
-                updated_team_report["events_count_total"],  # type: ignore
-                team_report["events_count_total"] + 2,  # type: ignore
+                updated_team_report["events_count_total"], team_report["events_count_total"] + 2,
             )
             self.assertEqual(
                 updated_instance_usage_summary["events_count_total"],  # type: ignore
@@ -103,8 +102,8 @@ class TestStatusReport(APIBaseTest):
                 updated_team_report["events_count_new_in_period"], team_report["events_count_new_in_period"]
             )
             self.assertEqual(
-                updated_instance_usage_summary["events_count_new_in_period"],
-                instance_usage_summary["events_count_new_in_period"],
+                updated_instance_usage_summary["events_count_new_in_period"],  # type: ignore
+                instance_usage_summary["events_count_new_in_period"],  # type: ignore
             )
 
             # Create an internal metrics org
@@ -121,12 +120,12 @@ class TestStatusReport(APIBaseTest):
             )
             # Verify that internal metrics events are not counted
             self.assertEqual(
-                status_report(dry_run=True).get("teams")[self.team.id]["events_count_total"],
+                status_report(dry_run=True).get("teams")[self.team.id]["events_count_total"],  # type: ignore
                 updated_team_report["events_count_total"],
             )
             self.assertEqual(
-                status_report(dry_run=True).get("instance_usage_summary")["events_count_total"],
-                updated_instance_usage_summary["events_count_total"],
+                status_report(dry_run=True).get("instance_usage_summary")["events_count_total"],  # type: ignore
+                updated_instance_usage_summary["events_count_total"],  # type: ignore
             )
 
     def test_status_report_plugins(self) -> None:
@@ -142,7 +141,7 @@ class TestStatusReport(APIBaseTest):
         Person.objects.create(team=team, distinct_ids=[distinct_id])
 
     @staticmethod
-    def create_new_org_and_team(for_internal_metrics=False) -> Team:
+    def create_new_org_and_team(for_internal_metrics: bool = False) -> Team:
         org = Organization.objects.create(name="New Org", for_internal_metrics=for_internal_metrics)
         team = Team.objects.create(organization=org, name="Default Project")
         return team
