@@ -38,7 +38,7 @@ class TestStatusReport(APIBaseTest):
 
             team_report = status_report(dry_run=True).get("teams")[self.team.id]  # type: ignore
 
-            def _test_team_report():
+            def _test_team_report() -> None:
                 self.assertEqual(team_report["events_count_total"], 4)
                 self.assertEqual(team_report["events_count_new_in_period"], 3)
                 self.assertEqual(team_report["events_count_by_lib"], {"$mobile": 1, "$web": 2})
