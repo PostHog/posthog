@@ -5,7 +5,7 @@ import { ActionTypePropertyFilter, EventTypePropertyFilter, PropertyOperator } f
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { propertyDefinitionsLogic } from 'scenes/events/volume-definitions/propertyDefinitionsLogic'
 
 interface Props {
     filter: EventTypePropertyFilter | ActionTypePropertyFilter

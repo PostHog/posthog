@@ -1,20 +1,19 @@
-import React, { useEffect, useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { Alert, Button, Input, Skeleton, Table, Tooltip } from 'antd'
-import Fuse from 'fuse.js'
+import { Alert, Button, Input, Tooltip } from 'antd'
 import { InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { ColumnsType } from 'antd/lib/table'
+import Table, { ColumnsType } from 'antd/lib/table'
+import Fuse from 'fuse.js'
+import { useValues, useActions } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { eventDefinitionsLogic } from './eventDefinitionsLogic'
-import { EventDefinition, PropertyDefinition } from '~/types'
-import { PageHeader } from 'lib/components/PageHeader'
-import { userLogic } from 'scenes/userLogic'
-import './VolumeTable.scss'
-import { ProfilePicture } from '~/layout/navigation/TopNavigation'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
+import React, { useState, useEffect } from 'react'
+import { userLogic } from 'scenes/userLogic'
+import { ProfilePicture } from '~/layout/navigation/TopNavigation'
+import { EventDefinition, PropertyDefinition } from '~/types'
+import { eventDefinitionsLogic } from './eventDefinitionsLogic'
+import './VolumeTable.scss'
+
 type EventTableType = 'event' | 'property'
 
 type EventOrPropType = EventDefinition & PropertyDefinition
@@ -31,6 +30,25 @@ const search = (sources: VolumeTableRecord[], searchQuery: string): VolumeTableR
     })
         .search(searchQuery)
         .map((result) => result.item)
+}
+
+export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
+    return (
+        <Alert
+            type="info"
+            showIcon
+            message={`${tab} is not enabled for your instance.`}
+            description={
+                <>
+                    You will still see the list of events and properties, but usage information will be unavailable. If
+                    you want to enable event usage please set the follow environment variable:{' '}
+                    <pre style={{ display: 'inline' }}>ASYNC_EVENT_PROPERTY_USAGE=1</pre>. Please note, enabling this
+                    environment variable <b>may increase load considerably in your infrastructure</b>, particularly if
+                    you have a large volume of events.
+                </>
+            }
+        />
+    )
 }
 
 export function VolumeTable({
@@ -240,59 +258,5 @@ export function VolumeTableRecordDescription({
                 </>
             )}
         </div>
-    )
-}
-
-export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
-    return (
-        <Alert
-            type="info"
-            showIcon
-            message={`${tab} is not enabled for your instance.`}
-            description={
-                <>
-                    You will still see the list of events and properties, but usage information will be unavailable. If
-                    you want to enable event usage please set the follow environment variable:{' '}
-                    <pre style={{ display: 'inline' }}>ASYNC_EVENT_PROPERTY_USAGE=1</pre>. Please note, enabling this
-                    environment variable <b>may increase load considerably in your infrastructure</b>, particularly if
-                    you have a large volume of events.
-                </>
-            }
-        />
-    )
-}
-
-export function EventsVolumeTable(): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
-    const { eventDefinitions, loaded } = useValues(eventDefinitionsLogic)
-
-    return (
-        <>
-            <PageHeader
-                title="Events Stats"
-                caption="See all event names that have ever been sent to this team, including the volume and how often
-        queries where made using this event."
-                style={{ marginTop: 0 }}
-            />
-            {loaded ? (
-                <>
-                    {preflight && !preflight?.is_event_property_usage_enabled ? (
-                        <UsageDisabledWarning tab="Events Stats" />
-                    ) : (
-                        eventDefinitions[0].volume_30_day === null && (
-                            <>
-                                <Alert
-                                    type="warning"
-                                    message="We haven't been able to get usage and volume data yet. Please check back later"
-                                />
-                            </>
-                        )
-                    )}
-                    <VolumeTable data={eventDefinitions} type="event" />
-                </>
-            ) : (
-                <Skeleton active paragraph={{ rows: 5 }} />
-            )}
-        </>
     )
 }

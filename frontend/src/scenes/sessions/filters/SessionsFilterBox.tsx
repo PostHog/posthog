@@ -9,7 +9,7 @@ import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionF
 import { FilterSelector, sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { Link } from 'lib/components/Link'
 import { cohortsModel } from '~/models/cohortsModel'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { eventDefinitionsLogic } from 'scenes/events/volume-definitions/eventDefinitionsLogic'
 
 export function SessionsFilterBox({ selector }: { selector: FilterSelector }): JSX.Element | null {
     const { openFilter, personProperties } = useValues(sessionsFiltersLogic)

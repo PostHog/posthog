@@ -7,7 +7,7 @@ import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insight
 import { pathsLogicType } from './pathsLogicType'
 import { FilterType, PropertyFilter } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { propertyDefinitionsLogic } from 'scenes/events/volume-definitions/propertyDefinitionsLogic'
 
 export const PAGEVIEW = '$pageview'
 export const SCREEN = '$screen'

@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { propertyDefinitionsLogic } from 'scenes/events/volume-definitions/propertyDefinitionsLogic'
 import { cohortsModel } from '~/models'
 import { ViewType } from '../insightLogic'
 

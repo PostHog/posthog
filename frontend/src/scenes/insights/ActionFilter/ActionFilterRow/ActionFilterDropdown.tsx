@@ -15,7 +15,7 @@ import { RenderInfoProps, SelectBox, SelectedItem } from 'lib/components/SelectB
 import { Link } from 'lib/components/Link'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { entityFilterLogic } from '../entityFilterLogic'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { eventDefinitionsLogic } from 'scenes/events/volume-definitions/eventDefinitionsLogic'
 import { router } from 'kea-router'
 
 const getSuggestions = (events: EventDefinition[]): EventDefinition[] => {

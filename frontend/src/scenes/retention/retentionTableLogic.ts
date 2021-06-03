@@ -15,8 +15,8 @@ import {
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { eventDefinitionsLogic } from 'scenes/events/volume-definitions/eventDefinitionsLogic'
+import { propertyDefinitionsLogic } from 'scenes/events/volume-definitions/propertyDefinitionsLogic'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 

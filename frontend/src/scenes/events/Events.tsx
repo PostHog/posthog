@@ -4,8 +4,8 @@ import { kea, useActions, useValues } from 'kea'
 import { Tabs } from 'antd'
 import { ActionsTable } from 'scenes/actions/ActionsTable'
 import { EventsTable } from './EventsTable'
-import { EventsVolumeTable } from './EventsVolumeTable'
-import { PropertiesVolumeTable } from './PropertiesVolumeTable'
+import { EventsVolumeTable } from './volume-definitions/EventsVolumeTable'
+import { PropertiesVolumeTable } from './volume-definitions/PropertiesVolumeTable'
 import { eventsLogicType } from './EventsType'
 
 const eventsLogic = kea<eventsLogicType>({

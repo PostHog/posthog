@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { propertyDefinitionsLogic } from 'scenes/events/volume-definitions/propertyDefinitionsLogic'
 
 export function parseProperties(input) {
     if (Array.isArray(input) || !input) {

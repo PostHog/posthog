@@ -21,8 +21,8 @@ import { ActionFilter, ActionType, FilterType, PersonType, PropertyFilter, Trend
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { eventDefinitionsLogic } from 'scenes/events/volume-definitions/eventDefinitionsLogic'
+import { propertyDefinitionsLogic } from 'scenes/events/volume-definitions/propertyDefinitionsLogic'
 
 interface TrendResponse {
     result: TrendResult[]
