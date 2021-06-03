@@ -144,12 +144,11 @@ describe('TeamManager()', () => {
         })
 
         it('updates event properties', async () => {
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'new-event',
-                { property_name: 'efg', number: 4, numeric_prop: 5 },
-                posthog
-            )
+            await teamManager.updateEventNamesAndProperties(2, 'new-event', {
+                property_name: 'efg',
+                number: 4,
+                numeric_prop: 5,
+            })
             teamManager.teamCache.clear()
 
             expect(await hub.db.fetchEventDefinitions()).toEqual([
@@ -201,18 +200,13 @@ describe('TeamManager()', () => {
             await teamManager.cacheEventNamesAndProperties(2)
             jest.spyOn(hub.db, 'postgresQuery')
 
-            await teamManager.updateEventNamesAndProperties(2, '$pageview', {}, posthog)
+            await teamManager.updateEventNamesAndProperties(2, '$pageview', {})
 
             expect(hub.db.postgresQuery).not.toHaveBeenCalled()
         })
 
         it('does not capture event', async () => {
-            await teamManager.updateEventNamesAndProperties(
-                2,
-                'new-event',
-                { property_name: 'efg', number: 4 },
-                posthog
-            )
+            await teamManager.updateEventNamesAndProperties(2, 'new-event', { property_name: 'efg', number: 4 })
 
             expect(posthog.identify).not.toHaveBeenCalled()
             expect(posthog.capture).not.toHaveBeenCalled()
@@ -231,7 +225,7 @@ describe('TeamManager()', () => {
             jest.spyOn(hub.db, 'postgresQuery')
 
             // Scenario: Different request comes in, team gets reloaded in the background with no updates
-            await teamManager.updateEventNamesAndProperties(2, '$foobar', {}, posthog)
+            await teamManager.updateEventNamesAndProperties(2, '$foobar', {})
             expect(teamManager.fetchTeam).toHaveBeenCalledTimes(1)
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
 
@@ -239,7 +233,7 @@ describe('TeamManager()', () => {
             mocked(teamManager.fetchTeam).mockClear()
             mocked(hub.db.postgresQuery).mockClear()
 
-            await teamManager.updateEventNamesAndProperties(2, '$newevent', {}, posthog)
+            await teamManager.updateEventNamesAndProperties(2, '$newevent', {})
             expect(teamManager.fetchTeam).toHaveBeenCalledTimes(1)
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
         })
@@ -250,7 +244,7 @@ describe('TeamManager()', () => {
             })
 
             it('calls posthog.identify and posthog.capture', async () => {
-                await teamManager.updateEventNamesAndProperties(2, 'new-event', {}, posthog)
+                await teamManager.updateEventNamesAndProperties(2, 'new-event', {})
 
                 const team = await teamManager.fetchTeam(2)
                 expect(posthog.identify).toHaveBeenCalledWith('plugin_test_user_distinct_id_1001')

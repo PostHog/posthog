@@ -1,7 +1,13 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginTaskType } from '../../types'
+import { Hub, PluginConfig, PluginFunction, PluginTaskType, TeamId } from '../../types'
 import { processError } from '../../utils/db/error'
+import { statusReport } from '../../utils/status-report'
+
+function captureTimeSpentRunning(teamId: TeamId, timer: Date, func: PluginFunction): void {
+    const timeSpentRunning = new Date().getTime() - timer.getTime()
+    statusReport.addToTimeSpentRunningPlugins(teamId, timeSpentRunning, func)
+}
 
 export class IllegalOperationError extends Error {
     name = 'IllegalOperationError'
@@ -26,6 +32,7 @@ export async function runOnEvent(server: Hub, event: PluginEvent): Promise<void>
                     server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.on_event.ERROR`)
                 }
                 server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.on_event`, timer)
+                captureTimeSpentRunning(event.team_id, timer, 'onEvent')
             }
         })
     )
@@ -46,6 +53,7 @@ export async function runOnSnapshot(server: Hub, event: PluginEvent): Promise<vo
                     server.statsd?.increment(`plugin.${pluginConfig.plugin?.name}.on_event.ERROR`)
                 }
                 server.statsd?.timing(`plugin.${pluginConfig.plugin?.name}.on_event`, timer)
+                captureTimeSpentRunning(event.team_id, timer, 'onSnapshot')
             }
         })
     )
@@ -81,6 +89,7 @@ export async function runProcessEvent(server: Hub, event: PluginEvent): Promise<
                 plugin: pluginConfig.plugin?.name ?? '?',
                 teamId: teamId.toString(),
             })
+            captureTimeSpentRunning(event.team_id, timer, 'processEvent')
 
             if (!returnedEvent) {
                 return null
@@ -128,7 +137,7 @@ export async function runPluginTask(
         await processError(server, pluginConfig || null, error)
         server.statsd?.increment(`plugin.task.${taskType}.${taskName}.${pluginConfigId}.ERROR`)
     }
-    server.statsd?.timing(`plugin.task.${taskType}.${taskName}.${pluginConfigId}`, timer)
+    captureTimeSpentRunning(pluginConfig?.team_id || 0, timer, 'pluginTask')
     return response
 }
 
