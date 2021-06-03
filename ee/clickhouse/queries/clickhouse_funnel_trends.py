@@ -31,7 +31,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     def _configure_sql(self):
         funnel_trend_null_sql = self._get_funnel_trend_null_sql()
         parsed_date_from, parsed_date_to, _ = self._get_dates()
-        prop_filters, prop_filter_params = self._get_filters()
+        prop_filters, _ = self._get_filters()
         steps = self._get_steps()
         step_count = len(steps)
         interval_method = get_trunc_func_ch(self._filter.interval)
