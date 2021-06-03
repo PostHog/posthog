@@ -95,10 +95,10 @@ function EntityCriteriaRow({
 }): JSX.Element {
     const [open, setOpen] = useState(false)
 
-    const { label, days, operator, count } = group
+    const { label, days, count_operator, count } = group
 
-    const onOperatorChange = (operator: string): void => {
-        onEntityCriteriaChange({ operator })
+    const onOperatorChange = (count_operator: string): void => {
+        onEntityCriteriaChange({ count_operator })
     }
 
     const onDateIntervalChange = (dateInterval: string): void => {
@@ -146,7 +146,7 @@ function EntityCriteriaRow({
                 <CohortEntityFilterBox open={open} onSelect={onEntityChange} />
             </div>
             <div style={{ flex: 2, marginLeft: 5, marginRight: 5 }}>
-                <OperatorSelect value={operator} onChange={onOperatorChange} />
+                <OperatorSelect value={count_operator} onChange={onOperatorChange} />
             </div>
             <div style={{ flex: 1, marginLeft: 5, marginRight: 5 }}>
                 <Input
@@ -182,11 +182,11 @@ function DateIntervalSelect({
     value?: string
 }): JSX.Element {
     return (
-        <Select value={value || '1d'} style={{ width: '100%' }} onChange={onChange}>
-            <Option value="1d">day</Option>
-            <Option value="7d">week</Option>
-            <Option value="14d">2 weeks</Option>
-            <Option value="30d">month</Option>
+        <Select value={value || '1'} style={{ width: '100%' }} onChange={onChange}>
+            <Option value="1">day</Option>
+            <Option value="7">week</Option>
+            <Option value="14">2 weeks</Option>
+            <Option value="30">month</Option>
         </Select>
     )
 }

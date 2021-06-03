@@ -335,7 +335,7 @@ export interface CohortGroupType {
     event_id?: string
     label?: string
     count?: number
-    operator?: string
+    count_operator?: string
     properties?: Record<string, any>
     matchType: MatchType
 }
