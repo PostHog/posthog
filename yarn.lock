@@ -1600,10 +1600,10 @@
     prop-types "^15.7.2"
     state-local "^1.0.7"
 
-"@papercups-io/chat-widget@^1.1.5":
-  version "1.1.5"
-  resolved "https://registry.yarnpkg.com/@papercups-io/chat-widget/-/chat-widget-1.1.5.tgz#294bc63370ffd6578714adef1b6ca63708491726"
-  integrity sha512-x5UvZgrQxDVOJ5FY2ytN7QIIw8CQSAYu/Vz1DJbCc6AoTJ1Vwm5FF4JTxzHC6QmcH5VWWPA5tdQ5Gjwt8dTD9w==
+"@papercups-io/chat-widget@^1.1.10":
+  version "1.1.10"
+  resolved "https://registry.yarnpkg.com/@papercups-io/chat-widget/-/chat-widget-1.1.10.tgz#6fae6ded9e0b832310612ac4a9a841c938aceb82"
+  integrity sha512-bXmOUWWO0fOuJl0CipzXrdjvkP0elusu6H9OTw+k4H+oHtCCrYQH3Do7x66x77d2apWbaFfDvZWMul4l2NGyhw==
   dependencies:
     framer-motion "^2.0.1"
     phoenix "^1.5.3"
