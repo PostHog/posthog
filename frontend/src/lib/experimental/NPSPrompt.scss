@@ -17,6 +17,16 @@
         font-size: 1rem;
         font-weight: bold;
         margin-bottom: $default_spacing;
+        max-width: 90%;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .nps-dismiss {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        cursor: pointer;
     }
 
     .question {
@@ -27,11 +37,16 @@
         .ant-btn {
             margin-bottom: $default_spacing / 2;
         }
+        width: 60%;
+        margin: 0 auto;
+        padding-top: $default_spacing / 2;
     }
 
     .prompt-button {
+        margin: 0 auto;
         background-color: $bg_depth;
         border: 1px solid #000;
         color: $text_light;
+        width: 100%;
     }
 }

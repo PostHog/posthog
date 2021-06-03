@@ -2,6 +2,7 @@ import { Button } from 'antd'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CloseOutlined } from '@ant-design/icons'
 import React from 'react'
 import './NPSPrompt.scss'
 
@@ -15,6 +16,9 @@ export function NPSPrompt(): JSX.Element | null {
     return (
         <>
             <div className="nps-prompt">
+                <span className="nps-dismiss">
+                    <CloseOutlined />
+                </span>
                 <div className="prompt-inner">
                     <div className="prompt-title">Help us improve PostHog in less than 60 seconds 🙏</div>
                     <div className="question">How would you feel if you could no longer use PostHog?</div>
