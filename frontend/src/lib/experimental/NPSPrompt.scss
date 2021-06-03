@@ -1,0 +1,37 @@
+@import '~/vars';
+
+.nps-prompt {
+    background-color: $bg_menu;
+    border-radius: $radius;
+    padding: $default_spacing $default_spacing;
+    color: $text_light;
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    width: 360px;
+    z-index: $z_nps_overlay;
+    font-size: 0.85rem;
+    text-align: center;
+
+    .prompt-title {
+        font-size: 1rem;
+        font-weight: bold;
+        margin-bottom: $default_spacing;
+    }
+
+    .question {
+        text-align: left;
+    }
+
+    .action-buttons {
+        .ant-btn {
+            margin-bottom: $default_spacing / 2;
+        }
+    }
+
+    .prompt-button {
+        background-color: $bg_depth;
+        border: 1px solid #000;
+        color: $text_light;
+    }
+}

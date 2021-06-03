@@ -469,7 +469,7 @@ code.code {
 // Overlays styles
 
 #bottom-notice {
-    z-index: 10500;
+    z-index: $z_bottom_notice;
     display: flex;
     flex-direction: row;
     position: fixed;
