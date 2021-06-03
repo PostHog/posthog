@@ -62,18 +62,21 @@ class TestStatusReport(APIBaseTest):
 
             instance_usage_summary = status_report(dry_run=True).get("instance_usage_summary")
             self.assertEqual(
-                instance_usage_summary["events_count_new_in_period"], team_report["events_count_new_in_period"] + 1
-            )  # type: ignore
+                instance_usage_summary["events_count_new_in_period"],  # type: ignore
+                team_report["events_count_new_in_period"] + 1,  # type: ignore
+            )
             self.assertEqual(
-                instance_usage_summary["events_count_total"], team_report["events_count_total"] + 1
-            )  # type: ignore
+                instance_usage_summary["events_count_total"],  # type: ignore
+                team_report["events_count_total"] + 1,  # type: ignore
+            )
             self.assertEqual(
-                instance_usage_summary["persons_count_total"], team_report["persons_count_total"] + 2
-            )  # type: ignore
+                instance_usage_summary["persons_count_total"],  # type: ignore
+                team_report["persons_count_total"] + 2,  # type: ignore
+            )
             self.assertEqual(
-                instance_usage_summary["persons_count_new_in_period"], team_report["persons_count_new_in_period"]
-            )  # type: ignore
-
+                instance_usage_summary["persons_count_new_in_period"],  # type: ignore
+                team_report["persons_count_new_in_period"],  # type: ignore
+            )
             # Create an event before and after this current period
             self.create_event(
                 "new_user1", "$eventBefore", "$web", now() + relativedelta(weeks=2, hours=2), team=self.team
@@ -86,9 +89,13 @@ class TestStatusReport(APIBaseTest):
             updated_instance_usage_summary = status_report(dry_run=True).get("instance_usage_summary")
 
             # Check event totals are updated
-            self.assertEqual(updated_team_report["events_count_total"], team_report["events_count_total"] + 2)
             self.assertEqual(
-                updated_instance_usage_summary["events_count_total"], instance_usage_summary["events_count_total"] + 2
+                updated_team_report["events_count_total"],  # type: ignore
+                team_report["events_count_total"] + 2,  # type: ignore
+            )
+            self.assertEqual(
+                updated_instance_usage_summary["events_count_total"],  # type: ignore
+                instance_usage_summary["events_count_total"] + 2,  # type: ignore
             )
 
             # Check event usage in current period is unchanged
