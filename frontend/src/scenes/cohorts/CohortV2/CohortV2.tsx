@@ -36,9 +36,16 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
 
     const onCriteriaChange = (_group: Partial<CohortGroupType>, id: string): void => {
         const index = cohort.groups.findIndex((group: CohortGroupType) => group.id === id)
-        cohort.groups[index] = {
-            id: cohort.groups[index].id,
-            ..._group,
+        if (_group.matchType) {
+            cohort.groups[index] = {
+                id: cohort.groups[index].id,
+                ..._group,
+            }
+        } else {
+            cohort.groups[index] = {
+                ...cohort.groups[index],
+                ..._group,
+            }
         }
         setCohort({ ...cohort })
     }
