@@ -58,7 +58,7 @@ jobs:
               uses: actions/checkout@v2
               with:
                   repository: Posthog/vpc
-                  token: { { secrets.POSTHOG_BOT_GITHUB_TOKEN } }
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   path: vpc
 
             # Helm update
