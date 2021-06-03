@@ -25,7 +25,7 @@ describe('Insights', () => {
         cy.visit('/events') // Test that default params are set correctly even if the app doesn't start on insights
         cy.reload()
 
-        cy.get('[data-attr=menu-item-insights]').click()
+        cy.clickNavMenu('insights')
         cy.get('[data-attr=trend-element-subject-0] span').should('contain', 'Pageview')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.contains('Add graph series').click()

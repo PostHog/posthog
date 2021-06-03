@@ -1,6 +1,6 @@
 describe('Sessions', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-sessions]').click()
+        cy.clickNavMenu('sessions')
     })
 
     it('Sessions Table loaded', () => {

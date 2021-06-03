@@ -1,6 +1,6 @@
 describe('Dashboards Premium Features', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-dashboards]').click()
+        cy.clickNavMenu('dashboards')
         cy.location('pathname').should('include', '/dashboard')
     })
 
@@ -15,7 +15,7 @@ describe('Dashboards Premium Features', () => {
         cy.wait(300)
         cy.get('.new-tag-input').should('not.exist') // Input should disappear
 
-        cy.get('[data-attr=menu-item-dashboards]').click()
+        cy.clickNavMenu('dashboards')
         cy.get('.ant-tag').should('contain', newTag) // Tag is shown in dashboard list too
     })
 

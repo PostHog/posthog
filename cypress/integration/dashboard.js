@@ -1,6 +1,6 @@
 describe('Dashboard', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-dashboards]').click().click()
+        cy.clickNavMenu('dashboards')
         cy.location('pathname').should('include', '/dashboard')
     })
 
@@ -20,7 +20,7 @@ describe('Dashboard', () => {
     })
 
     it('Pinned dashboards on menu', () => {
-        cy.get('[data-attr=menu-item-events]').click() // to make sure the dashboards menu item is not the active one
+        cy.clickNavMenu('events') // to make sure the dashboards menu item is not the active one
         cy.get('[data-attr=menu-item-dashboards]').trigger('mouseover') // hover over dashboards menu item
         cy.get('.pinned-dashboards').should('be.visible')
         cy.get('[data-attr=menu-item-dashboard-0]').should('be.visible')
