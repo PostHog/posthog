@@ -3,7 +3,8 @@
 .nps-prompt {
     background-color: $bg_menu;
     border-radius: $radius;
-    padding: $default_spacing $default_spacing;
+    padding: $default_spacing;
+    padding-top: 6px;
     color: $text_light;
     position: fixed;
     bottom: 16px;
@@ -20,6 +21,7 @@
         max-width: 90%;
         margin-left: auto;
         margin-right: auto;
+        padding-top: 10px;
     }
 
     .nps-dismiss {
@@ -29,8 +31,34 @@
         cursor: pointer;
     }
 
+    .nps-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: $default_spacing / 2;
+    }
+
+    .nps-progress {
+        flex-grow: 1;
+        display: flex;
+        justify-content: center;
+        .pg-item {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: $border;
+            margin-right: $default_spacing / 2;
+            &:last-of-type {
+                margin-right: 0;
+            }
+            &.completed {
+                background-color: $success;
+            }
+        }
+    }
+
     .question {
         text-align: left;
+        padding-bottom: $default_spacing / 2;
     }
 
     .action-buttons {
@@ -48,5 +76,11 @@
         border: 1px solid #000;
         color: $text_light;
         width: 100%;
+    }
+
+    textarea {
+        color: $text_light;
+        background-color: $bg_depth;
+        border-color: #000;
     }
 }
