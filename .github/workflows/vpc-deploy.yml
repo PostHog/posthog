@@ -54,6 +54,12 @@ jobs:
                   docker push "$REGISTRY_HOSTNAME/$PROJECT_ID/$IMAGE:$GITHUB_SHA"
 
             # Checkout vpc repo for values.yaml
+            - name: Checkout Posthog/vpc
+              uses: actions/checkout@v2
+              with:
+                  repository: Posthog/vpc
+                  token: { { secrets.POSTHOG_BOT_GITHUB_TOKEN } }
+                  path: vpc
 
             # Helm update
             - name: Helm upgrade
@@ -61,4 +67,4 @@ jobs:
                   helm plugin install https://github.com/hypnoglow/helm-s3.git
                   helm repo add posthog-vpc s3://posthog-vpc-helm/charts
                   helm repo update
-                  helm upgrade posthog posthog-vpc/posthog --set image.repository="$REGISTRY_HOSTNAME/$PROJECT_ID/posthog" --set image.sha="$GITHUB_SHA"
+                  helm upgrade posthog vpc/charts/posthog -f vpc/client_values/posthog/values.yaml --set image.repository="$REGISTRY_HOSTNAME/$PROJECT_ID/posthog" --set image.sha="$GITHUB_SHA"
