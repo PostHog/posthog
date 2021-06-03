@@ -1306,6 +1306,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "marcushyett-ph",
+      "name": "Marcus Hyett (PostHog)",
+      "avatar_url": "https://avatars.githubusercontent.com/u/85295485?v=4",
+      "profile": "https://github.com/marcushyett-ph",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
