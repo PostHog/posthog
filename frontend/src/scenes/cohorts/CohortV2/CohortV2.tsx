@@ -13,7 +13,6 @@ import Dragger from 'antd/lib/upload/Dragger'
 import './cohort.scss'
 import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
-import { objectsEqual } from 'lib/utils'
 
 export function CohortV2(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
@@ -161,10 +160,6 @@ export function CohortV2Footer(props: { cohort: CohortType }): JSX.Element {
     const { cohort } = useValues(logic)
     const { saveCohort } = useActions(logic)
 
-    const isDisabled = (): boolean => {
-        return !cohort.name || objectsEqual(props.cohort, cohort)
-    }
-
     const onSave = (): void => {
         saveCohort()
     }
@@ -172,7 +167,7 @@ export function CohortV2Footer(props: { cohort: CohortType }): JSX.Element {
     return (
         <Row justify="end">
             <Button
-                disabled={isDisabled()}
+                disabled={!cohort.name}
                 type="primary"
                 htmlType="submit"
                 data-attr="save-cohort"
