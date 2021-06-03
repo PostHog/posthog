@@ -103,6 +103,7 @@ export const cohortLogic = kea({
                 cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortFormData)
                 cohortsModel.actions.createCohort(cohort)
             }
+            cohort.is_calculating = true // this will ensure there is always a polling period to allow for backend calculation task to run
             breakpoint()
             delete cohort['csv']
             actions.setCohort(cohort)
