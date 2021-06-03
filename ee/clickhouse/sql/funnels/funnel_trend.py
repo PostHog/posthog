@@ -23,10 +23,10 @@ from (
                 JOIN (
                     SELECT person_id, distinct_id
                       FROM ({latest_distinct_id_sql})
-                     WHERE team_id = {team_id}
+                     WHERE team_id = %(team_id)s
                 ) as pid
                 ON pid.distinct_id = events.distinct_id
-                WHERE team_id = {team_id}
+                WHERE team_id = %(team_id)s
                     {filters}
                     {parsed_date_from}
                     {parsed_date_to}
