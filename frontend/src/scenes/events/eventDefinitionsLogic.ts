@@ -18,6 +18,10 @@ interface EventsGroupedInterface {
 export const eventDefinitionsLogic = kea<
     eventDefinitionsLogicType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface, SelectOption>
 >({
+    actions: () => ({
+        updateEventDefinition: (id: string, description: string | null) => ({ id, description }),
+        setEventDefinitions: (event) => ({ event }),
+    }),
     loaders: ({ values }) => ({
         eventStorage: [
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
@@ -36,6 +40,14 @@ export const eventDefinitionsLogic = kea<
                         next: eventStorage.next,
                     }
                 },
+                setEventDefinitions: ({ event }) => {
+                    const updatedDefinitions = values.eventDefinitions.map((e) => (event.id === e.id ? event : e))
+                    return {
+                        count: values.eventStorage.count,
+                        results: updatedDefinitions,
+                        next: values.eventStorage.next,
+                    }
+                },
             },
         ],
     }),
@@ -44,6 +56,10 @@ export const eventDefinitionsLogic = kea<
             if (eventStorage.next) {
                 actions.loadEventDefinitions()
             }
+        },
+        updateEventDefinition: async ({ id, description }) => {
+            const response = await api.update(`api/projects/@current/event_definitions/${id}`, { description })
+            actions.setEventDefinitions(response)
         },
     }),
     events: ({ actions }) => ({
