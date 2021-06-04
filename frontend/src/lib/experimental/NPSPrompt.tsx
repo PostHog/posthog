@@ -25,7 +25,7 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
     selectors: {
         featureFlagEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],
-            (featureFlags) => true || featureFlags[FEATURE_FLAGS.NPS_PROMPT],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.NPS_PROMPT],
         ],
     },
     actions: {
