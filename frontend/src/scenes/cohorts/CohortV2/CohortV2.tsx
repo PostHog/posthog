@@ -116,15 +116,19 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
             {cohort.is_static ? (
                 <div>
                     <h3 className="l3">Add Users</h3>
-                    <span>Drop a .csv file here to add users to your cohort</span>
-                    <Dragger {...staticCSVDraggerProps}>
+                    <span>
+                        Drop a <pre style={{ display: 'inline' }}>.csv</pre> file here to add users to your cohort
+                    </span>
+                    <Dragger {...staticCSVDraggerProps} className="cohort-csv-dragger">
                         <p className="ant-upload-drag-icon">
                             <InboxOutlined />
                         </p>
-                        <p className="ant-upload-text">Click or drag CSV to this area to upload</p>
-                        <p className="ant-upload-hint">
-                            Make sure the file has a single column with the user's distinct_id.
-                        </p>
+                        <div>
+                            <p className="ant-upload-text">Click or drag file to this area to upload</p>
+                            <p className="ant-upload-hint">
+                                The CSV file only requires a single column with the user’s distinct ID.
+                            </p>
+                        </div>
                     </Dragger>
                 </div>
             ) : (
@@ -135,15 +139,18 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
                     onRemoveGroup={onRemoveGroup}
                 />
             )}
-            <Divider />
+
             {cohort.id !== 'new' && (
-                <div>
-                    <h3 className="l3">Matched Users</h3>
-                    <span>List of users that currently match the criteria defined</span>
-                    <div style={{ marginTop: 15 }}>
-                        <Persons cohort={cohort} key={lastSavedAt} />
+                <>
+                    <Divider />
+                    <div>
+                        <h3 className="l3">Matched Users</h3>
+                        <span>List of users that currently match the criteria defined</span>
+                        <div style={{ marginTop: 15 }}>
+                            <Persons cohort={cohort} key={lastSavedAt} />
+                        </div>
                     </div>
-                </div>
+                </>
             )}
         </div>
     )

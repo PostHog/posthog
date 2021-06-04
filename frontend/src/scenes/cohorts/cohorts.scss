@@ -8,3 +8,20 @@
 .cohort-type-description {
     text-align: center;
 }
+
+.cohort-csv-dragger {
+    .ant-upload-drag-container {
+        display: flex !important;
+        text-align: left;
+
+        .ant-upload-drag-icon {
+            margin: 0 !important;
+            padding-left: $default_spacing;
+            padding-right: $default_spacing;
+        }
+        .ant-upload-text {
+            font-size: 1rem !important;
+            margin: 0 !important;
+        }
+    }
+}
