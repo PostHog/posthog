@@ -13,6 +13,12 @@
     z-index: $z_nps_overlay;
     font-size: 0.85rem;
     text-align: center;
+    transition: transform 1s ease-in-out;
+    transform: translateY(0%);
+
+    &.hide {
+        transform: translateY(130%);
+    }
 
     .prompt-title {
         font-size: 1rem;

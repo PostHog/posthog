@@ -3,7 +3,7 @@ import { kea, useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CloseOutlined, ArrowLeftOutlined } from '@ant-design/icons'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import './NPSPrompt.scss'
 import { npsLogicType } from './NPSPromptType'
 import posthog from 'posthog-js'
@@ -20,7 +20,7 @@ const npsLogic = kea<npsLogicType<NPSPayload>>({
         setStep: (step: number) => ({ step }),
         setPayload: (payload: NPSPayload | null, merge: boolean = true) => ({ payload, merge }),
         stepBack: true,
-        submit: true,
+        submit: (result: 'dismissed' | 'partial' | 'completed') => ({ result }),
     },
     reducers: {
         step: [0, { setStep: (_, { step }) => step }],
@@ -38,12 +38,14 @@ const npsLogic = kea<npsLogicType<NPSPayload>>({
                 actions.setPayload(null)
             }
         },
-        submit: () => {
+        submit: ({ result }) => {
             if (!values.payload) {
                 return
             }
-            posthog.capture('nps feedback', values.payload)
+            // `nps_2106` is used to identify users who have replied to the NPS survey (via cohorts)
+            posthog.capture('nps feedback', { ...values.payload, result, $set: { nps_2106: true } })
             actions.setStep(3)
+            localStorage.setItem('experimental-nps', 'true')
         },
     }),
 })
@@ -54,6 +56,16 @@ export function NPSPrompt(): JSX.Element | null {
     const { step } = useValues(npsLogic)
     const [step2Content, setStep2Content] = useState('')
     const [step3Content, setStep3Content] = useState('')
+    // Whether the component should be displayed or not (based on whether it has been filled or not)
+    const [hidden, setHidden] = useState(true)
+
+    useEffect(() => {
+        if (!localStorage.getItem('experimental-nps')) {
+            // Survey hasn't been filled, show component. Please note this only determines eligibility based on whether the form has been filled.
+            // Specific user eligibility is determined by feature flag below.
+            setTimeout(() => setHidden(false), 10000) // Show after 10s of using the app
+        }
+    }, [])
 
     if (!featureFlags[FEATURE_FLAGS.NPS_PROMPT]) {
         return null
@@ -67,7 +79,7 @@ export function NPSPrompt(): JSX.Element | null {
     const handleStep2 = (sendSubmission: boolean = false): void => {
         setPayload({ feedback_score: step2Content })
         if (sendSubmission) {
-            // TODO
+            submit('partial')
         } else {
             setStep(2)
         }
@@ -75,7 +87,8 @@ export function NPSPrompt(): JSX.Element | null {
 
     const handleStep3 = (): void => {
         setPayload({ feedback_persona: step3Content })
-        submit()
+        submit('completed')
+        setTimeout(() => setHidden(true), 3500)
     }
 
     const Header = (
@@ -93,7 +106,7 @@ export function NPSPrompt(): JSX.Element | null {
 
     return (
         <>
-            <div className="nps-prompt">
+            <div className={`nps-prompt${hidden ? ' hide' : ''}`}>
                 <span className="nps-dismiss">
                     <CloseOutlined />
                 </span>
