@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
-import { Select, Row, Button, Input } from 'antd'
+import { Select, Row, Button, Input, Col } from 'antd'
 import { CohortEntityFilterBox } from './CohortEntityFilterBox'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectDownIcon } from 'lib/components/SelectDownIcon'
 import { CohortGroupType, PropertyFilter, MatchType } from '~/types'
 import { ACTION_TYPE, EVENT_TYPE, ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { CloseButton } from 'lib/components/CloseButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
+import { DeleteOutlined } from '@ant-design/icons'
 
 const { Option } = Select
 
@@ -29,18 +29,18 @@ export function MatchCriteriaSelector({
         <div style={{ padding: 15, border: '1px solid rgba(0, 0, 0, 0.1)', borderRadius: 4, width: '100%' }}>
             <Row align="middle" justify="space-between">
                 <div>
-                    Match users who have
+                    Match users who
                     <Select
                         defaultValue={PROPERTY_MATCH_TYPE}
                         value={group.matchType}
                         style={{ width: 240, marginLeft: 10 }}
                         onChange={onMatchTypeChange}
                     >
-                        <Option value={PROPERTY_MATCH_TYPE}>properties</Option>
+                        <Option value={PROPERTY_MATCH_TYPE}>have properties</Option>
                         <Option value={ENTITY_MATCH_TYPE}>performed action or event</Option>
                     </Select>
                 </div>
-                <CloseButton onClick={() => onRemove()} style={{ cursor: 'pointer', float: 'none', paddingLeft: 8 }} />
+                <DeleteOutlined onClick={() => onRemove()} style={{ cursor: 'pointer' }} />
             </Row>
             <Row align="middle">
                 {group.matchType === ENTITY_MATCH_TYPE ? (
@@ -97,78 +97,73 @@ function EntityCriteriaRow({
 
     const { label, days, count_operator, count } = group
 
-    const onOperatorChange = (count_operator: string): void => {
-        onEntityCriteriaChange({ count_operator })
+    const onOperatorChange = (newCountOperator: string): void => {
+        onEntityCriteriaChange({ count_operator: newCountOperator })
     }
 
     const onDateIntervalChange = (dateInterval: string): void => {
         onEntityCriteriaChange({ days: dateInterval })
     }
 
-    const onEntityCountChange = (count: number): void => {
-        onEntityCriteriaChange({ count })
+    const onEntityCountChange = (newCount: number): void => {
+        onEntityCriteriaChange({ count: newCount })
     }
 
-    const onEntityChange = (type: any, id: string | number, label: string): void => {
+    const onEntityChange = (type: any, id: string | number, newLabel: string): void => {
         if (type === EVENT_TYPE && typeof id === 'string') {
-            onEntityCriteriaChange({ event_id: id, label })
+            onEntityCriteriaChange({ event_id: id, label: newLabel })
         } else if (type === ACTION_TYPE && typeof id === 'number') {
-            onEntityCriteriaChange({ action_id: id, label })
+            onEntityCriteriaChange({ action_id: id, label: newLabel })
         }
         setOpen(false)
     }
 
     return (
-        <div
-            style={{
-                display: 'flex',
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                width: '100%',
-                marginTop: 10,
-            }}
-        >
-            <div style={{ flex: 3, marginRight: 5 }}>
-                <Button
-                    onClick={() => setOpen(!open)}
-                    className="full-width"
-                    style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                    }}
-                    data-attr="edit-cohort-entity-filter"
-                >
-                    <PropertyKeyInfo value={label || ''} />
-                    <SelectDownIcon className="text-muted" />
-                </Button>
-                <CohortEntityFilterBox open={open} onSelect={onEntityChange} />
-            </div>
-            <div style={{ flex: 2, marginLeft: 5, marginRight: 5 }}>
-                <OperatorSelect value={count_operator} onChange={onOperatorChange} />
-            </div>
-            <div style={{ flex: 1, marginLeft: 5, marginRight: 5 }}>
-                <Input
-                    required
-                    value={count}
-                    data-attr="entity-count"
-                    onChange={(e) => onEntityCountChange(parseInt(e.target.value))}
-                />
-            </div>
-            <div style={{ flex: 2, marginLeft: 2, marginRight: 2, textAlign: 'center' }}>times in the last</div>
-            <div style={{ flex: 2, marginLeft: 5 }}>
-                <DateIntervalSelect value={days} onChange={onDateIntervalChange} />
-            </div>
+        <div style={{ marginTop: 16, width: '100%' }}>
+            <Row gutter={8}>
+                <Col flex="auto">
+                    <Button
+                        onClick={() => setOpen(!open)}
+                        className="full-width"
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                        }}
+                        data-attr="edit-cohort-entity-filter"
+                    >
+                        <PropertyKeyInfo value={label || 'Select an event'} />
+                        <SelectDownIcon className="text-muted" />
+                    </Button>
+                    <CohortEntityFilterBox open={open} onSelect={onEntityChange} />
+                </Col>
+                <Col span={4}>
+                    <OperatorSelect value={count_operator} onChange={onOperatorChange} />
+                </Col>
+                <Col span={3}>
+                    <Input
+                        required
+                        value={count}
+                        data-attr="entity-count"
+                        onChange={(e) => onEntityCountChange(parseInt(e.target.value))}
+                        placeholder="2"
+                        type="number"
+                    />
+                </Col>
+                <Col style={{ display: 'flex', alignItems: 'center' }}>times in the last</Col>
+                <Col>
+                    <DateIntervalSelect value={days} onChange={onDateIntervalChange} />
+                </Col>
+            </Row>
         </div>
     )
 }
 
 function OperatorSelect({ onChange, value }: { onChange: (operator: string) => void; value?: string }): JSX.Element {
     return (
-        <Select value={value || 'eq'} style={{ width: '100%' }} onChange={onChange}>
-            <Option value="eq">exactly</Option>
+        <Select value={value || 'gte'} style={{ width: '100%' }} onChange={onChange}>
             <Option value="gte">at least</Option>
+            <Option value="eq">exactly</Option>
             <Option value="lte">at most</Option>
         </Select>
     )
@@ -182,11 +177,18 @@ function DateIntervalSelect({
     value?: string
 }): JSX.Element {
     return (
-        <Select value={value || '1'} style={{ width: '100%' }} onChange={onChange}>
-            <Option value="1">day</Option>
-            <Option value="7">week</Option>
-            <Option value="14">2 weeks</Option>
-            <Option value="30">month</Option>
-        </Select>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+            <Input
+                autoFocus
+                required
+                value={value}
+                data-attr="date-interval"
+                onChange={(e) => onChange(e.target.value)}
+                placeholder="28"
+                type="number"
+                style={{ marginRight: 4 }}
+            />
+            days
+        </div>
     )
 }
