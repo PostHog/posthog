@@ -15,6 +15,8 @@ import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5
+/** Number of Redis error events until the server is killed gracefully. */
+const REDIS_ERROR_COUNTER_LIMIT = 10
 
 export function killGracefully(): void {
     status.error('⏲', 'Shutting plugin server down gracefully with SIGTERM...')
@@ -386,10 +388,17 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
         ...credentials,
         maxRetriesPerRequest: -1,
     })
+    let errorCounter = 0
     redis
         .on('error', (error) => {
+            errorCounter++
             Sentry.captureException(error)
-            status.error('🔴', 'Redis error encountered! Trying to reconnect...\n', error)
+            if (errorCounter > REDIS_ERROR_COUNTER_LIMIT) {
+                status.error('😡', 'Redis error encountered! Enough of this, I quit!\n', error)
+                killGracefully()
+            } else {
+                status.error('🔴', 'Redis error encountered! Trying to reconnect...\n', error)
+            }
         })
         .on('ready', () => {
             if (process.env.NODE_ENV !== 'test') {
