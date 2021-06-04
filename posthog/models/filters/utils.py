@@ -42,5 +42,5 @@ def get_filter(team, data: dict = {}, request: Optional[Request] = None):
     elif insight == INSIGHT_PATHS:
         return PathFilter(data={**data, "insight": INSIGHT_PATHS}, request=request)
     elif insight == INSIGHT_FUNNELS:
-        return Filter(data={**request.data, "insight": INSIGHT_FUNNELS}, request=request)
+        return Filter(data={**(request.data if request else {}), "insight": INSIGHT_FUNNELS}, request=request)
     return Filter(data=data, request=request)
