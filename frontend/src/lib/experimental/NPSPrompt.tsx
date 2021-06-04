@@ -63,7 +63,7 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
         },
         submit: () => {
             // `nps_2106` is used to identify users who have replied to the NPS survey (via cohorts)
-            const result = ['dismissed', 'partial', 'completed'][values.step]
+            const result = ['dismissed', 'partial', 'partial', 'completed'][values.step]
             posthog.capture('nps feedback', { ...values.payload, result })
             posthog.people.set({ nps_2106: true })
             localStorage.setItem(NPS_LOCALSTORAGE_KEY, 'true')
