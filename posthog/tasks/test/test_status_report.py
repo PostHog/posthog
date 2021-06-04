@@ -65,6 +65,7 @@ class TestStatusReport(APIBaseTest):
             created_at=created_at,
             properties={"$lib": lib},
         )
+        # force test
 
     def _create_plugin(self, name: str, enabled: bool) -> None:
         plugin = Plugin.objects.create(organization_id=self.team.organization.pk, name=name)
