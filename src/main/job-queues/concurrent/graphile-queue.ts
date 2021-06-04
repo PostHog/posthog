@@ -5,22 +5,18 @@ import { Pool } from 'pg'
 import { EnqueuedJob, JobQueue, OnJobCallback, PluginsServerConfig } from '../../../types'
 import { status } from '../../../utils/status'
 import { createPostgresPool } from '../../../utils/utils'
+import { JobQueueBase } from '../job-queue-base'
 
-export class GraphileQueue implements JobQueue {
+export class GraphileQueue extends JobQueueBase {
     serverConfig: PluginsServerConfig
-    started: boolean
-    paused: boolean
-    onJob: OnJobCallback | null
     runner: Runner | null
     consumerPool: Pool | null
     producerPool: Pool | null
     workerUtilsPromise: Promise<WorkerUtils> | null
 
     constructor(serverConfig: PluginsServerConfig) {
+        super()
         this.serverConfig = serverConfig
-        this.started = false
-        this.paused = false
-        this.onJob = null
         this.runner = null
         this.consumerPool = null
         this.producerPool = null
@@ -68,32 +64,7 @@ export class GraphileQueue implements JobQueue {
 
     // consumer
 
-    async startConsumer(onJob: OnJobCallback): Promise<void> {
-        this.started = true
-        this.onJob = onJob
-        await this.syncState()
-    }
-
-    async stopConsumer(): Promise<void> {
-        this.started = false
-        await this.syncState()
-    }
-
-    async pauseConsumer(): Promise<void> {
-        this.paused = true
-        await this.syncState()
-    }
-
-    isConsumerPaused(): boolean {
-        return this.paused
-    }
-
-    async resumeConsumer(): Promise<void> {
-        this.paused = false
-        await this.syncState()
-    }
-
-    private async syncState(): Promise<void> {
+    protected async syncState(): Promise<void> {
         if (this.started && !this.paused) {
             if (!this.runner) {
                 this.consumerPool = await this.createPool()

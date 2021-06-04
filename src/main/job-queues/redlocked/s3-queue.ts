@@ -8,18 +8,17 @@ import { S3Wrapper } from '../../../utils/db/s3-wrapper'
 import { UUIDT } from '../../../utils/utils'
 import { JobQueueBase } from '../job-queue-base'
 
-const S3_POLL_INTERVAL = 5000
+const S3_POLL_INTERVAL = 5
 
 export class S3Queue extends JobQueueBase {
     serverConfig: PluginsServerConfig
     s3Wrapper: S3Wrapper | null
-    runner: NodeJS.Timeout | null
 
     constructor(serverConfig: PluginsServerConfig) {
         super()
         this.serverConfig = serverConfig
         this.s3Wrapper = null
-        this.runner = null
+        this.intervalSeconds = S3_POLL_INTERVAL
     }
 
     // producer
@@ -49,19 +48,6 @@ export class S3Queue extends JobQueueBase {
     }
 
     // consumer
-
-    protected async syncState(): Promise<void> {
-        if (this.started && !this.paused) {
-            if (!this.runner) {
-                await this.connectS3()
-                this.runner = setTimeout(() => this.readState(), S3_POLL_INTERVAL)
-            }
-        } else {
-            if (this.runner) {
-                clearTimeout(this.runner)
-            }
-        }
-    }
 
     async readState(): Promise<boolean> {
         if (!this.s3Wrapper) {
