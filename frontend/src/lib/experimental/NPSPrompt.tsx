@@ -151,6 +151,7 @@ export function NPSPrompt(): JSX.Element | null {
                                 placeholder="You can describe the key benefits you get from PostHog, shortcomings or anything else..."
                                 value={step2Content}
                                 onChange={(e) => setStep2Content(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && e.metaKey && handleStep2()}
                             />
                             <div style={{ textAlign: 'left' }} className="mt">
                                 <Button type="link" style={{ paddingLeft: 0 }} onClick={() => handleStep2(true)}>
@@ -173,6 +174,7 @@ export function NPSPrompt(): JSX.Element | null {
                                 placeholder="You can describe their role, background, company or team size, ..."
                                 value={step3Content}
                                 onChange={(e) => setStep3Content(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && e.metaKey && handleStep3()}
                             />
                             <div style={{ textAlign: 'left' }} className="mt">
                                 <Button style={{ float: 'right' }} onClick={handleStep3}>
