@@ -13,7 +13,7 @@ import { ProfilePicture } from '~/layout/navigation/TopNavigation'
 import { EventDefinition, OrganizationMemberType, PropertyDefinition, UserBasicType } from '~/types'
 import { eventDefinitionsLogic } from './eventDefinitionsLogic'
 import './VolumeTable.scss'
-import { definitionsLogic } from './definitionsLogic'
+import { definitionDrawerLogic } from './definitionDrawerLogic'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 
 type EventTableType = 'event' | 'property'
@@ -33,7 +33,7 @@ const search = (sources: VolumeTableRecord[], searchQuery: string): VolumeTableR
         .search(searchQuery)
         .map((result) => result.item)
 }
-export function Owner({ ownerId, user }: { ownerId?: number, user?: UserBasicType }): JSX.Element {
+export function Owner({ ownerId, user }: { ownerId?: number | null, user?: UserBasicType }): JSX.Element {
     const { members } = useValues(membersLogic)
     if (!user && ownerId && members.length > 0) {
         user = members.find((mem: OrganizationMemberType) => mem.user.id === ownerId).user
@@ -83,7 +83,7 @@ export function VolumeTable({
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { openDefinitionDrawer } = useActions(definitionsLogic)
+    const { openDefinitionDrawer } = useActions(definitionDrawerLogic)
     const { members } = useValues(membersLogic)
     const hasTaxonomyFeatures = true
         // featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
@@ -131,7 +131,7 @@ export function VolumeTable({
             ? {
                   title: 'Owner',
                   render: function Render(_, record): JSX.Element {
-                      const owner = record.eventOrProp.owner
+                      const owner = record.eventOrProp?.owner
                       return (
                          <Owner ownerId={owner} />
                       )

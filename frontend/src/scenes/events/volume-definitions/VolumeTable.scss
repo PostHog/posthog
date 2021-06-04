@@ -20,11 +20,10 @@
 }
 
 .detail-status {
-    // style={{display: 'flex', flexDirection: 'row', justifyContent: 'space-evenly', paddingTop: 30}}
     display: flex;
     flex-direction: row;
     justify-content: space-evenly;
-    padding-top: 30px;
+    margin-top: 30px;
 
     .ant-typography {
         margin-bottom: 0;

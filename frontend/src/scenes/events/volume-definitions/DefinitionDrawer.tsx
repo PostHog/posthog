@@ -1,18 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { Drawer } from 'lib/components/Drawer'
 import React from 'react'
-import { definitionsLogic } from './definitionsLogic'
+import { definitionDrawerLogic } from './definitionDrawerLogic'
 import Title from 'antd/es/typography/Title'
 import './VolumeTable.scss'
-import { Collapse, Input, Select } from 'antd'
+import { Button, Collapse, Input, Select } from 'antd'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { Owner } from './VolumeTable'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 export function DefinitionDrawer(): JSX.Element {
-    const { drawerState, definition, tags, definitionLoading } = useValues(definitionsLogic)
-    const { closeDrawer, saveNewTag, deleteTag } = useActions(definitionsLogic)
+    const { drawerState, definition, definitionLoading } = useValues(definitionDrawerLogic)
+    const { closeDrawer, saveNewTag, deleteTag } = useActions(definitionDrawerLogic)
     const { Panel } = Collapse;
 
     return(
@@ -35,7 +35,7 @@ export function DefinitionDrawer(): JSX.Element {
                                     <div style={{flexDirection: 'column', paddingLeft: 14}}>
                                         <Title level={5}>Tags</Title>
                                         <ObjectTags
-                                            tags={tags}
+                                            tags={definition.tags}
                                             onTagSave={saveNewTag}
                                             onTagDelete={deleteTag}
                                             saving={definitionLoading}
@@ -46,11 +46,11 @@ export function DefinitionDrawer(): JSX.Element {
                                 <div className="detail-status">
                                     <div>
                                         <Title level={5}>First seen</Title>
-                                        <span></span>
+                                        {/* <span></span> */}
                                     </div>
                                     <div>
                                         <Title level={5}>Last seen</Title>
-                                        <span></span>
+                                        {/* <span></span> */}
                                     </div>
                                     <div>
                                         <Title level={5}>Last modified</Title>
@@ -58,7 +58,7 @@ export function DefinitionDrawer(): JSX.Element {
                                     </div>
                                     <div>
                                         <Title level={5}>Last modified by</Title>
-                                        <span>{ definition.updated_by.first_name }</span>
+                                        <span>{ definition.updated_by?.first_name }</span>
                                     </div>
                                 </div>
                             </Panel>
@@ -71,11 +71,44 @@ export function DefinitionDrawer(): JSX.Element {
 }
 
 export function DefinitionDescription(): JSX.Element {
+    const { description, editing } = useValues(definitionDrawerLogic)
+    const { setDescription, saveDescription, cancelDescription, setDescriptionEditing } = useActions(definitionDrawerLogic)
+
     return(
         <>
             <div style={{flexDirection: 'column', minWidth: 300}}>
                 <Title level={5}>Description</Title>
-                <Input.TextArea style={{minHeight: 108}}/>
+                <Input.TextArea
+                    style={{minHeight: 108}}
+                    placeholder="Add description"
+                    value={description || ''}
+                    onChange={(e) => {
+                        setDescription(e.target.value)
+                        setDescriptionEditing(true)
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && saveDescription() }
+                />
+                {editing && (
+                    <>
+                        <Button
+                            style={{ marginRight: 8 }}
+                            size="small"
+                            type="primary"
+                            onClick={() => {
+                                setDescriptionEditing(false)
+                                saveDescription()
+                            }}
+                        >
+                            Save
+                        </Button>
+                        <Button
+                            onClick={cancelDescription}
+                            size="small"
+                        >
+                            Cancel
+                        </Button>
+                    </>
+                )}
             </div>
         </>
     )
@@ -83,7 +116,7 @@ export function DefinitionDescription(): JSX.Element {
 
 export function DefinitionOwner({ ownerId }: { ownerId: number }): JSX.Element {
     const { members } = useValues(membersLogic)
-    const { changeOwner } = useActions(definitionsLogic)
+    const { changeOwner } = useActions(definitionDrawerLogic)
 
     return(
         <div style={{paddingTop: 16}}>
