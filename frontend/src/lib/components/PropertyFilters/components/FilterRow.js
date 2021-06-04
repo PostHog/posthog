@@ -70,7 +70,13 @@ export const FilterRow = React.memo(function FilterRow({
                         defaultVisible={false}
                         visible={open}
                         placement={popoverPlacement || 'bottomLeft'}
-                        content={<PropertyFilter {...propertyFilterCommonProps} variant="tabs" />}
+                        content={
+                            <PropertyFilter
+                                {...propertyFilterCommonProps}
+                                variant="tabs"
+                                selectProps={(pageKey = 'trends-filters' ? { position: 'bottomLeft' } : undefined)}
+                            />
+                        }
                     >
                         {key ? (
                             <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
