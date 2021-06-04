@@ -151,7 +151,7 @@ function EntityCriteriaRow({
                     />
                 </Col>
                 <Col style={{ display: 'flex', alignItems: 'center' }}>times in the last</Col>
-                <Col>
+                <Col span={4}>
                     <DateIntervalSelect value={days} onChange={onDateIntervalChange} />
                 </Col>
             </Row>
@@ -176,19 +176,22 @@ function DateIntervalSelect({
     onChange: (dateInterval: string) => void
     value?: string
 }): JSX.Element {
+    const PRESET_OPTIONS = {
+        '1': 'day',
+        '7': 'week',
+        '14': '2 weeks',
+        '30': 'month',
+    }
+
+    const valueOrDefault = value ?? '1'
+
     return (
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-            <Input
-                autoFocus
-                required
-                value={value}
-                data-attr="date-interval"
-                onChange={(e) => onChange(e.target.value)}
-                placeholder="28"
-                type="number"
-                style={{ marginRight: 4 }}
-            />
-            days
-        </div>
+        <Select value={valueOrDefault} style={{ width: '100%' }} onChange={onChange}>
+            {Object.keys(PRESET_OPTIONS).map((key) => (
+                <Option value={key} key={key}>
+                    {PRESET_OPTIONS[key as '1' | '7' | '14' | '30']}
+                </Option>
+            ))}
+        </Select>
     )
 }

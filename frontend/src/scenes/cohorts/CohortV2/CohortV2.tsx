@@ -8,7 +8,7 @@ import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
 import { CohortGroupType, CohortType } from '~/types'
 import { cohortLogic } from '../cohortLogic'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { InboxOutlined } from '@ant-design/icons'
+import { InboxOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
@@ -162,17 +162,23 @@ export function CohortV2Footer(props: { cohort: CohortType }): JSX.Element {
     const { saveCohort } = useActions(logic)
 
     return (
-        <Row justify="end">
-            <Button
-                disabled={!cohort.name}
-                type="primary"
-                htmlType="submit"
-                data-attr="save-cohort"
-                style={{ marginTop: '1rem' }}
-                onClick={saveCohort}
-            >
-                Save cohort
+        <Row style={{ display: 'flex' }}>
+            <Button type="link" danger icon={<DeleteOutlined />}>
+                Delete cohort
             </Button>
+            <div style={{ flexGrow: 1, textAlign: 'right' }}>
+                <Button
+                    disabled={!cohort.name}
+                    type="primary"
+                    htmlType="submit"
+                    data-attr="save-cohort"
+                    onClick={saveCohort}
+                    style={{ float: 'right' }}
+                    icon={<SaveOutlined />}
+                >
+                    Save cohort
+                </Button>
+            </div>
         </Row>
     )
 }
