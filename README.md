@@ -68,7 +68,7 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | KAFKA_PRODUCER_MAX_QUEUE_SIZE | Kafka producer batch max size before flushing                     | `20`                                  |
 | KAFKA_FLUSH_FREQUENCY_MS      | Kafka producer batch max duration before flushing                 | `500`                                 |
 | KAFKA_MAX_MESSAGE_BATCH_SIZE  | Kafka producer batch max size in bytes before flushing            | `900000`                              |
-| LOG_LEVEL                     | minimum log level                                                 | `LogLevel.Info`                       |
+| LOG_LEVEL                     | minimum log level                                                 | `'info'`                              |
 | SENTRY_DSN                    | Sentry ingestion URL                                              | `null`                                |
 | STATSD_HOST                   | StatsD host - integration disabled if this is not provided        | `null`                                |
 | STATSD_PORT                   | StatsD port                                                       | `8125`                                |
