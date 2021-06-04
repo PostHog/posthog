@@ -18,7 +18,7 @@ import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
-import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { FEATURE_FLAGS, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
@@ -213,7 +213,7 @@ export function Cohorts(): JSX.Element {
                     footer={openCohort ? <CohortV2Footer cohort={openCohort} /> : null}
                 >
                     {openCohort &&
-                        (featureFlags['engagement-cohort'] && preflight?.is_clickhouse_enabled ? (
+                        (featureFlags[FEATURE_FLAGS.ENGAGEMENT_COHORTS] && preflight?.is_clickhouse_enabled ? (
                             <CohortV2 cohort={openCohort} />
                         ) : (
                             <Cohort cohort={openCohort} />

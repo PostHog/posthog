@@ -10,7 +10,6 @@ import { cohortLogic } from '../cohortLogic'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { InboxOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
-import './cohort.scss'
 import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
 
@@ -94,9 +93,7 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
 
     return (
         <div style={{ maxWidth: 1200 }} className="mb">
-            <span className="sub-header" style={{ fontSize: 16 }}>
-                General
-            </span>
+            <h3 className="l3">General</h3>
             <div style={{ display: 'flex', flexDirection: 'row', marginTop: 14 }}>
                 <div style={{ flex: 6 }}>
                     <CohortNameInput input={cohort.name} onChange={onNameChange} />
@@ -115,10 +112,7 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
             <Divider />
             {cohort.is_static ? (
                 <div>
-                    <span className="sub-header" style={{ fontSize: 16 }}>
-                        Add Users
-                    </span>
-                    <br />
+                    <h3 className="l3">Add Users</h3>
                     <span>Drop a .csv file here to add users to your cohort</span>
                     <Dragger {...staticCSVDraggerProps}>
                         <p className="ant-upload-drag-icon">
@@ -141,10 +135,7 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
             <Divider />
             {cohort.id !== 'new' && (
                 <div>
-                    <span className="sub-header" style={{ fontSize: 16 }}>
-                        Matched Users
-                    </span>
-                    <br />
+                    <h3 className="l3">Matched Users</h3>
                     <span>List of users that currently match the criteria defined</span>
                     <div style={{ marginTop: 15 }}>
                         <Persons cohort={cohort} key={lastSavedAt} />
@@ -160,10 +151,6 @@ export function CohortV2Footer(props: { cohort: CohortType }): JSX.Element {
     const { cohort } = useValues(logic)
     const { saveCohort } = useActions(logic)
 
-    const onSave = (): void => {
-        saveCohort()
-    }
-
     return (
         <Row justify="end">
             <Button
@@ -172,7 +159,7 @@ export function CohortV2Footer(props: { cohort: CohortType }): JSX.Element {
                 htmlType="submit"
                 data-attr="save-cohort"
                 style={{ marginTop: '1rem' }}
-                onClick={() => onSave()}
+                onClick={saveCohort}
             >
                 Save cohort
             </Button>
