@@ -23,6 +23,19 @@ Let's get you developing the plugin server in no time:
 
 1. Run Postgres pipeline tests with `yarn test:postgres:{1,2}`. Run ClickHouse pipeline tests with `yarn test:clickhouse:{1,2}`. Run benchmarks with `yarn benchmark`.
 
+## Alternative modes
+
+This program's main mode of operation is processing PostHog events, but there are also a few alternative utility ones.
+Each one does a single thing. They are listed in the table below, in order of precedence.
+
+| Name        | Description                                                | CLI flags         |
+| ----------- | ---------------------------------------------------------- | ----------------- |
+| Help        | Show plugin server [configuration options](#configuration) | `-h`, `--help`    |
+| Version     | Only show currently running plugin server version          | `-v`, `--version` |
+| Healthcheck | Check plugin server health and exit with 0 or 1            | `--healthcheck`   |
+| Migrate     | Migrate Graphile job queue                                 | `--migrate`       |
+| Idle        | Start server in a completely idle, non-processing mode     | `--idle`          |
+
 ## Configuration
 
 There's a multitude of settings you can use to control the plugin server. Use them as environment variables.

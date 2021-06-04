@@ -14,6 +14,6 @@ FROM node:14 AS runner
 WORKDIR /code/
 COPY --from=builder /code/ ./
 
-HEALTHCHECK --start-period=10s CMD [ "node", "dist/healthcheck.js" ]
+HEALTHCHECK --start-period=10s CMD [ "node", "dist/index.js", "--healthcheck" ]
 
 CMD [ "node", "dist/index.js" ]

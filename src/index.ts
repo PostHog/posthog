@@ -1,4 +1,5 @@
 import { defaultConfig, formatConfigHelp } from './config/config'
+import { healthcheckWithExit } from './healthcheck'
 import { initApp } from './init'
 import { GraphileQueue } from './main/job-queues/concurrent/graphile-queue'
 import { startPluginsServer } from './main/pluginsServer'
@@ -11,8 +12,9 @@ const { argv } = process
 enum AlternativeMode {
     Help = 'HELP',
     Version = 'VRSN',
+    Healthcheck = 'HLTH',
     Idle = 'IDLE',
-    Migrate = 'MIGRATE',
+    Migrate = 'MGRT',
 }
 
 let alternativeMode: AlternativeMode | undefined
@@ -20,6 +22,8 @@ if (argv.includes('--help') || argv.includes('-h')) {
     alternativeMode = AlternativeMode.Help
 } else if (argv.includes('--version') || argv.includes('-v')) {
     alternativeMode = AlternativeMode.Version
+} else if (argv.includes('--healthcheck')) {
+    alternativeMode = AlternativeMode.Healthcheck
 } else if (argv.includes('--migrate')) {
     alternativeMode = AlternativeMode.Migrate
 } else if (defaultConfig.PLUGIN_SERVER_IDLE) {
@@ -35,6 +39,9 @@ switch (alternativeMode) {
         break
     case AlternativeMode.Help:
         status.info('⚙️', `Supported configuration environment variables:\n${formatConfigHelp(7)}`)
+        break
+    case AlternativeMode.Healthcheck:
+        void healthcheckWithExit()
         break
     case AlternativeMode.Idle:
         status.info('💤', `Disengaging this plugin server instance due to the PLUGIN_SERVER_IDLE env var...`)
