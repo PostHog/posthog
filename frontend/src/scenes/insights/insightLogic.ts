@@ -19,6 +19,7 @@ export enum ViewType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
+    HISTORY = 'HISTORY',
 }
 
 type Timeout = NodeJS.Timeout

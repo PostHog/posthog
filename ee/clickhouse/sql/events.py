@@ -190,8 +190,12 @@ NULL_SQL = """
 SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start from numbers({num_intervals})
 """
 
-NULL_BREAKDOWN_SQL = """
-SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start, breakdown_value from numbers({num_intervals})
+NULL_SQL_FUNNEL_TRENDS = """
+SELECT {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start,
+       completed,
+       total,
+       cohort
+  FROM numbers({num_intervals}) as num
 """
 
 EVENT_JOIN_PERSON_SQL = """

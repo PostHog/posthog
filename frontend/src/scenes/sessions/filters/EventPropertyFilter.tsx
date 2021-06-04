@@ -1,14 +1,14 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { PropertySelect } from 'lib/components/PropertyFilters/components/PropertySelect'
-import { EventTypePropertyFilter } from '~/types'
+import { ActionTypePropertyFilter, EventTypePropertyFilter, PropertyOperator } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 
 interface Props {
-    filter: EventTypePropertyFilter
+    filter: EventTypePropertyFilter | ActionTypePropertyFilter
     selector: number
 }
 
@@ -36,7 +36,9 @@ export function EventPropertyFilter({ filter, selector }: Props): JSX.Element {
                     updateFilter(
                         {
                             ...filter,
-                            properties: [{ operator: 'exact', value: null, ...property, type: 'event', key }],
+                            properties: [
+                                { operator: PropertyOperator.Exact, value: null, ...property, type: 'event', key },
+                            ],
                         },
                         selector
                     )
@@ -49,11 +51,11 @@ export function EventPropertyFilter({ filter, selector }: Props): JSX.Element {
                     propkey={property.key}
                     operator={property.operator}
                     value={property.value}
-                    onChange={(operator, value) => {
+                    onChange={(operator, changedValue) => {
                         updateFilter(
                             {
                                 ...filter,
-                                properties: [{ ...property, operator, value }],
+                                properties: [{ ...property, operator, value: changedValue }],
                             },
                             selector
                         )

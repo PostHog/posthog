@@ -13,7 +13,7 @@ import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 
 const ReactGridLayout = WidthProvider(Responsive)
 
-export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX.Element {
+export function DashboardItems(): JSX.Element {
     const { dashboard, items, layouts, layoutForItem, breakpoints, cols, dashboardMode } = useValues(dashboardLogic)
     const { loadDashboardItems, updateLayouts, updateContainerWidth, updateItemColor, setDashboardMode } = useActions(
         dashboardLogic
@@ -99,7 +99,7 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
                         }
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
-                        inSharedMode={inSharedMode}
+                        dashboardMode={dashboardMode}
                         isOnEditMode={dashboardMode === DashboardMode.Edit}
                         setEditMode={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.LongPress)}
                         index={index}

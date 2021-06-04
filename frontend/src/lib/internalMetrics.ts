@@ -7,6 +7,8 @@ interface InternalMetricsPayload {
     tags: Record<string, any>
 }
 
-export function captureInternalMetric(payload: InternalMetricsPayload): Promise<void> {
-    return api.create('api/instance_status/capture', payload)
+export async function captureInternalMetric(payload: InternalMetricsPayload): Promise<void> {
+    if (window.JS_CAPTURE_INTERNAL_METRICS) {
+        await api.create('api/instance_status/capture', payload)
+    }
 }

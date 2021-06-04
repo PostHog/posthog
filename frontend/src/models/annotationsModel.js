@@ -14,7 +14,7 @@ export const annotationsModel = kea({
         }),
         deleteGlobalAnnotation: (id) => ({ id }),
     }),
-    loaders: () => ({
+    loaders: ({ values }) => ({
         globalAnnotations: {
             __default: [],
             loadGlobalAnnotations: async () => {
@@ -26,6 +26,16 @@ export const annotationsModel = kea({
                         })
                 )
                 return response.results
+            },
+            createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
+                const annotation = await api.create('api/annotation', {
+                    content,
+                    date_marker: dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker),
+                    created_at,
+                    dashboard_item,
+                    scope: 'organization',
+                })
+                return [...(values.globalAnnotations || []), annotation]
             },
         },
     }),
@@ -49,17 +59,7 @@ export const annotationsModel = kea({
         ],
     }),
     listeners: ({ actions }) => ({
-        createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
-            await api.create('api/annotation', {
-                content,
-                date_marker: dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker),
-                created_at,
-                dashboard_item,
-                scope: 'organization',
-            })
-            actions.loadGlobalAnnotations()
-        },
-        deleteGlobalAnnotation: async ({ id }) => {
+        deleteGlobalAnnotation: ({ id }) => {
             id >= 0 &&
                 deleteWithUndo({
                     endpoint: 'annotation',

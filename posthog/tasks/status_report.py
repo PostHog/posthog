@@ -13,7 +13,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
-from posthog.utils import get_machine_id, get_previous_week
+from posthog.utils import get_instance_realm, get_machine_id, get_previous_week
 from posthog.version import VERSION
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
     report: Dict[str, Any] = {
         "posthog_version": VERSION,
         "deployment": os.getenv("DEPLOYMENT", "unknown"),
+        "realm": get_instance_realm(),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
         "site_url": os.getenv("SITE_URL", "unknown"),
     }
@@ -49,10 +50,20 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         (plugin_config.plugin.name for plugin_config in plugin_configs if plugin_config.enabled)
     )
 
-    for team in Team.objects.all():
+    instance_usage_summary: Dict[str, int] = {
+        "events_count_new_in_period": 0,
+        "persons_count_new_in_period": 0,
+        "persons_count_total": 0,
+        "events_count_total": 0,
+        "dashboards_count": 0,
+        "ff_count": 0,
+    }
+
+    for team in Team.objects.exclude(organization__for_internal_metrics=True):
         try:
             team_report: Dict[str, Any] = {}
             events_considered_total = Event.objects.filter(team_id=team.id)
+            instance_usage_summary["events_count_total"] += events_considered_total.count()
             events_considered_new_in_period = events_considered_total.filter(
                 timestamp__gte=period_start, timestamp__lte=period_end,
             )
@@ -62,8 +73,13 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             )
             team_report["events_count_total"] = events_considered_total.count()
             team_report["events_count_new_in_period"] = events_considered_new_in_period.count()
+            instance_usage_summary["events_count_new_in_period"] += team_report["events_count_new_in_period"]
+
             team_report["persons_count_total"] = persons_considered_total.count()
+            instance_usage_summary["persons_count_total"] += team_report["persons_count_total"]
+
             team_report["persons_count_new_in_period"] = persons_considered_total_new_in_period.count()
+            instance_usage_summary["persons_count_new_in_period"] += team_report["persons_count_new_in_period"]
 
             params = (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"])
 
@@ -74,6 +90,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             # Dashboards
             team_dashboards = Dashboard.objects.filter(team=team).exclude(deleted=True)
             team_report["dashboards_count"] = team_dashboards.count()
+            instance_usage_summary["dashboards_count"] += team_report["dashboards_count"]
             team_report["dashboards_template_count"] = team_dashboards.filter(creation_mode="template").count()
             team_report["dashboards_shared_count"] = team_dashboards.filter(is_shared=True).count()
             team_report["dashboards_tagged_count"] = team_dashboards.exclude(tags=[]).count()
@@ -81,12 +98,13 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             # Feature Flags
             feature_flags = FeatureFlag.objects.filter(team=team).exclude(deleted=True)
             team_report["ff_count"] = feature_flags.count()
+            instance_usage_summary["ff_count"] += team_report["ff_count"]
             team_report["ff_active_count"] = feature_flags.filter(active=True).count()
-
             report["teams"][team.id] = team_report
         except Exception as err:
             capture_event("instance status report failure", {"error": str(err)}, dry_run=dry_run)
 
+    report["instance_usage_summary"] = instance_usage_summary
     capture_event("instance status report", report, dry_run=dry_run)
     return report
 

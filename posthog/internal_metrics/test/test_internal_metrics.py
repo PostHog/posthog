@@ -19,14 +19,12 @@ from posthog.models.dashboard import Dashboard
 @pytest.fixture(autouse=True)
 def mock_capture_internal(mocker: MockerFixture):
     get_internal_metrics_team_id.cache_clear()
-    get_internal_metrics_dashboards.cache_clear()
     mocker.patch.object(settings, "CAPTURE_INTERNAL_METRICS", True)
     mocker.patch("posthog.utils.get_machine_id", return_value="machine_id")
     yield mocker.patch("posthog.api.capture.capture_internal")
 
     mocker.patch.object(settings, "CAPTURE_INTERNAL_METRICS", False)
     get_internal_metrics_team_id.cache_clear()
-    get_internal_metrics_dashboards.cache_clear()
 
 
 def test_methods_capture_enabled(db, mock_capture_internal):
@@ -95,7 +93,7 @@ def test_get_internal_team_id_returns_a_team_id_and_memoizes(db, django_assert_n
     assert team.organization.for_internal_metrics
 
 
-def test_get_internal_metrics_dashboards(db, django_assert_num_queries):
+def test_get_internal_metrics_dashboards(db):
     info = get_internal_metrics_dashboards()
 
     team = Team.objects.get(pk=get_internal_metrics_team_id())
@@ -106,15 +104,13 @@ def test_get_internal_metrics_dashboards(db, django_assert_num_queries):
     assert dashboard.name == CLICKHOUSE_DASHBOARD["name"]
     assert dashboard.items.count() == len(CLICKHOUSE_DASHBOARD["items"])
 
-    with django_assert_num_queries(0):
-        assert get_internal_metrics_dashboards() == info
+    assert get_internal_metrics_dashboards() == info
 
 
 def test_dashboard_gets_regenerated_when_info_changes(db, mocker):
     info = get_internal_metrics_dashboards()
 
     mocker.patch.dict(CLICKHOUSE_DASHBOARD, {"some": "change"})
-    get_internal_metrics_dashboards.cache_clear()
 
     new_info = get_internal_metrics_dashboards()
     assert new_info != info
