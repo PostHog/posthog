@@ -425,21 +425,26 @@ export function createPostgresPool(
     configOrDatabaseUrl: PluginsServerConfig | string,
     onError?: (error: Error) => any
 ): Pool {
+    if (typeof configOrDatabaseUrl !== 'string') {
+        if (!configOrDatabaseUrl.DATABASE_URL && !configOrDatabaseUrl.POSTHOG_DB_NAME) {
+            throw new Error('Invalid configuration for Postgres: either DATABASE_URL or POSTHOG_DB_NAME required')
+        }
+    }
     const credentials: Partial<PoolConfig> =
         typeof configOrDatabaseUrl === 'string'
             ? {
                   connectionString: configOrDatabaseUrl,
               }
-            : configOrDatabaseUrl.POSTHOG_DB_NAME
+            : configOrDatabaseUrl.DATABASE_URL
             ? {
-                  database: configOrDatabaseUrl.POSTHOG_DB_NAME,
+                  connectionString: configOrDatabaseUrl.DATABASE_URL,
+              }
+            : {
+                  database: configOrDatabaseUrl.POSTHOG_DB_NAME ?? undefined,
                   user: configOrDatabaseUrl.POSTHOG_DB_USER,
                   password: configOrDatabaseUrl.POSTHOG_DB_PASSWORD,
                   host: configOrDatabaseUrl.POSTHOG_POSTGRES_HOST,
                   port: configOrDatabaseUrl.POSTHOG_POSTGRES_PORT,
-              }
-            : {
-                  connectionString: configOrDatabaseUrl.DATABASE_URL,
               }
 
     const pgPool = new Pool({

@@ -4,7 +4,7 @@ import { Pool } from 'pg'
 import { PluginsServerConfig } from '../../src/types'
 
 export async function resetGraphileSchema(serverConfig: PluginsServerConfig): Promise<void> {
-    const graphileUrl = serverConfig.JOB_QUEUE_GRAPHILE_URL || serverConfig.DATABASE_URL
+    const graphileUrl = serverConfig.JOB_QUEUE_GRAPHILE_URL || serverConfig.DATABASE_URL!
     const db = new Pool({ connectionString: graphileUrl })
 
     try {

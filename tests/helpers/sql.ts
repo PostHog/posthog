@@ -33,7 +33,7 @@ export async function resetTestDatabase(
     extraRows: ExtraDatabaseRows = {}
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
-    const db = new Pool({ connectionString: config.DATABASE_URL })
+    const db = new Pool({ connectionString: config.DATABASE_URL! })
     try {
         await db.query('DELETE FROM ee_hook')
     } catch {}
@@ -224,7 +224,7 @@ export function onQuery(hub: Hub, onQueryCallback: (queryText: string) => any): 
 }
 
 export async function getErrorForPluginConfig(id: number): Promise<any> {
-    const db = new Pool({ connectionString: defaultConfig.DATABASE_URL })
+    const db = new Pool({ connectionString: defaultConfig.DATABASE_URL! })
     let error
     try {
         const response = await db.query('SELECT * FROM posthog_pluginconfig WHERE id = $1', [id])

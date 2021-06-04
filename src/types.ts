@@ -39,7 +39,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
     CELERY_DEFAULT_QUEUE: string
-    DATABASE_URL: string
+    DATABASE_URL: string | null
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
     POSTHOG_DB_PASSWORD: string
