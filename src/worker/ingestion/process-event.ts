@@ -82,10 +82,10 @@ export class EventsProcessor {
 
             const properties: Properties = data.properties ?? {}
             if (data['$set']) {
-                properties['$set'] = data['$set']
+                properties['$set'] = { ...properties['$set'], ...data['$set'] }
             }
             if (data['$set_once']) {
-                properties['$set_once'] = data['$set_once']
+                properties['$set_once'] = { ...properties['$set_once'], ...data['$set_once'] }
             }
 
             const personUuid = new UUIDT().toString()
