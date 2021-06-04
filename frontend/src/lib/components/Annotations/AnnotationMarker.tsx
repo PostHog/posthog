@@ -45,6 +45,7 @@ export function AnnotationMarker({
     onCreateAnnotation,
     graphColor,
     index,
+    getPopupContainer,
 }: Record<string, any>): JSX.Element | null {
     const popupRef = useRef<HTMLDivElement | null>(null)
     const [focused, setFocused] = useState(false)
@@ -111,6 +112,7 @@ export function AnnotationMarker({
             trigger="click"
             visible={visible}
             defaultVisible={false}
+            getPopupContainer={() => (getPopupContainer ? getPopupContainer() : document.body)}
             content={
                 dynamic ? (
                     <div ref={popupRef}>

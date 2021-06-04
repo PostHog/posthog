@@ -40,6 +40,7 @@ export const Annotations = function Annotations({
     const markers: JSX.Element[] = []
     dates &&
         dates.forEach((date: string, index: number) => {
+            // @ts-ignore
             const annotations = groupedAnnotations[dayjs(date).startOf(diffType)]
             if (annotations) {
                 markers.push(
