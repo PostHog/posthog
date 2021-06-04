@@ -151,6 +151,30 @@ describe('job queues', () => {
                 await waitForLogEntries(2)
                 expect(testConsole.read()).toEqual([['processEvent'], ['reply', 'runIn']])
             })
+
+            test('polls for jobs in future', async () => {
+                const DELAY = 3000 // 3s
+
+                // return something to be picked up after a few loops (poll interval is 100ms)
+                const now = Date.now()
+
+                const job: EnqueuedJob = {
+                    type: 'pluginJob',
+                    payload: { key: 'value' },
+                    timestamp: now + DELAY,
+                    pluginConfigId: 2,
+                    pluginConfigTeam: 3,
+                }
+
+                server.hub.jobQueueManager.enqueue(job)
+                const consumedJob: EnqueuedJob = await new Promise((resolve, reject) => {
+                    server.hub.jobQueueManager.startConsumer((consumedJob) => {
+                        resolve(consumedJob[0])
+                    })
+                })
+
+                expect(consumedJob).toEqual(job)
+            })
         })
 
         describe('connection', () => {
@@ -282,6 +306,45 @@ describe('job queues', () => {
             expect(mS3WrapperInstance.deleteObject).toBeCalledWith({
                 Bucket: 'bucket-name',
                 Key: `prefix/2020-01-01/20200101-123456.123Z-deadbeef.json.gz`,
+            })
+        })
+
+        test('polls for new jobs', async () => {
+            const DELAY = 10000 // 10s
+            // calls the right functions to read the enqueued job
+            mS3WrapperInstance.mockClear()
+
+            // return something to be picked up after a few loops (poll interval is 5s)
+            const now = Date.now()
+            const date = new Date(now + DELAY).toISOString()
+            const [day, time] = date.split('T')
+            const dayTime = `${day.split('-').join('')}-${time.split(':').join('')}`
+
+            const job: EnqueuedJob = {
+                type: 'pluginJob',
+                payload: { key: 'value' },
+                timestamp: now,
+                pluginConfigId: 2,
+                pluginConfigTeam: 3,
+            }
+
+            mS3WrapperInstance.listObjectsV2.mockReturnValue({
+                Contents: [{ Key: `prefix/${day}/${dayTime}-deadbeef.json.gz` }],
+            })
+            mS3WrapperInstance.getObject.mockReturnValueOnce({
+                Body: gzipSync(Buffer.from(JSON.stringify(job), 'utf8')),
+            })
+
+            const consumedJob: EnqueuedJob = await new Promise((resolve, reject) => {
+                hub.jobQueueManager.startConsumer((consumedJob) => {
+                    resolve(consumedJob[0])
+                })
+            })
+            expect(consumedJob).toEqual(job)
+            await delay(10)
+            expect(mS3WrapperInstance.deleteObject).toBeCalledWith({
+                Bucket: 'bucket-name',
+                Key: `prefix/${day}/${dayTime}-deadbeef.json.gz`,
             })
         })
     })
