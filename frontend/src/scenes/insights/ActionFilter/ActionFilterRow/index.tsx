@@ -111,7 +111,7 @@ export function ActionFilterRow({
         value = entity.id || filter.id
     }
 
-    const orLabel = <div className="stateful-badge mc-main or width-locked">OR</div>
+    const orLabel = <div className="stateful-badge or width-locked">OR</div>
 
     return (
         <div className={horizontalUI ? 'action-row-striped' : ''}>

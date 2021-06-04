@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { SESSIONS_WITH_RECORDINGS_FILTER, SESSIONS_WITH_UNSEEN_RECORDINGS } from 'scenes/sessions/filters/constants'
 import { sessionsFiltersLogicType } from './sessionsFiltersLogicType'
-import { SessionsPropertyFilter } from '~/types'
+import { PropertyOperator, SessionsPropertyFilter } from '~/types'
 
 export type FilterSelector = number | string
 
@@ -146,11 +146,13 @@ export const sessionsFiltersLogic = kea<
     listeners: ({ actions, values }) => ({
         dropdownSelected: ({ type, id, label }) => {
             if (values.openFilter !== null) {
-                if (type === 'action_type' || type === 'event_type' || type === 'cohort') {
+                if (type === 'action_type' || type === 'event_type') {
                     actions.updateFilter({ type, key: 'id', value: id, label }, values.openFilter)
+                } else if (type === 'cohort') {
+                    actions.updateFilter({ type, key: 'id', value: Number(id), label }, values.openFilter)
                 } else if (type === 'person') {
                     actions.updateFilter(
-                        { type, key: id.toString(), value: null, label, operator: 'exact' },
+                        { type, key: id.toString(), value: null, label, operator: PropertyOperator.Exact },
                         values.openFilter
                     )
                 } else if (type === 'recording' && id === 'duration') {

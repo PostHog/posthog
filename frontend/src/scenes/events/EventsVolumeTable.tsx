@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { useValues } from 'kea'
-import { Alert, Input, Skeleton, Table, Tooltip } from 'antd'
+import { useActions, useValues } from 'kea'
+import { Alert, Button, Input, Skeleton, Table, Tooltip } from 'antd'
 import Fuse from 'fuse.js'
 import { InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
@@ -10,7 +10,11 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { eventDefinitionsLogic } from './eventDefinitionsLogic'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
-
+import { userLogic } from 'scenes/userLogic'
+import './VolumeTable.scss'
+import { ProfilePicture } from '~/layout/navigation/TopNavigation'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 type EventTableType = 'event' | 'property'
 
 type EventOrPropType = EventDefinition & PropertyDefinition
@@ -38,6 +42,12 @@ export function VolumeTable({
 }): JSX.Element {
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
+    const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const hasTaxonomyFeatures =
+        featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
+        user?.organization?.available_features?.includes('ingestion_taxonomy')
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {
@@ -46,8 +56,14 @@ export function VolumeTable({
                 return (
                     <span>
                         <span className="ph-no-capture">
-                            <PropertyKeyInfo value={record.eventOrProp.name} />
+                            <PropertyKeyInfo
+                                style={hasTaxonomyFeatures ? { fontWeight: 'bold' } : {}}
+                                value={record.eventOrProp.name}
+                            />
                         </span>
+                        {hasTaxonomyFeatures && type === 'event' && (
+                            <VolumeTableRecordDescription record={record.eventOrProp} />
+                        )}
                         {record.warnings?.map((warning) => (
                             <Tooltip
                                 key={warning}
@@ -71,6 +87,28 @@ export function VolumeTable({
             ],
             onFilter: (value, record) => (value === 'warnings' ? !!record.warnings.length : !record.warnings.length),
         },
+        type === 'event' && hasTaxonomyFeatures
+            ? {
+                  title: 'Owner',
+                  render: function Render(_, record): JSX.Element {
+                      const owner = record.eventOrProp.owner
+                      return (
+                          <>
+                              {owner ? (
+                                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                                      <ProfilePicture name={owner.first_name} email={owner.email} small={true} />
+                                      <span style={{ paddingLeft: 8 }}>{owner.first_name}</span>
+                                  </div>
+                              ) : (
+                                  <span className="text-muted" style={{ fontStyle: 'italic' }}>
+                                      No Owner
+                                  </span>
+                              )}
+                          </>
+                      )
+                  },
+              }
+            : {},
         type === 'event'
             ? {
                   title: function VolumeTitle() {
@@ -155,6 +193,53 @@ export function VolumeTable({
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
             />
         </>
+    )
+}
+
+export function VolumeTableRecordDescription({
+    record,
+}: {
+    record: EventDefinition | PropertyDefinition
+}): JSX.Element {
+    const [newDescription, setNewDescription] = useState(record.description)
+    const [editing, setEditing] = useState(false)
+    const { updateEventDefinition } = useActions(eventDefinitionsLogic)
+
+    return (
+        <div style={{ display: 'flex', minWidth: 300, marginRight: 32 }}>
+            <Input.TextArea
+                className="definition-description"
+                placeholder="Click to add description"
+                onClick={() => setEditing(true)}
+                bordered={editing}
+                maxLength={400}
+                style={{ padding: 0, marginRight: 16, minWidth: 300 }}
+                autoSize={true}
+                value={newDescription || undefined}
+                onChange={(e) => setNewDescription(e.target.value)}
+            />
+            {editing && (
+                <>
+                    <Button
+                        style={{ marginRight: 8 }}
+                        size="small"
+                        type="primary"
+                        onClick={() => updateEventDefinition(record.id, newDescription)}
+                    >
+                        Save
+                    </Button>
+                    <Button
+                        onClick={() => {
+                            setNewDescription(record.description)
+                            setEditing(false)
+                        }}
+                        size="small"
+                    >
+                        Cancel
+                    </Button>
+                </>
+            )}
+        </div>
     )
 }
 

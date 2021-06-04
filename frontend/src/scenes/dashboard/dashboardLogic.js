@@ -264,7 +264,10 @@ export const dashboardLogic = kea({
         afterMount: () => {
             actions.loadDashboardItems()
             if (props.shareToken) {
-                actions.setDashboardMode(DashboardMode.Public, DashboardEventSource.Browser)
+                actions.setDashboardMode(
+                    props.internal ? DashboardMode.Internal : DashboardMode.Public,
+                    DashboardEventSource.Browser
+                )
                 dashboardsModel.actions.loadSharedDashboard(props.shareToken)
             }
         },

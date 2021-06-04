@@ -231,9 +231,9 @@ def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
         selectors = filters["selector"] if isinstance(filters["selector"], list) else [filters["selector"]]
         for idx, query in enumerate(selectors):
             selector = Selector(query, escape_slashes=False)
-            key = "{}_{}_selector_regex".format(prepend, idx)
+            key = f"{prepend}_{idx}_selector_regex"
             params[key] = _create_regex(selector)
-            or_conditions.append("match(elements_chain, %({})s)".format(key))
+            or_conditions.append(f"match(elements_chain, %({key})s)")
         if len(or_conditions) > 0:
             conditions.append("(" + (" OR ".join(or_conditions)) + ")")
 
@@ -241,9 +241,9 @@ def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
         or_conditions = []
         tag_names = filters["tag_name"] if isinstance(filters["tag_name"], list) else [filters["tag_name"]]
         for idx, tag_name in enumerate(tag_names):
-            key = "{}_{}_tag_name_regex".format(prepend, idx)
-            params[key] = r"(^|;){}(\.|$|;|:)".format(tag_name)
-            or_conditions.append("match(elements_chain, %({})s)".format(key))
+            key = f"{prepend}_{idx}_tag_name_regex"
+            params[key] = rf"(^|;){tag_name}(\.|$|;|:)"
+            or_conditions.append(f"match(elements_chain, %({key})s)")
         if len(or_conditions) > 0:
             conditions.append("(" + (" OR ".join(or_conditions)) + ")")
 

@@ -5,7 +5,7 @@ SELECT groupArray(value) FROM (
         {aggregate_operation} as count
     FROM events e
     WHERE
-        team_id = %(team_id)s {parsed_date_from} {parsed_date_to} {prop_filters}
+        team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters}
      AND JSONHas(properties, %(key)s)
     GROUP BY value
     ORDER BY count DESC

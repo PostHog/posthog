@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
 import { useActions } from 'kea'
-import { RecordingPropertyFilter } from '~/types'
+import { PropertyOperator, RecordingDurationFilter } from '~/types'
 import { Input, Select } from 'antd'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
 interface Props {
-    filter: RecordingPropertyFilter
+    filter: RecordingDurationFilter
     selector: number
 }
 
@@ -25,9 +25,9 @@ export function DurationFilter({ filter, selector }: Props): JSX.Element {
         <>
             <OperatorSelect
                 operator={filter.operator}
-                operators={['gt', 'lt']}
+                operators={[PropertyOperator.GreaterThan, PropertyOperator.LessThan]}
                 onChange={(operator) => {
-                    updateFilter({ ...filter, operator: operator as 'lt' | 'gt' }, selector)
+                    updateFilter({ ...filter, operator }, selector)
                 }}
             />
 

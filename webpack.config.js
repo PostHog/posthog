@@ -1,10 +1,8 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* global require, module, process, __dirname */
 const path = require('path')
-const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
-const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin')
 const AntdDayjsWebpackPlugin = require('antd-dayjs-webpack-plugin')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
@@ -12,33 +10,25 @@ const webpackDevServerFrontendAddr = webpackDevServerHost === '0.0.0.0' ? '127.0
 
 function createEntry(entry) {
     const commonLoadersForSassAndLess = [
-        entry === 'toolbar'
-            ? {
-                  loader: 'style-loader',
-                  options: {
-                      insert: function insertAtTop(element) {
-                          // tunnel behind the shadow root
-                          if (window.__PHGTLB_ADD_STYLES__) {
-                              window.__PHGTLB_ADD_STYLES__(element)
-                          } else {
-                              if (!window.__PHGTLB_STYLES__) {
-                                  window.__PHGTLB_STYLES__ = []
+        {
+            loader: 'style-loader',
+            options:
+                entry === 'toolbar'
+                    ? {
+                          insert: function insertAtTop(element) {
+                              // tunnel behind the shadow root
+                              if (window.__PHGTLB_ADD_STYLES__) {
+                                  window.__PHGTLB_ADD_STYLES__(element)
+                              } else {
+                                  if (!window.__PHGTLB_STYLES__) {
+                                      window.__PHGTLB_STYLES__ = []
+                                  }
+                                  window.__PHGTLB_STYLES__.push(element)
                               }
-                              window.__PHGTLB_STYLES__.push(element)
-                          }
-                      },
-                  },
-              }
-            : entry === 'cypress'
-            ? {
-                  loader: 'style-loader',
-              }
-            : {
-                  // After all CSS loaders we use plugin to do his work.
-                  // It gets all transformed CSS and extracts it into separate
-                  // single bundled file
-                  loader: MiniCssExtractPlugin.loader,
-              },
+                          },
+                      }
+                    : undefined,
+        },
         {
             // This loader resolves url() and @imports inside CSS
             loader: 'css-loader',
@@ -198,19 +188,11 @@ function createEntry(entry) {
               }
             : {}),
         plugins: [
-            new MonacoWebpackPlugin({
-                languages: ['json', 'javascript'],
-            }),
             new AntdDayjsWebpackPlugin(),
             // common plugins for all entrypoints
         ].concat(
             entry === 'main'
                 ? [
-                      // other bundles include the css in js via style-loader
-                      new MiniCssExtractPlugin({
-                          filename: '[name].css',
-                          ignoreOrder: true,
-                      }),
                       // we need these only once per build
                       new HtmlWebpackPlugin({
                           alwaysWriteToDisk: true,
@@ -229,10 +211,6 @@ function createEntry(entry) {
                   ]
                 : entry === 'shared_dashboard'
                 ? [
-                      new MiniCssExtractPlugin({
-                          filename: '[name].css',
-                          ignoreOrder: true,
-                      }),
                       new HtmlWebpackPlugin({
                           alwaysWriteToDisk: true,
                           title: 'PostHog',

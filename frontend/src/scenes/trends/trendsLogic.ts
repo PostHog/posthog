@@ -491,9 +491,10 @@ export const trendsLogic = kea<
                 return
             }
             actions.setBreakdownValuesLoading(true)
+
             const response = await api.get(values.loadMoreBreakdownUrl)
             actions.loadResultsSuccess({
-                result: [...values.results, ...response.result],
+                result: [...values.results, ...(response.result ? response.result : [])],
                 next: response.next,
             })
             actions.setBreakdownValuesLoading(false)

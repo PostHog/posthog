@@ -47,12 +47,15 @@ class ClickhouseTrends(
     def _run_query(self, filter: Filter, entity: Entity, team_id: int) -> List[Dict[str, Any]]:
         sql, params, parse_function = self._get_sql_for_entity(filter, entity, team_id)
         try:
+            import sqlparse
+
             result = sync_execute(sql, params)
         except Exception as e:
             capture_exception(e)
             if settings.TEST or settings.DEBUG:
                 raise e
             result = []
+
         result = parse_function(result)
         serialized_data = self._format_serialized(entity, result)
 

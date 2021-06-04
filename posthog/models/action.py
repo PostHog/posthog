@@ -1,12 +1,17 @@
 import datetime
+import json
 
 import celery
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.db.models import Q
+from django.db.models.signals import post_delete, post_save
+from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from rest_hooks.signals import raw_hook_event
 from sentry_sdk import capture_exception
+
+from posthog.redis import get_client
 
 
 class Action(models.Model):
@@ -113,3 +118,13 @@ class Action(models.Model):
             "has_properties": self.steps.exclude(properties=[]).exists(),
             "deleted": self.deleted,
         }
+
+
+@receiver(post_save, sender=Action)
+def action_saved(sender, instance: Action, created, **kwargs):
+    get_client().publish("reload-action", json.dumps({"teamId": instance.team_id, "actionId": instance.id}))
+
+
+@receiver(post_delete, sender=Action)
+def action_deleted(sender, instance: Action, **kwargs):
+    get_client().publish("drop-action", json.dumps({"teamId": instance.team_id, "actionId": instance.id}))

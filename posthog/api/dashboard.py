@@ -155,6 +155,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         model = DashboardItem
         fields = [
             "id",
+            "short_id",
             "name",
             "description",
             "filters",
