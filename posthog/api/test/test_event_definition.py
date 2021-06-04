@@ -5,7 +5,6 @@ from rest_framework import status
 
 from posthog.demo import create_demo_team
 from posthog.models import EventDefinition, Organization, Team
-from posthog.models.property_definition import PropertyDefinition
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 

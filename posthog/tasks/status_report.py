@@ -13,7 +13,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
-from posthog.utils import get_machine_id, get_previous_week
+from posthog.utils import get_instance_realm, get_machine_id, get_previous_week
 from posthog.version import VERSION
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
     report: Dict[str, Any] = {
         "posthog_version": VERSION,
         "deployment": os.getenv("DEPLOYMENT", "unknown"),
+        "realm": get_instance_realm(),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
         "site_url": os.getenv("SITE_URL", "unknown"),
     }
