@@ -66,7 +66,7 @@ export function NPSPrompt(): JSX.Element | null {
     useEffect(() => {
         if (!localStorage.getItem('experimental-nps')) {
             // Survey hasn't been filled, show component (subject to feature flag below too)
-            setTimeout(() => setHidden(false), 6000) // Show after 10s of using the app
+            setTimeout(() => setHidden(false), 10000) // Show after 10s of using the app
         }
     }, [])
 
