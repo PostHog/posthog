@@ -39,17 +39,21 @@ const npsLogic = kea<npsLogicType<NPSPayload>>({
             }
         },
         submit: ({ result }) => {
-            if (!values.payload) {
-                return
-            }
             // `nps_2106` is used to identify users who have replied to the NPS survey (via cohorts)
-            posthog.capture('nps feedback', { ...values.payload, result, $set: { nps_2106: true } })
+            posthog.capture('nps feedback', { ...values.payload, result })
+            posthog.people.set({ nps_2106: true })
             actions.setStep(3)
             localStorage.setItem('experimental-nps', 'true')
         },
     }),
 })
-
+/* Asks user for NPS-like score feedback (see product-internal#9 for details). To determine if the component should
+be shown to a user, we follow these rules:
+1. If the user has the appropriate feature flag active (this determines eligibility based on recent 
+    activity [e.g. having discovered learnings recently], ...).
+2. If the user hasn't filled out the form already (based on local storage). For a persistent store we use the `nps_2016` user property, 
+    which excludes a user from the feature flag.
+*/
 export function NPSPrompt(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { setStep, setPayload, stepBack, submit } = useActions(npsLogic)
@@ -61,9 +65,8 @@ export function NPSPrompt(): JSX.Element | null {
 
     useEffect(() => {
         if (!localStorage.getItem('experimental-nps')) {
-            // Survey hasn't been filled, show component. Please note this only determines eligibility based on whether the form has been filled.
-            // Specific user eligibility is determined by feature flag below.
-            setTimeout(() => setHidden(false), 10000) // Show after 10s of using the app
+            // Survey hasn't been filled, show component (subject to feature flag below too)
+            setTimeout(() => setHidden(false), 6000) // Show after 10s of using the app
         }
     }, [])
 
@@ -91,6 +94,16 @@ export function NPSPrompt(): JSX.Element | null {
         setTimeout(() => setHidden(true), 3500)
     }
 
+    const handleDismiss = (): void => {
+        setHidden(true)
+        if (step === 0) {
+            submit('dismissed')
+            return
+        }
+        setPayload({ feedback_score: step2Content, feedback_persona: step3Content })
+        submit('partial')
+    }
+
     const Header = (
         <div className="nps-header">
             <div className="cursor-pointer" onClick={stepBack}>
@@ -107,7 +120,7 @@ export function NPSPrompt(): JSX.Element | null {
     return (
         <>
             <div className={`nps-prompt${hidden ? ' hide' : ''}`}>
-                <span className="nps-dismiss">
+                <span className="nps-dismiss" onClick={handleDismiss}>
                     <CloseOutlined />
                 </span>
                 <div className="prompt-inner">
