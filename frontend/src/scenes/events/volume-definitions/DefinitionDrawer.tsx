@@ -6,9 +6,9 @@ import Title from 'antd/es/typography/Title'
 import './VolumeTable.scss'
 import { Collapse, Input, Select } from 'antd'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import { UserBasicType } from '~/types'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
-import { ProfilePicture } from '~/layout/navigation/TopNavigation'
+import { Owner } from './VolumeTable'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 
 export function DefinitionDrawer(): JSX.Element {
     const { drawerState, definition, tags, definitionLoading } = useValues(definitionsLogic)
@@ -34,14 +34,31 @@ export function DefinitionDrawer(): JSX.Element {
                                     <DefinitionDescription />
                                     <div style={{flexDirection: 'column', paddingLeft: 14}}>
                                         <Title level={5}>Tags</Title>
-                                        {/* <ObjectTags tags={definition.tags}/> */}
                                         <ObjectTags
                                             tags={tags}
                                             onTagSave={saveNewTag}
                                             onTagDelete={deleteTag}
                                             saving={definitionLoading}
                                         />
-                                        <DefinitionOwner owner={definition.owner}/>
+                                        <DefinitionOwner ownerId={definition.owner}/>
+                                    </div>
+                                </div>
+                                <div className="detail-status">
+                                    <div>
+                                        <Title level={5}>First seen</Title>
+                                        <span></span>
+                                    </div>
+                                    <div>
+                                        <Title level={5}>Last seen</Title>
+                                        <span></span>
+                                    </div>
+                                    <div>
+                                        <Title level={5}>Last modified</Title>
+                                        <span>{ humanFriendlyDetailedTime(definition.updated_at) }</span>
+                                    </div>
+                                    <div>
+                                        <Title level={5}>Last modified by</Title>
+                                        <span>{ definition.updated_by.first_name }</span>
                                     </div>
                                 </div>
                             </Panel>
@@ -58,25 +75,33 @@ export function DefinitionDescription(): JSX.Element {
         <>
             <div style={{flexDirection: 'column', minWidth: 300}}>
                 <Title level={5}>Description</Title>
-                <Input.TextArea style={{minHeight: 80}}/>
+                <Input.TextArea style={{minHeight: 108}}/>
             </div>
         </>
     )
 }
 
-export function DefinitionOwner({ owner }: { owner: UserBasicType }): JSX.Element {
+export function DefinitionOwner({ ownerId }: { ownerId: number }): JSX.Element {
     const { members } = useValues(membersLogic)
+    const { changeOwner } = useActions(definitionsLogic)
+
     return(
         <div style={{paddingTop: 16}}>
             <Title level={5}>Owner</Title>
-            <Select defaultValue={owner?.first_name} style={{ width: 120 }}>
+            <Select
+                className="owner-select"
+                placeholder={<Owner ownerId={ownerId} />}
+                style={{ minWidth: 200 }}
+                dropdownClassName="owner-option"
+                onChange={(val) => changeOwner(val)}
+            >
                 {members.map((member) => (
-                    <Select.Option key={member.user_id} value={member.user_id}>
-                        <ProfilePicture name={member.user_first_name} email={member.user_email} small={true}/>
-                        {member.user_first_name}
+                    <Select.Option key={member.user_id} value={member.user.id}>
+                        <Owner user={member.user} />
                     </Select.Option>
                 ))}
             </Select>
         </div>
     )
 }
+

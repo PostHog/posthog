@@ -10,10 +10,11 @@ import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
 import React, { useState, useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from '~/layout/navigation/TopNavigation'
-import { EventDefinition, PropertyDefinition } from '~/types'
+import { EventDefinition, OrganizationMemberType, PropertyDefinition, UserBasicType } from '~/types'
 import { eventDefinitionsLogic } from './eventDefinitionsLogic'
 import './VolumeTable.scss'
 import { definitionsLogic } from './definitionsLogic'
+import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 
 type EventTableType = 'event' | 'property'
 
@@ -32,7 +33,26 @@ const search = (sources: VolumeTableRecord[], searchQuery: string): VolumeTableR
         .search(searchQuery)
         .map((result) => result.item)
 }
-
+export function Owner({ ownerId, user }: { ownerId?: number, user?: UserBasicType }): JSX.Element {
+    const { members } = useValues(membersLogic)
+    if (!user && ownerId && members.length > 0) {
+        user = members.find((mem: OrganizationMemberType) => mem.user.id === ownerId).user
+    }
+    return (
+        <>
+            {user ? (
+                <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
+                    <ProfilePicture name={user.first_name} email={user.email} small={true} />
+                    <span style={{ paddingLeft: 8 }}>{user.first_name}</span>
+                </div>
+            ) : (
+                <span className="text-muted" style={{ fontStyle: 'italic' }}>
+                    No Owner
+                </span>
+            )}
+        </>
+    )
+}
 export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
     return (
         <Alert
@@ -64,9 +84,10 @@ export function VolumeTable({
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openDefinitionDrawer } = useActions(definitionsLogic)
-    const hasTaxonomyFeatures =
-        featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
-        user?.organization?.available_features?.includes('ingestion_taxonomy')
+    const { members } = useValues(membersLogic)
+    const hasTaxonomyFeatures = true
+        // featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
+        // user?.organization?.available_features?.includes('ingestion_taxonomy')
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {
@@ -112,18 +133,7 @@ export function VolumeTable({
                   render: function Render(_, record): JSX.Element {
                       const owner = record.eventOrProp.owner
                       return (
-                          <>
-                              {owner ? (
-                                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                                      <ProfilePicture name={owner.first_name} email={owner.email} small={true} />
-                                      <span style={{ paddingLeft: 8 }}>{owner.first_name}</span>
-                                  </div>
-                              ) : (
-                                  <span className="text-muted" style={{ fontStyle: 'italic' }}>
-                                      No Owner
-                                  </span>
-                              )}
-                          </>
+                         <Owner ownerId={owner} />
                       )
                   },
               }

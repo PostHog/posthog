@@ -5,19 +5,21 @@ import { toast } from 'react-toastify'
 import { definitionsLogicType } from './definitionsLogicType'
 import { EventOrPropType } from './VolumeTable'
 import React from 'react'
+import { UserBasicType } from '~/types'
 
 export const definitionsLogic = kea<definitionsLogicType>({
     actions: () => ({
         openDefinitionDrawer: (type: string, id: string) => ({ type, id }),
+        setType: (type: string) => ({ type }),
         setDefinition: (definition: EventOrPropType) => ({ definition }),
         closeDrawer: () => false,
+        updateDefinition: (payload: Partial<EventOrPropType>) => ({ payload }),
         saveNewTag: (tag) => ({ tag }),
         deleteTag: (tag) => ({ tag }),
-        updateDefinition: (payload: Partial<EventOrPropType>) => ({ payload }),
-        setType: (type: string) => ({ type }),
-        setDefinitionLoading: (loading) => ({ loading })
+        setDefinitionLoading: (loading) => ({ loading }),
+        changeOwner: (owner: Partial<UserBasicType>) => ({ owner })
     }),
-    reducers: ({ values }) => ({
+    reducers: () => ({
         drawerState: [
             false,
             {
@@ -34,10 +36,7 @@ export const definitionsLogic = kea<definitionsLogicType>({
         type: [
             {},
             {
-                setType: (_, { type }) => {
-                    // debugger
-                    return type
-                }
+                setType: (_, { type }) => type
             }
         ],
         definitionLoading: [
@@ -83,15 +82,10 @@ export const definitionsLogic = kea<definitionsLogicType>({
             const tags = values.tags.filter((_tag) => _tag !== tag)
             actions.updateDefinition({ tags })
         },
-
-        // deleteTag: async ({ tag }, breakpoint) => {
-        //     await breakpoint(100)
-        //     actions.triggerDashboardUpdate({ tags: values.tags.filter((_tag) => _tag !== tag) })
-        // },
+        changeOwner: ({ owner }) => {
+            actions.updateDefinition({ owner_id: owner.id })
+        },
         updateDefinition: async ({ payload }) => {
-            console.log(values.type)
-            // const definitionType = payload.owner === 'event' ? 'event_definitions' : 'property_definitions'
-            // debugger
             actions.setDefinitionLoading(true)
             const response = await api.update(`api/projects/@current/${values.type}/${values.definition.id}/`, payload)
             actions.setDefinition(response)

@@ -5,10 +5,33 @@
 }
 
 .definition-drawer {
-    .general {
-        color: orange;
-    }
     .ant-collapse-content > .ant-collapse-content-box {
         padding-top: 0;
+    }
+
+}
+.owner-select {
+    .ant-select-selector {
+        .ant-select-selection-placeholder {
+            color: black;
+            font-weight: 400;
+        }
+    }
+}
+
+.detail-status {
+    // style={{display: 'flex', flexDirection: 'row', justifyContent: 'space-evenly', paddingTop: 30}}
+    display: flex;
+    flex-direction: row;
+    justify-content: space-evenly;
+    padding-top: 30px;
+
+    .ant-typography {
+        margin-bottom: 0;
+    }
+
+    span {
+        font-weight: 400;
+        font-size: 14px;
     }
 }

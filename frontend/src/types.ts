@@ -770,20 +770,24 @@ export interface LicenseType {
 
 export interface EventDefinition {
     id: string
-    owner: UserBasicType | null
+    owner: number | null
     name: string
     description: string
     tags: string[]
+    updated_at: string
+    updated_by: UserBasicType | null
     volume_30_day: number | null
     query_usage_30_day: number | null
 }
 
 export interface PropertyDefinition {
     id: string
-    owner: UserBasicType | null
+    owner: number | null
     name: string
     description: string
     tags: string[]
+    updated_at: string
+    updated_by: UserBasicType | null
     volume_30_day: number | null
     query_usage_30_day: number | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
