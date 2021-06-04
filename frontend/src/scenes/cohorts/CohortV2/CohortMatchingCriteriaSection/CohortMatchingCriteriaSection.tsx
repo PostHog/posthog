@@ -1,7 +1,6 @@
 import React from 'react'
 import { Col } from 'antd'
 import { MatchCriteriaSelector } from './MatchCriteriaSelector'
-import '../cohort.scss'
 import { CohortGroupType, CohortType } from '~/types'
 
 export function CohortMatchingCriteriaSection({

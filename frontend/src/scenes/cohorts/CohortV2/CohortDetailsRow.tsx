@@ -2,7 +2,6 @@ import React from 'react'
 import { Row, Col } from 'antd'
 import { CohortType } from '~/types'
 import dayjs from 'dayjs'
-import './cohort.scss'
 
 export function CohortDetailsRow({ cohort }: { cohort: CohortType }): JSX.Element {
     return (

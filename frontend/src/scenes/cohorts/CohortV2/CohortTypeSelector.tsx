@@ -1,23 +1,24 @@
 import React from 'react'
-import { Menu, Dropdown, Row, Col } from 'antd'
-import { DownOutlined } from '@ant-design/icons'
-import './cohort.scss'
+import { Menu, Dropdown, Row } from 'antd'
+import { DownOutlined, CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
+import './CohortTypeSelector.scss'
 
-function SelectItem({
-    Icon,
-    text,
-    description,
-    onClick,
-}: {
-    Icon: React.ComponentType
+export const STATIC = 'static'
+export const DYNAMIC = 'dynamic'
+
+type CohortTypeType = typeof STATIC | typeof DYNAMIC
+interface SelectItemInterface {
+    icon: JSX.Element
     text: string
     description: string
     onClick: () => void
-}): JSX.Element {
+}
+
+function SelectItem({ icon, text, description, onClick }: SelectItemInterface): JSX.Element {
     return (
         <div onClick={onClick}>
             <Row align={'middle'}>
-                <Icon />
+                {icon}
                 <div style={{ fontSize: 14, fontWeight: 'bold', marginLeft: 4 }}>{text}</div>
             </Row>
             <div style={{ fontSize: 12, color: 'rgba(0, 0, 0, 0.5)' }}>{description}</div>
@@ -25,80 +26,53 @@ function SelectItem({
     )
 }
 
-export const STATIC = 'static'
-export const DYNAMIC = 'dynamic'
-
 export function CohortTypeSelector({
     type,
     onTypeChange,
 }: {
-    type: string
+    type: CohortTypeType
     onTypeChange: (type: string) => void
 }): JSX.Element {
-    const options = {
-        [`${STATIC}`]: {
+    const options = [
+        {
+            key: STATIC,
             text: 'Static',
             description: 'Upload a list of users. Updates manually',
             onClick: () => onTypeChange(STATIC),
+            icon: <OrderedListOutlined />,
         },
-        [`${DYNAMIC}`]: {
+        {
+            key: DYNAMIC,
             text: 'Dynamic',
             description: 'Cohort updates dynamically based on properties',
             onClick: () => onTypeChange(DYNAMIC),
+            icon: <CalculatorOutlined />,
         },
-    }
+    ]
 
     const menu = (
         <Menu>
-            <Menu.Item key="0">
-                <SelectItem
-                    Icon={() => <DownOutlined />}
-                    text={options[DYNAMIC].text}
-                    description={options[DYNAMIC].description}
-                    onClick={options[DYNAMIC].onClick}
-                />
-            </Menu.Item>
-            <Menu.Item key="1">
-                <SelectItem
-                    Icon={() => <DownOutlined />}
-                    text={options[STATIC].text}
-                    description={options[STATIC].description}
-                    onClick={options[STATIC].onClick}
-                />
-            </Menu.Item>
+            {options.map(({ key, ...props }) => (
+                <Menu.Item key={key}>
+                    <SelectItem {...props} />
+                </Menu.Item>
+            ))}
         </Menu>
     )
 
+    const selectedOption = options.find((opt) => opt.key === type)
+
     return (
-        <Col>
-            <span className="sub-header">Type of cohort</span>
+        <>
+            <label className="ant-form-item-label">Type of Cohort</label>
             <Dropdown overlay={menu} trigger={['click']}>
-                <div
-                    style={{
-                        padding: 10,
-                        border: '1px solid rgba(0, 0, 0, 0.3)',
-                        borderRadius: 4,
-                        maxWidth: 300,
-                        display: 'flex',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        cursor: 'pointer',
-                    }}
-                    onClick={(e) => e.preventDefault()}
-                >
-                    <div style={{ flex: 5 }}>
-                        <SelectItem
-                            Icon={() => <DownOutlined />}
-                            text={options[type].text}
-                            description={options[type].description}
-                            onClick={options[type].onClick}
-                        />
-                    </div>
-                    <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <div className="cohort-type-selector" onClick={(e) => e.preventDefault()}>
+                    <div style={{ flexGrow: 1 }}>{selectedOption && <SelectItem {...selectedOption} />}</div>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
                         <DownOutlined />
                     </div>
                 </div>
             </Dropdown>
-        </Col>
+        </>
     )
 }

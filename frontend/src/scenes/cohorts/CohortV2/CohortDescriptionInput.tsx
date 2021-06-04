@@ -1,6 +1,5 @@
 import React from 'react'
 import { Input } from 'antd'
-import './cohort.scss'
 
 interface CohortDescriptionInputProps {
     description?: string
@@ -12,8 +11,6 @@ export function CohortDescriptionInput({ description, onChange }: CohortDescript
         <>
             <span className="sub-header">Description</span>
             <Input.TextArea
-                required
-                autoFocus
                 placeholder="Add a useful description for other team members"
                 value={description || ''}
                 data-attr="cohort-name"

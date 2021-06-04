@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { CohortNameInput } from './CohortNameInput'
 import { CohortDescriptionInput } from './CohortDescriptionInput'
 import { CohortTypeSelector, DYNAMIC, STATIC } from './CohortTypeSelector'
-import { Button, Divider, Row } from 'antd'
+import { Button, Col, Divider, Row } from 'antd'
 import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
 import { CohortGroupType, CohortType } from '~/types'
 import { cohortLogic } from '../cohortLogic'
@@ -92,22 +92,26 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
     }
 
     return (
-        <div style={{ maxWidth: 1200 }} className="mb">
-            <h3 className="l3">General</h3>
-            <div style={{ display: 'flex', flexDirection: 'row', marginTop: 14 }}>
-                <div style={{ flex: 6 }}>
+        <div className="mb">
+            <Row gutter={16}>
+                <Col>
+                    <h3 className="l3">General</h3>
+                </Col>
+            </Row>
+            <Row gutter={16}>
+                <Col md={14}>
                     <CohortNameInput input={cohort.name} onChange={onNameChange} />
-                </div>
-                <div style={{ flex: 4, marginLeft: 20 }}>
+                </Col>
+                <Col md={10}>
                     <CohortTypeSelector type={cohort.is_static ? STATIC : DYNAMIC} onTypeChange={onTypeChange} />
-                </div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'row', marginBottom: 14 }}>
-                <div style={{ flex: 6 }}>
+                </Col>
+            </Row>
+            <Row gutter={16} className="mt">
+                <Col md={14}>
                     <CohortDescriptionInput description={cohort.description} onChange={onDescriptionChange} />
-                </div>
-                <div style={{ flex: 4, marginLeft: 20 }} />
-            </div>
+                </Col>
+                <Col md={10}>Tags coming soon.</Col>
+            </Row>
             {cohort.id && cohort.id !== 'new' && <CohortDetailsRow cohort={cohort} />}
             <Divider />
             {cohort.is_static ? (

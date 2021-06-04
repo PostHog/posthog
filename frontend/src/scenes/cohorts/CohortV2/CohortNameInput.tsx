@@ -1,6 +1,5 @@
 import React from 'react'
-import { Input, Col } from 'antd'
-import './cohort.scss'
+import { Input } from 'antd'
 
 interface CohortNameInputProps {
     input?: string
@@ -9,16 +8,20 @@ interface CohortNameInputProps {
 
 export function CohortNameInput({ input, onChange }: CohortNameInputProps): JSX.Element {
     return (
-        <Col>
-            <span className="sub-header">Name</span>
+        <>
+            <label className="ant-form-item-label" htmlFor="cohort-name">
+                Name
+            </label>
             <Input
                 required
                 autoFocus
-                placeholder="Cohort name..."
+                placeholder="Name your cohort"
                 value={input || ''}
                 data-attr="cohort-name"
                 onChange={(e) => onChange(e.target.value)}
+                id="cohort-name"
+                className="ph-ignore-input"
             />
-        </Col>
+        </>
     )
 }
