@@ -107,10 +107,9 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
                 </Col>
             </Row>
             <Row gutter={16} className="mt">
-                <Col md={14}>
+                <Col span={24}>
                     <CohortDescriptionInput description={cohort.description} onChange={onDescriptionChange} />
                 </Col>
-                <Col md={10}>Tags coming soon.</Col>
             </Row>
             {cohort.id && cohort.id !== 'new' && <CohortDetailsRow cohort={cohort} />}
             <Divider />

@@ -9,13 +9,15 @@ interface CohortDescriptionInputProps {
 export function CohortDescriptionInput({ description, onChange }: CohortDescriptionInputProps): JSX.Element {
     return (
         <>
-            <span className="sub-header">Description</span>
+            <label className="ant-form-item-label" htmlFor="cohort-description">
+                Description
+            </label>
             <Input.TextArea
                 placeholder="Add a useful description for other team members"
                 value={description || ''}
-                data-attr="cohort-name"
+                data-attr="cohort-description"
+                id="cohort-description"
                 onChange={(e) => onChange(e.target.value)}
-                autoSize={{ minRows: 2, maxRows: 4 }}
             />
         </>
     )
