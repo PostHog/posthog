@@ -3,11 +3,17 @@ import { kea, useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CloseOutlined, ArrowLeftOutlined } from '@ant-design/icons'
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import './NPSPrompt.scss'
 import { npsLogicType } from './NPSPromptType'
 import posthog from 'posthog-js'
 import nps from './nps.svg'
+
+const NPS_APPEAR_TIMEOUT = 10000
+const NPS_HIDE_TIMEOUT = 3500
+const NPS_LOCALSTORAGE_KEY = 'experimental-nps'
+
+type Step = 0 | 1 | 2 | 3
 
 interface NPSPayload {
     score?: 1 | 3 | 5 // 1 = not disappointed; 3 = somewhat disappointed; 5 = very disappointed
@@ -15,38 +21,67 @@ interface NPSPayload {
     feedback_persona?: string
 }
 
-const npsLogic = kea<npsLogicType<NPSPayload>>({
+const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
+    selectors: {
+        featureFlagEnabled: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (featureFlags) => true || featureFlags[FEATURE_FLAGS.NPS_PROMPT],
+        ],
+    },
     actions: {
-        setStep: (step: number) => ({ step }),
-        setPayload: (payload: NPSPayload | null, merge: boolean = true) => ({ payload, merge }),
+        show: true,
+        hide: true,
+        setStep: (step: Step) => ({ step }),
         stepBack: true,
-        submit: (result: 'dismissed' | 'partial' | 'completed') => ({ result }),
+        setPayload: (payload: NPSPayload | null) => ({ payload }),
+        submit: true,
     },
     reducers: {
-        step: [0, { setStep: (_, { step }) => step }],
+        step: [
+            0 as Step,
+            {
+                setStep: (_, { step }) => step,
+                stepBack: (state) => Math.max(state - 1, 0) as Step,
+                submit: () => 3,
+                // go to step 1 when selecting the score on step 0
+                setPayload: (state, { payload }) => (state === 0 && typeof payload?.score !== 'undefined' ? 1 : state),
+            },
+        ],
+        hidden: [true, { show: () => false, hide: () => true }],
         payload: [
             null as NPSPayload | null,
             {
-                setPayload: (state, { payload, merge }) => (merge && state ? { ...state, ...payload } : payload),
+                setPayload: (state, { payload }) => ({ ...state, ...payload }),
             },
         ],
     },
-    listeners: ({ values, actions }) => ({
+    listeners: ({ values, actions, cache }) => ({
         stepBack: () => {
-            actions.setStep(values.step - 1)
             if (values.step === 1) {
                 actions.setPayload(null)
             }
         },
-        submit: ({ result }) => {
+        submit: () => {
             // `nps_2106` is used to identify users who have replied to the NPS survey (via cohorts)
+            const result = ['dismissed', 'partial', 'completed'][values.step]
             posthog.capture('nps feedback', { ...values.payload, result })
             posthog.people.set({ nps_2106: true })
-            actions.setStep(3)
-            localStorage.setItem('experimental-nps', 'true')
+            localStorage.setItem(NPS_LOCALSTORAGE_KEY, 'true')
+            cache.timeout = window.setTimeout(() => actions.hide(), NPS_HIDE_TIMEOUT)
+        },
+    }),
+    events: ({ actions, values, cache }) => ({
+        afterMount: () => {
+            if (values.featureFlagEnabled && !localStorage.getItem(NPS_LOCALSTORAGE_KEY)) {
+                cache.timeout = window.setTimeout(() => actions.show(), NPS_APPEAR_TIMEOUT)
+            }
+        },
+        beforeUnmount: () => {
+            window.clearTimeout(cache.timeout)
         },
     }),
 })
+
 /* Asks user for NPS-like score feedback (see product-internal#9 for details). To determine if the component should
 be shown to a user, we follow these rules:
 1. If the user has the appropriate feature flag active (this determines eligibility based on recent 
@@ -55,53 +90,11 @@ be shown to a user, we follow these rules:
     which excludes a user from the feature flag.
 */
 export function NPSPrompt(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { setStep, setPayload, stepBack, submit } = useActions(npsLogic)
-    const { step } = useValues(npsLogic)
-    const [step2Content, setStep2Content] = useState('')
-    const [step3Content, setStep3Content] = useState('')
-    // Whether the component should be displayed or not (based on whether it has been filled or not)
-    const [hidden, setHidden] = useState(true)
+    const { step, payload, hidden, featureFlagEnabled } = useValues(npsLogic)
 
-    useEffect(() => {
-        if (!localStorage.getItem('experimental-nps')) {
-            // Survey hasn't been filled, show component (subject to feature flag below too)
-            setTimeout(() => setHidden(false), 10000) // Show after 10s of using the app
-        }
-    }, [])
-
-    if (!featureFlags[FEATURE_FLAGS.NPS_PROMPT]) {
+    if (!featureFlagEnabled) {
         return null
-    }
-
-    const handleStep1 = (score: 1 | 3 | 5): void => {
-        setPayload({ score })
-        setStep(1)
-    }
-
-    const handleStep2 = (sendSubmission: boolean = false): void => {
-        setPayload({ feedback_score: step2Content })
-        if (sendSubmission) {
-            submit('partial')
-        } else {
-            setStep(2)
-        }
-    }
-
-    const handleStep3 = (): void => {
-        setPayload({ feedback_persona: step3Content })
-        submit('completed')
-        setTimeout(() => setHidden(true), 3500)
-    }
-
-    const handleDismiss = (): void => {
-        setHidden(true)
-        if (step === 0) {
-            submit('dismissed')
-            return
-        }
-        setPayload({ feedback_score: step2Content, feedback_persona: step3Content })
-        submit('partial')
     }
 
     const Header = (
@@ -120,7 +113,7 @@ export function NPSPrompt(): JSX.Element | null {
     return (
         <>
             <div className={`nps-prompt${hidden ? ' hide' : ''}`}>
-                <span className="nps-dismiss" onClick={handleDismiss}>
+                <span className="nps-dismiss" onClick={submit}>
                     <CloseOutlined />
                 </span>
                 <div className="prompt-inner">
@@ -130,13 +123,13 @@ export function NPSPrompt(): JSX.Element | null {
                             <div className="question">How would you feel if you could no longer use PostHog?</div>
 
                             <div className="action-buttons">
-                                <Button className="prompt-button" onClick={() => handleStep1(1)}>
+                                <Button className="prompt-button" onClick={() => setPayload({ score: 1 })}>
                                     Not disappointed
                                 </Button>
-                                <Button className="prompt-button" onClick={() => handleStep1(3)}>
+                                <Button className="prompt-button" onClick={() => setPayload({ score: 3 })}>
                                     Somewhat disappointed
                                 </Button>
-                                <Button className="prompt-button" onClick={() => handleStep1(5)}>
+                                <Button className="prompt-button" onClick={() => setPayload({ score: 5 })}>
                                     Very disappointed
                                 </Button>
                             </div>
@@ -149,15 +142,15 @@ export function NPSPrompt(): JSX.Element | null {
                             <Input.TextArea
                                 autoFocus
                                 placeholder="You can describe the key benefits you get from PostHog, shortcomings or anything else..."
-                                value={step2Content}
-                                onChange={(e) => setStep2Content(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && e.metaKey && handleStep2()}
+                                value={payload?.feedback_score || ''}
+                                onChange={(e) => setPayload({ feedback_score: e.target.value })}
+                                onKeyDown={(e) => e.key === 'Enter' && e.metaKey && setStep(2)}
                             />
                             <div style={{ textAlign: 'left' }} className="mt">
-                                <Button type="link" style={{ paddingLeft: 0 }} onClick={() => handleStep2(true)}>
+                                <Button type="link" style={{ paddingLeft: 0 }} onClick={() => submit()}>
                                     Finish
                                 </Button>
-                                <Button style={{ float: 'right' }} onClick={() => handleStep2()}>
+                                <Button style={{ float: 'right' }} onClick={() => setStep(2)}>
                                     Continue
                                 </Button>
                             </div>
@@ -172,12 +165,12 @@ export function NPSPrompt(): JSX.Element | null {
                             <Input.TextArea
                                 autoFocus
                                 placeholder="You can describe their role, background, company or team size, ..."
-                                value={step3Content}
-                                onChange={(e) => setStep3Content(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && e.metaKey && handleStep3()}
+                                value={payload?.feedback_persona || ''}
+                                onChange={(e) => setPayload({ feedback_persona: e.target.value })}
+                                onKeyDown={(e) => e.key === 'Enter' && e.metaKey && submit()}
                             />
                             <div style={{ textAlign: 'left' }} className="mt">
-                                <Button style={{ float: 'right' }} onClick={handleStep3}>
+                                <Button style={{ float: 'right' }} onClick={submit}>
                                     Finish
                                 </Button>
                             </div>
