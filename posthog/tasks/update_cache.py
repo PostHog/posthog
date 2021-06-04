@@ -23,9 +23,7 @@ from posthog.constants import (
 )
 from posthog.decorators import CacheType
 from posthog.ee import is_clickhouse_enabled
-from posthog.models import DashboardItem, Filter, Team
-from posthog.models.filters.path_filter import PathFilter
-from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models import Dashboard, DashboardItem, Filter, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.settings import CACHED_RESULTS_TTL
@@ -68,6 +66,12 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
         cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
 
 
+def update_dashboard_items_cache(dashboard: Dashboard) -> None:
+    for item in DashboardItem.objects.filter(dashboard=dashboard, filters__isnull=False).exclude(filters={}):
+        cache_key, cache_type, payload = dashboard_item_update_task_params(item, dashboard)
+        update_cache_item(cache_key, cache_type, payload)
+
+
 def get_cache_type(filter: FilterType) -> CacheType:
     if filter.insight == INSIGHT_FUNNELS:
         return CacheType.FUNNEL
@@ -103,16 +107,22 @@ def update_cached_items() -> None:
     for item in DashboardItem.objects.filter(
         pk__in=Subquery(items.filter(filters__isnull=False).exclude(filters={}).distinct("filters").values("pk"))
     ).order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_DASHBOARD_ITEM_CACHE]:
-        filter = get_filter(data=item.dashboard_filters(), team=item.team)
-        cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
-
-        cache_type = get_cache_type(filter)
-        payload = {"filter": filter.toJSON(), "team_id": item.team_id}
+        cache_key, cache_type, payload = dashboard_item_update_task_params(item)
         tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
 
     logger.info("Found {} items to refresh".format(len(tasks)))
     taskset = group(tasks)
     taskset.apply_async()
+
+
+def dashboard_item_update_task_params(item: DashboardItem, dashboard: Optional[Dashboard] = None):
+    filter = get_filter(data=item.dashboard_filters(dashboard), team=item.team)
+    cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
+
+    cache_type = get_cache_type(filter)
+    payload = {"filter": filter.toJSON(), "team_id": item.team_id}
+
+    return cache_key, cache_type, payload
 
 
 def import_from(module: str, name: str) -> Any:
