@@ -1,5 +1,5 @@
 import { Alert, Button, Input, Tooltip } from 'antd'
-import { InfoCircleOutlined, WarningOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, WarningOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import Table, { ColumnsType } from 'antd/lib/table'
 import Fuse from 'fuse.js'
 import { useValues, useActions } from 'kea'
@@ -13,10 +13,11 @@ import { ProfilePicture } from '~/layout/navigation/TopNavigation'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import { eventDefinitionsLogic } from './eventDefinitionsLogic'
 import './VolumeTable.scss'
+import { definitionsLogic } from './definitionsLogic'
 
 type EventTableType = 'event' | 'property'
 
-type EventOrPropType = EventDefinition & PropertyDefinition
+export type EventOrPropType = EventDefinition & PropertyDefinition
 
 interface VolumeTableRecord {
     eventOrProp: EventOrPropType
@@ -62,7 +63,7 @@ export function VolumeTable({
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-
+    const { openDefinitionDrawer } = useActions(definitionsLogic)
     const hasTaxonomyFeatures =
         featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
         user?.organization?.available_features?.includes('ingestion_taxonomy')
@@ -169,6 +170,17 @@ export function VolumeTable({
                     ? (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1)
                     : (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1),
         },
+        {
+            render: function Render(_, item) {
+                return (
+                    <Button
+                        type="link"
+                        icon={<ArrowRightOutlined style={{color: '#5375FF'}}/>}
+                        onClick={() => openDefinitionDrawer(type, item.eventOrProp.id)}
+                    />
+                )
+            }
+        }
     ]
 
     useEffect(() => {

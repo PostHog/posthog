@@ -3,3 +3,12 @@
         font-style: italic;
     }
 }
+
+.definition-drawer {
+    .general {
+        color: orange;
+    }
+    .ant-collapse-content > .ant-collapse-content-box {
+        padding-top: 0;
+    }
+}

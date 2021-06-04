@@ -7,7 +7,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import EventDefinition
 from posthog.permissions import OrganizationMemberPermissions
-
+import pdb
 
 class EventDefinitionSerializer(serializers.ModelSerializer):
     class Meta:

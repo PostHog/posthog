@@ -7,6 +7,7 @@ import { EventsTable } from './EventsTable'
 import { EventsVolumeTable } from './volume-definitions/EventsVolumeTable'
 import { PropertiesVolumeTable } from './volume-definitions/PropertiesVolumeTable'
 import { eventsLogicType } from './EventsType'
+import { DefinitionDrawer } from './volume-definitions/DefinitionDrawer'
 
 const eventsLogic = kea<eventsLogicType>({
     actions: {
@@ -52,6 +53,7 @@ export function ManageEvents(): JSX.Element {
                     <PropertiesVolumeTable />
                 </Tabs.TabPane>
             </Tabs>
+            <DefinitionDrawer />
         </div>
     )
 }
