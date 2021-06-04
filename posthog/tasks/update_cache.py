@@ -2,7 +2,7 @@ import importlib
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from celery import group
 from dateutil.relativedelta import relativedelta
@@ -115,7 +115,9 @@ def update_cached_items() -> None:
     taskset.apply_async()
 
 
-def dashboard_item_update_task_params(item: DashboardItem, dashboard: Optional[Dashboard] = None):
+def dashboard_item_update_task_params(
+    item: DashboardItem, dashboard: Optional[Dashboard] = None
+) -> Tuple[str, CacheType, Dict]:
     filter = get_filter(data=item.dashboard_filters(dashboard), team=item.team)
     cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
 
