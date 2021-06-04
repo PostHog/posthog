@@ -9,7 +9,8 @@
     position: fixed;
     bottom: 16px;
     right: 16px;
-    width: 360px;
+    width: calc(100% - 32px);
+    max-width: 360px;
     z-index: $z_nps_overlay;
     font-size: 0.85rem;
     text-align: center;
@@ -72,7 +73,7 @@
             margin-bottom: $default_spacing / 2;
             width: 100%;
         }
-        width: 60%;
+        width: 200px;
         margin: 0 auto;
         padding-top: $default_spacing / 2;
     }
