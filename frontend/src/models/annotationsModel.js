@@ -28,14 +28,14 @@ export const annotationsModel = kea({
                 return response.results
             },
             createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
-                const annotation = await api.create('api/annotation', {
+                await api.create('api/annotation', {
                     content,
                     date_marker: dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker),
                     created_at,
                     dashboard_item,
                     scope: 'organization',
                 })
-                return [...(values.globalAnnotations || []), annotation]
+                return values.globalAnnotations || []
             },
         },
     }),

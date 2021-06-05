@@ -10,6 +10,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { dashboardColors } from 'lib/colors'
 import { AnnotationScope } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import './AnnotationMarker.scss'
 
 const { TextArea } = Input
 
@@ -116,91 +117,8 @@ export function AnnotationMarker({
             content={
                 dynamic ? (
                     <div ref={popupRef}>
-                        <span style={{ marginBottom: 12 }}>{dayjs(currentDateMarker).format('MMMM Do YYYY')}</span>
-                        <TextArea
-                            maxLength={300}
-                            style={{ marginBottom: 12 }}
-                            rows={4}
-                            value={textInput}
-                            onChange={(e) => setTextInput(e.target.value)}
-                            autoFocus
-                        />
-                        <Checkbox
-                            checked={applyAll}
-                            onChange={(e) => {
-                                setApplyAll(e.target.checked)
-                            }}
-                        >
-                            Create for all charts
-                        </Checkbox>
-                        <Row justify="end">
-                            <Button
-                                style={{ marginRight: 10 }}
-                                onClick={() => {
-                                    closePopup()
-                                    setTextInput('')
-                                }}
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                type="primary"
-                                onClick={() => {
-                                    closePopup()
-                                    onCreateAnnotation?.(textInput, applyAll)
-                                    setTextInput('')
-                                }}
-                            >
-                                Add
-                            </Button>
-                        </Row>
-                    </div>
-                ) : (
-                    <div ref={popupRef} style={{ minWidth: 300 }}>
-                        {[...annotations]
-                            .sort((annotationA, annotationB) => annotationA.created_at - annotationB.created_at)
-                            .map((data) => (
-                                <div key={data.id} style={{ marginBottom: 25 }}>
-                                    <Row justify="space-between" align="middle">
-                                        <div>
-                                            <b style={{ marginRight: 5 }}>
-                                                {data.created_by === 'local'
-                                                    ? user?.first_name || user?.email
-                                                    : data.created_by &&
-                                                      (data.created_by.first_name || data.created_by.email)}
-                                            </b>
-                                            <i style={{ color: 'gray', marginRight: 6 }}>
-                                                {humanFriendlyDetailedTime(data.created_at)}
-                                            </i>
-                                            {data.scope === AnnotationScope.Project ? (
-                                                <Tooltip
-                                                    title={`This annotation is shown on all charts in project ${user?.team?.name}`}
-                                                >
-                                                    <ProjectOutlined />
-                                                </Tooltip>
-                                            ) : data.scope === AnnotationScope.Organization ? (
-                                                <Tooltip
-                                                    title={`This annotation is shown on all charts in organization ${user?.organization?.name}`}
-                                                >
-                                                    <DeploymentUnitOutlined />
-                                                </Tooltip>
-                                            ) : null}
-                                        </div>
-                                        {(!data.created_by ||
-                                            data.created_by.uuid === user?.uuid ||
-                                            data.created_by === 'local') && (
-                                            <DeleteOutlined
-                                                className="button-border clickable text-danger"
-                                                onClick={() => {
-                                                    onDelete(data)
-                                                }}
-                                            />
-                                        )}
-                                    </Row>
-                                    <span>{data.content}</span>
-                                </div>
-                            ))}
-                        {textAreaVisible && (
+                        <div style={{ padding: '12px 16px' }}>
+                            <span style={{ marginBottom: 12 }}>{dayjs(currentDateMarker).format('MMMM Do YYYY')}</span>
                             <TextArea
                                 maxLength={300}
                                 style={{ marginBottom: 12 }}
@@ -209,8 +127,6 @@ export function AnnotationMarker({
                                 onChange={(e) => setTextInput(e.target.value)}
                                 autoFocus
                             />
-                        )}
-                        {textAreaVisible && (
                             <Checkbox
                                 checked={applyAll}
                                 onChange={(e) => {
@@ -219,35 +135,124 @@ export function AnnotationMarker({
                             >
                                 Create for all charts
                             </Checkbox>
-                        )}
-                        {textAreaVisible ? (
                             <Row justify="end">
-                                <Button style={{ marginRight: 10 }} onClick={() => setTextAreaVisible(false)}>
+                                <Button
+                                    style={{ marginRight: 10 }}
+                                    onClick={() => {
+                                        closePopup()
+                                        setTextInput('')
+                                    }}
+                                >
                                     Cancel
                                 </Button>
                                 <Button
                                     type="primary"
                                     onClick={() => {
-                                        onCreate(textInput, applyAll)
+                                        closePopup()
+                                        onCreateAnnotation?.(textInput, applyAll)
                                         setTextInput('')
-                                        setTextAreaVisible(false)
                                     }}
                                 >
                                     Add
                                 </Button>
                             </Row>
-                        ) : (
-                            <Row justify="end">
-                                <Button
-                                    type="primary"
-                                    onClick={() => {
-                                        setTextAreaVisible(true)
-                                    }}
-                                >
-                                    Add Note
-                                </Button>
-                            </Row>
-                        )}
+                        </div>
+                    </div>
+                ) : (
+                    <div ref={popupRef} style={{ minWidth: 300 }}>
+                        <div style={{ overflowY: 'auto', maxHeight: '80vh', padding: '12px 16px 0 16px' }}>
+                            {[...annotations]
+                                .sort((annotationA, annotationB) => annotationA.created_at - annotationB.created_at)
+                                .map((data) => (
+                                    <div key={data.id} style={{ marginBottom: 25 }}>
+                                        <Row justify="space-between" align="middle">
+                                            <div>
+                                                <b style={{ marginRight: 5 }}>
+                                                    {data.created_by === 'local'
+                                                        ? user?.first_name || user?.email
+                                                        : data.created_by &&
+                                                          (data.created_by.first_name || data.created_by.email)}
+                                                </b>
+                                                <i style={{ color: 'gray', marginRight: 6 }}>
+                                                    {humanFriendlyDetailedTime(data.created_at)}
+                                                </i>
+                                                {data.scope === AnnotationScope.Project ? (
+                                                    <Tooltip
+                                                        title={`This annotation is shown on all charts in project ${user?.team?.name}`}
+                                                    >
+                                                        <ProjectOutlined />
+                                                    </Tooltip>
+                                                ) : data.scope === AnnotationScope.Organization ? (
+                                                    <Tooltip
+                                                        title={`This annotation is shown on all charts in organization ${user?.organization?.name}`}
+                                                    >
+                                                        <DeploymentUnitOutlined />
+                                                    </Tooltip>
+                                                ) : null}
+                                            </div>
+                                            {(!data.created_by ||
+                                                data.created_by.uuid === user?.uuid ||
+                                                data.created_by === 'local') && (
+                                                <DeleteOutlined
+                                                    className="button-border clickable text-danger"
+                                                    onClick={() => {
+                                                        onDelete(data)
+                                                    }}
+                                                />
+                                            )}
+                                        </Row>
+                                        <span>{data.content}</span>
+                                    </div>
+                                ))}
+                        </div>
+                        <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0' }}>
+                            {textAreaVisible ? (
+                                <>
+                                    <TextArea
+                                        maxLength={300}
+                                        style={{ marginBottom: 12 }}
+                                        rows={4}
+                                        value={textInput}
+                                        onChange={(e) => setTextInput(e.target.value)}
+                                        autoFocus
+                                    />
+                                    <Checkbox
+                                        checked={applyAll}
+                                        onChange={(e) => {
+                                            setApplyAll(e.target.checked)
+                                        }}
+                                    >
+                                        Create for all charts
+                                    </Checkbox>
+                                    <Row justify="end">
+                                        <Button style={{ marginRight: 10 }} onClick={() => setTextAreaVisible(false)}>
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            type="primary"
+                                            onClick={() => {
+                                                onCreate(textInput, applyAll)
+                                                setTextInput('')
+                                                setTextAreaVisible(false)
+                                            }}
+                                        >
+                                            Add
+                                        </Button>
+                                    </Row>
+                                </>
+                            ) : (
+                                <Row justify="end">
+                                    <Button
+                                        type="primary"
+                                        onClick={() => {
+                                            setTextAreaVisible(true)
+                                        }}
+                                    >
+                                        Add Note
+                                    </Button>
+                                </Row>
+                            )}
+                        </div>
                     </div>
                 )
             }
