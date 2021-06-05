@@ -401,7 +401,7 @@ export function LineGraph({
             onMouseLeave={() => setEnabled(false)}
         >
             <canvas ref={chartRef} />
-            <div className="annotations" ref={annotationsRoot} />
+            <div className="annotations-root" ref={annotationsRoot} />
             {annotationsCondition && (
                 <Annotations
                     labeledDays={datasets[0].labels}
