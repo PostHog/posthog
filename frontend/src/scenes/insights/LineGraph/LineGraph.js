@@ -59,7 +59,12 @@ export function LineGraph({
     const [annotationInRange, setInRange] = useState(false)
     const size = useWindowSize()
 
-    const annotationsCondition = type === 'line' && datasets.length > 0 && !datasets[0].compare && !inSharedMode
+    const annotationsCondition =
+        type === 'line' &&
+        datasets.length > 0 &&
+        !datasets[0].compare &&
+        !inSharedMode &&
+        datasets[0].labels[0] !== '1 day'
 
     useEscapeKey(() => setFocused(false), [focused])
 
