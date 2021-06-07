@@ -112,7 +112,6 @@ function DashboardView(): JSX.Element {
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'flex-end',
-                                    width: '100%',
                                 }}
                             >
                                 <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
