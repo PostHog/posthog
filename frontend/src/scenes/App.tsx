@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
@@ -18,6 +18,26 @@ import { Papercups } from 'lib/components/Papercups'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
+}
+
+/* This makes sure the user and the feature flags are loaded before we open the app */
+export function AppWrapper(): JSX.Element | null {
+    // Do not reference "sceneLogic" here.
+    const { userLoading } = useValues(userLogic)
+    const { receivedFeatureFlags } = useValues(featureFlagLogic)
+    const [ignoreFeatureFlags, setIgnoreFeatureFlags] = useState(false)
+
+    // Load the app if it takes over 1.5sec for feature flags to load
+    useEffect(() => {
+        const timeout = window.setTimeout(() => setIgnoreFeatureFlags(true), 1500)
+        return () => window.clearTimeout(timeout)
+    })
+
+    if (userLoading || (!receivedFeatureFlags && !ignoreFeatureFlags)) {
+        return <SceneLoading />
+    }
+
+    return <App />
 }
 
 export function App(): JSX.Element | null {
@@ -75,7 +95,8 @@ export function App(): JSX.Element | null {
         return <SceneLoading />
     }
 
-    const SceneComponent = loadedScenes[scene]?.component || (() => <SceneLoading />)
+    const SceneComponent: (...args: any[]) => JSX.Element =
+        (scene ? loadedScenes[scene]?.component : null) || (() => <SceneLoading />)
 
     const essentialElements = (
         // Components that should always be mounted inside Layout
@@ -113,7 +134,6 @@ export function App(): JSX.Element | null {
                     {scene ? (
                         <Layout.Content className="main-app-content" data-attr="layout-content">
                             {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
-
                             <BillingAlerts />
                             <BackTo />
                             <SceneComponent user={user} {...params} />
