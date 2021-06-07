@@ -94,7 +94,12 @@ def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
 
 
 def determine_precalculated_or_live_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
-    if cohort.last_calculation > TEMP_PRECALCULATED_MARKER and not settings.DEBUG and not settings.TEST:
+    if (
+        cohort.last_calculation
+        and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
+        and not settings.DEBUG
+        and not settings.TEST
+    ):
         return (
             f"""
         person_id IN ({GET_PERSON_ID_BY_COHORT_ID})
