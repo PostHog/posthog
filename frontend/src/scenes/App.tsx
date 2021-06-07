@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { useActions, useValues } from 'kea'
+import React, { useEffect } from 'react'
+import { kea, useActions, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
@@ -15,47 +15,56 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
+import { appLogicType } from './AppType'
 
-function Toast(): JSX.Element {
-    return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
+export const appLogic = kea<appLogicType>({
+    actions: {
+        enableDelayedSpinner: true,
+        ignoreFeatureFlags: true,
+    },
+    reducers: {
+        showingDelayedSpinner: [false, { enableDelayedSpinner: () => true }],
+        featureFlagsTimedOut: [false, { ignoreFeatureFlags: () => true }],
+    },
+    selectors: {
+        showApp: [
+            (s) => [
+                userLogic.selectors.userLoading, // not loading the user anymore (may be logged out)
+                featureFlagLogic.selectors.receivedFeatureFlags, // received feature flags
+                s.featureFlagsTimedOut, // waited for 3 sec to load feature flags, that's enough
+            ],
+            (userLoading, receivedFeatureFlags, featureFlagsTimedOut) => {
+                return !userLoading && (receivedFeatureFlags || featureFlagsTimedOut)
+            },
+        ],
+    },
+    events: ({ actions, cache }) => ({
+        afterMount: () => {
+            cache.spinnerTimeout = window.setTimeout(() => actions.enableDelayedSpinner(), 1000)
+            cache.featureFlagTimeout = window.setTimeout(() => actions.ignoreFeatureFlags(), 3000)
+        },
+        beforeUnmount: () => {
+            window.clearTimeout(cache.spinnerTimeout)
+            window.clearTimeout(cache.featureFlagTimeout)
+        },
+    }),
+})
+
+export function App(): JSX.Element | null {
+    const { showApp, showingDelayedSpinner } = useValues(appLogic)
+    return showApp ? <AppScene /> : showingDelayedSpinner ? <SceneLoading /> : null
 }
 
-/* This makes sure the user and the feature flags are loaded before we open the app */
-export function AppWrapper(): JSX.Element | null {
-    // Do not reference "sceneLogic" here, as it'll start url-based routing before we have the user
-    const { userLoading } = useValues(userLogic)
-    const { receivedFeatureFlags } = useValues(featureFlagLogic)
-    const [showSpinner, setShowSpinner] = useState(false)
-    const [ignoreFeatureFlags, setIgnoreFeatureFlags] = useState(false)
-
-    // Show the spinner if the app is loading for more than 1 second
-    useEffect(() => {
-        const timeout = window.setTimeout(() => setShowSpinner(true), 1000)
-        return () => window.clearTimeout(timeout)
-    })
-
-    // Load the app if it takes over 3 seconds for feature flags to load
-    useEffect(() => {
-        const timeout = window.setTimeout(() => setIgnoreFeatureFlags(true), 3000)
-        return () => window.clearTimeout(timeout)
-    })
-
-    const spinner = showSpinner ? <SceneLoading /> : null
-
-    if (userLoading || (!receivedFeatureFlags && !ignoreFeatureFlags)) {
-        return spinner
-    }
-
-    return <App spinner={spinner} />
-}
-
-function App({ spinner }: { spinner: JSX.Element | null }): JSX.Element | null {
+function AppScene(): JSX.Element | null {
     const { user, userLoading } = useValues(userLogic)
     const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { showingDelayedSpinner } = useValues(appLogic)
+
+    const spinner = showingDelayedSpinner ? <SceneLoading /> : null
 
     useEffect(() => {
         if (scene === Scene.Signup && preflight && !preflight.cloud && preflight.initiated) {
@@ -111,7 +120,7 @@ function App({ spinner }: { spinner: JSX.Element | null }): JSX.Element | null {
         // Components that should always be mounted inside Layout
         <>
             {featureFlags['papercups-enabled'] && <Papercups />}
-            <Toast />
+            <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
         </>
     )
 
