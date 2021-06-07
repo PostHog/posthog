@@ -420,7 +420,6 @@ export function LineGraph({
                     onClose={() => {
                         setAnnotationsFocused(false)
                     }}
-                    getPopupContainer={() => annotationsRoot?.current}
                     graphColor={color}
                     color={color === 'white' ? null : 'white'}
                     accessoryColor={color === 'white' ? null : 'black'}
@@ -447,7 +446,6 @@ export function LineGraph({
                             toast('This annotation will be saved if the graph is made into a dashboard item!')
                         }
                     }}
-                    onCancelAnnotation={() => [setFocused(false)]}
                     onClose={() => setFocused(false)}
                     dynamic={true}
                     left={(focused ? holdLeft : left) - 12.5}

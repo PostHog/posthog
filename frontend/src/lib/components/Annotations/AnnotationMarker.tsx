@@ -8,9 +8,9 @@ import { annotationsLogic } from './annotationsLogic'
 import dayjs from 'dayjs'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { dashboardColors } from 'lib/colors'
-import { AnnotationScope } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import './AnnotationMarker.scss'
+import { AnnotationScope, AnnotationType } from '~/types'
 
 const { TextArea } = Input
 
@@ -25,6 +25,28 @@ function coordinateContains(e: MouseEvent, element: DOMRect): boolean {
     } else {
         return false
     }
+}
+
+interface AnnotationMarkerProps {
+    elementId: string
+    label: string
+    annotations: AnnotationType[]
+    left: number
+    top: number
+    onCreate: (textInput: string, applyAll: boolean) => void
+    onDelete?: (annotation: AnnotationType) => void
+    onClick?: () => void
+    onClose?: () => void
+    onCreateAnnotation?: (textInput: string, applyAll: boolean) => void
+    size?: number
+    color: string | null
+    accessoryColor: string | null
+    dashboardItemId?: number
+    currentDateMarker: string
+    dynamic?: boolean
+    graphColor: string | null
+    index: number
+    getPopupContainer?: () => HTMLElement
 }
 
 export function AnnotationMarker({
@@ -47,7 +69,7 @@ export function AnnotationMarker({
     graphColor,
     index,
     getPopupContainer,
-}: Record<string, any>): JSX.Element | null {
+}: AnnotationMarkerProps): JSX.Element | null {
     const popupRef = useRef<HTMLDivElement | null>(null)
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
@@ -103,7 +125,7 @@ export function AnnotationMarker({
         dynamic &&
         Object.keys(groupedAnnotations)
             .map((key) => dayjs(key))
-            .some((marker) => marker.isSame(dayjs(currentDateMarker).startOf(diffType)))
+            .some((marker) => marker.isSame(dayjs(currentDateMarker).startOf(diffType as dayjs.OpUnitType)))
     ) {
         return null
     }
@@ -162,7 +184,10 @@ export function AnnotationMarker({
                     <div ref={popupRef} style={{ minWidth: 300 }}>
                         <div style={{ overflowY: 'auto', maxHeight: '80vh', padding: '12px 16px 0 16px' }}>
                             {[...annotations]
-                                .sort((annotationA, annotationB) => annotationA.created_at - annotationB.created_at)
+                                .sort(
+                                    (annotationA, annotationB) =>
+                                        dayjs(annotationA.created_at).unix() - dayjs(annotationB.created_at).unix()
+                                )
                                 .map((data) => (
                                     <div key={data.id} style={{ marginBottom: 25 }}>
                                         <Row justify="space-between" align="middle">
@@ -191,13 +216,11 @@ export function AnnotationMarker({
                                                 ) : null}
                                             </div>
                                             {(!data.created_by ||
-                                                data.created_by.uuid === user?.uuid ||
-                                                data.created_by === 'local') && (
+                                                data.created_by === 'local' ||
+                                                data.created_by.uuid === user?.uuid) && (
                                                 <DeleteOutlined
                                                     className="button-border clickable text-danger"
-                                                    onClick={() => {
-                                                        onDelete(data)
-                                                    }}
+                                                    onClick={() => onDelete?.(data)}
                                                 />
                                             )}
                                         </Row>
@@ -284,7 +307,7 @@ export function AnnotationMarker({
                     backgroundColor:
                         focused || dynamic || hovered || elementId === currentDateMarker
                             ? _color
-                            : dashboardColors[graphColor] || 'white',
+                            : (graphColor ? dashboardColors[graphColor] : null) || 'white',
                     borderRadius: 5,
                     cursor: 'pointer',
                     border: dynamic ? undefined : '1px solid ' + _color,
