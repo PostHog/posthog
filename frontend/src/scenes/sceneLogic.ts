@@ -256,6 +256,7 @@ export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneCo
                 return sceneConfigurations[scene] ?? {}
             },
         ],
+        activeScene: [(s) => [s.loadingScene, s.scene], (loadingScene, scene) => loadingScene || scene],
     },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}
