@@ -261,23 +261,19 @@ export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneCo
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}
 
-        for (const paths of Object.keys(redirects)) {
-            for (const path of paths.split('|')) {
-                mapping[path] = (params) => {
-                    let redirect = redirects[paths]
+        for (const path of Object.keys(redirects)) {
+            mapping[path] = (params) => {
+                let redirect = redirects[path]
 
-                    if (path === '/' && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
-                        redirect = '/home'
-                    }
-
-                    router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
+                if (path === '/' && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
+                    redirect = '/home'
                 }
+
+                router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
-        for (const [paths, scene] of Object.entries(routes)) {
-            for (const path of paths.split('|')) {
-                mapping[path] = (params) => actions.loadScene(scene, params)
-            }
+        for (const [path, scene] of Object.entries(routes)) {
+            mapping[path] = (params) => actions.loadScene(scene, params)
         }
 
         mapping['/*'] = () => actions.loadScene(Scene.Error404, {})
