@@ -8,10 +8,13 @@ import './NPSPrompt.scss'
 import { npsLogicType } from './NPSPromptType'
 import posthog from 'posthog-js'
 import nps from './nps.svg'
+import { userLogic } from 'scenes/userLogic'
+import { UserType } from '~/types'
+import dayjs from 'dayjs'
 
 const NPS_APPEAR_TIMEOUT = 10000
 const NPS_HIDE_TIMEOUT = 3500
-const NPS_LOCALSTORAGE_KEY = 'experimental-nps'
+const NPS_LOCALSTORAGE_KEY = 'experimental-nps-v8'
 
 type Step = 0 | 1 | 2 | 3
 
@@ -21,11 +24,19 @@ interface NPSPayload {
     feedback_persona?: string
 }
 
-const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
+const npsLogic = kea<npsLogicType<NPSPayload, Step, UserType>>({
     selectors: {
         featureFlagEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags) => featureFlags[FEATURE_FLAGS.NPS_PROMPT],
+        ],
+        userIsOldEnough: [
+            () => [userLogic.selectors.user],
+            (user) => user && dayjs(user.date_joined).isBefore(dayjs().add(-45, 'day')),
+        ],
+        npsPromptEnabled: [
+            (s) => [s.featureFlagEnabled, s.userIsOldEnough],
+            (featureFlagEnabled, userIsOldEnough) => featureFlagEnabled && userIsOldEnough,
         ],
     },
     actions: {
@@ -72,7 +83,7 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
     }),
     events: ({ actions, values, cache }) => ({
         afterMount: () => {
-            if (values.featureFlagEnabled && !localStorage.getItem(NPS_LOCALSTORAGE_KEY)) {
+            if (values.npsPromptEnabled && !localStorage.getItem(NPS_LOCALSTORAGE_KEY)) {
                 cache.timeout = window.setTimeout(() => actions.show(), NPS_APPEAR_TIMEOUT)
             }
         },
@@ -91,9 +102,9 @@ be shown to a user, we follow these rules:
 */
 export function NPSPrompt(): JSX.Element | null {
     const { setStep, setPayload, stepBack, submit } = useActions(npsLogic)
-    const { step, payload, hidden, featureFlagEnabled } = useValues(npsLogic)
+    const { step, payload, hidden, npsPromptEnabled } = useValues(npsLogic)
 
-    if (!featureFlagEnabled) {
+    if (!npsPromptEnabled) {
         return null
     }
 
