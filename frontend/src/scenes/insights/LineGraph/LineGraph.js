@@ -15,6 +15,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import './LineGraph.scss'
 import 'chartjs-plugin-crosshair'
 import InsightsLabel from 'lib/components/InsightsLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -41,7 +42,7 @@ export function LineGraph({
     const chartRef = useRef()
     const myLineChart = useRef()
     const { featureFlags } = useValues(featureFlagLogic)
-    const newUI = featureFlags['4156-new-graph-ui']
+    const newUI = featureFlags[FEATURE_FLAGS.NEW_TOOLTIPS]
     const annotationsRoot = useRef()
     const [left, setLeft] = useState(-1)
     const [holdLeft, setHoldLeft] = useState(0)

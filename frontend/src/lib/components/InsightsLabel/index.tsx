@@ -4,7 +4,7 @@ import { ActionFilter } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { operatorMap, capitalizeFirstLetter } from 'lib/utils'
 
-import './index.scss'
+import './InsightsLabel.scss'
 import { MATHS } from 'lib/constants'
 
 // InsightsLabel pretty-prints the action (or event) returned from /insights
