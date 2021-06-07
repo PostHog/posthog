@@ -1,22 +1,24 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
-import dayjs from 'dayjs'
+import dayjs, { Dayjs } from 'dayjs'
 import { getNextKey } from 'lib/components/Annotations/utils'
+import { annotationsModelType } from './annotationsModelType'
+import { AnnotationScope, AnnotationType } from '~/types'
 
-export const annotationsModel = kea({
-    actions: () => ({
-        createGlobalAnnotation: (content, date_marker, dashboard_item) => ({
+export const annotationsModel = kea<annotationsModelType<AnnotationType, Dayjs>>({
+    actions: {
+        createGlobalAnnotation: (content: string, date_marker: string, dashboard_item?: number) => ({
             content,
             date_marker,
             created_at: dayjs(),
             dashboard_item,
         }),
         deleteGlobalAnnotation: (id) => ({ id }),
-    }),
-    loaders: () => ({
+    },
+    loaders: ({ values }) => ({
         globalAnnotations: {
-            __default: [],
+            __default: [] as AnnotationType[],
             loadGlobalAnnotations: async () => {
                 const response = await api.get(
                     'api/annotation/?' +
@@ -27,44 +29,52 @@ export const annotationsModel = kea({
                 )
                 return response.results
             },
+            createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
+                await api.create('api/annotation', {
+                    content,
+                    date_marker: dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker),
+                    created_at,
+                    dashboard_item,
+                    scope: AnnotationScope.Organization,
+                })
+                return values.globalAnnotations || []
+            },
         },
     }),
-    reducers: () => ({
+    reducers: {
         globalAnnotations: {
             createGlobalAnnotation: (state, { content, date_marker, created_at }) => [
                 ...state,
-                { id: getNextKey(state), content, date_marker, created_at, created_by: 'local', scope: 'organization' },
+                {
+                    id: getNextKey(state).toString(),
+                    content,
+                    date_marker: date_marker,
+                    created_at: created_at.toISOString(),
+                    updated_at: created_at.toISOString(),
+                    created_by: 'local',
+                    scope: AnnotationScope.Organization,
+                },
             ],
             deleteGlobalAnnotation: (state, { id }) => {
                 return state.filter((a) => a.id !== id)
             },
         },
-    }),
-    selectors: ({ selectors }) => ({
+    },
+    selectors: {
         activeGlobalAnnotations: [
-            () => [selectors.globalAnnotations],
+            (s) => [s.globalAnnotations],
             (globalAnnotations) => {
                 return globalAnnotations.filter((annotation) => !annotation.deleted)
             },
         ],
-    }),
+    },
     listeners: ({ actions }) => ({
-        createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
-            await api.create('api/annotation', {
-                content,
-                date_marker: dayjs.isDayjs(date_marker) ? date_marker : dayjs(date_marker),
-                created_at,
-                dashboard_item,
-                scope: 'organization',
-            })
-            actions.loadGlobalAnnotations()
-        },
-        deleteGlobalAnnotation: async ({ id }) => {
+        deleteGlobalAnnotation: ({ id }) => {
             id >= 0 &&
                 deleteWithUndo({
                     endpoint: 'annotation',
                     object: { name: 'Annotation', id },
-                    callback: () => actions.loadGlobalAnnotations({}),
+                    callback: () => actions.loadGlobalAnnotations(),
                 })
         },
     }),
