@@ -462,6 +462,7 @@ export const keyMapping: KeyMappingInterface = {
 interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
+    style?: any
     disablePopover?: boolean
     disableIcon?: boolean
 }
@@ -469,6 +470,7 @@ interface PropertyKeyInfoInterface {
 export function PropertyKeyInfo({
     value,
     type = 'event',
+    style,
     disablePopover = false,
     disableIcon = false,
 }: PropertyKeyInfoInterface): JSX.Element {
@@ -484,7 +486,7 @@ export function PropertyKeyInfo({
         }
     } else {
         return (
-            <Typography.Text ellipsis={true} style={{ color: 'inherit', maxWidth: 400 }} title={value}>
+            <Typography.Text ellipsis={true} style={{ color: 'inherit', maxWidth: 400, ...style }} title={value}>
                 {value}
             </Typography.Text>
         )

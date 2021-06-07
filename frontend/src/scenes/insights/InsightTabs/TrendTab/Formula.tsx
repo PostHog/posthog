@@ -27,13 +27,13 @@ export function Formula({
                 autoFocus={autoFocus}
                 value={value}
                 onChange={(e) => {
-                    let value = e.target.value.toLocaleUpperCase()
+                    let changedValue = e.target.value.toLocaleUpperCase()
                     // Only allow typing of allowed characters
-                    value = value
+                    changedValue = changedValue
                         .split('')
                         .filter((d) => /^[a-zA-Z\ \-\*\^0-9\+\/\(\)]+$/g.test(d))
                         .join('')
-                    setValue(value)
+                    setValue(changedValue)
                 }}
                 onFocus={() => onFocus && onFocus(true, value)}
                 onBlur={() => !filters.formula && onFocus && onFocus(false, value)}

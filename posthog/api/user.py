@@ -42,6 +42,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
+            "date_joined",
             "uuid",
             "distinct_id",
             "first_name",
@@ -62,6 +63,7 @@ class UserSerializer(serializers.ModelSerializer):
             "events_column_config",
         ]
         extra_kwargs = {
+            "date_joined": {"read_only": True},
             "is_staff": {"read_only": True},
             "password": {"write_only": True},
         }
@@ -266,11 +268,6 @@ def user(request):
                 "api_token": team.api_token,
                 "anonymize_ips": team.anonymize_ips,
                 "slack_incoming_webhook": team.slack_incoming_webhook,
-                "event_names": team.event_names,
-                "event_names_with_usage": team.get_latest_event_names_with_usage(),
-                "event_properties": team.event_properties,
-                "event_properties_numerical": team.event_properties_numerical,
-                "event_properties_with_usage": team.get_latest_event_properties_with_usage(),
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
                 "session_recording_opt_in": team.session_recording_opt_in,
                 "session_recording_retention_period_days": team.session_recording_retention_period_days,

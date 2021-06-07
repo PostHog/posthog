@@ -14,13 +14,14 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
     EXPECTED_PROPERTY_DEFINITIONS = [
-        {"name": "$current_url", "volume_30_day": 264, "query_usage_30_day": 0, "is_numerical": False},
-        {"name": "is_first_movie", "volume_30_day": 87, "query_usage_30_day": 0, "is_numerical": False},
-        {"name": "app_rating", "volume_30_day": 73, "query_usage_30_day": 0, "is_numerical": True},
-        {"name": "plan", "volume_30_day": 14, "query_usage_30_day": 0, "is_numerical": False},
-        {"name": "purchase", "volume_30_day": 0, "query_usage_30_day": 0, "is_numerical": True},
-        {"name": "purchase_value", "volume_30_day": 14, "query_usage_30_day": 0, "is_numerical": True},
-        {"name": "first_visit", "volume_30_day": 0, "query_usage_30_day": 0, "is_numerical": False},
+        {"name": "$browser", "query_usage_30_day": 0, "is_numerical": False},
+        {"name": "$current_url", "query_usage_30_day": 0, "is_numerical": False},
+        {"name": "is_first_movie", "query_usage_30_day": 0, "is_numerical": False},
+        {"name": "app_rating", "query_usage_30_day": 0, "is_numerical": True},
+        {"name": "plan", "query_usage_30_day": 0, "is_numerical": False},
+        {"name": "purchase", "query_usage_30_day": 0, "is_numerical": True},
+        {"name": "purchase_value", "query_usage_30_day": 0, "is_numerical": True},
+        {"name": "first_visit", "query_usage_30_day": 0, "is_numerical": False},
     ]
 
     @classmethod
@@ -37,31 +38,29 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], len(self.EXPECTED_PROPERTY_DEFINITIONS))
+
         self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_PROPERTY_DEFINITIONS))
 
         for item in self.EXPECTED_PROPERTY_DEFINITIONS:
             response_item: Dict = next((_i for _i in response.json()["results"] if _i["name"] == item["name"]), {})
-            self.assertEqual(response_item["volume_30_day"], item["volume_30_day"])
             self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"])
             self.assertEqual(response_item["is_numerical"], item["is_numerical"])
-            self.assertEqual(
-                response_item["volume_30_day"], PropertyDefinition.objects.get(id=response_item["id"]).volume_30_day,
-            )
 
     def test_pagination_of_property_definitions(self):
-        self.demo_team.event_properties = self.demo_team.event_properties + [f"z_property_{i}" for i in range(1, 301)]
-        self.demo_team.save()
+        PropertyDefinition.objects.bulk_create(
+            [PropertyDefinition(team=self.demo_team, name="z_property_{}".format(i)) for i in range(1, 301)]
+        )
 
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 307)
+        self.assertEqual(response.json()["count"], 308)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
-        self.assertEqual(response.json()["results"][0]["name"], "$current_url")  # Order by name (ascending)
+        self.assertEqual(response.json()["results"][0]["name"], "$browser")  # Order by name (ascending)
 
         property_checkpoints = [
-            183,
-            273,
-            93,
+            182,
+            272,
+            92,
         ]  # Because Postgres's sorter does this: property_1; property_100, ..., property_2, property_200, ..., it's
         # easier to deterministically set the expected events
 
@@ -69,9 +68,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             response = self.client.get(response.json()["next"])
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            self.assertEqual(response.json()["count"], 307)
+            self.assertEqual(response.json()["count"], 308)
             self.assertEqual(
-                len(response.json()["results"]), 100 if i < 2 else 7,
+                len(response.json()["results"]), 100 if i < 2 else 8,
             )  # Each page has 100 except the last one
             self.assertEqual(response.json()["results"][0]["name"], f"z_property_{property_checkpoints[i]}")
 

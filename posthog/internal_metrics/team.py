@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import Dict, Optional
 
 from django.conf import settings
+from django.db import transaction
 from sentry_sdk.api import capture_exception
 
 from posthog.models.dashboard import Dashboard
@@ -13,6 +14,90 @@ NAME = "Posthog Internal Metrics"
 CLICKHOUSE_DASHBOARD = {
     "name": "Clickhouse internal dashboard",
     "items": [
+        {
+            "name": "Number of insights loaded vs failed",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$insight_load_time",
+                        "name": "insights loaded",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [{"key": "success", "type": "event", "value": ["true"], "operator": "exact"}],
+                    },
+                    {
+                        "id": "$$insight_load_time",
+                        "name": "insights loaded",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [{"key": "success", "type": "event", "value": ["false"], "operator": "exact"}],
+                    },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "properties": [],
+            },
+        },
+        {
+            "name": "Insight load time",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$insight_load_time",
+                        "math": "avg",
+                        "name": "Load time (avg)",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": "value",
+                    },
+                    {
+                        "id": "$$insight_load_time",
+                        "math": "p90",
+                        "name": "Load time (p90)",
+                        "type": "events",
+                        "order": 1,
+                        "properties": [],
+                        "math_property": "value",
+                    },
+                    {
+                        "id": "$$insight_load_time",
+                        "math": "p95",
+                        "name": "Load time (p95)",
+                        "type": "events",
+                        "order": 2,
+                        "properties": [],
+                        "math_property": "value",
+                    },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "properties": [],
+            },
+        },
+        {
+            "name": "Number of insights with timeout message",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$insight_timeout",
+                        "name": "insight timeout",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                    },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "properties": [],
+            },
+        },
         {
             "name": "Clickhouse total queries",
             "filters": {
@@ -236,6 +321,7 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
     ],
+    "filters": {"interval": "hour", "date_from": "-24h",},
 }
 
 
@@ -248,17 +334,18 @@ def get_internal_metrics_team_id() -> Optional[int]:
         return None
 
     try:
-        team = Team.objects.filter(organization__for_internal_metrics=True).first()
+        with transaction.atomic():
+            team = Team.objects.filter(organization__for_internal_metrics=True).first()
 
-        if team is None:
-            organization = Organization.objects.create(name=NAME, for_internal_metrics=True)
-            team = Team.objects.create(
-                name=NAME,
-                organization=organization,
-                ingested_event=True,
-                completed_snippet_onboarding=True,
-                is_demo=True,
-            )
+            if team is None:
+                organization = Organization.objects.create(name=NAME, for_internal_metrics=True)
+                team = Team.objects.create(
+                    name=NAME,
+                    organization=organization,
+                    ingested_event=True,
+                    completed_snippet_onboarding=True,
+                    is_demo=True,
+                )
 
         return team.pk
     except:
@@ -268,7 +355,6 @@ def get_internal_metrics_team_id() -> Optional[int]:
         return None
 
 
-@lru_cache(maxsize=1)
 def get_internal_metrics_dashboards() -> Dict:
     team_id = get_internal_metrics_team_id()
 
@@ -288,7 +374,11 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
     if dashboard is None:
         Dashboard.objects.filter(team_id=team_id, name=definition["name"]).delete()
         dashboard = Dashboard.objects.create(
-            name=definition["name"], description=description, team_id=team_id, share_token=secrets.token_urlsafe(22)
+            name=definition["name"],
+            filters=definition["filters"],
+            description=description,
+            team_id=team_id,
+            share_token=secrets.token_urlsafe(22),
         )
 
         for index, item in enumerate(definition["items"]):

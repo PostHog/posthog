@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { toParams, objectsEqual } from 'lib/utils'
+import { toParams, objectsEqual, uuid } from 'lib/utils'
 import api from 'lib/api'
 import { router } from 'kea-router'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
@@ -72,15 +72,16 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
                 }
                 const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })
                 let paths
-                insightLogic.actions.startQuery()
+                const queryId = uuid()
+                insightLogic.actions.startQuery(queryId)
                 try {
                     paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                 } catch (e) {
-                    insightLogic.actions.endQuery(ViewType.PATHS, null, e)
+                    insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
                     return { paths: [], filter, error: true }
                 }
                 breakpoint()
-                insightLogic.actions.endQuery(ViewType.PATHS, paths.last_refresh)
+                insightLogic.actions.endQuery(queryId, ViewType.PATHS, paths.last_refresh)
                 return { paths: paths.result, filter }
             },
         },

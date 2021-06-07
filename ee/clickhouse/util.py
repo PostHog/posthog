@@ -4,6 +4,7 @@ from clickhouse_driver.errors import ServerException
 from django.db import DEFAULT_DB_ALIAS
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.sql.cohort import CREATE_COHORTPEOPLE_TABLE_SQL, DROP_COHORTPEOPLE_TABLE_SQL
 from ee.clickhouse.sql.events import (
     DROP_EVENTS_TABLE_SQL,
     DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL,
@@ -30,6 +31,7 @@ class ClickhouseTestMixin:
             self._destroy_event_tables()
             self._destroy_person_tables()
             self._destroy_session_recording_tables()
+            self._destroy_cohortpeople_table()
         except ServerException as e:
             print(e)
             pass
@@ -38,6 +40,7 @@ class ClickhouseTestMixin:
             self._create_event_tables()
             self._create_person_tables()
             self._create_session_recording_tables()
+            self._create_cohortpeople_table()
         except ServerException as e:
             print(e)
             pass
@@ -65,6 +68,12 @@ class ClickhouseTestMixin:
     def _create_event_tables(self):
         sync_execute(EVENTS_TABLE_SQL)
         sync_execute(EVENTS_WITH_PROPS_TABLE_SQL)
+
+    def _destroy_cohortpeople_table(self):
+        sync_execute(DROP_COHORTPEOPLE_TABLE_SQL)
+
+    def _create_cohortpeople_table(self):
+        sync_execute(CREATE_COHORTPEOPLE_TABLE_SQL)
 
     @contextmanager
     def _assertNumQueries(self, func):

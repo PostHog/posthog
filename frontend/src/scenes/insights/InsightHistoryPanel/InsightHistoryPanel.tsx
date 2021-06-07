@@ -66,6 +66,7 @@ function InsightPane({
                                 loadTeamInsights()
                             }}
                             saveDashboardItem={updateInsight}
+                            dashboardMode={null}
                             onClick={() => {
                                 if (reportOnClick) {
                                     reportOnClick()

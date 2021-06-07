@@ -8,6 +8,8 @@ from django.utils.timezone import now
 
 from ee.clickhouse.models.event import create_event
 from posthog.models import Event, Organization, Person, PersonDistinctId, Team
+from posthog.models.event_definition import EventDefinition
+from posthog.models.property_definition import PropertyDefinition
 from posthog.models.utils import UUIDT
 
 PRICING_TIERS = [("basic", 10), ("growth", 20), ("premium", 30)]
@@ -54,10 +56,9 @@ class Command(BaseCommand):
         else:
             self._generate_psql_data(team, options["event_number"], options["days"])
 
-        team.event_names.append("$purchase")
-        team.event_properties.append("plan")
-        team.event_properties_numerical.append("purchase_value")
-        team.save()
+        EventDefinition.objects.get_or_create(team=team, name="$purchase")
+        PropertyDefinition.objects.update_or_create(team=team, name="plan", defaults={"is_numerical": True})
+        PropertyDefinition.objects.update_or_create(team=team, name="purchase_value", defaults={"is_numerical": True})
 
     def _generate_psql_data(self, team, n_events, n_days):
         distinct_ids = []

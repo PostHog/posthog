@@ -2,30 +2,36 @@ import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Button, Form, Input } from 'antd'
-import MonacoEditor from 'react-monaco-editor'
+import MonacoEditor from '@monaco-editor/react'
 import { Drawer } from 'lib/components/Drawer'
 
-const defaultSource = `// /* Runs on every event */
-function processEvent(event, { config }) {
-    // Some events (like $identify) don't have properties
-    if (event.properties) {
-        event.properties['hello'] = \`Hello \${config.name || 'world'}\`
-    }
+// @ts-ignore
+import SCAFFOLD_index from '!raw-loader!@posthog/plugin-scaffold/dist/index.d.ts'
+// @ts-ignore
+import SCAFFOLD_errors from '!raw-loader!@posthog/plugin-scaffold/dist/errors.d.ts'
+// @ts-ignore
+import SCAFFOLD_types from '!raw-loader!@posthog/plugin-scaffold/dist/types.d.ts'
+
+const defaultSource = `// Learn more about plugins at: https://posthog.com/docs/plugins/overview
+import { Plugin } from '@posthog/plugin-scaffold'
+
+type MyPluginType = Plugin<{
+  config: {
+    username: string
+  },
+  global: {},
+}>
+
+const MyPlugin: MyPluginType = {
+  setupPlugin: async (meta) => {
     
-    // Return the event to ingest, return nothing to discard  
-    return event
+  },
+  onEvent: async (event, meta) => {
+    console.log(\`Event \${event.event} has been processed!\`)
+  },
 }
 
-// /* Ran whenever the plugin VM initialises */
-// function setupPlugin (meta) {
-// 
-// }
-
-// /* Runs once every full hour */
-// function runEveryHour(meta) {
-//     const weather = await (await fetch('https://weather.example.api/?city=New+York')).json()
-//     posthog.capture('weather', { degrees: weather.deg, fahrenheit: weather.us })
-// }
+export default MyPlugin
 `
 
 const defaultConfig = [
@@ -104,11 +110,25 @@ export function PluginSource(): JSX.Element {
                         </Form.Item>
                         <Form.Item label="Source Code" name="source" required rules={[requiredRule]}>
                             <MonacoEditor
-                                language="javascript"
+                                language="typescript"
                                 theme="vs-dark"
                                 height={400}
                                 options={{
                                     minimap: { enabled: false },
+                                }}
+                                beforeMount={(monaco) => {
+                                    monaco.languages.typescript.typescriptDefaults.addExtraLib(
+                                        `declare module '@posthog/plugin-scaffold' { ${SCAFFOLD_index} }`,
+                                        'file:///node_modules/@types/@posthog/plugin-scaffold/index.d.ts'
+                                    )
+                                    monaco.languages.typescript.typescriptDefaults.addExtraLib(
+                                        `declare module '@posthog/plugin-scaffold' { ${SCAFFOLD_types} }`,
+                                        'file:///node_modules/@types/@posthog/plugin-scaffold/types.d.ts'
+                                    )
+                                    monaco.languages.typescript.typescriptDefaults.addExtraLib(
+                                        `declare module '@posthog/plugin-scaffold' { ${SCAFFOLD_errors} }`,
+                                        'file:///node_modules/@types/@posthog/plugin-scaffold/errors.d.ts'
+                                    )
                                 }}
                             />
                         </Form.Item>

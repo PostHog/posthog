@@ -3,9 +3,7 @@ import { useValues, useActions, useMountedLogic } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { actionsModel } from '~/models/actionsModel'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Link } from 'lib/components/Link'
 import { Button, Row } from 'antd'
 import { useState } from 'react'
 import { SaveModal } from '../../SaveModal'
@@ -22,7 +20,6 @@ export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
     useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic())
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
-    const { actions, actionsLoading } = useValues(actionsModel)
     const [savingModal, setSavingModal] = useState<boolean>(false)
 
     const showModal = (): void => setSavingModal(true)
@@ -45,15 +42,10 @@ export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
                     loadResults()
                 }}
             >
-                {!actionsLoading && actions.length === 0 && (
-                    <div className="alert alert-warning" style={{ marginTop: '1rem' }}>
-                        You don't have any actions set up. <Link to="/actions">Click here to set up an action</Link>
-                    </div>
-                )}
                 <h4 className="secondary">Steps</h4>
                 <ActionFilter
                     filters={filters}
-                    setFilters={(filters: Record<string, any>): void => setFilters(filters, false)}
+                    setFilters={(newFilters: Record<string, any>): void => setFilters(newFilters, false)}
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
                     buttonCopy="Add funnel step"

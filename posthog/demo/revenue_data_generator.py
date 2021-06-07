@@ -11,12 +11,6 @@ from posthog.models import Action, ActionStep, Dashboard, DashboardItem, EventDe
 
 class RevenueDataGenerator(DataGenerator):
     def create_missing_events_and_properties(self):
-        self.add_if_not_contained(self.team.event_names, "purchase")
-        self.add_if_not_contained(self.team.event_names, "entered_free_trial")
-        self.add_if_not_contained(self.team.event_properties, "plan")
-        self.add_if_not_contained(self.team.event_properties, "first_visit")
-        self.add_if_not_contained(self.team.event_properties_numerical, "purchase_value")
-        self.add_if_not_contained(self.team.event_properties, "purchase_value")
         EventDefinition.objects.get_or_create(team=self.team, name="purchase")
         EventDefinition.objects.get_or_create(team=self.team, name="entered_free_trial")
         PropertyDefinition.objects.get_or_create(team=self.team, name="plan")

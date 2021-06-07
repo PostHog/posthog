@@ -8,6 +8,8 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FilterType } from '~/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { captureInternalMetric } from 'lib/internalMetrics'
 
 export enum ViewType {
     TRENDS = 'TRENDS',
@@ -17,7 +19,10 @@ export enum ViewType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
+    HISTORY = 'HISTORY',
 }
+
+type Timeout = NodeJS.Timeout
 
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 
@@ -43,14 +48,15 @@ export const logicFromInsight = (insight: string, logicProps: Record<string, any
     }
 }
 
-export const insightLogic = kea<insightLogicType>({
+export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
-        updateActiveView: (type) => ({ type }),
-        setCachedUrl: (type, url) => ({ type, url }),
+        updateActiveView: (type: ViewType) => ({ type }),
+        setCachedUrl: (type: ViewType, url: string) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
-        startQuery: true,
-        endQuery: (view: string, lastRefresh: string | null, exception?: Record<string, any>) => ({
+        startQuery: (queryId: string) => ({ queryId }),
+        endQuery: (queryId: string, view: string, lastRefresh: string | null, exception?: Record<string, any>) => ({
+            queryId,
             view,
             lastRefresh,
             exception,
@@ -59,7 +65,7 @@ export const insightLogic = kea<insightLogicType>({
         setShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
-        setTimeout: (timeout) => ({ timeout }),
+        setTimeout: (timeout: Timeout | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
         toggleControlsCollapsed: true,
@@ -99,12 +105,12 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
         activeView: [
-            ViewType.TRENDS,
+            ViewType.TRENDS as ViewType,
             {
                 updateActiveView: (_, { type }) => type,
             },
         ],
-        timeout: [null, { setTimeout: (_, { timeout }) => timeout }],
+        timeout: [null as Timeout | null, { setTimeout: (_, { timeout }) => timeout }],
         lastRefresh: [
             null as string | null,
             {
@@ -142,6 +148,12 @@ export const insightLogic = kea<insightLogicType>({
                 toggleControlsCollapsed: (state) => !state,
             },
         ],
+        queryStartTimes: [
+            {} as Record<string, number>,
+            {
+                startQuery: (state, { queryId }) => ({ ...state, [queryId]: new Date().getTime() }),
+            },
+        ],
     },
     listeners: ({ actions, values }) => ({
         setAllFilters: (filters) => {
@@ -158,37 +170,55 @@ export const insightLogic = kea<insightLogicType>({
                 setTimeout(() => {
                     if (values && view == values.activeView) {
                         actions.setShowTimeoutMessage(true)
+                        const tags = {
+                            insight: values.activeView,
+                            scene: sceneLogic.values.scene,
+                        }
+                        posthog.capture('insight timeout message shown', tags)
+                        captureInternalMetric({ method: 'incr', metric: 'insight_timeout', value: 1, tags })
                     }
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
             actions.setIsLoading(true)
         },
-        endQuery: ({ view, lastRefresh, exception }) => {
-            clearTimeout(values.timeout || undefined)
+        endQuery: ({ queryId, view, lastRefresh, exception }) => {
+            if (values.timeout) {
+                clearTimeout(values.timeout)
+            }
             if (view === values.activeView) {
                 actions.setShowTimeoutMessage(values.maybeShowTimeoutMessage)
                 actions.setShowErrorMessage(values.maybeShowErrorMessage)
                 actions.setLastRefresh(lastRefresh || null)
                 actions.setIsLoading(false)
-                if (values.maybeShowTimeoutMessage) {
-                    posthog.capture('insight timeout message shown', { insight: values.activeView, ...exception })
+
+                const duration = new Date().getTime() - values.queryStartTimes[queryId]
+                const tags = {
+                    insight: values.activeView,
+                    scene: sceneLogic.values.scene,
+                    success: !exception,
+                    ...exception,
                 }
+
+                posthog.capture('insight loaded', { ...tags, duration })
+                captureInternalMetric({ method: 'timing', metric: 'insight_load_time', value: duration, tags })
                 if (values.maybeShowErrorMessage) {
-                    posthog.capture('insight error message shown', { insight: values.activeView, ...exception })
+                    posthog.capture('insight error message shown', { ...tags, duration })
                 }
             }
         },
         setActiveView: () => {
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
-            clearTimeout(values.timeout || undefined)
+            if (values.timeout) {
+                clearTimeout(values.timeout)
+            }
         },
         toggleControlsCollapsed: async () => {
             eventUsageLogic.actions.reportInsightsControlsCollapseToggle(values.controlsCollapsed)
         },
     }),
     actionToUrl: ({ actions, values }) => ({
-        setActiveView: ({ type }: { type: string }) => {
+        setActiveView: ({ type }: { type: ViewType }) => {
             const params = fromParams()
             const { properties, ...restParams } = params
 
@@ -217,7 +247,9 @@ export const insightLogic = kea<insightLogicType>({
     }),
     events: ({ values }) => ({
         beforeUnmount: () => {
-            clearTimeout(values.timeout || undefined)
+            if (values.timeout) {
+                clearTimeout(values.timeout)
+            }
         },
     }),
 })

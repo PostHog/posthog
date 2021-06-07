@@ -1,6 +1,6 @@
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 
-from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
 
 DROP_PERSON_TABLE_SQL = """
 DROP TABLE person
@@ -33,7 +33,7 @@ PERSONS_TABLE_SQL = (
 """
 ).format(
     table_name=PERSONS_TABLE,
-    engine=table_engine(PERSONS_TABLE, "_timestamp"),
+    engine=table_engine(PERSONS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
@@ -106,7 +106,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
 """
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
-    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp"),
+    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
@@ -153,7 +153,7 @@ PERSON_STATIC_COHORT_TABLE_SQL = (
 """
 ).format(
     table_name=PERSON_STATIC_COHORT_TABLE,
-    engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp"),
+    engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     storage_policy=STORAGE_POLICY,
     extra_fields=KAFKA_COLUMNS,
 )
@@ -208,7 +208,7 @@ WHERE team_id = %(team_id)s
 )
 
 INSERT_PERSON_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, now(), 0, 0
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
@@ -220,7 +220,7 @@ ALTER TABLE person UPDATE properties = %(properties)s where id = %(id)s
 """
 
 DELETE_PERSON_BY_ID = """
-INSERT INTO person (id, is_deleted) SELECT %(id)s, 1
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 1
 """
 
 DELETE_PERSON_EVENTS_BY_ID = """

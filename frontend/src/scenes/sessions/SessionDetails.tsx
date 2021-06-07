@@ -78,9 +78,9 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
                 hideOnSinglePage: !events || events.length < 10,
                 showSizeChanger: true,
                 pageSizeOptions: ['10', '20', '50', '100', '200', '500'],
-                onChange: (page, pageSize) => {
-                    setPage(page)
-                    setPageSize(pageSize || 50)
+                onChange: (changedPage, changedPageSize) => {
+                    setPage(changedPage)
+                    setPageSize(changedPageSize || 50)
                 },
             }}
             expandable={{

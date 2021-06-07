@@ -155,8 +155,8 @@ CLICKHOUSE_REPLICATION = get_from_env("CLICKHOUSE_REPLICATION", False, type_cast
 CLICKHOUSE_ENABLE_STORAGE_POLICY = get_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False, type_cast=strtobool)
 CLICKHOUSE_ASYNC = get_from_env("CLICKHOUSE_ASYNC", False, type_cast=strtobool)
 
-CLICKHOUSE_CONN_POOL_MIN = os.getenv("CLICKHOUSE_CONN_POOL_MIN", 20)
-CLICKHOUSE_CONN_POOL_MAX = os.getenv("CLICKHOUSE_CONN_POOL_MAX", 1000)
+CLICKHOUSE_CONN_POOL_MIN = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
+CLICKHOUSE_CONN_POOL_MAX = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"

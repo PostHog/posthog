@@ -42,7 +42,8 @@ export function LineGraph({
     const myLineChart = useRef()
     const { featureFlags } = useValues(featureFlagLogic)
     const newUI = featureFlags['4156-new-graph-ui']
-    const [left, setLeft] = useState(0)
+    const annotationsRoot = useRef()
+    const [left, setLeft] = useState(-1)
     const [holdLeft, setHoldLeft] = useState(0)
     const [enabled, setEnabled] = useState(false)
     const [focused, setFocused] = useState(false)
@@ -118,15 +119,15 @@ export function LineGraph({
     }, [myLineChart.current, size, type, annotationsCondition])
 
     function calculateBoundaries() {
-        const _leftExtent = myLineChart.current.scales['x-axis-0'].left
-        const _rightExtent = myLineChart.current.scales['x-axis-0'].right
-        const _topExtent = myLineChart.current.scales['x-axis-0'].top + 8
-        const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
-        const delta = _rightExtent - leftExtent
-        const _interval = delta / (ticks - 1)
-        setLeftExtent(_leftExtent)
-        setTopExtent(_topExtent)
-        setInterval(_interval)
+        const boundaryLeftExtent = myLineChart.current.scales['x-axis-0'].left
+        const boundaryRightExtent = myLineChart.current.scales['x-axis-0'].right
+        const boundaryTicks = myLineChart.current.scales['x-axis-0'].ticks.length
+        const boundaryDelta = boundaryRightExtent - boundaryLeftExtent
+        const boundaryInterval = boundaryDelta / (boundaryTicks - 1)
+        const boundaryTopExtent = myLineChart.current.scales['x-axis-0'].top + 8
+        setLeftExtent(boundaryLeftExtent)
+        setInterval(boundaryInterval)
+        setTopExtent(boundaryTopExtent)
     }
 
     function processDataset(dataset, index) {
@@ -538,6 +539,7 @@ export function LineGraph({
             onMouseLeave={() => setEnabled(false)}
         >
             <canvas ref={chartRef} />
+            <div className="annotations-root" ref={annotationsRoot} />
             {annotationsCondition && (
                 <Annotations
                     labeledDays={datasets[0].labels}
@@ -569,6 +571,7 @@ export function LineGraph({
                         setHoldLabelIndex(labelIndex)
                         setSelectedDayLabel(datasets[0].days[labelIndex])
                     }}
+                    getPopupContainer={() => annotationsRoot?.current}
                     onCreateAnnotation={(textInput, applyAll) => {
                         if (applyAll) {
                             createGlobalAnnotation(textInput, datasets[0].days[holdLabelIndex], dashboardItemId)
@@ -579,7 +582,6 @@ export function LineGraph({
                             toast('This annotation will be saved if the graph is made into a dashboard item!')
                         }
                     }}
-                    onCancelAnnotation={() => [setFocused(false)]}
                     onClose={() => setFocused(false)}
                     dynamic={true}
                     left={(focused ? holdLeft : left) - 12.5}

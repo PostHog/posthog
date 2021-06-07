@@ -3,7 +3,7 @@ import { Button, Card, Divider, Space } from 'antd'
 import { useActions, useValues } from 'kea'
 import { SaveOutlined, SearchOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
-import { Entity, EventTypePropertyFilter, PersonPropertyFilter, PropertyFilter, RecordingPropertyFilter } from '~/types'
+import { Entity, PersonPropertyFilter, PropertyFilter } from '~/types'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { EventPropertyFilter } from 'scenes/sessions/filters/EventPropertyFilter'
 import { PersonFilter } from 'scenes/sessions/filters/UserFilter'
@@ -180,14 +180,12 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                                     </Button>
                                     <SessionsFilterBox selector={selector} />
                                 </div>
-                                {['event_type', 'action_type'].includes(item.type) && (
-                                    <EventPropertyFilter filter={item as EventTypePropertyFilter} selector={selector} />
+                                {(item.type === 'event_type' || item.type === 'action_type') && (
+                                    <EventPropertyFilter filter={item} selector={selector} />
                                 )}
-                                {item.type === 'person' && (
-                                    <PersonFilter filter={item as PersonPropertyFilter} selector={selector} />
-                                )}
+                                {item.type === 'person' && <PersonFilter filter={item} selector={selector} />}
                                 {item.type === 'recording' && item.key === 'duration' && (
-                                    <DurationFilter filter={item as RecordingPropertyFilter} selector={selector} />
+                                    <DurationFilter filter={item} selector={selector} />
                                 )}
                             </div>
                             {filters.length > 1 && andTag(index < filters.length - 1)}
