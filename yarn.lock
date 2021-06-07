@@ -9236,10 +9236,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.11.1:
-  version "1.11.1"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.11.1.tgz#054eb5d4a5031f6d17b024432ae455078525c695"
-  integrity sha512-gxqcy7ZJ+3uEeSbM8OYtvHeSeR99lkk5SwKXfRU3PKvY8TBe44KSO7w1VS1A/k4fg1kZtuaIHMgjMvwXqS2dmQ==
+posthog-js@1.11.2:
+  version "1.11.2"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.11.2.tgz#67d2213394cfec5ed93c88efcd7e94e4aef1847f"
+  integrity sha512-lUADT1j9V5kaqp19b2qSnjZ4ZDLjJK6Ff3qdgYdDiHumGdYXpdsjr26DJ5NKdq6WbVe3YQGNKJqcFKeYUyRsmg==
   dependencies:
     fflate "^0.4.1"
 
