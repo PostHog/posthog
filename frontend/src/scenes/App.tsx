@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
@@ -15,6 +15,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
+import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
 
 function Toast(): JSX.Element {
     return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
@@ -27,6 +29,9 @@ export function App(): JSX.Element | null {
     const { location } = useValues(router)
     const { replace } = useActions(router)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    useMountedLogic(eventDefinitionsLogic)
+    useMountedLogic(propertyDefinitionsLogic)
 
     useEffect(() => {
         if (scene === Scene.Signup && preflight && !preflight.cloud && preflight.initiated) {
