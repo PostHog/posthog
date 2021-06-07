@@ -14,7 +14,7 @@ import dayjs from 'dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import './LineGraph.scss'
 import 'chartjs-plugin-crosshair'
-import { InsightsLabel } from 'lib/components/InsightsLabel'
+import { InsightLabel } from 'lib/components/InsightLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { InsightTooltip } from '../InsightTooltip'
 
@@ -158,6 +158,7 @@ export function LineGraph({
         if (typeof myLineChart.current !== 'undefined') {
             myLineChart.current.destroy()
         }
+
         // if chart is line graph, make duplicate lines and overlay to show dotted lines
         const isLineGraph = type === 'line'
         if (isLineGraph) {
@@ -201,6 +202,14 @@ export function LineGraph({
             datasets.map((dataset, index) => processDataset(dataset, index))
         }
 
+        const tickOptions = {
+            autoSkip: true,
+            beginAtZero: true,
+            min: 0,
+            fontColor: colors.axisLabel,
+            precision: 0,
+        }
+
         const inspectUsersLabel = !dashboardItemId && onClick
 
         const newUITooltipOptions = {
@@ -223,7 +232,7 @@ export function LineGraph({
                     }
                     const showCountedByTag = !!data.datasets.find(({ action: { math } }) => math && math !== 'total')
                     return (
-                        <InsightsLabel
+                        <InsightLabel
                             propertyValue={label}
                             action={action}
                             value={value}
@@ -324,21 +333,11 @@ export function LineGraph({
                           }
                           return (formattedLabel ? formattedLabel + ' — ' : '') + value + (percentage ? '%' : '')
                       },
-                      footer: () => (shouldShowTooltipFooter ? 'Click to see users related to the datapoint' : ''),
+                      footer: () => (inspectUsersLabel ? 'Click to see users related to the datapoint' : ''),
                   },
                   itemSort: (a, b) => b.yLabel - a.yLabel,
               }
-        const crosshairPluginCommonOptions = {
-            snapping: {
-                enabled: true, // Snap crosshair to data points
-            },
-            sync: {
-                enabled: false, // Sync crosshairs across multiple Chartjs instances
-            },
-            zoom: {
-                enabled: false, // Allow drag to zoom
-            },
-        }
+
         let options = {
             responsive: true,
             maintainAspectRatio: false,
@@ -347,7 +346,15 @@ export function LineGraph({
             plugins: newUI
                 ? {
                       crosshair: {
-                          ...crosshairPluginCommonOptions,
+                          snapping: {
+                              enabled: true, // Snap crosshair to data points
+                          },
+                          sync: {
+                              enabled: false, // Sync crosshairs across multiple Chartjs instances
+                          },
+                          zoom: {
+                              enabled: false, // Allow drag to zoom
+                          },
                           line: {
                               color: colors.crosshair,
                               width: 1,
@@ -355,13 +362,7 @@ export function LineGraph({
                       },
                   }
                 : {
-                      crosshair: {
-                          ...crosshairPluginCommonOptions,
-                          line: {
-                              color: 'rgba(0,0,0,0)',
-                              width: 0,
-                          },
-                      },
+                      crosshair: false,
                   },
             hover: {
                 mode: 'nearest',
@@ -402,14 +403,6 @@ export function LineGraph({
                     })
                 }
             },
-        }
-
-        const tickOptions = {
-            autoSkip: true,
-            beginAtZero: true,
-            min: 0,
-            fontColor: colors.axisLabel,
-            precision: 0,
         }
 
         if (type === 'bar') {
