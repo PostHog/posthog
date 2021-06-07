@@ -1,5 +1,5 @@
 import React from 'react'
-import { AnnotationScope } from '~/types'
+import { AnnotationScope } from '../types'
 
 export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraph'
 export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
