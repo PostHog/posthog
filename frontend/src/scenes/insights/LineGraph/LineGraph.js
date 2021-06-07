@@ -364,6 +364,7 @@ export function LineGraph({
                       crosshair: false,
                   },
             hover: {
+                mode: 'nearest',
                 intersect: newUI ? false : undefined,
                 onHover(evt) {
                     if (onClick) {
