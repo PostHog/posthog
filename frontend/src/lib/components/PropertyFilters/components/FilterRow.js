@@ -34,9 +34,6 @@ export const FilterRow = React.memo(function FilterRow({
         index,
         onComplete: () => setOpen(false),
         logic,
-        selectProps: {
-            delayBeforeAutoOpen: 150,
-        },
     }
 
     return (
@@ -74,7 +71,10 @@ export const FilterRow = React.memo(function FilterRow({
                             <PropertyFilter
                                 {...propertyFilterCommonProps}
                                 variant="tabs"
-                                selectProps={(pageKey = 'trends-filters' ? { position: 'bottomLeft' } : undefined)}
+                                selectProps={{
+                                    delayBeforeAutoOpen: 150,
+                                    position: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
+                                }}
                             />
                         }
                     >
