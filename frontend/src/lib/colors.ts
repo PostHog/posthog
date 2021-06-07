@@ -20,22 +20,6 @@ export const lightColors = [
 export const getColorVar = (variable: string): string =>
     getComputedStyle(document.body).getPropertyValue('--' + variable)
 
-export function hexToRGBA(hex: string, alpha = 1): string {
-    // Returns an rgba string with specified alpha if the hex string is valid.
-    const originalString = hex.trim()
-    const hasPoundSign = originalString[0] === '#'
-    const originalColor = hasPoundSign ? originalString.slice(1) : originalString
-    if (originalColor.length !== 6) {
-        return originalString
-    }
-    const originalBase16 = parseInt(originalColor, 16)
-    const r = originalBase16 >> 16
-    const g = (originalBase16 >> 8) & 0x00ff
-    const b = originalBase16 & 0x0000ff
-    const a = alpha
-    return `rgba(${[r, g, b, a].join(',')})`
-}
-
 export const darkWhites = [
     'rgba(255,255,255,0.6)',
     'rgba(255,255,180,0.5)',

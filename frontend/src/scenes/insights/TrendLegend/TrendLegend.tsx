@@ -4,40 +4,19 @@ import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
+import { MATHS } from 'lib/constants'
 import { cohortsModel } from '~/models'
 import { CohortType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
-import { alphabet, maybeAddCommasToInteger } from 'lib/utils'
-import InsightsLabel from 'lib/components/InsightsLabel'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import SeriesBadge from 'lib/components/SeriesBadge'
+import { maybeAddCommasToInteger } from 'lib/utils'
 
-interface FormatLabelProps {
-    item: IndexedTrendResult
-    index: number
-    showSeriesIndex?: boolean
-    useNeutralColor?: boolean
-    showCountedByTag?: boolean
-}
-
-function SeriesLabel({
-    item,
-    index,
-    showSeriesIndex,
-    useNeutralColor,
-    showCountedByTag,
-}: FormatLabelProps): JSX.Element {
-    const seriesColor = useNeutralColor ? null : getChartColors('white')[index]
-    return (
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-            {showSeriesIndex && alphabet[index] && <SeriesBadge color={seriesColor}>{alphabet[index]}</SeriesBadge>}
-            <InsightsLabel
-                propertyValue={item.action?.name || item.label}
-                action={item.action}
-                showCountedByTag={showCountedByTag}
-            />
-        </div>
-    )
+function formatLabel(item: IndexedTrendResult): string {
+    const name = item.action?.name || item.label
+    const math = item.action?.math
+    const mathLabel = math ? MATHS[math].name : ''
+    const propNum = item.action?.properties.length
+    const propLabel = propNum ? propNum + (propNum === 1 ? ' property' : ' properties') : ''
+    return name + (mathLabel ? ' — ' + mathLabel : '') + (propLabel ? ' — ' + propLabel : '')
 }
 
 function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {
@@ -59,9 +38,8 @@ export function TrendLegend(): JSX.Element | null {
     if (indexedResults.length === 0) {
         return null
     }
-    const showCountedByTag = !!indexedResults.find(({ action: { math } }) => math && math !== 'total')
 
-    const columns = [
+    const columns: ColumnsType<IndexedTrendResult> = [
         {
             title: '',
             render: function RenderCheckbox({}, item: IndexedTrendResult, index: number) {
@@ -78,40 +56,33 @@ export function TrendLegend(): JSX.Element | null {
             fixed: 'left',
             width: 60,
         },
-        filters.breakdown
-            ? {
-                  title: <PropertyKeyInfo disableIcon value={filters.breakdown || 'Breakdown Value'} />,
-                  render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
-                      return formatBreakdownLabel(item.breakdown_value, cohorts)
-                  },
-                  fixed: 'left',
-                  width: 150,
-              }
-            : null,
         {
-            title: 'Event/Action',
-            render: function RenderLabel({}, item: IndexedTrendResult, index: number) {
-                const isBreakdown = Boolean(filters.breakdown)
-                const seriesIndex = isBreakdown ? item.action.order ?? index : index
+            title: 'Label',
+            render: function RenderLabel({}, item: IndexedTrendResult) {
                 return (
                     <span
                         style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
                         onClick={() => !isSingleEntity && toggleVisibility(item.id)}
                     >
-                        <SeriesLabel
-                            index={seriesIndex}
-                            item={item}
-                            showSeriesIndex={indexedResults.length > 1}
-                            useNeutralColor={isBreakdown}
-                            showCountedByTag={showCountedByTag}
-                        />
+                        {formatLabel(item)}
                     </span>
                 )
             },
             fixed: 'left',
             width: 150,
         },
-    ].filter(Boolean) as ColumnsType<IndexedTrendResult>
+    ]
+
+    if (filters.breakdown) {
+        columns.push({
+            title: 'Breakdown Value',
+            render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
+                return formatBreakdownLabel(item.breakdown_value, cohorts)
+            },
+            fixed: 'left',
+            width: 150,
+        })
+    }
 
     if (indexedResults && indexedResults.length > 0) {
         const valueColumns = indexedResults[0].data.map(({}, index: number) => ({
