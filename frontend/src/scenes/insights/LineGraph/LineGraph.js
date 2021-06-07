@@ -308,7 +308,6 @@ export function LineGraph({
                   bodyFontColor: colors.tooltipBody,
                   footerFontColor: colors.tooltipBody,
                   borderColor: colors.tooltipBorder,
-                  borderWidth: newUI ? 1 : undefined,
                   labelFontSize: 23,
                   cornerRadius: 4,
                   fontSize: 12,
@@ -365,8 +364,6 @@ export function LineGraph({
                       crosshair: false,
                   },
             hover: {
-                mode: 'nearest',
-                axis: newUI ? 'x' : undefined, // constrain the axis of nearest-point calculation
                 intersect: newUI ? false : undefined,
                 onHover(evt) {
                     if (onClick) {

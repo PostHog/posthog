@@ -4,7 +4,7 @@
     background: #fff;
     border: 1px solid $border;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    border-radius: 6px;
+    border-radius: $radius;
     padding: 8px 12px;
 
     header {
@@ -24,15 +24,15 @@
         margin-bottom: 0;
 
         li {
-            padding-left: 18px;
             position: relative;
+            display: flex;
+            align-items: center;
+
             .color-icon {
-                position: absolute;
-                top: 2px;
-                left: 0;
                 width: 12px;
                 height: 12px;
                 border-radius: 50%;
+                margin-right: 2px;
             }
         }
     }

@@ -18,7 +18,7 @@ export function InsightTooltip({ titleLines, bodyLines, inspectUsersLabel }: Ins
     return (
         <>
             {titleLines.map((title, i) => (
-                <header key={i}>Title: {title}</header>
+                <header key={i}>{title}</header>
             ))}
             <ul>
                 {bodyLines.map((line, i) => {
