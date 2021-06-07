@@ -140,7 +140,9 @@ export const funnelLogic = kea({
         conversionWindowInDays: [
             14,
             {
-                setConversionWindowInDays: (_, { days }) => days,
+                setConversionWindowInDays: (state, { days }) => {
+                    return days >= 1 && days <= 365 ? Math.round(days) : state.conversionWindowInDays
+                },
             },
         ],
     }),
