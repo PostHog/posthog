@@ -114,7 +114,9 @@ export const annotationsLogic = kea({
         groupedAnnotations: [
             () => [selectors.annotationsList, selectors.diffType],
             (annotationsList, diffType) =>
-                groupBy(annotationsList, (annotation) => dayjs(annotation['date_marker']).startOf(diffType)),
+                groupBy(annotationsList, (annotation) =>
+                    dayjs(annotation['date_marker']).startOf(diffType).format('YYYY-MM-DD')
+                ),
         ],
     }),
     listeners: ({ actions, props }) => ({
