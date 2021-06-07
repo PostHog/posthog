@@ -25,22 +25,31 @@ export function AppWrapper(): JSX.Element | null {
     // Do not reference "sceneLogic" here.
     const { userLoading } = useValues(userLogic)
     const { receivedFeatureFlags } = useValues(featureFlagLogic)
+    const [showSpinner, setShowSpinner] = useState(false)
     const [ignoreFeatureFlags, setIgnoreFeatureFlags] = useState(false)
 
-    // Load the app if it takes over 1.5sec for feature flags to load
+    // Show the spinner if the app is loading for more than 1 second
     useEffect(() => {
-        const timeout = window.setTimeout(() => setIgnoreFeatureFlags(true), 1500)
+        const timeout = window.setTimeout(() => setShowSpinner(true), 1000)
         return () => window.clearTimeout(timeout)
     })
 
+    // Load the app if it takes over 3 seconds for feature flags to load
+    useEffect(() => {
+        const timeout = window.setTimeout(() => setIgnoreFeatureFlags(true), 3000)
+        return () => window.clearTimeout(timeout)
+    })
+
+    const spinner = showSpinner ? <SceneLoading /> : null
+
     if (userLoading || (!receivedFeatureFlags && !ignoreFeatureFlags)) {
-        return <SceneLoading />
+        return spinner
     }
 
-    return <App />
+    return <App spinner={spinner} />
 }
 
-export function App(): JSX.Element | null {
+export function App({ spinner }: { spinner: JSX.Element | null }): JSX.Element | null {
     const { user, userLoading } = useValues(userLogic)
     const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { preflight, preflightLoading } = useValues(preflightLogic)
@@ -92,11 +101,11 @@ export function App(): JSX.Element | null {
     }, [scene, user])
 
     if ((userLoading && !user) || (preflightLoading && !preflight)) {
-        return <SceneLoading />
+        return spinner
     }
 
-    const SceneComponent: (...args: any[]) => JSX.Element =
-        (scene ? loadedScenes[scene]?.component : null) || (() => <SceneLoading />)
+    const SceneComponent: (...args: any[]) => JSX.Element | null =
+        (scene ? loadedScenes[scene]?.component : null) || (() => spinner)
 
     const essentialElements = (
         // Components that should always be mounted inside Layout
