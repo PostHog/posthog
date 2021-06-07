@@ -35,6 +35,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
+import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -383,6 +384,7 @@ export function Insights(): JSX.Element {
                     </>
                 )}
             </Row>
+            <NPSPrompt />
         </div>
     )
 }

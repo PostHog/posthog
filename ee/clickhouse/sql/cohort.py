@@ -15,7 +15,7 @@ CREATE TABLE cohortpeople
 Order By (team_id, cohort_id, person_id)
 {storage_policy}
 """.format(
-    engine=table_engine("cohortpeople", "sign", COLLAPSING_MERGE_TREE), storage_policy=STORAGE_POLICY
+    engine=table_engine("cohortpeople", "sign", COLLAPSING_MERGE_TREE), storage_policy=""
 )
 
 DROP_COHORTPEOPLE_TABLE_SQL = """

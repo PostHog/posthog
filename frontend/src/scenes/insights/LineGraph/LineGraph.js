@@ -37,7 +37,8 @@ export function LineGraph({
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
-    const [left, setLeft] = useState(0)
+    const annotationsRoot = useRef()
+    const [left, setLeft] = useState(-1)
     const [holdLeft, setHoldLeft] = useState(0)
     const [enabled, setEnabled] = useState(false)
     const [focused, setFocused] = useState(false)
@@ -400,6 +401,7 @@ export function LineGraph({
             onMouseLeave={() => setEnabled(false)}
         >
             <canvas ref={chartRef} />
+            <div className="annotations-root" ref={annotationsRoot} />
             {annotationsCondition && (
                 <Annotations
                     labeledDays={datasets[0].labels}
@@ -433,6 +435,7 @@ export function LineGraph({
                         setHoldLabelIndex(labelIndex)
                         setSelectedDayLabel(datasets[0].days[labelIndex])
                     }}
+                    getPopupContainer={() => annotationsRoot?.current}
                     onCreateAnnotation={(textInput, applyAll) => {
                         if (applyAll) {
                             createGlobalAnnotation(textInput, datasets[0].days[holdLabelIndex], dashboardItemId)
@@ -443,7 +446,6 @@ export function LineGraph({
                             toast('This annotation will be saved if the graph is made into a dashboard item!')
                         }
                     }}
-                    onCancelAnnotation={() => [setFocused(false)]}
                     onClose={() => setFocused(false)}
                     dynamic={true}
                     left={(focused ? holdLeft : left) - 12.5}
