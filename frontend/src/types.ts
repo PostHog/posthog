@@ -512,12 +512,18 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
+export enum AnnotationScope {
+    DashboardItem = 'dashboard_item',
+    Project = 'project',
+    Organization = 'organization',
+}
+
 export interface AnnotationType {
     id: string
-    scope: 'organization' | 'dashboard_item'
+    scope: AnnotationScope
     content: string
     date_marker: string
-    created_by?: UserBasicType | null
+    created_by?: UserBasicType | 'local' | null
     created_at: string
     updated_at: string
     dashboard_item?: number

@@ -1,4 +1,5 @@
 import React from 'react'
+import { AnnotationScope } from '../types'
 
 export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraph'
 export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
@@ -28,12 +29,6 @@ export const organizationMembershipLevelToName = new Map<number, string>([
     [OrganizationMembershipLevel.Admin, 'administrator'],
     [OrganizationMembershipLevel.Owner, 'owner'],
 ])
-
-export enum AnnotationScope {
-    DashboardItem = 'dashboard_item',
-    Project = 'project',
-    Organization = 'organization',
-}
 
 export const annotationScopeToName = new Map<string, string>([
     [AnnotationScope.DashboardItem, 'dashboard item'],
