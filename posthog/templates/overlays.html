@@ -1,5 +1,5 @@
 {% if debug %}
-<div id="bottom-notice" class="tricolor">
+<div id="bottom-notice" class="tricolor" style="display: none" onclick="document.getElementById('bottom-notice').remove()">
     <div>
         <span>Current branch: </span
         ><b><code style="background: 0; color: white">{{ git_branch|default:"unknown" }}</code></b
@@ -13,7 +13,7 @@
         ><b><code style="background: 0; color: white">{{ git_rev|default:"unknown" }}</code></b
         ><span>.</span>
     </div>
-    <button title="Close debug bar" onclick="document.getElementById('bottom-notice').remove()">
+    <button title="Close debug bar">
         <code style="background: 0; color: white">×</code>
     </button>
 </div>
