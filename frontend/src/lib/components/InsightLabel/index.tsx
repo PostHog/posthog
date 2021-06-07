@@ -3,12 +3,10 @@ import { Tag } from 'antd'
 import { ActionFilter } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { operatorMap, capitalizeFirstLetter } from 'lib/utils'
-
-import './InsightsLabel.scss'
+import './InsightLabel.scss'
 import { MATHS } from 'lib/constants'
 
-// InsightsLabel pretty-prints the action (or event) returned from /insights
-
+// InsightsLabel pretty prints the action (or event) returned from /insights
 interface InsightsLabelProps {
     propertyValue: string
     action: ActionFilter
@@ -39,12 +37,7 @@ function MathTag({ math, mathProperty }: Record<string, string | undefined>): JS
     return <Tag>{capitalizeFirstLetter(math)}</Tag>
 }
 
-export default function InsightsLabel({
-    propertyValue,
-    action,
-    showCountedByTag,
-    value,
-}: InsightsLabelProps): JSX.Element {
+export function InsightLabel({ propertyValue, action, showCountedByTag, value }: InsightsLabelProps): JSX.Element {
     return (
         <div className="insights-label">
             <PropertyKeyInfo disableIcon value={propertyValue} />
