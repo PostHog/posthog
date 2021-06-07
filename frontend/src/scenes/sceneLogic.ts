@@ -5,7 +5,7 @@ import { Error404 } from '~/layout/Error404'
 import { ErrorNetwork } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
-import { eventUsageLogic } from '../lib/utils/eventUsageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -193,6 +193,7 @@ export const routes: Record<string, Scene> = {
 }
 
 export const sceneLogic = kea<sceneLogicType>({
+    connect: [featureFlagLogic],
     actions: {
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
@@ -252,8 +253,7 @@ export const sceneLogic = kea<sceneLogicType>({
         ],
     },
     urlToAction: ({ actions }) => {
-        featureFlagLogic.mount() // Otherwise logic is not loaded before this
-        if (featureFlagLogic && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
+        if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
             redirects['/'] = '/home'
         }
 
