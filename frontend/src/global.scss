@@ -499,6 +499,12 @@ code.code {
             background: $brand_yellow;
         }
     }
+    &.click-close {
+        cursor: pointer;
+        code {
+            cursor: text;
+        }
+    }
     div {
         flex-basis: 0;
         flex-grow: 1;
