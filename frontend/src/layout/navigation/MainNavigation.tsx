@@ -65,10 +65,10 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
     const { push } = useActions(router)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
-    function activeScene(): string {
-        const nominalScene: Scene = loadingScene || scene
+    function activeScene(): string | null {
+        const nominalScene: Scene | null = loadingScene || scene
         // Scenes with special handling can go here
-        return sceneOverride[nominalScene] || nominalScene
+        return nominalScene ? sceneOverride[nominalScene] || nominalScene : null
     }
 
     function handleClick(): void {
