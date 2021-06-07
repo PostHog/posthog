@@ -17,8 +17,7 @@ export const lightColors = [
     'purple',
 ]
 
-export const getColorVar = (variable: string): string =>
-    getComputedStyle(document.body).getPropertyValue('--' + variable)
+const getColorVar = (variable: string): string => getComputedStyle(document.body).getPropertyValue('--' + variable)
 
 export const darkWhites = [
     'rgba(255,255,255,0.6)',

@@ -145,7 +145,7 @@ export function LineGraph({
             backgroundColor: (type === 'bar' || type === 'doughnut') && borderColor,
             fill: false,
             borderWidth: newUI ? 2 : 1,
-            pointRadius: 0,
+            pointRadius: newUI ? 0 : undefined,
             pointHitRadius: 8,
             ...dataset,
         }
