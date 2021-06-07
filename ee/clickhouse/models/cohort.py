@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from dateutil import parser
 from django.conf import settings
 from django.utils import timezone
 
@@ -23,7 +24,7 @@ from ee.clickhouse.sql.person import (
 from posthog.models import Action, Cohort, Filter, Team
 
 # temporary marker to denote when cohortpeople table started being populated
-TEMP_PRECALCULATED_MARKER = datetime.strptime("2021-06-07T15:00:00+00:00", "%Y-%m-%dT%H:%M:%S+00:00")
+TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 
 def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
