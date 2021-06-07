@@ -31,6 +31,7 @@ export interface ColumnConfig {
 }
 export interface UserType {
     uuid: string
+    date_joined: string
     first_name: string
     email: string
     email_opt_in: boolean
