@@ -22,7 +22,7 @@ function Toast(): JSX.Element {
 
 /* This makes sure the user and the feature flags are loaded before we open the app */
 export function AppWrapper(): JSX.Element | null {
-    // Do not reference "sceneLogic" here.
+    // Do not reference "sceneLogic" here, as it'll start url-based routing before we have the user
     const { userLoading } = useValues(userLogic)
     const { receivedFeatureFlags } = useValues(featureFlagLogic)
     const [showSpinner, setShowSpinner] = useState(false)
@@ -49,7 +49,7 @@ export function AppWrapper(): JSX.Element | null {
     return <App spinner={spinner} />
 }
 
-export function App({ spinner }: { spinner: JSX.Element | null }): JSX.Element | null {
+function App({ spinner }: { spinner: JSX.Element | null }): JSX.Element | null {
     const { user, userLoading } = useValues(userLogic)
     const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { preflight, preflightLoading } = useValues(preflightLogic)
