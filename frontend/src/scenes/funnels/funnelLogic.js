@@ -58,6 +58,7 @@ export const funnelLogic = kea({
         setFilters: (filters, refresh = false) => ({ filters, refresh }),
         saveFunnelInsight: (name) => ({ name }),
         setStepsWithCountLoading: (stepsWithCountLoading) => ({ stepsWithCountLoading }),
+        setConversionWindowInDays: (days) => ({ days }),
     }),
 
     connect: {
@@ -78,6 +79,7 @@ export const funnelLogic = kea({
                     ...(refresh ? { refresh: true } : {}),
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
+                    funnel_window_days: values.conversionWindowInDays,
                 }
 
                 let result
@@ -135,6 +137,12 @@ export const funnelLogic = kea({
         people: {
             clearFunnel: () => null,
         },
+        conversionWindowInDays: [
+            14,
+            {
+                setConversionWindowInDays: (_, { days }) => days,
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({

@@ -8,6 +8,8 @@ import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
 import { router } from 'kea-router'
 import { IllustrationDanger } from 'lib/components/icons'
+import { InputNumber } from 'antd'
+import { useDebouncedCallback } from 'use-debounce'
 
 export function FunnelViz({
     steps: stepsParam,
@@ -20,8 +22,8 @@ export function FunnelViz({
     const container = useRef(null)
     const [steps, setSteps] = useState(stepsParam)
     const logic = funnelLogic({ dashboardItemId, cachedResults, filters: defaultFilters })
-    const { results: stepsResult, resultsLoading: funnelLoading, filters } = useValues(logic)
-    const { loadResults: loadFunnel } = useActions(logic)
+    const { results: stepsResult, resultsLoading: funnelLoading, filters, conversionWindowInDays } = useValues(logic)
+    const { loadResults: loadFunnel, setConversionWindowInDays } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
 
     function buildChart() {
@@ -82,6 +84,11 @@ export function FunnelViz({
         }
     }, [stepsResult, funnelLoading])
 
+    const conversionWindowDebounced = useDebouncedCallback((value) => {
+        setConversionWindowInDays(value)
+        loadFunnel()
+    }, 1000)
+
     if (filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
         if (filters.events?.length + filters.actions?.length == 1) {
             return (
@@ -96,7 +103,15 @@ export function FunnelViz({
         return steps && steps.length > 0 && steps[0].labels ? (
             <>
                 <div style={{ position: 'absolute', marginTop: -20, textAlign: 'center', width: '90%' }}>
-                    % of users converted between first and last step
+                    converted within&nbsp;
+                    <InputNumber
+                        size="small"
+                        min={1}
+                        max={365}
+                        defaultValue={conversionWindowInDays}
+                        onChange={(val) => conversionWindowDebounced(val)}
+                    />
+                    &nbsp; days = % converted from first to last step
                 </div>
                 <LineGraph
                     pageKey="trends-annotations"
