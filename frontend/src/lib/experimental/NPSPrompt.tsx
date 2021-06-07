@@ -32,8 +32,7 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step, UserType>>({
         ],
         userIsOldEnough: [
             () => [userLogic.selectors.user],
-            (user) => user && dayjs(user.date_joined).isBefore(dayjs().add(-45, 'day')),
-            (user) => user && dayjs(user.date_joined).isBefore(dayjs().add(-0, 'day')),
+            (user) => user && dayjs(user.date_joined).isBefore(dayjs().add(-15, 'day')),
         ],
         npsPromptEnabled: [
             (s) => [s.featureFlagEnabled, s.userIsOldEnough],
