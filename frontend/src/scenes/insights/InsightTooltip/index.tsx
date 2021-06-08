@@ -29,6 +29,7 @@ export function InsightTooltip({
     return (
         <>
             <header>{referenceDate ? <DateDisplay interval={interval} date={referenceDate} /> : altTitle}</header>
+
             <ul>
                 {bodyLines.map((line, i) => {
                     const iconColor = line.backgroundColor || line.borderColor
@@ -41,11 +42,12 @@ export function InsightTooltip({
                                     boxShadow: `0px 0px 0px 1px ${hexToRGBA(iconColor, 0.5)}`,
                                 }}
                             />
-                            <div className="title">{line.component}</div>
+                            <div>{line.component}</div>
                         </li>
                     )
                 })}
             </ul>
+
             {inspectUsersLabel && <footer>Click to inspect users</footer>}
         </>
     )

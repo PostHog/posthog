@@ -218,6 +218,7 @@ export function LineGraph({
             mode: 'nearest',
             axis: 'x',
             intersect: false,
+            itemSort: (a, b) => b.yLabel - a.yLabel,
             callbacks: {
                 label: function labelElement(tooltipItem, data) {
                     const entityData = data.datasets[tooltipItem.datasetIndex]

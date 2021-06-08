@@ -7,7 +7,9 @@
     border-radius: $radius;
     padding: 8px;
     font-size: 0.85rem;
+    max-width: 480px;
     overflow-x: hidden;
+    z-index: $z_graph_tooltip;
 
     header {
         font-weight: bold;
@@ -21,14 +23,19 @@
         color: $text_muted;
     }
 
+    .series-container {
+        position: relative;
+    }
+
     ul {
         list-style-type: none;
         padding-left: 8px;
         padding-right: 8px;
         margin-bottom: 0;
+        max-height: 32vh;
+        overflow-y: hidden; // As the element has pointer-events: none to allow proper function, scrolling is not supported anyways
 
         li {
-            position: relative;
             display: flex;
             align-items: center;
 
