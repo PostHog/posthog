@@ -1,7 +1,6 @@
 import 'react-toastify/dist/ReactToastify.css'
 import '~/toolbar/styles.scss'
-import '~/global.scss' /* Contains PostHog's main styling configurations */
-import '~/antd.less' /* Imports Ant Design's components */
+import '~/styles'
 
 import React from 'react'
 import ReactDOM from 'react-dom'
