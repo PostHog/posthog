@@ -330,21 +330,19 @@ export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneCo
                     if (!user.organization) {
                         if (location.pathname !== '/organization/create') {
                             router.actions.replace('/organization/create')
+                            return
                         }
-                        return
                     } else if (!user.team) {
                         if (location.pathname !== '/project/create') {
                             router.actions.replace('/project/create')
+                            return
                         }
-                        return
-                    }
-
-                    // If ingestion tutorial not completed, redirect to it
-                    if (
-                        !user.team?.completed_snippet_onboarding &&
+                    } else if (
+                        !user.team.completed_snippet_onboarding &&
                         !location.pathname.startsWith('/ingestion') &&
                         !location.pathname.startsWith('/personalization')
                     ) {
+                        // If ingestion tutorial not completed, redirect to it
                         router.actions.replace('/ingestion')
                         return
                     }
