@@ -478,8 +478,8 @@ export function eventToName(event: EventType): string {
 }
 
 export function determineDifferenceType(
-    firstDate: dayjs.Dayjs,
-    secondDate: dayjs.Dayjs
+    firstDate: dayjs.Dayjs | string,
+    secondDate: dayjs.Dayjs | string
 ): 'year' | 'month' | 'week' | 'day' | 'hour' | 'minute' | 'second' {
     const first = dayjs(firstDate)
     const second = dayjs(secondDate)

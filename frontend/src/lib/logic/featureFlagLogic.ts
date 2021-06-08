@@ -4,7 +4,6 @@
     Use this instead of `window.posthog.isFeatureEnabled('feature')`
 */
 import { kea } from 'kea'
-import { PostHog } from 'posthog-js'
 import { featureFlagLogicType } from './featureFlagLogicType'
 import posthog from 'posthog-js'
 
@@ -49,7 +48,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     }
 }
 
-export const featureFlagLogic = kea<featureFlagLogicType<PostHog, FeatureFlagsSet>>({
+export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
     actions: {
         setFeatureFlags: (featureFlags: string[]) => ({ featureFlags }),
     },
@@ -65,6 +64,12 @@ export const featureFlagLogic = kea<featureFlagLogicType<PostHog, FeatureFlagsSe
                     }
                     return spyOnFeatureFlags(flags)
                 },
+            },
+        ],
+        receivedFeatureFlags: [
+            false,
+            {
+                setFeatureFlags: () => true,
             },
         ],
     },

@@ -47,7 +47,7 @@ if settings.EE_AVAILABLE and is_clickhouse_enabled():
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
-        delete_person(instance.uuid)
+        delete_person(instance.uuid, instance.properties, instance.is_identified, team_id=instance.team_id)
 
 
 def create_person(
@@ -71,6 +71,7 @@ def create_person(
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON, sql=INSERT_PERSON_SQL, data=data, sync=sync)
@@ -97,14 +98,27 @@ def get_persons_by_uuids(team_id: int, uuids: List[str]) -> QuerySet:
     return Person.objects.filter(team_id=team_id, uuid__in=uuids)
 
 
-def delete_person(person_id: UUID, delete_events: bool = False, team_id: int = False) -> None:
+def delete_person(
+    person_id: UUID, properties: Dict, is_identified: bool, delete_events: bool = False, team_id: int = False
+) -> None:
+    timestamp = now()
+
+    data = {
+        "id": person_id,
+        "team_id": team_id,
+        "properties": json.dumps(properties),
+        "is_identified": int(is_identified),
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
     try:
         if delete_events:
             sync_execute(DELETE_PERSON_EVENTS_BY_ID, {"id": person_id, "team_id": team_id})
     except:
         pass  # cannot delete if the table is distributed
 
-    sync_execute(DELETE_PERSON_BY_ID, {"id": person_id,})
+    sync_execute(DELETE_PERSON_BY_ID, data)
     sync_execute(DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID, {"id": person_id,})
 
 

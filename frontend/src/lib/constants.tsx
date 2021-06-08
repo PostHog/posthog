@@ -1,4 +1,5 @@
 import React from 'react'
+import { AnnotationScope } from '../types'
 
 export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraph'
 export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
@@ -28,12 +29,6 @@ export const organizationMembershipLevelToName = new Map<number, string>([
     [OrganizationMembershipLevel.Admin, 'administrator'],
     [OrganizationMembershipLevel.Owner, 'owner'],
 ])
-
-export enum AnnotationScope {
-    DashboardItem = 'dashboard_item',
-    Project = 'project',
-    Organization = 'organization',
-}
 
 export const annotationScopeToName = new Map<string, string>([
     [AnnotationScope.DashboardItem, 'dashboard item'],
@@ -236,6 +231,7 @@ export const FEATURE_FLAGS: Record<string, string> = {
     PROJECT_HOME: 'project-home-exp-5',
     QUERY_UX_V2: '4050-query-ui-optB',
     EVENT_COLUMN_CONFIG: '4141-event-columns',
+    NPS_PROMPT: '4562-nps',
     INGESTION_TAXONOMY: 'event-property-taxonomy',
 }
 

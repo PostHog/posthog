@@ -16,7 +16,7 @@ MERGE_TABLE_ENGINE = (
 )
 
 COLLAPSING_TABLE_ENGINE = (
-    "ReplicatedCollapsingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}', {ver})"
+    "ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.{table}', '{{replica}}-{{shard}}', {ver})"
     if CLICKHOUSE_REPLICATION
     else "CollapsingMergeTree({ver})"
 )

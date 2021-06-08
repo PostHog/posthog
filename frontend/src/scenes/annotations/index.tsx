@@ -6,12 +6,12 @@ import dayjs from 'dayjs'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
-import { AnnotationScope, annotationScopeToName } from 'lib/constants'
+import { annotationScopeToName } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
 import { createdByColumn } from 'lib/components/Table'
-import { AnnotationType } from '~/types'
+import { AnnotationType, AnnotationScope } from '~/types'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
@@ -149,7 +149,7 @@ export function Annotations(): JSX.Element {
                     if (selectedAnnotation && (await selectedAnnotation)) {
                         updateAnnotation(selectedAnnotation.id, input)
                     } else {
-                        createGlobalAnnotation(input, selectedDate, null)
+                        createGlobalAnnotation(input, selectedDate.format('YYYY-MM-DD'))
                     }
                     closeModal()
                 }}

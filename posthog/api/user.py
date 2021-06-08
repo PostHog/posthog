@@ -42,6 +42,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
+            "date_joined",
             "uuid",
             "distinct_id",
             "first_name",
@@ -62,6 +63,7 @@ class UserSerializer(serializers.ModelSerializer):
             "events_column_config",
         ]
         extra_kwargs = {
+            "date_joined": {"read_only": True},
             "is_staff": {"read_only": True},
             "password": {"write_only": True},
         }

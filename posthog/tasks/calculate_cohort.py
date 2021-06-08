@@ -32,6 +32,8 @@ def calculate_cohorts() -> None:
         .order_by(F("last_calculation").asc(nulls_first=True))[0:PARALLEL_COHORTS]
     ):
         calculate_cohort.delay(cohort.id)
+        if is_clickhouse_enabled():
+            calculate_cohort_ch.delay(cohort.id)
 
 
 @shared_task(ignore_result=True, max_retries=1)
@@ -39,7 +41,15 @@ def calculate_cohort(cohort_id: int) -> None:
     start_time = time.time()
     cohort = Cohort.objects.get(pk=cohort_id)
     cohort.calculate_people()
+
     logger.info("Calculating cohort {} took {:.2f} seconds".format(cohort.pk, (time.time() - start_time)))
+
+
+@shared_task(ignore_result=True, max_retries=2)
+def calculate_cohort_ch(cohort_id: int) -> None:
+    if is_clickhouse_enabled():
+        cohort = Cohort.objects.get(pk=cohort_id)
+        cohort.calculate_people_ch()
 
 
 @shared_task(ignore_result=True, max_retries=1)

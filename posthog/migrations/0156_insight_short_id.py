@@ -13,6 +13,9 @@ def create_short_ids(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # This avoids: "cannot ALTER TABLE "posthog_dashboarditem" because it has pending trigger events"
+    # Basically, we can't alter a table and change its data inside one transaction
+    atomic = False
 
     dependencies = [
         ("posthog", "0155_organization_available_features"),

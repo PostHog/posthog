@@ -115,6 +115,12 @@ class Cohort(models.Model):
             self.save()
             capture_exception(err)
 
+    def calculate_people_ch(self):
+        if is_clickhouse_enabled():
+            from ee.clickhouse.models.cohort import recalculate_cohortpeople
+
+            recalculate_cohortpeople(self)
+
     def insert_users_by_list(self, items: List[str]) -> None:
         """
         Items can be distinct_id or email

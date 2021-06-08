@@ -8,8 +8,8 @@ import { annotationsLogic } from './annotationsLogic'
 import dayjs from 'dayjs'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { dashboardColors } from 'lib/colors'
-import { AnnotationScope } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { AnnotationScope, AnnotationType } from '~/types'
 
 const { TextArea } = Input
 
@@ -24,6 +24,28 @@ function coordinateContains(e: MouseEvent, element: DOMRect): boolean {
     } else {
         return false
     }
+}
+
+interface AnnotationMarkerProps {
+    elementId: string
+    label: string
+    annotations: AnnotationType[]
+    left: number
+    top: number
+    onCreate: (textInput: string, applyAll: boolean) => void
+    onDelete?: (annotation: AnnotationType) => void
+    onClick?: () => void
+    onClose?: () => void
+    onCreateAnnotation?: (textInput: string, applyAll: boolean) => void
+    size?: number
+    color: string | null
+    accessoryColor: string | null
+    dashboardItemId?: number
+    currentDateMarker: string
+    dynamic?: boolean
+    graphColor: string | null
+    index: number
+    getPopupContainer?: () => HTMLElement
 }
 
 export function AnnotationMarker({
@@ -45,7 +67,8 @@ export function AnnotationMarker({
     onCreateAnnotation,
     graphColor,
     index,
-}: Record<string, any>): JSX.Element | null {
+    getPopupContainer,
+}: AnnotationMarkerProps): JSX.Element | null {
     const popupRef = useRef<HTMLDivElement | null>(null)
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
@@ -101,7 +124,7 @@ export function AnnotationMarker({
         dynamic &&
         Object.keys(groupedAnnotations)
             .map((key) => dayjs(key))
-            .some((marker) => marker.isSame(dayjs(currentDateMarker).startOf(diffType)))
+            .some((marker) => marker.isSame(dayjs(currentDateMarker).startOf(diffType as dayjs.OpUnitType)))
     ) {
         return null
     }
@@ -111,94 +134,12 @@ export function AnnotationMarker({
             trigger="click"
             visible={visible}
             defaultVisible={false}
+            getPopupContainer={() => (getPopupContainer ? getPopupContainer() : document.body)}
             content={
                 dynamic ? (
                     <div ref={popupRef}>
-                        <span style={{ marginBottom: 12 }}>{dayjs(currentDateMarker).format('MMMM Do YYYY')}</span>
-                        <TextArea
-                            maxLength={300}
-                            style={{ marginBottom: 12 }}
-                            rows={4}
-                            value={textInput}
-                            onChange={(e) => setTextInput(e.target.value)}
-                            autoFocus
-                        />
-                        <Checkbox
-                            checked={applyAll}
-                            onChange={(e) => {
-                                setApplyAll(e.target.checked)
-                            }}
-                        >
-                            Create for all charts
-                        </Checkbox>
-                        <Row justify="end">
-                            <Button
-                                style={{ marginRight: 10 }}
-                                onClick={() => {
-                                    closePopup()
-                                    setTextInput('')
-                                }}
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                type="primary"
-                                onClick={() => {
-                                    closePopup()
-                                    onCreateAnnotation?.(textInput, applyAll)
-                                    setTextInput('')
-                                }}
-                            >
-                                Add
-                            </Button>
-                        </Row>
-                    </div>
-                ) : (
-                    <div ref={popupRef} style={{ minWidth: 300 }}>
-                        {[...annotations]
-                            .sort((annotationA, annotationB) => annotationA.created_at - annotationB.created_at)
-                            .map((data) => (
-                                <div key={data.id} style={{ marginBottom: 25 }}>
-                                    <Row justify="space-between" align="middle">
-                                        <div>
-                                            <b style={{ marginRight: 5 }}>
-                                                {data.created_by === 'local'
-                                                    ? user?.first_name || user?.email
-                                                    : data.created_by &&
-                                                      (data.created_by.first_name || data.created_by.email)}
-                                            </b>
-                                            <i style={{ color: 'gray', marginRight: 6 }}>
-                                                {humanFriendlyDetailedTime(data.created_at)}
-                                            </i>
-                                            {data.scope === AnnotationScope.Project ? (
-                                                <Tooltip
-                                                    title={`This annotation is shown on all charts in project ${user?.team?.name}`}
-                                                >
-                                                    <ProjectOutlined />
-                                                </Tooltip>
-                                            ) : data.scope === AnnotationScope.Organization ? (
-                                                <Tooltip
-                                                    title={`This annotation is shown on all charts in organization ${user?.organization?.name}`}
-                                                >
-                                                    <DeploymentUnitOutlined />
-                                                </Tooltip>
-                                            ) : null}
-                                        </div>
-                                        {(!data.created_by ||
-                                            data.created_by.uuid === user?.uuid ||
-                                            data.created_by === 'local') && (
-                                            <DeleteOutlined
-                                                className="button-border clickable text-danger"
-                                                onClick={() => {
-                                                    onDelete(data)
-                                                }}
-                                            />
-                                        )}
-                                    </Row>
-                                    <span>{data.content}</span>
-                                </div>
-                            ))}
-                        {textAreaVisible && (
+                        <div style={{ padding: '12px 16px' }}>
+                            <span style={{ marginBottom: 12 }}>{dayjs(currentDateMarker).format('MMMM Do YYYY')}</span>
                             <TextArea
                                 maxLength={300}
                                 style={{ marginBottom: 12 }}
@@ -207,8 +148,6 @@ export function AnnotationMarker({
                                 onChange={(e) => setTextInput(e.target.value)}
                                 autoFocus
                             />
-                        )}
-                        {textAreaVisible && (
                             <Checkbox
                                 checked={applyAll}
                                 onChange={(e) => {
@@ -217,35 +156,125 @@ export function AnnotationMarker({
                             >
                                 Create for all charts
                             </Checkbox>
-                        )}
-                        {textAreaVisible ? (
                             <Row justify="end">
-                                <Button style={{ marginRight: 10 }} onClick={() => setTextAreaVisible(false)}>
+                                <Button
+                                    style={{ marginRight: 10 }}
+                                    onClick={() => {
+                                        closePopup()
+                                        setTextInput('')
+                                    }}
+                                >
                                     Cancel
                                 </Button>
                                 <Button
                                     type="primary"
                                     onClick={() => {
-                                        onCreate(textInput, applyAll)
+                                        closePopup()
+                                        onCreateAnnotation?.(textInput, applyAll)
                                         setTextInput('')
-                                        setTextAreaVisible(false)
                                     }}
                                 >
                                     Add
                                 </Button>
                             </Row>
-                        ) : (
-                            <Row justify="end">
-                                <Button
-                                    type="primary"
-                                    onClick={() => {
-                                        setTextAreaVisible(true)
-                                    }}
-                                >
-                                    Add Note
-                                </Button>
-                            </Row>
-                        )}
+                        </div>
+                    </div>
+                ) : (
+                    <div ref={popupRef} style={{ minWidth: 300 }}>
+                        <div style={{ overflowY: 'auto', maxHeight: '80vh', padding: '12px 16px 0 16px' }}>
+                            {[...annotations]
+                                .sort(
+                                    (annotationA, annotationB) =>
+                                        dayjs(annotationA.created_at).unix() - dayjs(annotationB.created_at).unix()
+                                )
+                                .map((data) => (
+                                    <div key={data.id} style={{ marginBottom: 25 }}>
+                                        <Row justify="space-between" align="middle">
+                                            <div>
+                                                <b style={{ marginRight: 5 }}>
+                                                    {data.created_by === 'local'
+                                                        ? user?.first_name || user?.email
+                                                        : data.created_by &&
+                                                          (data.created_by.first_name || data.created_by.email)}
+                                                </b>
+                                                <i style={{ color: 'gray', marginRight: 6 }}>
+                                                    {humanFriendlyDetailedTime(data.created_at)}
+                                                </i>
+                                                {data.scope === AnnotationScope.Project ? (
+                                                    <Tooltip
+                                                        title={`This annotation is shown on all charts in project ${user?.team?.name}`}
+                                                    >
+                                                        <ProjectOutlined />
+                                                    </Tooltip>
+                                                ) : data.scope === AnnotationScope.Organization ? (
+                                                    <Tooltip
+                                                        title={`This annotation is shown on all charts in organization ${user?.organization?.name}`}
+                                                    >
+                                                        <DeploymentUnitOutlined />
+                                                    </Tooltip>
+                                                ) : null}
+                                            </div>
+                                            {(!data.created_by ||
+                                                data.created_by === 'local' ||
+                                                data.created_by.uuid === user?.uuid) && (
+                                                <DeleteOutlined
+                                                    className="button-border clickable text-danger"
+                                                    onClick={() => onDelete?.(data)}
+                                                />
+                                            )}
+                                        </Row>
+                                        <span>{data.content}</span>
+                                    </div>
+                                ))}
+                        </div>
+                        <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0' }}>
+                            {textAreaVisible ? (
+                                <>
+                                    <TextArea
+                                        maxLength={300}
+                                        style={{ marginBottom: 12 }}
+                                        rows={4}
+                                        value={textInput}
+                                        onChange={(e) => setTextInput(e.target.value)}
+                                        autoFocus
+                                    />
+                                    <Checkbox
+                                        checked={applyAll}
+                                        onChange={(e) => {
+                                            setApplyAll(e.target.checked)
+                                        }}
+                                    >
+                                        Create for all charts
+                                    </Checkbox>
+                                    <Row justify="end">
+                                        <Button style={{ marginRight: 10 }} onClick={() => setTextAreaVisible(false)}>
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            type="primary"
+                                            onClick={() => {
+                                                onCreate(textInput, applyAll)
+                                                setTextInput('')
+                                                setTextAreaVisible(false)
+                                            }}
+                                        >
+                                            Add
+                                        </Button>
+                                    </Row>
+                                </>
+                            ) : (
+                                <Row justify="end">
+                                    <Button
+                                        type="primary"
+                                        onClick={() => {
+                                            setTextAreaVisible(true)
+                                        }}
+                                    >
+                                        Add Note
+                                    </Button>
+                                </Row>
+                            )}
+                        </div>
                     </div>
                 )
             }
@@ -277,7 +306,7 @@ export function AnnotationMarker({
                     backgroundColor:
                         focused || dynamic || hovered || elementId === currentDateMarker
                             ? _color
-                            : dashboardColors[graphColor] || 'white',
+                            : (graphColor ? dashboardColors[graphColor] : null) || 'white',
                     borderRadius: 5,
                     cursor: 'pointer',
                     border: dynamic ? undefined : '1px solid ' + _color,
