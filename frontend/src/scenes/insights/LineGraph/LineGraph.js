@@ -223,14 +223,21 @@ export function LineGraph({
                     if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
                         return null
                     }
+
                     const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
                     const action = entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
+
                     let value = tooltipItem.yLabel.toLocaleString()
+                    const actionObjKey = type === 'horizontalBar' ? 'actions' : 'action'
                     if (type === 'horizontalBar') {
                         const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
                         value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
                     }
-                    const showCountedByTag = !!data.datasets.find(({ action: { math } }) => math && math !== 'total')
+
+                    const showCountedByTag = !!data.datasets.find(
+                        ({ [actionObjKey]: { math } }) => math && math !== 'total'
+                    )
+
                     return (
                         <InsightLabel
                             propertyValue={label}
