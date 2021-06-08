@@ -172,17 +172,19 @@ export function VolumeTable({
                     ? (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1)
                     : (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1),
         },
-        {
-            render: function Render(_, item) {
-                return (
-                    <Button
-                        type="link"
-                        icon={<ArrowRightOutlined style={{ color: '#5375FF' }} />}
-                        onClick={() => openDefinitionDrawer(type, item.eventOrProp.id)}
-                    />
-                )
-            },
-        },
+        type === 'event' && hasTaxonomyFeatures
+            ? {
+                  render: function Render(_, item) {
+                      return (
+                          <Button
+                              type="link"
+                              icon={<ArrowRightOutlined style={{ color: '#5375FF' }} />}
+                              onClick={() => openDefinitionDrawer(type, item.eventOrProp.id)}
+                          />
+                      )
+                  },
+              }
+            : {},
     ]
 
     useEffect(() => {

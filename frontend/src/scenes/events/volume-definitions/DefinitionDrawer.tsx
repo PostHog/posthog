@@ -35,45 +35,53 @@ export function DefinitionDrawer(): JSX.Element {
                         width={'60vw'}
                         bodyStyle={{ padding: 14, paddingTop: 0 }}
                     >
-                        <div style={{ borderBottom: '1px solid #D9D9D9' }}>
-                            <Collapse defaultActiveKey={['1']} expandIconPosition="right" ghost>
-                                <Panel header="General" key="1" style={{ fontSize: 18, fontWeight: 600 }}>
-                                    <div className="panel-wrapper">
-                                        <DefinitionDescription />
-                                        <div style={{ flexDirection: 'column', paddingLeft: 14 }}>
-                                            <Title level={5}>Tags</Title>
-                                            <ObjectTags
-                                                tags={definition.tags}
-                                                onTagSave={saveNewTag}
-                                                onTagDelete={deleteTag}
-                                                saving={definitionLoading}
-                                            />
-                                            <DefinitionOwner ownerId={definition.owner} />
-                                        </div>
+                        <Collapse
+                            defaultActiveKey={['1']}
+                            expandIconPosition="right"
+                            ghost
+                            style={{ borderBottom: '1px solid #D9D9D9' }}
+                        >
+                            <Panel header="General" key="1" style={{ fontSize: 18, fontWeight: 600 }}>
+                                <div className="panel-wrapper">
+                                    <DefinitionDescription />
+                                    <div style={{ flexDirection: 'column', paddingLeft: 14 }}>
+                                        <Title level={5}>Tags</Title>
+                                        <ObjectTags
+                                            tags={definition.tags}
+                                            onTagSave={saveNewTag}
+                                            onTagDelete={deleteTag}
+                                            saving={definitionLoading}
+                                        />
+                                        <DefinitionOwner ownerId={definition.owner} />
                                     </div>
-                                    <div className="detail-status">
-                                        <div>
-                                            <Title level={5}>First seen</Title>
-                                            <span>-</span>
-                                        </div>
-                                        <div>
-                                            <Title level={5}>Last seen</Title>
-                                            <span>-</span>
-                                        </div>
-                                        <div>
-                                            <Title level={5}>Last modified</Title>
-                                            <span>{humanFriendlyDetailedTime(definition.updated_at)}</span>
-                                        </div>
-                                        <div>
-                                            <Title level={5}>Last modified by</Title>
-                                            <span>{definition.updated_by?.first_name || '-'}</span>
-                                        </div>
+                                </div>
+                                <div className="detail-status">
+                                    <div>
+                                        <Title level={5}>First seen</Title>
+                                        <span>-</span>
                                     </div>
-                                </Panel>
-                            </Collapse>
-                        </div>
+                                    <div>
+                                        <Title level={5}>Last seen</Title>
+                                        <span>-</span>
+                                    </div>
+                                    <div>
+                                        <Title level={5}>Last modified</Title>
+                                        <span>{humanFriendlyDetailedTime(definition.updated_at)}</span>
+                                    </div>
+                                    <div>
+                                        <Title level={5}>Last modified by</Title>
+                                        <span>{definition.updated_by?.first_name || '-'}</span>
+                                    </div>
+                                </div>
+                            </Panel>
+                        </Collapse>
 
-                        <Collapse defaultActiveKey={['3']} expandIconPosition="right" ghost>
+                        <Collapse
+                            defaultActiveKey={['3']}
+                            expandIconPosition="right"
+                            ghost
+                            style={{ borderBottom: '1px solid #D9D9D9' }}
+                        >
                             <Panel header="Usage" key="3" style={{ fontSize: 18, fontWeight: 600 }}>
                                 <div className="panel-wrapper">
                                     <div style={{ paddingRight: 32 }}>
@@ -255,7 +263,14 @@ export function EventsTableSnippet(): JSX.Element {
     ]
     return (
         <div style={{ fontWeight: 400, paddingTop: 15 }}>
-            <Table dataSource={eventsSnippet} columns={columns} key={'default'} rowKey={(row) => row.id} size="small" />
+            <Table
+                dataSource={eventsSnippet}
+                columns={columns}
+                key={'default'}
+                rowKey={(row) => row.id}
+                size="small"
+                pagination={false}
+            />
         </div>
     )
 }
