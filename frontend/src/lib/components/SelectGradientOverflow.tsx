@@ -48,7 +48,7 @@ const BUILT_IN_PLACEMENTS = {
         offset: [0, 4],
         overflow: {
             adjustX: 0,
-            adjustY: 1,
+            adjustY: 0,
         },
     },
     topLeft: {
@@ -56,7 +56,7 @@ const BUILT_IN_PLACEMENTS = {
         offset: [0, -4],
         overflow: {
             adjustX: 0,
-            adjustY: 1,
+            adjustY: 0,
         },
     },
 }
