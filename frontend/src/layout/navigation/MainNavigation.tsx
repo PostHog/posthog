@@ -59,17 +59,13 @@ interface MenuItemProps {
 }
 
 const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: MenuItemProps): JSX.Element => {
-    const { scene, loadingScene } = useValues(sceneLogic)
+    const { activeScene } = useValues(sceneLogic)
     const { hotkeyNavigationEngaged } = useValues(navigationLogic)
     const { collapseMenu, setHotkeyNavigationEngaged } = useActions(navigationLogic)
     const { push } = useActions(router)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
-    function activeScene(): string {
-        const nominalScene: Scene = loadingScene || scene
-        // Scenes with special handling can go here
-        return sceneOverride[nominalScene] || nominalScene
-    }
+    const isActive = activeScene && identifier === (sceneOverride[activeScene] || activeScene)
 
     function handleClick(): void {
         onClick?.()
@@ -118,7 +114,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
                 placement="left"
             >
                 <div
-                    className={`menu-item${activeScene() === identifier ? ' menu-item-active' : ''}`}
+                    className={`menu-item${isActive ? ' menu-item-active' : ''}`}
                     data-attr={`menu-item-${identifier}`}
                 >
                     {icon}

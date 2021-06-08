@@ -1,10 +1,9 @@
+import '~/styles'
 import React from 'react'
-
 import { mount } from '@cypress/react'
 import { Provider } from 'react-redux'
 import { getContext, useValues } from 'kea'
 import { initKea } from '~/initKea'
-import { GlobalStyles } from '~/GlobalStyles'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import posthog from 'posthog-js'
@@ -14,7 +13,6 @@ export const mountPage = (component) => {
     initKea()
     return mount(
         <Provider store={getContext().store}>
-            <GlobalStyles />
             <WaitUntilEssentialLogicsAreMounted>{component}</WaitUntilEssentialLogicsAreMounted>
         </Provider>
     )
