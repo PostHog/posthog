@@ -42,7 +42,7 @@ export function CreateOrganizationModal({
                         <>
                             No more organizations can be created in this PostHog instance.
                             <br />
-                            If you don't belong to a organization, you'll need to ask for an invite.
+                            If you don't belong to an organization, you'll need to ask for an invite.
                         </>
                     }
                 />
