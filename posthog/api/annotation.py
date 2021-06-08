@@ -80,10 +80,10 @@ class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             elif key == "scope":
                 queryset = queryset.filter(scope=request.GET["scope"])
             elif key == "apply_all":
-                queryset_method = queryset.exclude if str_to_bool(str(request.GET["apply_all"])) else queryset.filter
+                queryset_method = queryset.exclude if str_to_bool(request.GET["apply_all"]) else queryset.filter
                 queryset = queryset_method(scope="dashboard_item")
             elif key == "deleted":
-                queryset = queryset.filter(deleted=str_to_bool(str(request.GET["deleted"])))
+                queryset = queryset.filter(deleted=str_to_bool(request.GET["deleted"]))
 
         return queryset
 

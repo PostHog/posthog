@@ -155,7 +155,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         for key in filters:
             if key == "saved":
-                if str_to_bool(str(request.GET["saved"])):
+                if str_to_bool(request.GET["saved"]):
                     queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
                 else:
                     queryset = queryset.filter(Q(saved=False))
