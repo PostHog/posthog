@@ -18,10 +18,9 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { Property } from 'lib/components/Property'
 
 export function DefinitionDrawer(): JSX.Element {
-    const { drawerState, definition, definitionLoading, type } = useValues(definitionDrawerLogic)
+    const { drawerState, definition, definitionLoading, type, eventDefinitionTags } = useValues(definitionDrawerLogic)
     const { closeDrawer, saveNewTag, deleteTag } = useActions(definitionDrawerLogic)
     const { Panel } = Collapse
-
     return (
         <>
             {definition && (
@@ -51,6 +50,9 @@ export function DefinitionDrawer(): JSX.Element {
                                             onTagSave={saveNewTag}
                                             onTagDelete={deleteTag}
                                             saving={definitionLoading}
+                                            tagsAvailable={eventDefinitionTags.filter(
+                                                (tag) => !definition.tags.includes(tag)
+                                            )}
                                         />
                                         <DefinitionOwner ownerId={definition.owner} />
                                     </div>

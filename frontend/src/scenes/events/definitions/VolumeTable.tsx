@@ -3,7 +3,7 @@ import { InfoCircleOutlined, WarningOutlined, ArrowRightOutlined } from '@ant-de
 import Table, { ColumnsType } from 'antd/lib/table'
 import Fuse from 'fuse.js'
 import { useValues, useActions } from 'kea'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
 import React, { useState, useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
@@ -11,12 +11,17 @@ import { ProfilePicture } from '~/layout/navigation/TopNavigation'
 import { EventDefinition, EventOrPropType, PropertyDefinition, UserBasicType } from '~/types'
 import './VolumeTable.scss'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
+import { ObjectTags } from 'lib/components/ObjectTags'
 
 type EventTableType = 'event' | 'property'
 
 interface VolumeTableRecord {
     eventOrProp: EventOrPropType
     warnings: string[]
+}
+
+const isPosthogEvent = (name: string): boolean => {
+    return !!keyMapping.event[name]
 }
 
 const search = (sources: VolumeTableRecord[], searchQuery: string): VolumeTableRecord[] => {
@@ -81,15 +86,20 @@ export function VolumeTable({
             render: function Render(_, record): JSX.Element {
                 return (
                     <span>
-                        <span className="ph-no-capture">
-                            <PropertyKeyInfo
-                                style={hasTaxonomyFeatures ? { fontWeight: 'bold' } : {}}
-                                value={record.eventOrProp.name}
-                            />
-                        </span>
-                        {hasTaxonomyFeatures && type === 'event' && (
-                            <VolumeTableRecordDescription description={record.eventOrProp.description} />
-                        )}
+                        <div style={{ display: 'flex', alignItems: 'baseline' }}>
+                            <span className="ph-no-capture" style={{ paddingRight: 8 }}>
+                                <PropertyKeyInfo
+                                    style={hasTaxonomyFeatures ? { fontWeight: 'bold' } : {}}
+                                    value={record.eventOrProp.name}
+                                />
+                            </span>
+                            <ObjectTags tags={record.eventOrProp.tags || []} staticOnly />
+                        </div>
+                        {hasTaxonomyFeatures &&
+                            type === 'event' &&
+                            (isPosthogEvent(record.eventOrProp.name) ? null : (
+                                <VolumeTableRecordDescription description={record.eventOrProp.description} />
+                            ))}
                         {record.warnings?.map((warning) => (
                             <Tooltip
                                 key={warning}
@@ -118,7 +128,7 @@ export function VolumeTable({
                   title: 'Owner',
                   render: function Render(_, record): JSX.Element {
                       const owner = record.eventOrProp?.owner
-                      return <Owner user={owner} />
+                      return isPosthogEvent(record.eventOrProp.name) ? <>-</> : <Owner user={owner} />
                   },
               }
             : {},
@@ -168,11 +178,15 @@ export function VolumeTable({
             ? {
                   render: function Render(_, item) {
                       return (
-                          <Button
-                              type="link"
-                              icon={<ArrowRightOutlined style={{ color: '#5375FF' }} />}
-                              onClick={() => openDrawer(type, item.eventOrProp.id)}
-                          />
+                          <>
+                              {isPosthogEvent(item.eventOrProp.name) ? null : (
+                                  <Button
+                                      type="link"
+                                      icon={<ArrowRightOutlined style={{ color: '#5375FF' }} />}
+                                      onClick={() => openDrawer(type, item.eventOrProp.id)}
+                                  />
+                              )}
+                          </>
                       )
                   },
               }
@@ -217,11 +231,11 @@ export function VolumeTable({
                 size="small"
                 style={{ marginBottom: '4rem' }}
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                onRow={(record) => {
-                    return {
-                        onClick: () => openDrawer(type, record.eventOrProp.id), // click row
-                    }
-                }}
+                onRow={(record) =>
+                    isPosthogEvent(record.eventOrProp.name)
+                        ? {}
+                        : { onClick: () => openDrawer(type, record.eventOrProp.id) }
+                }
             />
         </>
     )
@@ -231,13 +245,10 @@ export function VolumeTableRecordDescription({ description }: { description: str
     return (
         <>
             {description ? (
-                <span style={{ display: 'block' }}>{description}</span>
+                <div style={{ display: 'flex', maxWidth: 500 }}>{description}</div>
             ) : (
-                <span className="text-muted" style={{ display: 'block' }}>
-                    Click to add description
-                </span>
+                <div className="text-muted">Click to add description</div>
             )}
         </>
     )
-    // <div style={{ display: 'flex', minWidth: 300, marginRight: 32 }}>
 }

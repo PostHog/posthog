@@ -2,8 +2,8 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { definitionDrawerLogicType } from './definitionDrawerLogicType'
 import { IndexedTrendResult } from 'scenes/trends/trendsLogic'
-import { EventFormattedType, EventOrPropType } from '~/types'
-import { errorToast, toParams } from 'lib/utils'
+import { EventDefinition, EventFormattedType, EventOrPropType } from '~/types'
+import { errorToast, toParams, uniqueBy } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
 export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropType>>({
@@ -23,6 +23,22 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
         closeDrawer: true,
         cancelDescription: true,
         saveDescription: true,
+    }),
+    loaders: () => ({
+        eventsSnippet: [
+            [] as EventFormattedType[],
+            {
+                loadEventsSnippet: async (definition: EventOrPropType) => {
+                    const urlParams = toParams({
+                        properties: {},
+                        ...{ event: definition.name },
+                        orderBy: ['-timestamp'],
+                    })
+                    const events = await api.get(`api/event/?${urlParams}`)
+                    return events.results.slice(0, 3)
+                },
+            },
+        ],
     }),
     reducers: () => ({
         drawerState: [
@@ -78,20 +94,14 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
             },
         ],
     }),
-    loaders: () => ({
-        eventsSnippet: [
-            [] as EventFormattedType[],
-            {
-                loadEventsSnippet: async (definition: EventOrPropType) => {
-                    const urlParams = toParams({
-                        properties: {},
-                        ...{ event: definition.name },
-                        orderBy: ['-timestamp'],
-                    })
-                    const events = await api.get(`api/event/?${urlParams}`)
-                    return events.results.slice(0, 3)
-                },
-            },
+    selectors: () => ({
+        eventDefinitionTags: [
+            () => [eventDefinitionsModel.selectors.eventDefinitions],
+            (definitions: EventDefinition[]): string[] =>
+                uniqueBy(
+                    definitions.flatMap(({ tags }) => tags),
+                    (item) => item
+                ).sort(),
         ],
     }),
     listeners: ({ actions, values }) => ({
