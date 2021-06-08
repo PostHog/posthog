@@ -5,10 +5,9 @@ import { EventOrPropType } from './VolumeTable'
 import { definitionDrawerLogicType } from './definitionDrawerLogicType'
 import React from 'react'
 import { eventDefinitionsLogic } from './eventDefinitionsLogic'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { IndexedTrendResult } from 'scenes/trends/trendsLogic'
 import { toParams } from 'lib/utils'
-import { EventFormattedType, TrendResult } from '~/types'
+import { EventFormattedType } from '~/types'
 
 export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
     actions: () => ({
@@ -99,41 +98,6 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
             },
         ],
     }),
-    // loaders: ({ actions }) => ({
-    //     graphResults: [
-    //         [] as IndexedTrendResult[],
-    //         {
-    //             loadGraphResults: async (definition) => {
-    //                 const params = {
-    //                     insight: ViewType.TRENDS,
-    //                     interval: 'day',
-    //                     display: 'ActionsLineGraph',
-    //                     actions: [],
-    //                     events: [
-    //                         {
-    //                             id: definition.name,
-    //                             name: definition.name,
-    //                             type: 'events',
-    //                             order: 0,
-    //                             properties: [],
-    //                         },
-    //                     ],
-    //                 }
-    //                 const result = (await api.get('api/insight/trend/?' + toParams(params))).result as TrendResult[]
-    //                 console.log('RESULT', result)
-    //                 return result
-    //                 // return results.map((element, index) => {
-    //                 //     actions.setVisibilityById({ [`${index}`]: true })
-    //                 //     return { ...element, id: index }
-    //                 // })
-    //             },
-    //             setVisibilityById: (state: Record<number, any>, { entry }: { entry: Record<number, any> }) => ({
-    //                 ...state,
-    //                 ...entry,
-    //             }),
-    //         },
-    //     ]
-    // }),
     listeners: ({ actions, values }) => ({
         openDefinitionDrawer: async ({ type, id }) => {
             const definitionType = type === 'event' ? 'event_definitions' : 'property_definitions'
@@ -142,29 +106,6 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
             actions.setDefinition(response)
             actions.setDescription(response.description)
             actions.loadEventsSnippet(response)
-            if (type === 'event') {
-                const params = {
-                    insight: ViewType.TRENDS,
-                    interval: 'day',
-                    display: 'ActionsLineGraph',
-                    actions: [],
-                    events: [
-                        {
-                            id: response.name,
-                            name: response.name,
-                            type: 'events',
-                            order: 0,
-                            properties: [],
-                        },
-                    ],
-                }
-                const results = (await api.get('api/insight/trend/?' + toParams(params))).result as TrendResult[]
-                const indexedResults = results.map((element, index) => {
-                    actions.setVisibilityById({ [`${index}`]: true })
-                    return { ...element, id: index }
-                })
-                actions.setGraphResults(indexedResults)
-            }
         },
         saveNewTag: ({ tag }) => {
             if (values.definition.tags.includes(tag)) {
