@@ -6,8 +6,10 @@ from posthog.models.organization import Organization, OrganizationMembership
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):
-    def test_create_organization(self):
-        response = self.client.post("/api/organizations/", {"name": "Test"})
+    def test_can_create_second_organization_on_cloud(self):
+        # Second because the first one is self.organization
+        with self.settings(MULTI_TENANCY=True):
+            response = self.client.post("/api/organizations/", {"name": "Test"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Organization.objects.count(), 2)
         response_data = response.json()
@@ -16,6 +18,23 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertEqual(
             OrganizationMembership.objects.get(organization_id=response_data.get("id"), user=self.user).level,
             OrganizationMembership.Level.OWNER,
+        )
+
+    def test_cannot_create_second_organization_on_self_hosted(self):
+        # Second because the first one is self.organization
+        with self.settings(MULTI_TENANCY=False):
+            response = self.client.post("/api/organizations/", {"name": "Test"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Organization.objects.count(), 1)
+        response_data = response.json()
+        self.assertEqual(
+            response_data,
+            {
+                "detail": "Private PostHog instances can only have a single organization.",
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "attr": None,
+            },
         )
 
     def test_delete_second_managed_organization(self):
