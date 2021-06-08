@@ -30,11 +30,11 @@ import {
 } from 'lib/components/icons'
 import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
-import { dashboardsModel } from '~/models'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardType, HotKeys } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { canViewPlugins } from '../../scenes/plugins/access'
+import { canViewPlugins } from 'scenes/plugins/access'
 import { useGlobalKeyboardHotkeys, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
@@ -59,17 +59,13 @@ interface MenuItemProps {
 }
 
 const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: MenuItemProps): JSX.Element => {
-    const { scene, loadingScene } = useValues(sceneLogic)
+    const { activeScene } = useValues(sceneLogic)
     const { hotkeyNavigationEngaged } = useValues(navigationLogic)
     const { collapseMenu, setHotkeyNavigationEngaged } = useActions(navigationLogic)
     const { push } = useActions(router)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
-    function activeScene(): string {
-        const nominalScene: Scene = loadingScene || scene
-        // Scenes with special handling can go here
-        return sceneOverride[nominalScene] || nominalScene
-    }
+    const isActive = activeScene && identifier === (sceneOverride[activeScene] || activeScene)
 
     function handleClick(): void {
         onClick?.()
@@ -118,7 +114,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
                 placement="left"
             >
                 <div
-                    className={`menu-item${activeScene() === identifier ? ' menu-item-active' : ''}`}
+                    className={`menu-item${isActive ? ' menu-item-active' : ''}`}
                     data-attr={`menu-item-${identifier}`}
                 >
                     {icon}

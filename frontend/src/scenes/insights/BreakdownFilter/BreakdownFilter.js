@@ -1,18 +1,19 @@
 import React, { useState } from 'react'
 import { Tooltip, Select, Tabs, Popover, Button } from 'antd'
 import { useValues } from 'kea'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
-import { cohortsModel } from '~/models'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
 import { ViewType } from '../insightLogic'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
 
 const { TabPane } = Tabs
 
 function PropertyFilter({ breakdown, onChange }) {
-    const { transformedPropertyDefinitions } = useValues(propertyDefinitionsLogic)
-    const { personProperties } = useValues(propertyFilterLogic({ pageKey: 'breakdown' }))
+    const { transformedPropertyDefinitions: eventProperties } = useValues(propertyDefinitionsModel)
+    const { personProperties } = useValues(personPropertiesModel)
+
     return (
         <SelectGradientOverflow
             showSearch
@@ -24,9 +25,9 @@ function PropertyFilter({ breakdown, onChange }) {
             filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
             data-attr="prop-breakdown-select"
         >
-            {transformedPropertyDefinitions.length > 0 && (
+            {eventProperties.length > 0 && (
                 <Select.OptGroup key="Event properties" label="Event properties">
-                    {Object.entries(transformedPropertyDefinitions).map(([key, item], index) => (
+                    {Object.entries(eventProperties).map(([key, item], index) => (
                         <Select.Option
                             key={'event_' + key}
                             value={'event_' + item.value}
@@ -43,11 +44,11 @@ function PropertyFilter({ breakdown, onChange }) {
                     {Object.entries(personProperties).map(([key, item], index) => (
                         <Select.Option
                             key={'person_' + key}
-                            value={'person_' + item.value}
+                            value={'person_' + item.name}
                             type="person"
-                            data-attr={'prop-filter-person-' + (transformedPropertyDefinitions.length + index)}
+                            data-attr={'prop-filter-person-' + (eventProperties.length + index)}
                         >
-                            <PropertyKeyInfo value={item.value} />
+                            <PropertyKeyInfo value={item.name} />
                         </Select.Option>
                     ))}
                 </Select.OptGroup>

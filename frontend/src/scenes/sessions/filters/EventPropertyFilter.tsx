@@ -5,7 +5,7 @@ import { ActionTypePropertyFilter, EventTypePropertyFilter, PropertyOperator } f
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 interface Props {
     filter: EventTypePropertyFilter | ActionTypePropertyFilter
@@ -13,7 +13,7 @@ interface Props {
 }
 
 export function EventPropertyFilter({ filter, selector }: Props): JSX.Element {
-    const { transformedPropertyDefinitions } = useValues(propertyDefinitionsLogic)
+    const { transformedPropertyDefinitions } = useValues(propertyDefinitionsModel)
     const { updateFilter } = useActions(sessionsFiltersLogic)
 
     const property = filter.properties && filter.properties.length > 0 ? filter.properties[0] : null
