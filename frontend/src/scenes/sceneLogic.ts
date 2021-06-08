@@ -317,7 +317,11 @@ export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneCo
             if (user) {
                 // If user is already logged in, redirect away from unauthenticated-only routes like signup
                 if (sceneConfig.onlyUnauthenticated) {
-                    router.actions.replace('/')
+                    if (scene === Scene.Login && router.values.searchParams['next']) {
+                        router.actions.replace(router.values.searchParams['next'])
+                    } else {
+                        router.actions.replace('/')
+                    }
                     return
                 }
 
