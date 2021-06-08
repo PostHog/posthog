@@ -216,8 +216,21 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
 
+    if request.user.pk:
+        from posthog.api.user import UserSerializer
+
+        user = UserSerializer(request.user, context={"request": request}, many=False)
+        context["user_api_response"] = json.dumps(user.data, default=json_uuid_convert)
+    else:
+        context["user_api_response"] = "null"
+
     html = template.render(context, request=request)
     return HttpResponse(html)
+
+
+def json_uuid_convert(o):
+    if isinstance(o, uuid.UUID):
+        return str(o)
 
 
 def friendly_time(seconds: float):

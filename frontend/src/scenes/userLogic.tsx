@@ -20,7 +20,7 @@ export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
     }),
     reducers: {
         user: [
-            null as UserType | null,
+            (window as any)['POSTHOG_APP_USER'] || (null as UserType | null),
             {
                 setUser: (_, payload) => payload.user,
                 userUpdateSuccess: (_, payload) => payload.user,
@@ -48,33 +48,7 @@ export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
             {
                 loadUser: async () => {
                     try {
-                        const user: UserType = await api.get('api/users/@me/')
-
-                        if (user && user.uuid) {
-                            const Sentry = (window as any).Sentry
-                            Sentry?.setUser({
-                                email: user.email,
-                                id: user.uuid,
-                            })
-
-                            if (posthog) {
-                                // If user is not anonymous and the distinct id is different from the current one, reset
-                                if (
-                                    posthog.get_property('$device_id') !== posthog.get_distinct_id() &&
-                                    posthog.get_distinct_id() !== user.distinct_id
-                                ) {
-                                    posthog.reset()
-                                }
-
-                                posthog.identify(user.distinct_id)
-                                posthog.people.set({ email: user.anonymize_data ? null : user.email })
-
-                                posthog.register({
-                                    is_demo_project: user.team?.is_demo,
-                                })
-                            }
-                        }
-                        return user
+                        return await api.get('api/users/@me/')
                     } catch (error) {
                         console.error(error)
                         actions.loadUserFailure(error.message)
@@ -101,6 +75,32 @@ export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
         logout: () => {
             posthog.reset()
             window.location.href = '/logout'
+        },
+        loadUserSuccess: ({ user }) => {
+            if (user && user.uuid) {
+                const Sentry = (window as any).Sentry
+                Sentry?.setUser({
+                    email: user.email,
+                    id: user.uuid,
+                })
+
+                if (posthog) {
+                    // If user is not anonymous and the distinct id is different from the current one, reset
+                    if (
+                        posthog.get_property('$device_id') !== posthog.get_distinct_id() &&
+                        posthog.get_distinct_id() !== user.distinct_id
+                    ) {
+                        posthog.reset()
+                    }
+
+                    posthog.identify(user.distinct_id)
+                    posthog.people.set({ email: user.anonymize_data ? null : user.email })
+
+                    posthog.register({
+                        is_demo_project: user.team?.is_demo,
+                    })
+                }
+            }
         },
         updateUserSuccess: () => {
             toast.dismiss('updateUser')
@@ -132,6 +132,16 @@ export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
         },
     }),
     events: ({ actions }) => ({
-        afterMount: [actions.loadUser],
+        afterMount: () => {
+            const preloadedUser = (window as any)['POSTHOG_APP_USER']
+            if (preloadedUser) {
+                actions.loadUserSuccess(preloadedUser)
+                window.document.getElementById('posthog-app-user-preload')?.remove()
+            } else if (preloadedUser === null) {
+                actions.loadUserFailure('Logged out')
+            } else {
+                actions.loadUser()
+            }
+        },
     }),
 })

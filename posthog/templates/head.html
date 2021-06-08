@@ -23,3 +23,6 @@
 {% if sentry_dsn %}
     <script>window.SENTRY_DSN = '{{sentry_dsn}}';</script>
 {% endif %}
+<script id='posthog-app-user-preload'>
+    window.POSTHOG_APP_USER = {{ user_api_response | safe }};
+</script>
