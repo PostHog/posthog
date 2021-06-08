@@ -66,7 +66,13 @@ export function LineGraph({
     const [annotationInRange, setInRange] = useState(false)
     const size = useWindowSize()
 
-    const annotationsCondition = type === 'line' && datasets.length > 0 && !datasets[0].compare && !inSharedMode
+    const annotationsCondition =
+        type === 'line' &&
+        datasets.length > 0 &&
+        !datasets[0].compare &&
+        !inSharedMode &&
+        datasets[0].labels[0] !== '1 day' // stickiness graphs
+
     const colors = {
         axisLabel: color === 'white' ? '#333' : 'rgba(255,255,255,0.8)',
         axisLine: color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)',
