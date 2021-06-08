@@ -2076,8 +2076,11 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     self.team,
                 )
 
-            self.assertEqual(response[0]["aggregated_value"], 1)
+            self.assertEqual(
+                response[0]["count"], 2
+            )  # postgres returns none for display by value TODO: update clickhouse query to return this also
             self.assertEqual(response[1]["aggregated_value"], 1)
+            self.assertEqual(response[2]["aggregated_value"], 1)
             self.assertEqual(
                 response[0]["days"],
                 [
