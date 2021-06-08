@@ -4,6 +4,7 @@ import { annotationsModel } from './annotationsModel'
 import { cohortsModel } from './cohortsModel'
 import { dashboardsModel } from './dashboardsModel'
 import { eventDefinitionsModel } from './eventDefinitionsModel'
+import { personPropertiesModel } from './personPropertiesModel'
 import { propertyDefinitionsModel } from './propertyDefinitionsModel'
 
 import { modelsType } from './indexType'
@@ -16,6 +17,7 @@ export const models = kea<modelsType>({
         cohortsModel,
         dashboardsModel,
         eventDefinitionsModel,
+        personPropertiesModel,
         propertyDefinitionsModel,
     ],
 })
