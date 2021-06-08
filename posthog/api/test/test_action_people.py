@@ -495,7 +495,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             ).json()
 
             self.assertEqual(len(people["results"][0]["people"]), 2)
-            self.assertEqual(people["results"][0]["people"][0]["id"], person1.pk)
+            ordered_people = sorted([p["id"] for p in people["results"][0]["people"]])
+            self.assertEqual(ordered_people, sorted([person1.pk, person2.pk]))
 
     return TestActionPeople
 
