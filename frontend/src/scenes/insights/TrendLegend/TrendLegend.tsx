@@ -44,8 +44,6 @@ export function TrendLegend({ showColors = true, showTotalCount = false }: Trend
         return null
     }
 
-    console.log('INDEX', indexedResults)
-
     // Build up columns to include. Order matters.
     const columns: ColumnsType<IndexedTrendResult> = []
 
