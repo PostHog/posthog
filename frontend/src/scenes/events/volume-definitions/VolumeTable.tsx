@@ -6,10 +6,10 @@ import { useValues, useActions } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
 import React, { useState, useEffect } from 'react'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from '~/layout/navigation/TopNavigation'
 import { EventDefinition, OrganizationMemberType, PropertyDefinition, UserBasicType } from '~/types'
-import { eventDefinitionsLogic } from './eventDefinitionsLogic'
 import './VolumeTable.scss'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
@@ -237,7 +237,7 @@ export function VolumeTableRecordDescription({
 }): JSX.Element {
     const [newDescription, setNewDescription] = useState(record.description)
     const [editing, setEditing] = useState(false)
-    const { updateEventDefinition } = useActions(eventDefinitionsLogic)
+    const { updateEventDefinition } = useActions(eventDefinitionsModel)
 
     return (
         <div style={{ display: 'flex', minWidth: 300, marginRight: 32 }}>

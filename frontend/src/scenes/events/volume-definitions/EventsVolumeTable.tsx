@@ -2,13 +2,13 @@ import React from 'react'
 import { useValues } from 'kea'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { eventDefinitionsLogic } from './eventDefinitionsLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { UsageDisabledWarning, VolumeTable } from './VolumeTable'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
 export function EventsVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { eventDefinitions, loaded } = useValues(eventDefinitionsLogic)
+    const { eventDefinitions, loaded } = useValues(eventDefinitionsModel)
 
     return (
         <>

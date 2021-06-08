@@ -4,10 +4,10 @@ import { toast } from 'react-toastify'
 import { EventOrPropType } from './VolumeTable'
 import { definitionDrawerLogicType } from './definitionDrawerLogicType'
 import React from 'react'
-import { eventDefinitionsLogic } from './eventDefinitionsLogic'
 import { IndexedTrendResult } from 'scenes/trends/trendsLogic'
 import { toParams } from 'lib/utils'
 import { EventFormattedType } from '~/types'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
 export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
     actions: () => ({
@@ -141,7 +141,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
             const response = await api.update(`api/projects/@current/${values.type}/${values.definition.id}/`, payload)
             actions.setDefinition(response)
             actions.setDefinitionLoading(false)
-            eventDefinitionsLogic.actions.setEventDefinitions(response)
+            eventDefinitionsModel.actions.setEventDefinitions(response)
         },
     }),
 })
