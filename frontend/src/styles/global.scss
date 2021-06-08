@@ -3,12 +3,13 @@ nimble to simplify maintenance. We separate variables and mixins in vars.scss to
 style files without adding already imported styles. */
 
 // Global components
-@import 'node_modules/react-toastify/dist/ReactToastify';
-@import './vars';
+@import 'react-toastify/dist/ReactToastify';
+@import '~/vars';
 
 @font-face {
     font-family: 'GoshaSans-Bold';
-    src: url('../public/GoshaSans-Bold.woff2') format('woff2'), url('../public/GoshaSans-Bold.woff') format('woff');
+    src: url('../../public/GoshaSans-Bold.woff2') format('woff2'),
+        url('../../public/GoshaSans-Bold.woff') format('woff');
 }
 
 :root {
@@ -470,7 +471,7 @@ code.code {
 
 #bottom-notice {
     z-index: $z_bottom_notice;
-    display: flex;
+    display: flex !important;
     flex-direction: row;
     position: fixed;
     width: 100%;
@@ -497,6 +498,12 @@ code.code {
         }
         div:nth-child(3) {
             background: $brand_yellow;
+        }
+    }
+    &.click-close {
+        cursor: pointer;
+        code {
+            cursor: text;
         }
     }
     div {

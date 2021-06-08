@@ -34,12 +34,6 @@ export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
                 userUpdateFailure: () => false,
             },
         ],
-        userLoading: [
-            false,
-            {
-                setUserLoading: (_, { loading }) => loading,
-            },
-        ],
     },
     selectors: ({ selectors }) => ({
         demoOnlyProject: [

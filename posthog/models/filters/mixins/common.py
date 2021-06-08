@@ -1,7 +1,6 @@
 import datetime
 import json
 import re
-from distutils.util import strtobool
 from typing import Dict, List, Optional, Union
 
 from dateutil.relativedelta import relativedelta
@@ -34,7 +33,7 @@ from posthog.constants import (
 from posthog.models.entity import Entity
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
-from posthog.utils import relative_date_parse
+from posthog.utils import relative_date_parse, str_to_bool
 
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
 
@@ -180,7 +179,7 @@ class CompareMixin(BaseParamMixin):
         if isinstance(compare, bool):
             return compare
         elif isinstance(compare, str):
-            return bool(strtobool(compare))
+            return str_to_bool(compare)
         else:
             return False
 

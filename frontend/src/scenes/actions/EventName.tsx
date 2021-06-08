@@ -2,7 +2,7 @@ import React from 'react'
 import { Select } from 'antd'
 import { useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
 interface EventNameInterface {
     value: string
@@ -11,7 +11,7 @@ interface EventNameInterface {
 }
 
 export function EventName({ value, onChange, isActionStep = false }: EventNameInterface): JSX.Element {
-    const { eventNamesGrouped } = useValues(eventDefinitionsLogic)
+    const { eventNamesGrouped } = useValues(eventDefinitionsModel)
 
     return (
         <span>

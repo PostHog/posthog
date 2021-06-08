@@ -12,7 +12,7 @@ import {
 import { Select } from 'antd'
 import { PropertyValue } from 'lib/components/PropertyFilters'
 import { TestAccountFilter } from '../TestAccountFilter'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathTabHorizontal } from './PathTabHorizontal'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -24,7 +24,7 @@ export function PathTab(props: BaseTabProps): JSX.Element {
 }
 
 function DefaultPathTab(): JSX.Element {
-    const { customEventNames } = useValues(eventDefinitionsLogic)
+    const { customEventNames } = useValues(eventDefinitionsModel)
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
 

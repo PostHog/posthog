@@ -7,7 +7,7 @@ import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ColumnsType } from 'antd/lib/table'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { eventDefinitionsLogic } from './eventDefinitionsLogic'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { userLogic } from 'scenes/userLogic'
@@ -203,7 +203,7 @@ export function VolumeTableRecordDescription({
 }): JSX.Element {
     const [newDescription, setNewDescription] = useState(record.description)
     const [editing, setEditing] = useState(false)
-    const { updateEventDefinition } = useActions(eventDefinitionsLogic)
+    const { updateEventDefinition } = useActions(eventDefinitionsModel)
 
     return (
         <div style={{ display: 'flex', minWidth: 300, marginRight: 32 }}>
@@ -264,7 +264,7 @@ export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
 
 export function EventsVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { eventDefinitions, loaded } = useValues(eventDefinitionsLogic)
+    const { eventDefinitions, loaded } = useValues(eventDefinitionsModel)
 
     return (
         <>
