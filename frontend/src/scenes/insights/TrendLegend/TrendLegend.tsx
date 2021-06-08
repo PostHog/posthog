@@ -29,7 +29,12 @@ function formatBreakdownLabel(breakdown_value: string | number | undefined, coho
     }
 }
 
-export function TrendLegend(): JSX.Element | null {
+interface TrendLegendProps {
+    showColors?: boolean
+    showTotalCount?: boolean
+}
+
+export function TrendLegend({ showColors = true, showTotalCount = false }: TrendLegendProps): JSX.Element | null {
     const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
@@ -39,8 +44,13 @@ export function TrendLegend(): JSX.Element | null {
         return null
     }
 
-    const columns: ColumnsType<IndexedTrendResult> = [
-        {
+    console.log('INDEX', indexedResults)
+
+    // Build up columns to include. Order matters.
+    const columns: ColumnsType<IndexedTrendResult> = []
+
+    if (showColors) {
+        columns.push({
             title: '',
             render: function RenderCheckbox({}, item: IndexedTrendResult, index: number) {
                 // legend will always be on insight page where the background is white
@@ -55,23 +65,33 @@ export function TrendLegend(): JSX.Element | null {
             },
             fixed: 'left',
             width: 60,
+        })
+    }
+
+    columns.push({
+        title: 'Label',
+        render: function RenderLabel({}, item: IndexedTrendResult) {
+            return (
+                <span
+                    style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
+                    onClick={() => !isSingleEntity && toggleVisibility(item.id)}
+                >
+                    {formatLabel(item)}
+                </span>
+            )
         },
-        {
-            title: 'Label',
-            render: function RenderLabel({}, item: IndexedTrendResult) {
-                return (
-                    <span
-                        style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
-                        onClick={() => !isSingleEntity && toggleVisibility(item.id)}
-                    >
-                        {formatLabel(item)}
-                    </span>
-                )
-            },
+        fixed: 'left',
+        width: 150,
+    })
+
+    if (showTotalCount) {
+        columns.push({
+            title: 'Count',
+            dataIndex: 'count',
             fixed: 'left',
-            width: 150,
-        },
-    ]
+            width: 60,
+        })
+    }
 
     if (filters.breakdown) {
         columns.push({

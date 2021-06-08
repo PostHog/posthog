@@ -10,10 +10,11 @@ import {
     ACTIONS_BAR_CHART_VALUE,
 } from 'lib/constants'
 
-import { ActionsPie, ActionsTable, ActionsLineGraph, ActionsBarValueGraph } from './viz'
+import { ActionsPie, ActionsLineGraph, ActionsBarValueGraph } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { TrendLegend } from 'scenes/insights/TrendLegend'
 import { Button } from 'antd'
 
 interface Props {
@@ -45,7 +46,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                         _filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
                         _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
                         _filters.display === ACTIONS_BAR_CHART) && <ActionsLineGraph view={view} />}
-                    {_filters.display === ACTIONS_TABLE && <ActionsTable filters={_filters} view={view} />}
+                    {_filters.display === ACTIONS_TABLE && <TrendLegend showColors={false} showTotalCount />}
                     {_filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={_filters} view={view} />}
                     {_filters.display === ACTIONS_BAR_CHART_VALUE && (
                         <ActionsBarValueGraph filters={_filters} view={view} />
