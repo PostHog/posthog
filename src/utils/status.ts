@@ -3,6 +3,7 @@ import { threadId } from 'worker_threads'
 export type StatusMethod = (icon: string, ...message: any[]) => void
 
 export interface StatusBlueprint {
+    debug: StatusMethod
     info: StatusMethod
     warn: StatusMethod
     error: StatusMethod
@@ -27,6 +28,7 @@ export class Status implements StatusBlueprint {
         }
     }
 
+    debug = this.buildMethod('debug')
     info = this.buildMethod('info')
     warn = this.buildMethod('warn')
     error = this.buildMethod('error')
