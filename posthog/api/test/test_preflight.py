@@ -7,7 +7,7 @@ from rest_framework import status
 
 from posthog.constants import RDBMS
 from posthog.models import User
-from posthog.models.organization import OrganizationInvite
+from posthog.models.organization import Organization, OrganizationInvite
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
@@ -72,7 +72,7 @@ class TestPreflight(APIBaseTest):
     def test_cloud_preflight_request_unauthenticated(self):
 
         self.client.logout()  # make sure it works anonymously
-        User.objects.all().delete()
+        Organization.objects.all().delete()
 
         with self.settings(MULTI_TENANCY=True, PRIMARY_DB=RDBMS.CLICKHOUSE):
             response = self.client.get("/_preflight/")
