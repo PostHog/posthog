@@ -18,6 +18,8 @@ function PropertyFilter({ breakdown, onChange }) {
         <SelectGradientOverflow
             showSearch
             autoFocus
+            delayBeforeAutoOpen={150}
+            placement="bottomLeft"
             style={{ width: '100%' }}
             placeholder={'Break down by'}
             value={breakdown ? breakdown : undefined}
@@ -62,6 +64,8 @@ function CohortFilter({ breakdown, onChange }) {
     return (
         <SelectGradientOverflow
             autoFocus
+            delayBeforeAutoOpen={150}
+            placement="bottomLeft"
             mode="multiple"
             style={{ width: '100%' }}
             placeholder={'Break down by'}
@@ -135,6 +139,7 @@ export function BreakdownFilter({ filters, onChange }) {
     return (
         <Popover
             visible={open}
+            destroyTooltipOnHide
             onVisibleChange={setOpen}
             content={
                 <Content
@@ -151,6 +156,7 @@ export function BreakdownFilter({ filters, onChange }) {
             }
             trigger={insight === ViewType.STICKINESS || insight === ViewType.LIFECYCLE ? 'none' : 'click'}
             placement="bottomLeft"
+            getPopupContainer={(trigger) => trigger.parentNode} // Prevent scrolling up on trigger
         >
             <Tooltip
                 title={
