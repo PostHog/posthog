@@ -353,10 +353,17 @@ def _filter_person_prop_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
     return events
 
 
+def _filter_event_prop_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
+    if filter.breakdown_type == "event":
+        events = events.filter(**{"properties__{}".format(filter.breakdown): filter.breakdown_value,})
+    return events
+
+
 def calculate_people(team: Team, events: QuerySet, filter: Filter, use_offset: bool = True) -> QuerySet:
     events = events.values("person_id").distinct()
     events = _filter_cohort_breakdown(events, filter)
     events = _filter_person_prop_breakdown(events, filter)
+    events = _filter_event_prop_breakdown(events, filter)
 
     people = Person.objects.filter(
         team=team,
