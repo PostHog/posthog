@@ -830,4 +830,5 @@ export interface TiledIconModuleProps {
 
 export interface AppContext {
     current_user: UserType | null
+    preflight: PreflightStatus
 }
