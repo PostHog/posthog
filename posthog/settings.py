@@ -11,10 +11,9 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
 import os
-import shutil
 import sys
 from datetime import timedelta
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -26,7 +25,7 @@ from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
 from posthog.constants import RDBMS
-from posthog.utils import str_to_bool
+from posthog.utils import print_warning, str_to_bool
 
 
 def get_from_env(key: str, default: Any = None, *, optional: bool = False, type_cast: Optional[Callable] = None) -> Any:
@@ -47,11 +46,6 @@ def get_list(text: str) -> List[str]:
     if not text:
         return []
     return [item.strip() for item in text.split(",")]
-
-
-def print_warning(warning_lines: Sequence[str]):
-    highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
-    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)
 
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
