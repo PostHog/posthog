@@ -262,15 +262,17 @@ export function LineGraph({
                     return
                 }
                 // Set caret position
+                // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
                 tooltipEl.classList.remove('above', 'below', 'no-transform')
                 tooltipEl.classList.add(tooltipModel.yAlign || 'no-transform')
                 const bounds = chartRef.current.getBoundingClientRect()
                 const chartClientLeft = bounds.left + window.pageXOffset
                 const chartClientTop = bounds.top + window.pageYOffset
                 const tooltipCaretOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltipModel.caretX - 50)
+                const maxXPosition = bounds.right - 150 // ensure the tooltip doesn't exceed the bounds of the graph area
                 tooltipEl.style.opacity = 1
                 tooltipEl.style.position = 'absolute'
-                tooltipEl.style.left = tooltipCaretOffsetLeft + 'px'
+                tooltipEl.style.left = Math.min(tooltipCaretOffsetLeft, maxXPosition) + 'px'
                 tooltipEl.style.top = chartClientTop + 'px'
                 tooltipEl.style.padding = tooltipModel.padding + 'px'
                 tooltipEl.style.pointerEvents = 'none'
