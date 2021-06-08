@@ -1,4 +1,5 @@
 import { DateDisplay } from 'lib/components/DateDisplay'
+import { hexToRGBA } from 'lib/utils'
 import React from 'react'
 import { IntervalType } from '~/types'
 import './InsightTooltip.scss'
@@ -33,7 +34,13 @@ export function InsightTooltip({
                     const iconColor = line.backgroundColor || line.borderColor
                     return (
                         <li key={i}>
-                            <div className="color-icon" style={{ background: iconColor }} />
+                            <div
+                                className="color-icon"
+                                style={{
+                                    background: iconColor,
+                                    boxShadow: `0px 0px 0px 1px ${hexToRGBA(iconColor, 0.5)}`,
+                                }}
+                            />
                             <div className="title">{line.component}</div>
                         </li>
                     )

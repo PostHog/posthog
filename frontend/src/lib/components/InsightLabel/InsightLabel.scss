@@ -1,16 +1,22 @@
-$text_value_padding: 0.3rem;
+$inter_items_padding: 0.3rem;
 
 .insights-label {
     margin-bottom: 0.1rem;
+    display: flex;
+    align-items: center;
+
     .property-key-info {
         display: inline;
     }
+
     .value {
-        padding-left: $text_value_padding;
-        font-weight: 600;
+        margin-left: $inter_items_padding;
+        font-size: 1.176em;
+        font-weight: bold;
     }
+
     .ant-tag {
         margin-right: 0;
-        margin-left: $text_value_padding;
+        margin-left: $inter_items_padding;
     }
 }
