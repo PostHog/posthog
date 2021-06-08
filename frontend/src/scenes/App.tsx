@@ -16,8 +16,9 @@ import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
 import { appLogicType } from './AppType'
+import { PreflightStatus } from '~/types'
 
-export const appLogic = kea<appLogicType>({
+export const appLogic = kea<appLogicType<PreflightStatus>>({
     actions: {
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
@@ -30,11 +31,18 @@ export const appLogic = kea<appLogicType>({
         showApp: [
             (s) => [
                 userLogic.selectors.userLoading, // not loading the user anymore (may be logged out)
+                userLogic.selectors.user, // if we have the user, skip loading check
                 featureFlagLogic.selectors.receivedFeatureFlags, // received feature flags
                 s.featureFlagsTimedOut, // waited for 3 sec to load feature flags, that's enough
+                preflightLogic.selectors.preflightLoading,
+                preflightLogic.selectors.preflight,
             ],
-            (userLoading, receivedFeatureFlags, featureFlagsTimedOut) => {
-                return !userLoading && (receivedFeatureFlags || featureFlagsTimedOut)
+            (userLoading, user, receivedFeatureFlags, featureFlagsTimedOut, preflightLoading, preflight) => {
+                return (
+                    (!userLoading || user) &&
+                    (receivedFeatureFlags || featureFlagsTimedOut) &&
+                    (!preflightLoading || preflight)
+                )
             },
         ],
     },
@@ -56,15 +64,13 @@ export function App(): JSX.Element | null {
 }
 
 function AppScene(): JSX.Element | null {
-    const { user, userLoading } = useValues(userLogic)
+    const { user } = useValues(userLogic)
     const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
-    const { preflight, preflightLoading } = useValues(preflightLogic)
+    const { preflight } = useValues(preflightLogic)
     const { location } = useValues(router)
     const { replace } = useActions(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
-
-    const spinner = showingDelayedSpinner ? <SceneLoading /> : null
 
     useEffect(() => {
         if (scene === Scene.Signup && preflight && !preflight.cloud && preflight.initiated) {
@@ -109,12 +115,8 @@ function AppScene(): JSX.Element | null {
         }
     }, [scene, user])
 
-    if ((userLoading && !user) || (preflightLoading && !preflight)) {
-        return spinner
-    }
-
     const SceneComponent: (...args: any[]) => JSX.Element | null =
-        (scene ? loadedScenes[scene]?.component : null) || (() => spinner)
+        (scene ? loadedScenes[scene]?.component : null) || (() => (showingDelayedSpinner ? <SceneLoading /> : null))
 
     const essentialElements = (
         // Components that should always be mounted inside Layout
