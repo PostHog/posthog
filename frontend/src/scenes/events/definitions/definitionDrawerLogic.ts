@@ -1,11 +1,9 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
 import { definitionDrawerLogicType } from './definitionDrawerLogicType'
-import React from 'react'
 import { IndexedTrendResult } from 'scenes/trends/trendsLogic'
-import { toParams } from 'lib/utils'
 import { EventFormattedType, EventOrPropType } from '~/types'
+import { errorToast, toParams } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
 export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropType>>({
@@ -107,13 +105,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
         },
         saveNewTag: ({ tag }) => {
             if (values.definition.tags.includes(tag)) {
-                toast.error(
-                    // TODO: move to errorToast once #3561 is merged
-                    <div>
-                        <h1>Oops! Can't add that tag</h1>
-                        <p>Your event already has that tag.</p>
-                    </div>
-                )
+                errorToast('Oops! This tag is already set', 'This event already includes the proposed tag.')
                 return
             }
             actions.updateDefinition({ tags: [...values.definition.tags, tag] })

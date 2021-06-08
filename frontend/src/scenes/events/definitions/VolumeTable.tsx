@@ -6,13 +6,11 @@ import { useValues, useActions } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
 import React, { useState, useEffect } from 'react'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from '~/layout/navigation/TopNavigation'
-import { EventDefinition, EventOrPropType, OrganizationMemberType, PropertyDefinition, UserBasicType } from '~/types'
+import { EventDefinition, EventOrPropType, PropertyDefinition, UserBasicType } from '~/types'
 import './VolumeTable.scss'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 
 type EventTableType = 'event' | 'property'
 
@@ -29,14 +27,10 @@ const search = (sources: VolumeTableRecord[], searchQuery: string): VolumeTableR
         .search(searchQuery)
         .map((result) => result.item)
 }
-export function Owner({ ownerId, user }: { ownerId?: number | null; user?: UserBasicType }): JSX.Element {
-    const { members } = useValues(membersLogic)
-    if (!user && ownerId && members.length > 0) {
-        user = members.find((mem: OrganizationMemberType) => mem.user.id === ownerId).user
-    }
+export function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
     return (
         <>
-            {user ? (
+            {user?.uuid ? (
                 <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
                     <ProfilePicture name={user.first_name} email={user.email} small={true} />
                     <span style={{ paddingLeft: 8 }}>{user.first_name}</span>
@@ -94,7 +88,7 @@ export function VolumeTable({
                             />
                         </span>
                         {hasTaxonomyFeatures && type === 'event' && (
-                            <VolumeTableRecordDescription record={record.eventOrProp} />
+                            <VolumeTableRecordDescription description={record.eventOrProp.description} />
                         )}
                         {record.warnings?.map((warning) => (
                             <Tooltip
@@ -124,7 +118,7 @@ export function VolumeTable({
                   title: 'Owner',
                   render: function Render(_, record): JSX.Element {
                       const owner = record.eventOrProp?.owner
-                      return <Owner ownerId={owner} />
+                      return <Owner user={owner} />
                   },
               }
             : {},
@@ -223,54 +217,27 @@ export function VolumeTable({
                 size="small"
                 style={{ marginBottom: '4rem' }}
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                onRow={(record) => {
+                    return {
+                        onClick: () => openDrawer(type, record.eventOrProp.id), // click row
+                    }
+                }}
             />
         </>
     )
 }
 
-export function VolumeTableRecordDescription({
-    record,
-}: {
-    record: EventDefinition | PropertyDefinition
-}): JSX.Element {
-    const [newDescription, setNewDescription] = useState(record.description)
-    const [editing, setEditing] = useState(false)
-    const { updateEventDefinition } = useActions(eventDefinitionsModel)
-
+export function VolumeTableRecordDescription({ description }: { description: string }): JSX.Element {
     return (
-        <div style={{ display: 'flex', minWidth: 300, marginRight: 32 }}>
-            <Input.TextArea
-                className="definition-description"
-                placeholder="Click to add description"
-                onClick={() => setEditing(true)}
-                bordered={editing}
-                maxLength={400}
-                style={{ padding: 0, marginRight: 16, minWidth: 300 }}
-                autoSize={true}
-                value={newDescription || undefined}
-                onChange={(e) => setNewDescription(e.target.value)}
-            />
-            {editing && (
-                <>
-                    <Button
-                        style={{ marginRight: 8 }}
-                        size="small"
-                        type="primary"
-                        onClick={() => updateEventDefinition(record.id, newDescription)}
-                    >
-                        Save
-                    </Button>
-                    <Button
-                        onClick={() => {
-                            setNewDescription(record.description)
-                            setEditing(false)
-                        }}
-                        size="small"
-                    >
-                        Cancel
-                    </Button>
-                </>
+        <>
+            {description ? (
+                <span style={{ display: 'block' }}>{description}</span>
+            ) : (
+                <span className="text-muted" style={{ display: 'block' }}>
+                    Click to add description
+                </span>
             )}
-        </div>
+        </>
     )
+    // <div style={{ display: 'flex', minWidth: 300, marginRight: 32 }}>
 }

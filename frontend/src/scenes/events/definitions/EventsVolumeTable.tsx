@@ -14,8 +14,7 @@ export function EventsVolumeTable(): JSX.Element | null {
         <>
             <PageHeader
                 title="Events Stats"
-                caption="See all event names that have ever been sent to this team, including the volume and how often
-        queries where made using this event."
+                caption="See all event names that have ever been sent to this team, including the volume and how often queries where made using this event."
                 style={{ marginTop: 0 }}
             />
             {loaded ? (
@@ -27,7 +26,7 @@ export function EventsVolumeTable(): JSX.Element | null {
                             <>
                                 <Alert
                                     type="warning"
-                                    message="We haven't been able to get usage and volume data yet. Please check back later"
+                                    message="We haven't been able to get usage and volume data yet. Please check later."
                                 />
                             </>
                         )

@@ -770,14 +770,14 @@ export interface LicenseType {
 
 export interface EventDefinition {
     id: string
-    owner: number | null
     name: string
     description: string
     tags: string[]
-    updated_at: string
-    updated_by: UserBasicType | null
     volume_30_day: number | null
     query_usage_30_day: number | null
+    owner?: UserBasicType | null
+    updated_at?: string
+    updated_by?: UserBasicType | null
 }
 
 export interface PropertyDefinition {
@@ -785,10 +785,11 @@ export interface PropertyDefinition {
     name: string
     description: string
     tags: string[]
-    updated_at: string
-    updated_by: UserBasicType | null
     volume_30_day: number | null
     query_usage_30_day: number | null
+    owner?: UserBasicType | null
+    updated_at?: string
+    updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
 }
 
