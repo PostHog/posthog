@@ -4,11 +4,21 @@
     }
 }
 
+.panel-wrapper {
+    display: flex;
+    flex-direction: row;
+    padding-top: 0;
+
+    span {
+        font-weight: 400;
+        font-size: 14px;
+    }
+}
+
 .definition-drawer {
     .ant-collapse-content > .ant-collapse-content-box {
         padding-top: 0;
     }
-
 }
 .owner-select {
     .ant-select-selector {

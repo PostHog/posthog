@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.api.shared import UserBasicSerializer
-import pdb
+
 
 class EnterpriseEventDefinitionSerializer(serializers.ModelSerializer):
     owner = UserBasicSerializer

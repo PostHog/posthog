@@ -4,8 +4,6 @@ import Table, { ColumnsType } from 'antd/lib/table'
 import Fuse from 'fuse.js'
 import { useValues, useActions } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
 import React, { useState, useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
@@ -33,7 +31,7 @@ const search = (sources: VolumeTableRecord[], searchQuery: string): VolumeTableR
         .search(searchQuery)
         .map((result) => result.item)
 }
-export function Owner({ ownerId, user }: { ownerId?: number | null, user?: UserBasicType }): JSX.Element {
+export function Owner({ ownerId, user }: { ownerId?: number | null; user?: UserBasicType }): JSX.Element {
     const { members } = useValues(membersLogic)
     if (!user && ownerId && members.length > 0) {
         user = members.find((mem: OrganizationMemberType) => mem.user.id === ownerId).user
@@ -82,12 +80,8 @@ export function VolumeTable({
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
     const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { openDefinitionDrawer } = useActions(definitionDrawerLogic)
-    const { members } = useValues(membersLogic)
-    const hasTaxonomyFeatures = true
-        // featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
-        // user?.organization?.available_features?.includes('ingestion_taxonomy')
+    const hasTaxonomyFeatures = user?.organization?.available_features?.includes('ingestion_taxonomy')
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {
@@ -132,9 +126,7 @@ export function VolumeTable({
                   title: 'Owner',
                   render: function Render(_, record): JSX.Element {
                       const owner = record.eventOrProp?.owner
-                      return (
-                         <Owner ownerId={owner} />
-                      )
+                      return <Owner ownerId={owner} />
                   },
               }
             : {},
@@ -185,12 +177,12 @@ export function VolumeTable({
                 return (
                     <Button
                         type="link"
-                        icon={<ArrowRightOutlined style={{color: '#5375FF'}}/>}
+                        icon={<ArrowRightOutlined style={{ color: '#5375FF' }} />}
                         onClick={() => openDefinitionDrawer(type, item.eventOrProp.id)}
                     />
                 )
-            }
-        }
+            },
+        },
     ]
 
     useEffect(() => {
