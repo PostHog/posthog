@@ -215,14 +215,15 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
+    posthog_app_context: Dict = {"current_user": None}
 
     if request.user.pk:
         from posthog.api.user import UserSerializer
 
         user = UserSerializer(request.user, context={"request": request}, many=False)
-        context["user_api_response"] = json.dumps(user.data, default=json_uuid_convert)
-    else:
-        context["user_api_response"] = "null"
+        posthog_app_context["current_user"] = user.data
+
+    context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
     html = template.render(context, request=request)
     return HttpResponse(html)

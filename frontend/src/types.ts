@@ -827,3 +827,7 @@ export interface TiledIconModuleProps {
     subHeader?: string
     analyticsModuleKey?: string
 }
+
+export interface AppContext {
+    current_user: UserType | null
+}

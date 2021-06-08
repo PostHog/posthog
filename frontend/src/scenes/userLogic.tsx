@@ -5,6 +5,7 @@ import { userLogicType } from './userLogicType'
 import { UserType } from '~/types'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 interface UpdateUserPayload {
     user: Partial<UserType>
@@ -133,10 +134,9 @@ export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            const preloadedUser = (window as any)['POSTHOG_APP_USER']
+            const preloadedUser = getAppContext()?.current_user
             if (preloadedUser) {
                 actions.loadUserSuccess(preloadedUser)
-                window.document.getElementById('posthog-app-user-preload')?.remove()
             } else if (preloadedUser === null) {
                 actions.loadUserFailure('Logged out')
             } else {
