@@ -3,8 +3,8 @@ import { actionsModel } from './actionsModel'
 import { annotationsModel } from './annotationsModel'
 import { cohortsModel } from './cohortsModel'
 import { dashboardsModel } from './dashboardsModel'
-import { eventDefinitionsLogic } from './eventDefinitionsLogic'
-import { propertyDefinitionsLogic } from './propertyDefinitionsLogic'
+import { eventDefinitionsModel } from './eventDefinitionsModel'
+import { propertyDefinitionsModel } from './propertyDefinitionsModel'
 
 import { modelsType } from './indexType'
 
@@ -15,7 +15,7 @@ export const models = kea<modelsType>({
         annotationsModel,
         cohortsModel,
         dashboardsModel,
-        eventDefinitionsLogic,
-        propertyDefinitionsLogic,
+        eventDefinitionsModel,
+        propertyDefinitionsModel,
     ],
 })

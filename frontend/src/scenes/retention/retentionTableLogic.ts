@@ -15,8 +15,8 @@ import {
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { eventDefinitionsLogic } from '~/models/eventDefinitionsLogic'
-import { propertyDefinitionsLogic } from '~/models/propertyDefinitionsLogic'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -142,7 +142,7 @@ export const retentionTableLogic = kea<
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
         ],
         filtersLoading: [
-            () => [eventDefinitionsLogic.selectors.loaded, propertyDefinitionsLogic.selectors.loaded],
+            () => [eventDefinitionsModel.selectors.loaded, propertyDefinitionsModel.selectors.loaded],
             (eventsLoaded, propertiesLoaded) => !eventsLoaded || !propertiesLoaded,
         ],
     },

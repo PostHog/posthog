@@ -4,14 +4,14 @@ import { useValues } from 'kea'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { propertyDefinitionsLogic } from '~/models/propertyDefinitionsLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ViewType } from '../insightLogic'
 
 const { TabPane } = Tabs
 
 function PropertyFilter({ breakdown, onChange }) {
-    const { transformedPropertyDefinitions } = useValues(propertyDefinitionsLogic)
+    const { transformedPropertyDefinitions } = useValues(propertyDefinitionsModel)
     const { personProperties } = useValues(propertyFilterLogic({ pageKey: 'breakdown' }))
     return (
         <SelectGradientOverflow
