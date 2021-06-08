@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
-import { formatLabel, maybeAddCommasToInteger } from '~/lib/utils'
+import { formatLabel, compactNumber } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
@@ -436,7 +436,7 @@ export function LineGraph({
                         ticks: {
                             fontColor: colors.axisLabel,
                             callback: (value) => {
-                                return maybeAddCommasToInteger(value)
+                                return compactNumber(value)
                             },
                         },
                     },
@@ -467,7 +467,7 @@ export function LineGraph({
                             : {
                                   ...tickOptions,
                                   callback: (value) => {
-                                      return maybeAddCommasToInteger(value)
+                                      return compactNumber(value)
                                   },
                               },
                     },
@@ -481,7 +481,7 @@ export function LineGraph({
                         ticks: {
                             ...tickOptions,
                             callback: (value) => {
-                                return maybeAddCommasToInteger(value)
+                                return compactNumber(value)
                             },
                         },
                     },
