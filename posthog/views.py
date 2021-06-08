@@ -15,6 +15,7 @@ from django.views.decorators.cache import never_cache
 from posthog.ee import is_clickhouse_enabled
 from posthog.email import is_email_available
 from posthog.models import User
+from posthog.permissions import is_instance_initiated
 from posthog.utils import (
     get_available_social_auth_providers,
     get_available_timezones_with_offsets,
@@ -85,7 +86,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "plugins": is_plugin_server_alive() or settings.TEST,
         "celery": is_celery_alive() or settings.TEST,
         "db": is_postgres_alive(),
-        "initiated": User.objects.exists() if not settings.E2E_TESTING else False,  # Enables E2E testing of signup flow
+        "initiated": is_instance_initiated()
+        if not settings.E2E_TESTING
+        else False,  # Enables E2E testing of signup flow
         "cloud": settings.MULTI_TENANCY,
         "available_social_auth_providers": get_available_social_auth_providers(),
     }

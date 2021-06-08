@@ -74,7 +74,10 @@ class StructuredViewSetMixin(NestedViewSetMixin):
         if self.legacy_team_compatibility:
             if not self.request.user.is_authenticated:
                 raise AuthenticationFailed()
-            return {"team_id": self.request.user.team.id}
+            project = self.request.user.team
+            if project is None:
+                raise NotFound("There's no current project.")
+            return {"team_id": project.id}
         result = {}
         # process URL paremetrs (here called kwargs), such as organization_id in /api/organizations/:organization_id/
         for kwarg_name, kwarg_value in self.kwargs.items():
@@ -90,12 +93,12 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                     if query_lookup == "team_id":
                         project = self.request.user.team
                         if project is None:
-                            raise NotFound("Current project not found.")
+                            raise NotFound("There's no current project.")
                         query_value = project.id
                     elif query_lookup == "organization_id":
                         organization = self.request.user.organization
                         if organization is None:
-                            raise NotFound("Current organization not found.")
+                            raise NotFound("There's no current organization.")
                         query_value = organization.id
                 elif query_lookup == "team_id":
                     try:

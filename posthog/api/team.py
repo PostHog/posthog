@@ -126,7 +126,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         if lookup_value == "@current":
             team = cast(User, self.request.user).team
             if team is None:
-                raise exceptions.NotFound("Current project not found.")
+                raise exceptions.NotFound("There's no current project.")
             return team
         queryset = self.filter_queryset(self.get_queryset())
         filter_kwargs = {self.lookup_field: lookup_value}

@@ -62,7 +62,7 @@ class TestOrganizationAPI(APIBaseTest):
                 {
                     "attr": None,
                     "code": "permission_denied",
-                    "detail": "You must upgrade your PostHog plan to be able to create and manage multiple organizations.",
+                    "detail": "Private PostHog instances can only have a single organization.",
                     "type": "authentication_error",
                 },
             )
@@ -149,7 +149,10 @@ class TestOrganizationAPI(APIBaseTest):
 
 
 class TestSignup(APIBaseTest):
-    CONFIG_EMAIL = None
+    @classmethod
+    def setUpTestData(cls):
+        # Override setUpTestData so that tests run with a clean slate instance
+        pass
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
@@ -231,7 +234,7 @@ class TestSignup(APIBaseTest):
                 {
                     "attr": None,
                     "code": "permission_denied",
-                    "detail": "This endpoint is unavailable on initiated self-hosted instances of PostHog.",
+                    "detail": "This endpoint is unavailable on initiated instances of PostHog.",
                     "type": "authentication_error",
                 },
             )
@@ -344,6 +347,50 @@ class TestSignup(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
 
+    def test_cannot_create_second_org_on_self_hosted(self):
+        organization, team, user = User.objects.bootstrap(
+            self.CONFIG_ORGANIZATION_NAME, "test+709@posthog.com", "test_password"
+        )
+
+        org_count: int = Organization.objects.count()
+
+        self.client.force_login(user)
+
+        with self.settings(MULTI_TENANCY=False):
+            response = self.client.post("/api/organizations/", {"name": "Two"},)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "Private PostHog instances can only have a single organization.",
+                "attr": None,
+            },
+        )
+
+        self.assertEqual(Organization.objects.count(), org_count)
+
+    def test_can_create_second_org_on_cloud(self):
+        organization, team, user = User.objects.bootstrap(
+            self.CONFIG_ORGANIZATION_NAME, "test+709@posthog.com", "test_password"
+        )
+
+        org_count: int = Organization.objects.count()
+
+        self.client.force_login(user)
+
+        with self.settings(MULTI_TENANCY=True):
+            response = self.client.post("/api/organizations/", {"name": "Two"},)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertDictContainsSubset(
+            {"name": "Two",}, response.json(),
+        )
+
+        self.assertEqual(Organization.objects.count(), org_count + 1)
+
     @patch("posthoganalytics.feature_enabled")
     def test_default_dashboard_is_created_on_signup(self, mock_feature_enabled):
         """
@@ -395,13 +442,19 @@ class TestInviteSignup(APIBaseTest):
     Tests the sign up process for users with an invite (i.e. existing organization).
     """
 
-    CONFIG_EMAIL = None
+    @classmethod
+    def setUpTestData(cls):
+        # Override setUpTestData so that tests run with a clean slate instance
+        pass
 
     # Invite pre-validation
 
     def test_api_invite_sign_up_prevalidate(self):
+        organization, team, user = User.objects.bootstrap(
+            self.CONFIG_ORGANIZATION_NAME, "test+18@posthog.com", "test_password"
+        )
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+19@posthog.com", organization=self.organization,
+            target_email="test+19@posthog.com", organization=organization,
         )
 
         response = self.client.get(f"/api/signup/{invite.id}/")
@@ -417,8 +470,11 @@ class TestInviteSignup(APIBaseTest):
         )
 
     def test_api_invite_sign_up_with_first_nameprevalidate(self):
+        organization, team, user = User.objects.bootstrap(
+            self.CONFIG_ORGANIZATION_NAME, "test+57@posthog.com", "test_password", "John"
+        )
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+58@posthog.com", organization=self.organization, first_name="Jane"
+            target_email="test+58@posthog.com", organization=organization, first_name="Jane"
         )
 
         response = self.client.get(f"/api/signup/{invite.id}/")
@@ -434,7 +490,9 @@ class TestInviteSignup(APIBaseTest):
         )
 
     def test_api_invite_sign_up_prevalidate_for_existing_user(self):
-        user = self._create_user("test+29@posthog.com", "test_password")
+        organization, team, user = User.objects.bootstrap(
+            self.CONFIG_ORGANIZATION_NAME, "test+29@posthog.com", "test_password"
+        )
         new_org = Organization.objects.create(name="Test, Inc")
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+29@posthog.com", organization=new_org,
@@ -469,9 +527,11 @@ class TestInviteSignup(APIBaseTest):
             )
 
     def test_existing_user_cant_claim_invite_if_it_doesnt_match_target_email(self):
-        user = self._create_user("test+39@posthog.com", "test_password")
+        organization, team, user = User.objects.bootstrap(
+            self.CONFIG_ORGANIZATION_NAME, "test+39@posthog.com", "test_password"
+        )
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+49@posthog.com", organization=self.organization,
+            target_email="test+49@posthog.com", organization=organization,
         )
 
         self.client.force_login(user)
@@ -489,8 +549,11 @@ class TestInviteSignup(APIBaseTest):
         )
 
     def test_api_invite_sign_up_prevalidate_expired_invite(self):
+        organization, team, user = User.objects.bootstrap(
+            self.CONFIG_ORGANIZATION_NAME, "test+58@posthog.com", "test_password"
+        )
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+59@posthog.com", organization=self.organization,
+            target_email="test+59@posthog.com", organization=organization,
         )
         invite.created_at = datetime.datetime(2020, 12, 1, tzinfo=pytz.UTC)
         invite.save()
@@ -512,8 +575,9 @@ class TestInviteSignup(APIBaseTest):
     @patch("posthoganalytics.capture")
     @patch("posthog.api.organization.settings.EE_AVAILABLE", True)
     def test_api_invite_sign_up(self, mock_capture):
+        organization, team, user = User.objects.bootstrap(self.CONFIG_ORGANIZATION_NAME, "x@posthog.com", None)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+99@posthog.com", organization=self.organization,
+            target_email="test+99@posthog.com", organization=organization,
         )
 
         response = self.client.post(
@@ -534,11 +598,11 @@ class TestInviteSignup(APIBaseTest):
 
         # User is now a member of the organization
         self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(user.organization_memberships.first().organization, self.organization)  # type: ignore
+        self.assertEqual(user.organization_memberships.first().organization, organization)  # type: ignore
 
         # Defaults are set correctly
-        self.assertEqual(user.organization, self.organization)
-        self.assertEqual(user.team, self.team)
+        self.assertEqual(user.organization, organization)
+        self.assertEqual(user.team, team)
 
         # Assert that the user was properly created
         self.assertEqual(user.first_name, "Alice")
@@ -568,8 +632,10 @@ class TestInviteSignup(APIBaseTest):
 
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     def test_api_invite_sign_up_member_joined_email_is_not_sent_for_initial_member(self):
+        organization = Organization.objects.create(name=self.CONFIG_ORGANIZATION_NAME)
+
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+100@posthog.com", organization=self.organization,
+            target_email="test+100@posthog.com", organization=organization,
         )
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
@@ -583,10 +649,12 @@ class TestInviteSignup(APIBaseTest):
 
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     def test_api_invite_sign_up_member_joined_email_is_sent_for_next_members(self):
-        initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
+        organization, team, initial_user = User.objects.bootstrap(
+            self.CONFIG_ORGANIZATION_NAME, "test+420@posthog.com", None
+        )
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+100@posthog.com", organization=self.organization,
+            target_email="test+100@posthog.com", organization=organization,
         )
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
@@ -603,7 +671,9 @@ class TestInviteSignup(APIBaseTest):
     @patch("posthoganalytics.capture")
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     def test_existing_user_can_sign_up_to_a_new_organization(self, mock_capture, mock_identify):
-        user = self._create_user("test+159@posthog.com", "test_password")
+        organization, team, user = User.objects.bootstrap(
+            self.CONFIG_ORGANIZATION_NAME, "test+159@posthog.com", "test_password"
+        )
         new_org = Organization.objects.create(name="TestCo")
         new_team = Team.objects.create(organization=new_org)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -669,8 +739,10 @@ class TestInviteSignup(APIBaseTest):
         (as this endpoint does not do any checks that might be required).
         """
         new_org = Organization.objects.create(name="TestCo")
-        user = self._create_user("test+189@posthog.com", "test_password")
-        user2 = self._create_user("test+949@posthog.com")
+        organization, team, user = User.objects.bootstrap(
+            self.CONFIG_ORGANIZATION_NAME, "test+189@posthog.com", "test_password"
+        )
+        user2 = User.objects.create_and_join(organization, "test+949@posthog.com", None)
         user2.join(organization=new_org)
 
         Team.objects.create(organization=new_org)
@@ -715,6 +787,8 @@ class TestInviteSignup(APIBaseTest):
         )
 
     def test_cant_claim_sign_up_invite_without_required_attributes(self):
+        organization, team, user = User.objects.bootstrap(self.CONFIG_ORGANIZATION_NAME, "x@posthog.com", None)
+
         count: int = User.objects.count()
         team_count: int = Team.objects.count()
         org_count: int = Organization.objects.count()
@@ -725,7 +799,7 @@ class TestInviteSignup(APIBaseTest):
         ]
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+799@posthog.com", organization=self.organization,
+            target_email="test+799@posthog.com", organization=organization,
         )
 
         for attribute in required_attributes:
@@ -752,12 +826,14 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(Organization.objects.count(), org_count)
 
     def test_cant_claim_invite_sign_up_with_short_password(self):
+        organization, team, user = User.objects.bootstrap(self.CONFIG_ORGANIZATION_NAME, "x@posthog.com", None)
+
         count: int = User.objects.count()
         team_count: int = Team.objects.count()
         org_count: int = Organization.objects.count()
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+799@posthog.com", organization=self.organization,
+            target_email="test+799@posthog.com", organization=organization,
         )
 
         response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "123"})
@@ -800,12 +876,14 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(Organization.objects.count(), org_count)
 
     def test_cant_claim_expired_invite(self):
+        organization, team, user = User.objects.bootstrap(self.CONFIG_ORGANIZATION_NAME, "x@posthog.com", None)
+
         count: int = User.objects.count()
         team_count: int = Team.objects.count()
         org_count: int = Organization.objects.count()
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
-            target_email="test+799@posthog.com", organization=self.organization,
+            target_email="test+799@posthog.com", organization=organization,
         )
         invite.created_at = datetime.datetime(2020, 3, 3, tzinfo=pytz.UTC)
         invite.save()

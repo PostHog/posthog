@@ -22,29 +22,12 @@ from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
-    UninitiatedOrCloudOnly,
+    UninitiatedOnly,
     extract_organization,
+    is_instance_initiated,
 )
 from posthog.tasks import user_identify
 from posthog.utils import mask_email_address
-
-
-class PremiumMultiorganizationPermissions(permissions.BasePermission):
-    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
-
-    message = "You must upgrade your PostHog plan to be able to create and manage multiple organizations."
-
-    def has_permission(self, request: Request, view) -> bool:
-        user = cast(User, request.user)
-        if (
-            # make multiple orgs only premium on self-hosted, since enforcement of this is not possible on Cloud
-            not getattr(settings, "MULTI_TENANCY", False)
-            and request.method in CREATE_METHODS
-            and (user.organization is None or not user.organization.is_feature_available("organizations_projects"))
-            and user.organizations.count() >= 1
-        ):
-            return False
-        return True
 
 
 class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
@@ -92,6 +75,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
         extra_kwargs = {"setup_section_2_completed": {"write_only": True}}  # `setup` is used for reading this attribute
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
+        if not settings.MULTI_TENANCY and is_instance_initiated():
+            raise exceptions.PermissionDenied("Private PostHog instances can only have a single organization.")
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         organization, _, _ = Organization.objects.bootstrap(self.context["request"].user, **validated_data)
         return organization
@@ -143,9 +128,9 @@ class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.request.method == "POST":
-            # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
-            # because they require an existing org, unneded anyways because permissions are organization-based
-            return [permission() for permission in [permissions.IsAuthenticated, PremiumMultiorganizationPermissions]]
+            # Cannot use `OrganizationAdminWritePermissions`
+            # because it requires an existing org, unneded anyways because permissions are organization-based
+            return (permissions.IsAuthenticated(),)
         return super().get_permissions()
 
     def get_queryset(self) -> QuerySet:
@@ -157,7 +142,7 @@ class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         if lookup_value == "@current":
             organization = cast(User, self.request.user).organization
             if organization is None:
-                raise exceptions.NotFound("Current organization not found.")
+                raise exceptions.NotFound("There's no current organization.")
             return organization
         filter_kwargs = {self.lookup_field: lookup_value}
         organization = get_object_or_404(queryset, **filter_kwargs)
@@ -257,13 +242,16 @@ class OrganizationSocialSignupSerializer(serializers.Serializer):
 
 class OrganizationSignupViewset(generics.CreateAPIView):
     serializer_class = OrganizationSignupSerializer
-    # Enables E2E testing of signup flow
-    permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (UninitiatedOrCloudOnly,)
+    # This endpoint is restricted on private instances of PostHog (outside of E2E tests)
+    permission_classes = (
+        (permissions.AllowAny,) if settings.E2E_TESTING or settings.MULTI_TENANCY else (UninitiatedOnly,)
+    )
 
 
 class OrganizationSocialSignupViewset(generics.CreateAPIView):
     serializer_class = OrganizationSocialSignupSerializer
-    permission_classes = (UninitiatedOrCloudOnly,)
+    # This endpoint is restricted on private instances of PostHog
+    permission_classes = (permissions.AllowAny,) if settings.MULTI_TENANCY else (UninitiatedOnly,)
 
 
 class OrganizationInviteSignupSerializer(serializers.Serializer):
