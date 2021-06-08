@@ -124,12 +124,13 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </>
                 )
             },
-            dataSource: eventProperties.map(({ value: eventValue, label, is_numerical }) => ({
-                name: label || '',
-                key: `event_${eventValue}`,
-                eventValue,
-                is_numerical,
-            })),
+            dataSource:
+                eventProperties.map(({ value: eventValue, label, is_numerical }) => ({
+                    name: label || '',
+                    key: `event_${eventValue}`,
+                    eventValue,
+                    is_numerical,
+                })) || [],
             renderInfo: EventPropertiesInfo,
             type: 'event',
             key: 'events',
@@ -145,10 +146,11 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </>
                 )
             },
-            dataSource: personProperties.map(({ name }) => ({
-                name,
-                key: `person_${name}`,
-            })),
+            dataSource:
+                personProperties.map(({ name }) => ({
+                    name,
+                    key: `person_${name}`,
+                })) || [],
             renderInfo: function personPropertiesRenderInfo({ item }) {
                 return (
                     <>
@@ -182,14 +184,15 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </>
                 )
             },
-            dataSource: cohorts
-                ?.filter(({ deleted }) => !deleted)
-                .map((cohort) => ({
-                    name: cohort.name || '',
-                    key: `cohort_${cohort.id}`,
-                    value: cohort.name,
-                    cohort,
-                })),
+            dataSource:
+                cohorts
+                    ?.filter(({ deleted }) => !deleted)
+                    ?.map((cohort) => ({
+                        name: cohort.name || '',
+                        key: `cohort_${cohort.id}`,
+                        value: cohort.name,
+                        cohort,
+                    })) || [],
             renderInfo: CohortPropertiesInfo,
             type: 'cohort',
             key: 'cohorts',
