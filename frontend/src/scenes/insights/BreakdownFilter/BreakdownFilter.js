@@ -156,6 +156,7 @@ export function BreakdownFilter({ filters, onChange }) {
             }
             trigger={insight === ViewType.STICKINESS || insight === ViewType.LIFECYCLE ? 'none' : 'click'}
             placement="bottomLeft"
+            getPopupContainer={(trigger) => trigger.parentNode} // Prevent scrolling up on trigger
         >
             <Tooltip
                 title={

@@ -67,6 +67,7 @@ export const FilterRow = React.memo(function FilterRow({
                         defaultVisible={false}
                         visible={open}
                         placement={popoverPlacement || 'bottomLeft'}
+                        getPopupContainer={(trigger) => trigger.parentNode} // Prevent scrolling up on trigger
                         content={
                             <PropertyFilter
                                 {...propertyFilterCommonProps}
