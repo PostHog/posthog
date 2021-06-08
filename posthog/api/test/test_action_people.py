@@ -493,7 +493,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "breakdown": "event_prop",
                 },
             ).json()
-            print(people)
+
             self.assertEqual(len(people["results"][0]["people"]), 2)
             self.assertEqual(people["results"][0]["people"][0]["id"], person1.pk)
 
