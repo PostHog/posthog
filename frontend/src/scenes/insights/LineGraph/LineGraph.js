@@ -365,7 +365,7 @@ export function LineGraph({
                   },
             hover: {
                 mode: 'nearest',
-                intersect: newUI ? false : undefined,
+                intersect: newUI ? false : true,
                 onHover(evt) {
                     if (onClick) {
                         const point = this.getElementAtEvent(evt)
