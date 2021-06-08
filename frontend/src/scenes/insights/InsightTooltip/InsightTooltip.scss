@@ -1,0 +1,39 @@
+@import '~/vars';
+
+.ph-graph-tooltip {
+    background: #fff;
+    border: 1px solid $border;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-radius: $radius;
+    padding: 8px 12px;
+
+    header {
+        font-weight: 700;
+    }
+
+    footer {
+        margin-top: 0.5rem;
+        font-weight: 500;
+        font-size: 85%;
+        color: $text_muted;
+    }
+
+    ul {
+        list-style-type: none;
+        padding-left: 0;
+        margin-bottom: 0;
+
+        li {
+            position: relative;
+            display: flex;
+            align-items: center;
+
+            .color-icon {
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+                margin-right: 2px;
+            }
+        }
+    }
+}
