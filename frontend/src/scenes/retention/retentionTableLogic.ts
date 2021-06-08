@@ -6,7 +6,7 @@ import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
-import { actionsModel } from '~/models'
+import { actionsModel } from '~/models/actionsModel'
 import { ActionType, FilterType } from '~/types'
 import {
     RetentionTablePayload,
@@ -15,8 +15,8 @@ import {
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { eventDefinitionsLogic } from '~/models/eventDefinitionsLogic'
+import { propertyDefinitionsLogic } from '~/models/propertyDefinitionsLogic'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 

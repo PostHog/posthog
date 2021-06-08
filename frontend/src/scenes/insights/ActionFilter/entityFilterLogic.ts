@@ -12,7 +12,7 @@ import {
 } from '~/types'
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { ActionFilterProps } from './ActionFilter'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { eventDefinitionsLogic } from '~/models/eventDefinitionsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export type LocalFilter = EntityFilter & { order: number; properties?: PropertyFilter[] }

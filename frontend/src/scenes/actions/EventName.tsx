@@ -2,7 +2,7 @@ import React from 'react'
 import { Select } from 'antd'
 import { useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { eventDefinitionsLogic } from '~/models/eventDefinitionsLogic'
 
 interface EventNameInterface {
     value: string

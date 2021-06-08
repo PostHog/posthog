@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { VolumeTable, UsageDisabledWarning } from './EventsVolumeTable'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { propertyDefinitionsLogic } from './propertyDefinitionsLogic'
+import { propertyDefinitionsLogic } from '~/models/propertyDefinitionsLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 
 export function PropertiesVolumeTable(): JSX.Element | null {

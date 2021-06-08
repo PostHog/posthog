@@ -2,7 +2,7 @@ import { Button } from 'antd'
 import { useValues } from 'kea'
 import { formatPropertyLabel } from 'lib/utils'
 import React from 'react'
-import { cohortsModel } from '~/models'
+import { cohortsModel } from '~/models/cohortsModel'
 import { PropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 
