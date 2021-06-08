@@ -58,6 +58,7 @@ export const funnelLogic = kea({
         setFilters: (filters, refresh = false) => ({ filters, refresh }),
         saveFunnelInsight: (name) => ({ name }),
         setStepsWithCountLoading: (stepsWithCountLoading) => ({ stepsWithCountLoading }),
+        loadConversionWindow: (days) => ({ days }),
         setConversionWindowInDays: (days) => ({ days }),
     }),
 
@@ -214,6 +215,11 @@ export const funnelLogic = kea({
             if (props.dashboardItemId) {
                 actions.setFilters(filters, true)
             }
+        },
+        loadConversionWindow: async ({ days }, breakpoint) => {
+            await breakpoint(1000)
+            actions.setConversionWindowInDays(days)
+            actions.loadResults()
         },
     }),
     actionToUrl: ({ actions, values, props }) => ({
