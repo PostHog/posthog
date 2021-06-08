@@ -199,7 +199,7 @@ export function LineGraph({
                 datasets = datasets.filter((data) => visibilityMap[data.id])
             }
         } else {
-            datasets.map((dataset, index) => processDataset(dataset, index))
+            datasets = datasets.map((dataset, index) => processDataset(dataset, index))
         }
 
         const tickOptions = {
