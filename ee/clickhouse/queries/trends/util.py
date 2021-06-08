@@ -107,7 +107,7 @@ def populate_entity_params(entity: Entity) -> Tuple[Dict, Dict]:
     return params, content_sql_params
 
 
-def enumerate_time_range(self, filter: Filter, seconds_in_interval: int) -> List[str]:
+def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
     date_from = filter.date_from
     date_to = filter.date_to
     delta = timedelta(seconds=seconds_in_interval)
