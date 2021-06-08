@@ -90,7 +90,7 @@ export function TopNavigation(): JSX.Element {
         filteredEnvironment,
     } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, organizationCreationAllowed } = useValues(preflightLogic)
     const { billing } = useValues(billingLogic)
     const { logout, updateCurrentTeam, updateCurrentOrganization } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
@@ -179,42 +179,32 @@ export function TopNavigation(): JSX.Element {
                     </Link>
                 </div>
             </div>
-            <div className="divider mt-05" />
-            <div className="organizations">
-                {user?.organizations.map((organization) => {
-                    if (organization.id == user.organization?.id) {
-                        return undefined
-                    }
-                    return (
-                        <a key={organization.id} onClick={() => updateCurrentOrganization(organization.id)}>
-                            <IconBuilding /> {organization.name}
-                        </a>
-                    )
-                })}
-                <a
-                    style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
-                    onClick={() =>
-                        guardPremiumFeature(
-                            user,
-                            preflight,
-                            showUpgradeModal,
-                            'organizations_projects',
-                            'multiple organizations',
-                            'Organizations group people building products together. An organization can then have multiple projects.',
-                            () => {
-                                setOrganizationModalShown(true)
-                            },
-                            {
-                                cloud: false,
-                                selfHosted: true,
+            {organizationCreationAllowed ? (
+                <>
+                    <div className="divider mt-05" />
+                    <div className="organizations">
+                        {user?.organizations.map((organization) => {
+                            if (organization.id == user.organization?.id) {
+                                return undefined
                             }
-                        )
-                    }
-                >
-                    <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
-                </a>
-            </div>
-            <div className="divider mb-05" />
+                            return (
+                                <a key={organization.id} onClick={() => updateCurrentOrganization(organization.id)}>
+                                    <IconBuilding /> {organization.name}
+                                </a>
+                            )
+                        })}
+                        <a
+                            style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
+                            onClick={() => setOrganizationModalShown(true)}
+                        >
+                            <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
+                        </a>
+                    </div>
+                    <div className="divider mb-05" />
+                </>
+            ) : (
+                <div className="divider mt-05 mb-05" />
+            )}
             <div className="text-center">
                 <a onClick={logout} data-attr="top-menu-item-logout">
                     Log out

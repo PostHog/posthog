@@ -1,8 +1,9 @@
 import { Alert, Input } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import React, { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from '../PreflightCheck/logic'
 
 export function CreateOrganizationModal({
     isVisible,
@@ -12,6 +13,7 @@ export function CreateOrganizationModal({
     setIsVisible?: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
     const { createOrganization } = useActions(organizationLogic)
+    const { organizationCreationAllowed } = useValues(preflightLogic)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const inputRef = useRef<Input | null>(null)
 
@@ -24,6 +26,23 @@ export function CreateOrganizationModal({
             }
         }
     }, [inputRef, setIsVisible])
+
+    if (!organizationCreationAllowed) {
+        return (
+            <Modal title="Creating an Organization" closable={false} visible={isVisible} footer={null}>
+                <Alert
+                    type="error"
+                    message={
+                        <>
+                            No more organizations can be created in this PostHog instance.
+                            <br />
+                            If you don't belong to a organization, you'll need to ask for an invite.
+                        </>
+                    }
+                />
+            </Modal>
+        )
+    }
 
     return (
         <Modal

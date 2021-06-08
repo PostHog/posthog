@@ -52,6 +52,13 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus, PreflightM
                 return Boolean(preflight && (!preflight.site_url || preflight.site_url != window.location.origin))
             },
         ],
+        organizationCreationAllowed: [
+            (s) => [s.preflight],
+            (preflight): boolean => {
+                // Organization creation is disallowed on initiated private instances for security
+                return !preflight || preflight.cloud || !preflight.initiated
+            },
+        ],
         configOptions: [
             (s) => [s.preflight],
             (preflight): Record<string, string>[] => {
