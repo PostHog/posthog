@@ -1,5 +1,4 @@
 import secrets
-from distutils.util import strtobool
 from typing import Any, Dict, Optional
 
 import posthoganalytics
@@ -21,7 +20,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.utils import get_safe_cache, render_template
+from posthog.utils import get_safe_cache, render_template, str_to_bool
 
 
 class DashboardSerializer(serializers.ModelSerializer):
@@ -248,7 +247,7 @@ class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         for key in filters:
             if key == "saved":
-                if strtobool(str(request.GET["saved"])):
+                if str_to_bool(request.GET["saved"]):
                     queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
                 else:
                     queryset = queryset.filter(Q(saved=False))

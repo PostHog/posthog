@@ -12,7 +12,7 @@ import {
 } from '~/types'
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { ActionFilterProps } from './ActionFilter'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export type LocalFilter = EntityFilter & { order: number; properties?: PropertyFilter[] }
@@ -115,7 +115,7 @@ export const entityFilterLogic = kea<
 
     selectors: {
         entities: [
-            (s) => [eventDefinitionsLogic.selectors.eventNames, s.actions],
+            (s) => [eventDefinitionsModel.selectors.eventNames, s.actions],
             (events, actions): { [x: string]: ActionFilter[] | BareEntity[] } => ({
                 [EntityTypes.ACTIONS]: actions,
                 [EntityTypes.EVENTS]: events.map((event) => ({ id: event, name: event })),

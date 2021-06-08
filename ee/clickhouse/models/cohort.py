@@ -2,12 +2,15 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from dateutil import parser
+from django.conf import settings
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
+    GET_PERSON_ID_BY_COHORT_ID,
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
 )
@@ -19,6 +22,9 @@ from ee.clickhouse.sql.person import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models import Action, Cohort, Filter, Team
+
+# temporary marker to denote when cohortpeople table started being populated
+TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 
 def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
@@ -81,11 +87,29 @@ def parse_action_timestamps(days: int) -> Tuple[str, Dict[str, str]]:
 
 
 def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
-    person_query, params = format_person_query(cohort)
+    person_query, params = determine_precalculated_or_live_person_query(cohort)
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query, latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
     )
     return person_id_query, params
+
+
+def determine_precalculated_or_live_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
+    if (
+        cohort.last_calculation
+        and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
+        and not settings.DEBUG
+        and not settings.TEST
+    ):
+        return (
+            f"""
+        person_id IN ({GET_PERSON_ID_BY_COHORT_ID})
+        """,
+            {"team_id": cohort.team_id, "cohort_id": cohort.pk},
+        )
+    else:
+        person_query, params = format_person_query(cohort)
+        return person_query, params
 
 
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
