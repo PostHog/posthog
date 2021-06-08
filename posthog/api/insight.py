@@ -31,7 +31,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
-from posthog.utils import generate_cache_key, get_safe_cache, str_to_bool, should_refresh
+from posthog.utils import generate_cache_key, get_safe_cache, should_refresh, str_to_bool
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
