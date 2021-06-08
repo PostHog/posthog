@@ -36,6 +36,7 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
+from rest_framework.request import Request
 from sentry_sdk import push_scope
 
 from posthog.exceptions import RequestParsingError
@@ -663,6 +664,11 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
         offset_hours = int(offset.total_seconds()) / 3600
         result[tz] = offset_hours
     return result
+
+
+def should_refresh(request: Request) -> bool:
+    key = "refresh"
+    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true"
 
 
 def str_to_bool(value: Any) -> bool:
