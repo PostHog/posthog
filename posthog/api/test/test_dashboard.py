@@ -293,3 +293,8 @@ class TestDashboard(APIBaseTest):
         # Expecting this to only have one day as per the dashboard filter
         response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
         self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)  # type: ignore
+
+    def test_invalid_properties(self):
+        response = self.client.get("/api/insight/trend/?properties=%s" % ("inavlid_json")).json()
+
+        self.assertEqual(response["result"], [])
