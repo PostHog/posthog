@@ -10,7 +10,7 @@ import { killProcess } from '../src/utils/kill'
 import { delay } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
-import { imports } from '../src/worker/vm/imports'
+import { writeToFile } from '../src/worker/vm/extensions/test-utils'
 import { resetGraphileSchema } from './helpers/graphile'
 import { pluginConfig39 } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
@@ -35,7 +35,7 @@ jest.mock('../src/utils/db/sql')
 jest.mock('../src/utils/kill')
 jest.setTimeout(60000) // 60 sec timeout
 
-const { console: testConsole } = imports['test-utils/write-to-file']
+const { console: testConsole } = writeToFile
 
 const testCode = `
     import { console } from 'test-utils/write-to-file'

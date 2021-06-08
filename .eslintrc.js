@@ -6,7 +6,7 @@ module.exports = {
         project: ['./tsconfig.eslint.json'],
     },
     plugins: ['@typescript-eslint', 'simple-import-sort'],
-    extends: ['plugin:@typescript-eslint/recommended', 'prettier', 'prettier/@typescript-eslint', 'prettier/react'],
+    extends: ['plugin:@typescript-eslint/recommended', 'prettier'],
     ignorePatterns: ['bin', 'dist', 'node_modules'],
     rules: {
         'simple-import-sort/imports': 'error',

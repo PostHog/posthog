@@ -5,14 +5,14 @@ import { Hub } from '../../src/types'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
-import { imports } from '../../src/worker/vm/imports'
+import { writeToFile } from '../../src/worker/vm/extensions/test-utils'
 import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 import { delayUntilEventIngested } from '../shared/process-event'
 
-const { console: testConsole } = imports['test-utils/write-to-file']
+const { console: testConsole } = writeToFile
 
 jest.setTimeout(60000) // 60 sec timeout
 
