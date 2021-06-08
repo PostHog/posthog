@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { posthogEvents } from 'lib/utils'
 import { EventDefinition, SelectOption } from '~/types'
-import { eventDefinitionsLogicType } from './eventDefinitionsLogicType'
+import { eventDefinitionsModelType } from './eventDefinitionsModelType'
 
 interface EventDefinitionStorage {
     count: number
@@ -15,9 +15,13 @@ interface EventsGroupedInterface {
     options: SelectOption[]
 }
 
-export const eventDefinitionsLogic = kea<
-    eventDefinitionsLogicType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface, SelectOption>
+export const eventDefinitionsModel = kea<
+    eventDefinitionsModelType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface>
 >({
+    actions: () => ({
+        updateEventDefinition: (id: string, description: string | null) => ({ id, description }),
+        setEventDefinitions: (event) => ({ event }),
+    }),
     loaders: ({ values }) => ({
         eventStorage: [
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
@@ -27,13 +31,21 @@ export const eventDefinitionsLogic = kea<
                         ? 'api/projects/@current/event_definitions/?limit=5000'
                         : values.eventStorage.next
                     if (!url) {
-                        throw new Error('Incorrect call to eventDefinitionsLogic.loadEventDefinitions')
+                        throw new Error('Incorrect call to eventDefinitionsModel.loadEventDefinitions')
                     }
                     const eventStorage = await api.get(url)
                     return {
                         count: eventStorage.count,
                         results: [...values.eventStorage.results, ...eventStorage.results],
                         next: eventStorage.next,
+                    }
+                },
+                setEventDefinitions: ({ event }) => {
+                    const updatedDefinitions = values.eventDefinitions.map((e) => (event.id === e.id ? event : e))
+                    return {
+                        count: values.eventStorage.count,
+                        results: updatedDefinitions,
+                        next: values.eventStorage.next,
                     }
                 },
             },
@@ -44,6 +56,10 @@ export const eventDefinitionsLogic = kea<
             if (eventStorage.next) {
                 actions.loadEventDefinitions()
             }
+        },
+        updateEventDefinition: async ({ id, description }) => {
+            const response = await api.update(`api/projects/@current/event_definitions/${id}`, { description })
+            actions.setEventDefinitions(response)
         },
     }),
     events: ({ actions }) => ({

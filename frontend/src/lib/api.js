@@ -1,5 +1,6 @@
 import { fromParamsGivenUrl, toParams } from 'lib/utils'
 import { Environments, ENVIRONMENT_LOCAL_STORAGE_KEY } from 'lib/constants'
+import posthog from 'posthog-js'
 
 export function getCookie(name) {
     var cookieValue = null
@@ -38,6 +39,7 @@ class Api {
         }
 
         if (!response.ok) {
+            posthog.capture('client_request_failure', { url, method: 'GET', status: response.status })
             const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
         }
@@ -57,6 +59,7 @@ class Api {
             body: isFormData ? data : JSON.stringify(data),
         })
         if (!response.ok) {
+            posthog.capture('client_request_failure', { url, method: 'PATCH', status: response.status })
             const jsonData = await getJSONOrThrow(response)
             if (Array.isArray(jsonData)) {
                 throw jsonData
@@ -79,6 +82,7 @@ class Api {
             body: isFormData ? data : JSON.stringify(data),
         })
         if (!response.ok) {
+            posthog.capture('client_request_failure', { url, method: 'POST', status: response.status })
             const jsonData = await getJSONOrThrow(response)
             if (Array.isArray(jsonData)) {
                 throw jsonData
@@ -99,6 +103,7 @@ class Api {
             },
         })
         if (!response.ok) {
+            posthog.capture('client_request_failure', { url, method: 'DELETE', status: response.status })
             const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
         }

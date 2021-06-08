@@ -35,7 +35,9 @@ class ClickhouseStickiness(Stickiness):
     def stickiness(self, entity: Entity, filter: StickinessFilter, team_id: int) -> Dict[str, Any]:
 
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            filter.properties, team_id, filter_test_accounts=filter.filter_test_accounts
+        )
         trunc_func = get_trunc_func_ch(filter.interval)
 
         params: Dict = {"team_id": team_id}

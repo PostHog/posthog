@@ -1,6 +1,6 @@
-import '~/global.scss' /* Contains PostHog's main styling configurations */
-import '~/antd.less' /* Imports Ant Design's components */
+import '~/styles'
 import './DashboardItems.scss'
+
 import React from 'react'
 import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'

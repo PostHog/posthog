@@ -3,10 +3,23 @@ import dayjs from 'dayjs'
 import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
-import { AnnotationScope } from 'lib/constants'
-import { AnnotationType } from '~/types'
+import { AnnotationType, AnnotationScope } from '~/types'
 
-export const Annotations = function Annotations({
+interface AnnotationsProps {
+    dates: string[]
+    leftExtent: number
+    interval: number
+    topExtent: number
+    dashboardItemId?: number
+    color: string | null
+    graphColor: string
+    accessoryColor: string | null
+    currentDateMarker: string
+    onClick: () => void
+    onClose: () => void
+}
+
+export function Annotations({
     dates,
     leftExtent,
     interval,
@@ -18,7 +31,7 @@ export const Annotations = function Annotations({
     onClose,
     graphColor,
     currentDateMarker,
-}: Record<string, any>): JSX.Element[] {
+}: AnnotationsProps): JSX.Element[] {
     const { diffType, groupedAnnotations } = useValues(
         annotationsLogic({
             pageKey: dashboardItemId ? dashboardItemId : null,
@@ -40,7 +53,12 @@ export const Annotations = function Annotations({
     const markers: JSX.Element[] = []
     dates &&
         dates.forEach((date: string, index: number) => {
-            const annotations = groupedAnnotations[dayjs(date).startOf(diffType)]
+            const annotations =
+                groupedAnnotations[
+                    dayjs(date)
+                        .startOf(diffType as dayjs.OpUnitType)
+                        .format('YYYY-MM-DD')
+                ]
             if (annotations) {
                 markers.push(
                     <AnnotationMarker

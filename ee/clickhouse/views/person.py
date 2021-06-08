@@ -22,7 +22,9 @@ class ClickhousePersonViewSet(PersonViewSet):
 
             events = Event.objects.filter(team=self.team, distinct_id__in=person.distinct_ids)
             events.delete()
-            delete_person(person.uuid, delete_events=True, team_id=self.team.pk)
+            delete_person(
+                person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
+            )
             person.delete()
             return response.Response(status=204)
         except Person.DoesNotExist:

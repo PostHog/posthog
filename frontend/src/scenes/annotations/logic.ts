@@ -1,9 +1,11 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
-import { annotationsModel } from '~/models'
+import { annotationsModel } from '~/models/annotationsModel'
+import { annotationsTableLogicType } from './logicType'
+import { AnnotationType } from '~/types'
 
-export const annotationsTableLogic = kea({
+export const annotationsTableLogic = kea<annotationsTableLogicType<AnnotationType>>({
     loaders: ({ actions }) => ({
         annotations: {
             __default: [],
@@ -38,26 +40,26 @@ export const annotationsTableLogic = kea({
         restoreAnnotation: (id) => ({ id }),
         loadAnnotationsNext: () => true,
         setNext: (next) => ({ next }),
-        appendAnnotations: (annotations) => ({ annotations }),
+        appendAnnotations: (annotations: AnnotationType[]) => ({ annotations }),
     }),
     listeners: ({ actions, values }) => ({
         updateAnnotation: async ({ id, content }) => {
             await api.update(`api/annotation/${id}`, { content })
-            actions.loadAnnotations({})
+            actions.loadAnnotations()
         },
         restoreAnnotation: async ({ id }) => {
             await api.update(`api/annotation/${id}`, { deleted: false })
-            actions.loadAnnotations({})
+            actions.loadAnnotations()
         },
         deleteAnnotation: ({ id }) => {
             deleteWithUndo({
                 endpoint: 'annotation',
                 object: { name: 'Annotation', id },
-                callback: () => actions.loadAnnotations({}),
+                callback: () => actions.loadAnnotations(),
             })
         },
         loadAnnotationsNext: async () => {
-            let results = []
+            let results: AnnotationType[] = []
             if (values.next) {
                 const response = await api.get(values.next)
                 actions.setNext(response.next)
@@ -65,8 +67,8 @@ export const annotationsTableLogic = kea({
             }
             actions.appendAnnotations(results)
         },
-        [annotationsModel.actions.createGlobalAnnotation]: () => {
-            actions.loadAnnotations({})
+        [annotationsModel.actionTypes.createGlobalAnnotationSuccess]: () => {
+            actions.loadAnnotations()
         },
     }),
     events: ({ actions }) => ({

@@ -24,12 +24,14 @@ export type AvailableFeatures =
     | 'google_login'
     | 'dashboard_collaboration'
     | 'clickhouse'
+    | 'ingestion_taxonomy'
 
 export interface ColumnConfig {
     active: string[] | 'DEFAULT'
 }
 export interface UserType {
     uuid: string
+    date_joined: string
     first_name: string
     email: string
     email_opt_in: boolean
@@ -511,12 +513,18 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
+export enum AnnotationScope {
+    DashboardItem = 'dashboard_item',
+    Project = 'project',
+    Organization = 'organization',
+}
+
 export interface AnnotationType {
     id: string
-    scope: 'organization' | 'dashboard_item'
+    scope: AnnotationScope
     content: string
     date_marker: string
-    created_by?: UserBasicType | null
+    created_by?: UserBasicType | 'local' | null
     created_at: string
     updated_at: string
     dashboard_item?: number
@@ -762,17 +770,28 @@ export interface LicenseType {
 
 export interface EventDefinition {
     id: string
+    owner: UserBasicType | null
     name: string
+    description: string
+    tags: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
 }
 
 export interface PropertyDefinition {
     id: string
+    owner: UserBasicType | null
     name: string
+    description: string
+    tags: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
+}
+
+export interface PersonProperty {
+    name: string
+    count: number
 }
 
 export interface SelectOption {
