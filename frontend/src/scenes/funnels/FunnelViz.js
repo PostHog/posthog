@@ -9,6 +9,7 @@ import { LineGraph } from 'scenes/insights/LineGraph'
 import { router } from 'kea-router'
 import { IllustrationDanger } from 'lib/components/icons'
 import { InputNumber } from 'antd'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export function FunnelViz({
     steps: stepsParam,
@@ -24,6 +25,7 @@ export function FunnelViz({
     const { results: stepsResult, resultsLoading: funnelLoading, filters, conversionWindowInDays } = useValues(logic)
     const { loadResults: loadFunnel, loadConversionWindow } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
+    const { preflight } = useValues(preflightLogic)
 
     function buildChart() {
         if (!steps || steps.length === 0) {
@@ -97,15 +99,20 @@ export function FunnelViz({
         return steps && steps.length > 0 && steps[0].labels ? (
             <>
                 <div style={{ position: 'absolute', marginTop: -20, textAlign: 'center', width: '90%' }}>
-                    converted within&nbsp;
-                    <InputNumber
-                        size="small"
-                        min={1}
-                        max={365}
-                        defaultValue={conversionWindowInDays}
-                        onChange={(days) => loadConversionWindow(days)}
-                    />
-                    &nbsp; days = % converted from first to last step
+                    {preflight?.is_clickhouse_enabled && (
+                        <>
+                            converted within&nbsp;
+                            <InputNumber
+                                size="small"
+                                min={1}
+                                max={365}
+                                defaultValue={conversionWindowInDays}
+                                onChange={(days) => loadConversionWindow(days)}
+                            />
+                            &nbsp;days =&nbsp;
+                        </>
+                    )}
+                    % converted from first to last step
                 </div>
                 <LineGraph
                     pageKey="trends-annotations"
