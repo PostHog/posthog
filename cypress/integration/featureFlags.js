@@ -18,6 +18,7 @@ describe('Feature Flags', () => {
 
         // select the first property
         cy.get('[data-attr=property-filter-dropdown]').click()
+        cy.get('[data-attr=property-filter-dropdown]').type('is_demo')
         cy.get('[data-attr=prop-filter-person-0]').click({ force: true })
 
         // selects the first value

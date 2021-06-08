@@ -789,6 +789,11 @@ export interface PropertyDefinition {
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
 }
 
+export interface PersonProperty {
+    name: string
+    count: number
+}
+
 export interface SelectOption {
     value: string
     label?: string

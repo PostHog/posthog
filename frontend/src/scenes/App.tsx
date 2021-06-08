@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { kea, useActions, useValues } from 'kea'
+import { kea, useActions, useMountedLogic, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
@@ -17,6 +17,7 @@ import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
 import { appLogicType } from './AppType'
 import { PreflightStatus } from '~/types'
+import { models } from '~/models'
 
 export const appLogic = kea<appLogicType<PreflightStatus>>({
     actions: {
@@ -60,7 +61,24 @@ export const appLogic = kea<appLogicType<PreflightStatus>>({
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
-    return showApp ? <AppScene /> : showingDelayedSpinner ? <SceneLoading /> : null
+    const { user } = useValues(userLogic)
+
+    if (showApp) {
+        return (
+            <>
+                {user ? <Models /> : null}
+                <AppScene />
+            </>
+        )
+    }
+
+    return showingDelayedSpinner ? <SceneLoading /> : null
+}
+
+/** Loads every logic in the "src/models" folder */
+function Models(): null {
+    useMountedLogic(models)
+    return null
 }
 
 function AppScene(): JSX.Element | null {
