@@ -855,3 +855,23 @@ export function maybeAddCommasToInteger(value: any): any {
     const internationalNumberFormat = new Intl.NumberFormat('en-US')
     return internationalNumberFormat.format(value)
 }
+
+export function hexToRGBA(hex: string, alpha = 1): string {
+    /**
+     * Returns an RGBA string with specified alpha if the hex string is valid.
+     * @param hex e.g. '#FF0000'
+     * @param alpha e.g. 0.5
+     */
+    const originalString = hex.trim()
+    const hasPoundSign = originalString[0] === '#'
+    const originalColor = hasPoundSign ? originalString.slice(1) : originalString
+    if (originalColor.length !== 6) {
+        return originalString
+    }
+    const originalBase16 = parseInt(originalColor, 16)
+    const r = originalBase16 >> 16
+    const g = (originalBase16 >> 8) & 0x00ff
+    const b = originalBase16 & 0x0000ff
+    const a = alpha
+    return `rgba(${[r, g, b, a].join(',')})`
+}
