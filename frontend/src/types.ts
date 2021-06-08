@@ -545,13 +545,14 @@ export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PAT
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type PathType = typeof PAGEVIEW | typeof AUTOCAPTURE | typeof SCREEN | typeof CUSTOM_EVENT
+export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
 export interface FilterType {
     insight?: InsightType
     display?: DisplayType
-    interval?: string
+    interval?: string // TODO: Move to IntervalType
     date_from?: string
     date_to?: string
     properties?: PropertyFilter[]

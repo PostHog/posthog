@@ -38,6 +38,7 @@ export function LineGraph({
     dashboardItemId,
     inSharedMode,
     percentage = false,
+    interval = undefined,
     totalValue,
 }) {
     const chartRef = useRef()
@@ -61,7 +62,7 @@ export function LineGraph({
         ? useValues(annotationsLogic({ pageKey: dashboardItemId || null }))
         : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
-    const [interval, setInterval] = useState(0)
+    const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
     const [annotationInRange, setInRange] = useState(false)
     const size = useWindowSize()
@@ -125,10 +126,10 @@ export function LineGraph({
         const boundaryRightExtent = myLineChart.current.scales['x-axis-0'].right
         const boundaryTicks = myLineChart.current.scales['x-axis-0'].ticks.length
         const boundaryDelta = boundaryRightExtent - boundaryLeftExtent
-        const boundaryInterval = boundaryDelta / (boundaryTicks - 1)
+        const _boundaryInterval = boundaryDelta / (boundaryTicks - 1)
         const boundaryTopExtent = myLineChart.current.scales['x-axis-0'].top + 8
         setLeftExtent(boundaryLeftExtent)
-        setInterval(boundaryInterval)
+        setBoundaryInterval(_boundaryInterval)
         setTopExtent(boundaryTopExtent)
     }
 
@@ -277,7 +278,12 @@ export function LineGraph({
                 tooltipEl.style.padding = tooltipModel.padding + 'px'
                 tooltipEl.style.pointerEvents = 'none'
                 if (tooltipModel.body) {
-                    const titleLines = tooltipModel.title || []
+                    const referenceDataPoint = tooltipModel.dataPoints[0] // Use this point as reference to get the date
+                    const comparing = datasets[referenceDataPoint.datasetIndex].compare
+                    const altTitle = tooltipModel.title && comparing ? tooltipModel.title[0] : ''
+                    const referenceDate = !comparing
+                        ? datasets[referenceDataPoint.datasetIndex].days[referenceDataPoint.index]
+                        : undefined
                     const bodyLines = tooltipModel.body
                         .flatMap(({ lines }) => lines)
                         .map((component, idx) => ({
@@ -285,9 +291,12 @@ export function LineGraph({
                             component,
                             ...tooltipModel.labelColors[idx],
                         }))
+
                     ReactDOM.render(
                         <InsightTooltip
-                            titleLines={titleLines}
+                            altTitle={altTitle}
+                            referenceDate={referenceDate}
+                            interval={interval}
                             bodyLines={bodyLines}
                             inspectUsersLabel={inspectUsersLabel}
                         />,
@@ -541,7 +550,7 @@ export function LineGraph({
                     labeledDays={datasets[0].labels}
                     dates={datasets[0].days}
                     leftExtent={leftExtent}
-                    interval={interval}
+                    interval={boundaryInterval}
                     topExtent={topExtent}
                     dashboardItemId={dashboardItemId}
                     currentDateMarker={

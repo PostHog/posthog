@@ -1,4 +1,6 @@
+import { DateDisplay } from 'lib/components/DateDisplay'
 import React from 'react'
+import { IntervalType } from '~/types'
 import './InsightTooltip.scss'
 
 interface BodyLine {
@@ -9,17 +11,23 @@ interface BodyLine {
 }
 
 interface InsightTooltipProps {
-    titleLines: string[]
+    altTitle?: string // Alternate string to display as title (in case date reference is not available, e.g. when comparing previous)
+    referenceDate?: string
+    interval: IntervalType
     bodyLines: BodyLine[]
     inspectUsersLabel?: boolean
 }
 
-export function InsightTooltip({ titleLines, bodyLines, inspectUsersLabel }: InsightTooltipProps): JSX.Element {
+export function InsightTooltip({
+    altTitle,
+    referenceDate,
+    interval,
+    bodyLines,
+    inspectUsersLabel,
+}: InsightTooltipProps): JSX.Element {
     return (
         <>
-            {titleLines.map((title, i) => (
-                <header key={i}>{title}</header>
-            ))}
+            <header>{referenceDate ? <DateDisplay interval={interval} date={referenceDate} /> : altTitle}</header>
             <ul>
                 {bodyLines.map((line, i) => {
                     const iconColor = line.backgroundColor || line.borderColor
