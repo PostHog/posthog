@@ -10,9 +10,11 @@ import { FilterSelector, sessionsFiltersLogic } from 'scenes/sessions/filters/se
 import { Link } from 'lib/components/Link'
 import { cohortsModel } from '~/models/cohortsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
 
 export function SessionsFilterBox({ selector }: { selector: FilterSelector }): JSX.Element | null {
-    const { openFilter, personProperties } = useValues(sessionsFiltersLogic)
+    const { personProperties } = useValues(personPropertiesModel)
+    const { openFilter } = useValues(sessionsFiltersLogic)
 
     const { closeFilterSelect, dropdownSelected } = useActions(sessionsFiltersLogic)
 

@@ -123,13 +123,6 @@ export const sessionsFiltersLogic = kea<
         ],
     },
     loaders: () => ({
-        personProperties: [
-            [] as Array<PersonProperty>,
-            {
-                loadPersonProperties: async (): Promise<Array<PersonProperty>> =>
-                    await api.get('api/person/properties'),
-            },
-        ],
         customFilters: [
             [] as Array<SavedFilter>,
             {
