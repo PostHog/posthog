@@ -182,8 +182,10 @@ def insight_test_factory(event_factory, person_factory):
             @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
             def test_insight_funnels_basic(self):
                 event_factory(team=self.team, event="user signed up", distinct_id="1")
-                response = self.client.post(
-                    "/api/insight/funnel/", {"events": [{"id": "user signed up", "type": "events", "order": 0}]}
+                response = self.client.get(
+                    "/api/insight/funnel/?events={}".format(
+                        json.dumps([{"id": "user signed up", "type": "events", "order": 0},])
+                    )
                 ).json()
                 self.assertEqual(response["result"]["loading"], True)
 
