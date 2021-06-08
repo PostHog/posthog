@@ -81,8 +81,12 @@ There's a multitude of settings you can use to control the plugin server. Use th
 
 ## Releasing a new version
 
-It's magic! Just bump up `version` in `package.json` on the main branch and the new version will be published automatically, with a matching PR to the main PostHog repo created.
-You can also use a `bump patch/minor/major` label on a PR - this will do the above for you when the PR is merged.
+Just bump up `version` in `package.json` on the main branch and the new version will be published automatically,
+with a matching PR in the [main PostHog repo](https://github.com/posthog/posthog) created.
+
+It's advised to use `bump patch/minor/major` label on PRs - that way the above will be done automatically
+when the PR is merged.
+
 Courtesy of GitHub Actions.
 
 ## Walkthrough
@@ -148,4 +152,4 @@ An `organization_id` is tied to a _company_ and its _installed plugins_, a `team
 
 ## Questions?
 
-### [Join our Slack community.](posthog.com/slack)
+### [Join our Slack community.](https://posthog.com/slack)
