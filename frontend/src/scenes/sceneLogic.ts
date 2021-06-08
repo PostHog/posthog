@@ -9,6 +9,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { userLogic } from 'scenes/userLogic'
 
 export enum Scene {
     Error404 = '404',
@@ -207,8 +208,13 @@ export const routes: Record<string, Scene> = {
 
 export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneConfig>>({
     actions: {
+        // 1. Start opening the scene, yet the listener may override and do something else (calls loadScene)
+        openScene: (scene: Scene, params: Params) => ({ scene, params }),
+        // 2. Start loading the scene JavaScript and mount any logic, then call setScene
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
+        // 3. Set the scene reducer
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
+
         setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
         showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
         hideUpgradeModal: true,
@@ -272,8 +278,9 @@ export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneCo
                 router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
+
         for (const [path, scene] of Object.entries(routes)) {
-            mapping[path] = (params) => actions.loadScene(scene, params)
+            mapping[path] = (params) => actions.openScene(scene, params)
         }
 
         mapping['/*'] = () => actions.loadScene(Scene.Error404, {})
@@ -295,6 +302,52 @@ export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneCo
         setScene: () => {
             posthog.capture('$pageview')
             document.title = values.scene ? `${identifierToHuman(values.scene)} • PostHog` : 'PostHog'
+        },
+        openScene: ({ scene, params }) => {
+            const sceneConfig = sceneConfigurations[scene] || {}
+            const { user } = userLogic.values
+            const { preflight } = preflightLogic.values
+
+            if (scene === Scene.Signup && preflight && !preflight.cloud && preflight.initiated) {
+                // If user is on an initiated self-hosted instance, redirect away from signup
+                router.actions.replace('/login')
+                return
+            }
+
+            if (user) {
+                // If user is already logged in, redirect away from unauthenticated-only routes like signup
+                if (sceneConfig.onlyUnauthenticated) {
+                    router.actions.replace('/')
+                    return
+                }
+
+                // Redirect to org/project creation if there's no org/project respectively, unless using invite
+                if (scene !== Scene.InviteSignup) {
+                    if (!user.organization) {
+                        if (location.pathname !== '/organization/create') {
+                            router.actions.replace('/organization/create')
+                        }
+                        return
+                    } else if (!user.team) {
+                        if (location.pathname !== '/project/create') {
+                            router.actions.replace('/project/create')
+                        }
+                        return
+                    }
+
+                    // If ingestion tutorial not completed, redirect to it
+                    if (
+                        !user.team?.completed_snippet_onboarding &&
+                        !location.pathname.startsWith('/ingestion') &&
+                        !location.pathname.startsWith('/personalization')
+                    ) {
+                        router.actions.replace('/ingestion')
+                        return
+                    }
+                }
+            }
+
+            actions.loadScene(scene, params)
         },
         loadScene: async ({ scene, params = {} }: { scene: Scene; params: Params }, breakpoint) => {
             if (values.scene === scene) {
