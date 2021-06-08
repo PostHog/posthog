@@ -2,6 +2,7 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
+from ee.clickhouse.queries.trends.util import populate_entity_params
 from posthog.model import Cohort, Entity, Filter, Property, Team
 
 
@@ -12,36 +13,42 @@ class ClickhouseEventQuery:
 
     _PERSON_PROPERTIES_ALIAS = "person_props"
     _filter: Filter
+    _entity: Entity
     _team: Team
     _should_join_pdi = False
     _should_join_persons = False
 
     def __init__(self, filter: Filter, entity: Entity, team: Team, **kwargs) -> None:
         self._filter = filter
+        self._entity = entity
         self._team = team
         self.params = {
             "team_id": self._team.pk,
         }
 
-        self._should_join_pdi = self._determine_should_join_pdi(entity)
-        self._should_join_persons = self._determine_should_join_persons(filter, entity)
+        self._should_join_pdi = self._determine_should_join_pdi()
+        self._should_join_persons = self._determine_should_join_persons()
 
     def get_query(self, fields) -> Tuple[str, Dict[str, Any]]:
-        prop_query, prop_params = self._get_props(filter)
+        prop_query, prop_params = self._get_props()
         self.params.update(prop_params)
+
+        entity_query, entity_params = populate_entity_params(self.entity)
+        self.params.update(entity_params)
 
         query = f"""
             SELECT {fields} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_pdi_query()}
             {self._get_person_query()}
             WHERE team_id = %(team_id)s
+            {entity_query}
             {prop_query}
         """
 
         return query, self.params
 
-    def _determine_should_join_pdi(self, entity: Entity) -> None:
-        if entity.math == "dau":
+    def _determine_should_join_pdi(self) -> None:
+        if self._entity.math == "dau":
             self._should_join_pdi = True
             return
 
@@ -72,20 +79,20 @@ class ClickhouseEventQuery:
         else:
             return ""
 
-    def _determine_should_join_persons(self, filter: Filter, entity: Entity) -> None:
-        for prop in filter.properties:
+    def _determine_should_join_persons(self) -> None:
+        for prop in self._filter.properties:
             if prop.type == "person":
                 self._should_join_pdi = True
                 self._should_join_persons = True
                 return
 
-        for prop in entity.properties:
+        for prop in self._entity.properties:
             if prop.type == "person":
                 self._should_join_pdi = True
                 self._should_join_persons = True
                 return
 
-        if filter.breakdown_type == "person":
+        if self._filter.breakdown_type == "person":
             self._should_join_pdi = True
             self._should_join_persons = True
 
@@ -107,9 +114,9 @@ class ClickhouseEventQuery:
             ON {self.PERSON_TABLE_ALIAS}.id = {self.PDI_TABLE_NAME}.person_id
             """
 
-    def _get_props(self, filter: Filter, allow_denormalized_props: bool = False,) -> Tuple[str, Dict]:
+    def _get_props(self, allow_denormalized_props: bool = False) -> Tuple[str, Dict]:
 
-        filters = filter.properties
+        filters = self._filter.properties
         filter_test_accounts = filter.filter_test_accounts
         team_id = self._team.pk
         table_name = f"{self.EVENT_TABLE_ALIAS}."
