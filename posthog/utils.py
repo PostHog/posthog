@@ -661,3 +661,9 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
         offset_hours = int(offset.total_seconds()) / 3600
         result[tz] = offset_hours
     return result
+
+
+def str_to_bool(value: Any) -> bool:
+    if not value:
+        return False
+    return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
