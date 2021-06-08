@@ -422,6 +422,20 @@ def factory_test_event_api(event_factory, person_factory, _):
             response = self.client.get(f"/api/event/im_a_string_not_an_integer",)
             self.assertIn(response.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST])
 
+        def test_first_last_seen_event(self):
+            for idx in range(0, 10):
+                event_factory(
+                    team=self.team,
+                    event="some event",
+                    distinct_id=idx,
+                    timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
+                )
+            first_seen_response = self.client.get(f"/api/event/?first_seen=true").json()
+            self.assertEqual(first_seen_response["results"][0]["distinct_id"], "0")
+
+            last_seen_response = self.client.get(f"/api/event/?last_seen=true").json()
+            self.assertEqual(last_seen_response["results"][0]["distinct_id"], "9")
+
     return TestEvents
 
 
