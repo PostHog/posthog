@@ -293,3 +293,13 @@ class TestDashboard(APIBaseTest):
         # Expecting this to only have one day as per the dashboard filter
         response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
         self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)  # type: ignore
+
+    def test_invalid_properties(self):
+        properties = "invalid_json"
+
+        response = self.client.get(f"/api/insight/trend/?properties={properties}")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertDictEqual(
+            response.json(), self.validation_error_response("Properties are unparsable!", "invalid_input")
+        )

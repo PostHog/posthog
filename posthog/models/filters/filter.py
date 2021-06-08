@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, Optional
 
 from django.http import HttpRequest
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES
 from posthog.models.filters.base_filter import BaseFilter
@@ -61,10 +62,16 @@ class Filter(
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
         if request:
+            properties = {}
+            if request.GET.get(PROPERTIES):
+                try:
+                    properties = json.loads(request.GET[PROPERTIES])
+                except json.decoder.JSONDecodeError:
+                    raise ValidationError("Properties are unparsable!")
             data = {
                 **request.GET.dict(),
                 **(data if data else {}),
-                **({PROPERTIES: json.loads(request.GET[PROPERTIES])} if request.GET.get(PROPERTIES) else {}),
+                **({PROPERTIES: properties}),
             }
         elif not data:
             raise ValueError("You need to define either a data dict or a request")
