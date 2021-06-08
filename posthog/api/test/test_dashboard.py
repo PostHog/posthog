@@ -295,6 +295,11 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)  # type: ignore
 
     def test_invalid_properties(self):
-        response = self.client.get("/api/insight/trend/?properties=%s" % ("inavlid_json")).json()
+        properties = "invalid_json"
 
-        self.assertEqual(response["result"], [])
+        response = self.client.get(f"/api/insight/trend/?properties={properties}")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertDictEqual(
+            response.json(), self.validation_error_response("Properties are unparsable!", "invalid_input")
+        )
