@@ -133,13 +133,11 @@ def _process_content_sql(team: Team, entity: Entity, filter: Filter):
         cohort = Cohort.objects.get(pk=filter.breakdown_value)
         person_filter, person_filter_params = format_filter_query(cohort)
         person_filter = "AND distinct_id IN ({})".format(person_filter)
-    elif (
-        filter.breakdown_type == "person"
-        and isinstance(filter.breakdown, str)
-        and isinstance(filter.breakdown_value, str)
-    ):
-        person_prop = Property(**{"key": filter.breakdown, "value": filter.breakdown_value, "type": "person"})
-        filter.properties.append(person_prop)
+    elif filter.breakdown_type and isinstance(filter.breakdown, str) and isinstance(filter.breakdown_value, str):
+        breakdown_prop = Property(
+            **{"key": filter.breakdown, "value": filter.breakdown_value, "type": filter.breakdown_type}
+        )
+        filter.properties.append(breakdown_prop)
 
     prop_filters, prop_filter_params = parse_prop_clauses(
         filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
