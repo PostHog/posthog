@@ -63,14 +63,16 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
 
-    return showApp ? (
-        <>
-            {user ? <Models /> : null}
-            <AppScene />
-        </>
-    ) : showingDelayedSpinner ? (
-        <SceneLoading />
-    ) : null
+    if (showApp) {
+        return (
+            <>
+                {user ? <Models /> : null}
+                <AppScene />
+            </>
+        )
+    }
+
+    return showingDelayedSpinner ? <SceneLoading /> : null
 }
 
 /** Loads every logic in the "src/models" folder */
