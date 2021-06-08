@@ -9,14 +9,12 @@ import React, { useState, useEffect } from 'react'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from '~/layout/navigation/TopNavigation'
-import { EventDefinition, OrganizationMemberType, PropertyDefinition, UserBasicType } from '~/types'
+import { EventDefinition, EventOrPropType, OrganizationMemberType, PropertyDefinition, UserBasicType } from '~/types'
 import './VolumeTable.scss'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 
 type EventTableType = 'event' | 'property'
-
-export type EventOrPropType = EventDefinition & PropertyDefinition
 
 interface VolumeTableRecord {
     eventOrProp: EventOrPropType
@@ -80,7 +78,7 @@ export function VolumeTable({
     const [searchTerm, setSearchTerm] = useState(false as string | false)
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
     const { user } = useValues(userLogic)
-    const { openDefinitionDrawer } = useActions(definitionDrawerLogic)
+    const { openDrawer } = useActions(definitionDrawerLogic)
     const hasTaxonomyFeatures = user?.organization?.available_features?.includes('ingestion_taxonomy')
 
     const columns: ColumnsType<VolumeTableRecord> = [
@@ -179,7 +177,7 @@ export function VolumeTable({
                           <Button
                               type="link"
                               icon={<ArrowRightOutlined style={{ color: '#5375FF' }} />}
-                              onClick={() => openDefinitionDrawer(type, item.eventOrProp.id)}
+                              onClick={() => openDrawer(type, item.eventOrProp.id)}
                           />
                       )
                   },

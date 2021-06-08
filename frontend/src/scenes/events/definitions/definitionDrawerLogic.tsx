@@ -1,20 +1,18 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
-import { EventOrPropType } from './VolumeTable'
 import { definitionDrawerLogicType } from './definitionDrawerLogicType'
 import React from 'react'
 import { IndexedTrendResult } from 'scenes/trends/trendsLogic'
 import { toParams } from 'lib/utils'
-import { EventFormattedType } from '~/types'
+import { EventFormattedType, EventOrPropType } from '~/types'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
-export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
+export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropType>>({
     actions: () => ({
-        openDefinitionDrawer: (type: string, id: string) => ({ type, id }),
+        openDrawer: (type: string, id: string) => ({ type, id }),
         setType: (type: string) => ({ type }),
         setDefinition: (definition: EventOrPropType) => ({ definition }),
-        closeDrawer: () => false,
         updateDefinition: (payload: Partial<EventOrPropType>) => ({ payload }),
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
@@ -24,6 +22,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
         setDescriptionEditing: (editing: boolean) => ({ editing }),
         setGraphResults: (results: any) => ({ results }),
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
+        closeDrawer: true,
         cancelDescription: true,
         saveDescription: true,
     }),
@@ -31,7 +30,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
         drawerState: [
             false,
             {
-                openDefinitionDrawer: () => true,
+                openDrawer: () => true,
                 closeDrawer: () => false,
             },
         ],
@@ -65,7 +64,6 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
                 setDefinitionLoading: (_, { loading }) => loading,
             },
         ],
-        eventsSnippet: [],
         graphResults: [
             [] as IndexedTrendResult[],
             {
@@ -99,7 +97,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
         ],
     }),
     listeners: ({ actions, values }) => ({
-        openDefinitionDrawer: async ({ type, id }) => {
+        openDrawer: async ({ type, id }) => {
             const definitionType = type === 'event' ? 'event_definitions' : 'property_definitions'
             actions.setType(definitionType)
             const response = await api.get(`api/projects/@current/${definitionType}/${id}`)

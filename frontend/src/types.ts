@@ -830,3 +830,5 @@ export interface TiledIconModuleProps {
     subHeader?: string
     analyticsModuleKey?: string
 }
+
+export type EventOrPropType = EventDefinition & PropertyDefinition

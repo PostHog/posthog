@@ -5,7 +5,6 @@ from posthog.api.shared import UserBasicSerializer
 
 
 class EnterpriseEventDefinitionSerializer(serializers.ModelSerializer):
-    owner = UserBasicSerializer
     updated_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -26,3 +25,8 @@ class EnterpriseEventDefinitionSerializer(serializers.ModelSerializer):
     def update(self, event_definition: EnterpriseEventDefinition, validated_data):
         validated_data["updated_by"] = self.context["request"].user
         return super().update(event_definition, validated_data)
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["owner"] = UserBasicSerializer(instance=instance.owner).data
+        return representation
