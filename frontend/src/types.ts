@@ -782,7 +782,6 @@ export interface EventDefinition {
 
 export interface PropertyDefinition {
     id: string
-    owner: number | null
     name: string
     description: string
     tags: string[]
