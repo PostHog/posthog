@@ -29,7 +29,13 @@ export function CreateOrganizationModal({
 
     if (!organizationCreationAllowed) {
         return (
-            <Modal title="Creating an Organization" closable={false} visible={isVisible} footer={null}>
+            <Modal
+                title="Creating an Organization"
+                closable={!!setIsVisible}
+                onCancel={closeModal}
+                visible={isVisible}
+                footer={null}
+            >
                 <Alert
                     type="error"
                     message={
