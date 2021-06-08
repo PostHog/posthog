@@ -66,6 +66,12 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
                 },
             },
         ],
+        receivedFeatureFlags: [
+            false,
+            {
+                setFeatureFlags: () => true,
+            },
+        ],
     },
 
     events: ({ actions }) => ({

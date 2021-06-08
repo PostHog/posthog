@@ -9,7 +9,6 @@ import dayjs from 'dayjs'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { dashboardColors } from 'lib/colors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import './AnnotationMarker.scss'
 import { AnnotationScope, AnnotationType } from '~/types'
 
 const { TextArea } = Input

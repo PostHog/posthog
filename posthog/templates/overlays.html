@@ -1,5 +1,5 @@
 {% if debug %}
-<div id="bottom-notice" class="tricolor">
+<div id="bottom-notice" class="tricolor click-close" style="display: none">
     <div>
         <span>Current branch: </span
         ><b><code style="background: 0; color: white">{{ git_branch|default:"unknown" }}</code></b
@@ -13,10 +13,17 @@
         ><b><code style="background: 0; color: white">{{ git_rev|default:"unknown" }}</code></b
         ><span>.</span>
     </div>
-    <button title="Close debug bar" onclick="document.getElementById('bottom-notice').remove()">
+    <button title="Close debug bar">
         <code style="background: 0; color: white">×</code>
     </button>
 </div>
+<script>
+    document.getElementById('bottom-notice').addEventListener("click", function (e) {
+        if (e.target.tagName !== 'CODE') {
+            document.getElementById('bottom-notice').remove()
+        }
+    });
+</script>
 {% else %}
 <script>
     if (location.protocol !== 'https:') {

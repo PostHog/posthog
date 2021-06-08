@@ -21,8 +21,8 @@ import { ActionFilter, ActionType, FilterType, PersonType, PropertyFilter, Trend
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 interface TrendResponse {
     result: TrendResult[]
@@ -304,7 +304,7 @@ export const trendsLogic = kea<
 
     selectors: () => ({
         filtersLoading: [
-            () => [eventDefinitionsLogic.selectors.loaded, propertyDefinitionsLogic.selectors.loaded],
+            () => [eventDefinitionsModel.selectors.loaded, propertyDefinitionsModel.selectors.loaded],
             (eventsLoaded, propertiesLoaded): boolean => !eventsLoaded || !propertiesLoaded,
         ],
         results: [(selectors) => [selectors._results], (response) => response.result],
@@ -499,8 +499,8 @@ export const trendsLogic = kea<
             })
             actions.setBreakdownValuesLoading(false)
         },
-        [eventDefinitionsLogic.actionTypes.loadEventDefinitionsSuccess]: async () => {
-            const newFilter = getDefaultFilters(values.filters, eventDefinitionsLogic.values.eventNames)
+        [eventDefinitionsModel.actionTypes.loadEventDefinitionsSuccess]: async () => {
+            const newFilter = getDefaultFilters(values.filters, eventDefinitionsModel.values.eventNames)
             const mergedFilter: Partial<FilterType> = {
                 ...values.filters,
                 ...newFilter,
@@ -567,7 +567,7 @@ export const trendsLogic = kea<
 
                 Object.assign(
                     cleanSearchParams,
-                    getDefaultFilters(cleanSearchParams, eventDefinitionsLogic.values.eventNames)
+                    getDefaultFilters(cleanSearchParams, eventDefinitionsModel.values.eventNames)
                 )
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
