@@ -1,4 +1,3 @@
-from distutils.util import strtobool
 from typing import Any, Dict, Type
 
 from django.core.cache import cache
@@ -32,7 +31,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
-from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.utils import generate_cache_key, get_safe_cache, str_to_bool
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -131,7 +130,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     filterset_fields = ["short_id"]
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
-        if (self.action == "list" or self.action == "retrieve") and strtobool(
+        if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0"),
         ):
             return InsightBasicSerializer
@@ -156,7 +155,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         for key in filters:
             if key == "saved":
-                if strtobool(str(request.GET["saved"])):
+                if str_to_bool(request.GET["saved"]):
                     queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
                 else:
                     queryset = queryset.filter(Q(saved=False))

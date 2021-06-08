@@ -1912,6 +1912,13 @@
   dependencies:
     "@babel/types" "^7.3.0"
 
+"@types/chart.js@^2.9.32":
+  version "2.9.32"
+  resolved "https://registry.yarnpkg.com/@types/chart.js/-/chart.js-2.9.32.tgz#b17d9a8c41ad348183a2ce041ebdeef892998251"
+  integrity sha512-d45JiRQwEOlZiKwukjqmqpbqbYzUX2yrXdH9qVn6kXpPDsTYCo6YbfFOlnUaJ8S/DhJwbBJiLsMjKpW5oP8B2A==
+  dependencies:
+    moment "^2.10.2"
+
 "@types/css-font-loading-module@0.0.4":
   version "0.0.4"
   resolved "https://registry.yarnpkg.com/@types/css-font-loading-module/-/css-font-loading-module-0.0.4.tgz#94a835e27d1af444c65cba88523533c174463d64"
@@ -3442,6 +3449,13 @@ chartjs-color@^2.1.0:
   dependencies:
     chartjs-color-string "^0.6.0"
     color-convert "^1.9.3"
+
+chartjs-plugin-crosshair@^1.1.6:
+  version "1.1.6"
+  resolved "https://registry.yarnpkg.com/chartjs-plugin-crosshair/-/chartjs-plugin-crosshair-1.1.6.tgz#3874c3114a5c2ea5d5569a200ef0b32425107ed2"
+  integrity sha512-faqHKnZzhNYh2ahIKaxTWB9ZX5afRJkQ+7jsZ8u0Z+PE4YPcs1jNCCKwWINWacYaryh6ih/OT6pLmMnkNMusHQ==
+  dependencies:
+    chart.js "^2.9.3"
 
 "chokidar@>=2.0.0 <4.0.0", chokidar@^3.4.1:
   version "3.5.1"
@@ -9236,10 +9250,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.11.1:
-  version "1.11.1"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.11.1.tgz#054eb5d4a5031f6d17b024432ae455078525c695"
-  integrity sha512-gxqcy7ZJ+3uEeSbM8OYtvHeSeR99lkk5SwKXfRU3PKvY8TBe44KSO7w1VS1A/k4fg1kZtuaIHMgjMvwXqS2dmQ==
+posthog-js@1.11.2:
+  version "1.11.2"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.11.2.tgz#67d2213394cfec5ed93c88efcd7e94e4aef1847f"
+  integrity sha512-lUADT1j9V5kaqp19b2qSnjZ4ZDLjJK6Ff3qdgYdDiHumGdYXpdsjr26DJ5NKdq6WbVe3YQGNKJqcFKeYUyRsmg==
   dependencies:
     fflate "^0.4.1"
 

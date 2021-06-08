@@ -3,12 +3,12 @@ import { useValues } from 'kea'
 import { VolumeTable, UsageDisabledWarning } from './EventsVolumeTable'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { propertyDefinitionsLogic } from './propertyDefinitionsLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PageHeader } from 'lib/components/PageHeader'
 
 export function PropertiesVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { propertyDefinitions, loaded } = useValues(propertyDefinitionsLogic)
+    const { propertyDefinitions, loaded } = useValues(propertyDefinitionsModel)
 
     return (
         <>

@@ -12,16 +12,16 @@ import { PropertySelect } from './PropertySelect'
 import { OperatorValueSelect } from './OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { PropertyOptionGroup } from './PropertySelect'
-import { PropertyOperator, PropertyDefinition, SelectOption } from '~/types'
+import { PropertyOperator } from '~/types'
 import { PropertyFilterInternalProps } from './PropertyFilter'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 const { TabPane } = Tabs
 
 interface PropertyPaneProps {
     onComplete: CallableFunction
     setThisFilter: CallableFunction // TODO type this
-    eventProperties: PropertyDefinition[]
-    personProperties: Array<SelectOption>
     propkey: string
     value: string
     operator: PropertyOperator
@@ -33,8 +33,6 @@ interface PropertyPaneProps {
 function PropertyPaneContents({
     onComplete,
     setThisFilter,
-    eventProperties,
-    personProperties,
     propkey,
     value,
     operator,
@@ -42,7 +40,10 @@ function PropertyPaneContents({
     displayOperatorAndValue,
     selectProps: { delayBeforeAutoOpen = 0 },
 }: PropertyPaneProps): JSX.Element {
-    const optionGroups = [
+    const { personProperties } = useValues(personPropertiesModel)
+    const { transformedPropertyDefinitions: eventProperties } = useValues(propertyDefinitionsModel)
+
+    const optionGroups: PropertyOptionGroup[] = [
         {
             type: 'event',
             label: 'Event properties',
@@ -51,9 +52,12 @@ function PropertyPaneContents({
         {
             type: 'person',
             label: 'User properties',
-            options: personProperties,
+            options: personProperties.map((property) => ({
+                label: property.name,
+                value: property.name,
+            })),
         },
-    ] as PropertyOptionGroup[]
+    ]
 
     if (eventProperties.length > 0) {
         optionGroups.push({
@@ -187,7 +191,7 @@ export function TabbedPropertyFilter({
     logic,
     selectProps,
 }: PropertyFilterInternalProps): JSX.Element {
-    const { eventProperties, personProperties, filters } = useValues(logic)
+    const { filters } = useValues(logic)
     const { setFilter } = useActions(logic)
     const { key, value, operator, type } = filters[index]
     const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
@@ -214,8 +218,6 @@ export function TabbedPropertyFilter({
                 <PropertyPaneContents
                     onComplete={onComplete}
                     setThisFilter={setThisFilter}
-                    eventProperties={eventProperties}
-                    personProperties={personProperties}
                     propkey={key}
                     value={value}
                     operator={operator}

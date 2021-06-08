@@ -6,7 +6,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 import time
 import uuid
 from itertools import count
@@ -17,6 +19,7 @@ from typing import (
     List,
     Mapping,
     Optional,
+    Sequence,
     Tuple,
     Union,
 )
@@ -37,7 +40,6 @@ from sentry_sdk import push_scope
 
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
-from posthog.settings import print_warning
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -661,3 +663,17 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
         offset_hours = int(offset.total_seconds()) / 3600
         result[tz] = offset_hours
     return result
+
+
+def str_to_bool(value: Any) -> bool:
+    """Return whether the provided string (or any value really) represents true. Otherwise false.
+    Just like plugin server stringToBoolean.
+    """
+    if not value:
+        return False
+    return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
+
+
+def print_warning(warning_lines: Sequence[str]):
+    highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
+    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)

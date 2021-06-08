@@ -7,7 +7,7 @@ import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insight
 import { pathsLogicType } from './pathsLogicType'
 import { FilterType, PropertyFilter } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export const PAGEVIEW = '$pageview'
 export const SCREEN = '$screen'
@@ -180,7 +180,7 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
             },
         ],
         filtersLoading: [
-            () => [propertyDefinitionsLogic.selectors.loaded],
+            () => [propertyDefinitionsModel.selectors.loaded],
             (propertiesLoaded): boolean => !propertiesLoaded,
         ],
     },
