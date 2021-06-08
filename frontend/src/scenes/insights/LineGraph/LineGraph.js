@@ -269,7 +269,7 @@ export function LineGraph({
                 const chartClientLeft = bounds.left + window.pageXOffset
                 const chartClientTop = bounds.top + window.pageYOffset
                 const tooltipCaretOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltipModel.caretX - 50)
-                const maxXPosition = bounds.right - 150 // ensure the tooltip doesn't exceed the bounds of the graph area
+                const maxXPosition = bounds.right - 150 // ensure the tooltip doesn't exceed the bounds of the window
                 tooltipEl.style.opacity = 1
                 tooltipEl.style.position = 'absolute'
                 tooltipEl.style.left = Math.min(tooltipCaretOffsetLeft, maxXPosition) + 'px'
@@ -484,6 +484,9 @@ export function LineGraph({
                 hover: {
                     mode: 'index',
                     onHover: options.hover.onHover,
+                },
+                plugins: {
+                    crosshair: false,
                 },
                 onClick: options.onClick,
             }
