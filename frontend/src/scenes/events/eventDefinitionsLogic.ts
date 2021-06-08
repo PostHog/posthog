@@ -16,7 +16,7 @@ interface EventsGroupedInterface {
 }
 
 export const eventDefinitionsLogic = kea<
-    eventDefinitionsLogicType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface, SelectOption>
+    eventDefinitionsLogicType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface>
 >({
     actions: () => ({
         updateEventDefinition: (id: string, description: string | null) => ({ id, description }),

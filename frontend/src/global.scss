@@ -470,7 +470,7 @@ code.code {
 
 #bottom-notice {
     z-index: $z_bottom_notice;
-    display: flex;
+    display: flex !important;
     flex-direction: row;
     position: fixed;
     width: 100%;
@@ -497,6 +497,12 @@ code.code {
         }
         div:nth-child(3) {
             background: $brand_yellow;
+        }
+    }
+    &.click-close {
+        cursor: pointer;
+        code {
+            cursor: text;
         }
     }
     div {
