@@ -179,7 +179,7 @@ class CompareMixin(BaseParamMixin):
         if isinstance(compare, bool):
             return compare
         elif isinstance(compare, str):
-            return bool(str_to_bool(compare))
+            return str_to_bool(compare)
         else:
             return False
 
