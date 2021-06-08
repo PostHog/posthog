@@ -33,7 +33,7 @@ django-stubs==1.8.0
     # via
     #   -r requirements-dev.in
     #   djangorestframework-stubs
-django==3.1.8
+django==3.1.12
     # via
     #   -r requirements-dev.in
     #   django-stubs
