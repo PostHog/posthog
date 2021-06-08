@@ -26,14 +26,14 @@ class ClickhouseEventQuery:
             "team_id": self._team.pk,
         }
 
-        self._should_join_pdi = self._determine_should_join_pdi()
-        self._should_join_persons = self._determine_should_join_persons()
+        self._determine_should_join_pdi()
+        self._determine_should_join_persons()
 
     def get_query(self, fields) -> Tuple[str, Dict[str, Any]]:
         prop_query, prop_params = self._get_props()
         self.params.update(prop_params)
 
-        entity_query, entity_params = populate_entity_params(self.entity)
+        entity_query, entity_params = populate_entity_params(self._entity)
         self.params.update(entity_params)
 
         query = f"""
@@ -73,8 +73,8 @@ class ClickhouseEventQuery:
                         WHERE team_id = %(team_id)s
                     )
                 WHERE team_id = %(team_id)s
-            ) AS {self.DI_TABLE_NAME}
-            ON events.distinct_id = {self.PDI_TABLE_NAME}.distinct_id
+            ) AS {self.PDI_TABLE_ALIAS}
+            ON events.distinct_id = {self.PDI_TABLE_ALIAS}.distinct_id
             """
         else:
             return ""
@@ -111,13 +111,15 @@ class ClickhouseEventQuery:
                     HAVING is_deleted = 0
                 )
             ) {self.PERSON_TABLE_ALIAS} 
-            ON {self.PERSON_TABLE_ALIAS}.id = {self.PDI_TABLE_NAME}.person_id
+            ON {self.PERSON_TABLE_ALIAS}.id = {self.PDI_TABLE_ALIAS}.person_id
             """
+        else:
+            return ""
 
     def _get_props(self, allow_denormalized_props: bool = False) -> Tuple[str, Dict]:
 
         filters = self._filter.properties
-        filter_test_accounts = filter.filter_test_accounts
+        filter_test_accounts = self._filter.filter_test_accounts
         team_id = self._team.pk
         table_name = f"{self.EVENT_TABLE_ALIAS}."
         prepend = "global"
