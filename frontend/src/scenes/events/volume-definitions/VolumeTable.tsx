@@ -44,9 +44,7 @@ export function Owner({ ownerId, user }: { ownerId?: number | null; user?: UserB
                     <span style={{ paddingLeft: 8 }}>{user.first_name}</span>
                 </div>
             ) : (
-                <span className="text-muted" style={{ fontStyle: 'italic' }}>
-                    No Owner
-                </span>
+                <span className="text-muted">No Owner</span>
             )}
         </>
     )
