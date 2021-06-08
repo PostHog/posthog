@@ -1,5 +1,4 @@
 import { kea } from 'kea'
-import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -24,7 +23,6 @@ export const propertyFilterLogic = kea({
     key: (props) => props.pageKey,
 
     actions: () => ({
-        setProperties: (properties) => ({ properties }),
         update: (filters) => ({ filters }),
         setFilter: (index, key, value, operator, type) => ({ index, key, value, operator, type }),
         setFilters: (filters) => ({ filters }),
@@ -32,24 +30,7 @@ export const propertyFilterLogic = kea({
         remove: (index) => ({ index }),
     }),
 
-    loaders: () => ({
-        personProperties: {
-            loadPersonProperties: async () => {
-                return (await api.get('api/person/properties')).map((property) => ({
-                    label: property.name,
-                    value: property.name,
-                }))
-            },
-        },
-    }),
-
     reducers: ({ actions, props }) => ({
-        eventProperties: [
-            [],
-            {
-                [actions.setProperties]: (_, { properties }) => properties,
-            },
-        ],
         filters: [
             props.propertyFilters ? parseProperties(props.propertyFilters) : [],
             {
@@ -103,13 +84,6 @@ export const propertyFilterLogic = kea({
                 }
             }
         },
-        [propertyDefinitionsModel.actionTypes.loadPropertyDefinitionsSuccess]: async () => {
-            /* Set the event properties in case the `loadPropertyDefinitions` request came later, or the event
-            properties were updated. */
-            if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
-                actions.setProperties(propertyDefinitionsModel.values.transformedPropertyDefinitions)
-            }
-        },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
@@ -139,14 +113,9 @@ export const propertyFilterLogic = kea({
         filtersLoading: [() => [propertyDefinitionsModel.selectors.loaded], (loaded) => !loaded],
     },
 
-    events: ({ actions, props }) => ({
+    events: ({ actions }) => ({
         afterMount: () => {
             actions.newFilter()
-            actions.loadPersonProperties()
-            // TODO: Event properties in sessions is temporarily unsupported (context https://github.com/PostHog/posthog/issues/2735)
-            if (props.endpoint !== 'person' && props.endpoint !== 'sessions') {
-                actions.setProperties(propertyDefinitionsModel.values.transformedPropertyDefinitions)
-            }
         },
     }),
 })

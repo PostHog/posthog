@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { personPropertiesModelType } from './personPropertiesModelType'
 import api from 'lib/api'
-import { PersonProperty } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import { PersonProperty } from '~/types'
 
 export const personPropertiesModel = kea<personPropertiesModelType<PersonProperty>>({
     loaders: {

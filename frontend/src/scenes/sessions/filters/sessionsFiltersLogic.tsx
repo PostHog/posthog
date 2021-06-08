@@ -8,11 +8,6 @@ import { PropertyOperator, SessionsPropertyFilter } from '~/types'
 
 export type FilterSelector = number | string
 
-export interface PersonProperty {
-    name: string
-    count: number
-}
-
 export interface SavedFilter {
     id: string | number
     name: string
@@ -25,7 +20,7 @@ export interface SavedFilter {
 type FilterPropertyType = SessionsPropertyFilter['type']
 
 export const sessionsFiltersLogic = kea<
-    sessionsFiltersLogicType<SessionsPropertyFilter, FilterSelector, PersonProperty, SavedFilter, FilterPropertyType>
+    sessionsFiltersLogicType<SessionsPropertyFilter, FilterSelector, SavedFilter, FilterPropertyType>
 >({
     actions: () => ({
         openFilterSelect: (selector: FilterSelector) => ({ selector }),
@@ -176,7 +171,6 @@ export const sessionsFiltersLogic = kea<
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            actions.loadPersonProperties()
             actions.loadCustomFilters()
         },
     }),
