@@ -208,11 +208,12 @@ export const routes: Record<string, Scene> = {
 
 export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneConfig>>({
     actions: {
-        // 1. Start opening the scene, yet the listener may override and do something else (calls loadScene)
+        /* 1. Prepares to open the scene, as the listener may override and do something 
+            else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
         openScene: (scene: Scene, params: Params) => ({ scene, params }),
-        // 2. Start loading the scene JavaScript and mount any logic, then call setScene
+        // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
-        // 3. Set the scene reducer
+        // 3. Set the `scene` reducer
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
 
         setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
@@ -309,13 +310,13 @@ export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneCo
             const { preflight } = preflightLogic.values
 
             if (scene === Scene.Signup && preflight && !preflight.cloud && preflight.initiated) {
-                // If user is on an initiated self-hosted instance, redirect away from signup
+                // If user is on an already initiated self-hosted instance, redirect away from signup
                 router.actions.replace('/login')
                 return
             }
 
             if (user) {
-                // If user is already logged in, redirect away from unauthenticated-only routes like signup
+                // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
                 if (sceneConfig.onlyUnauthenticated) {
                     if (scene === Scene.Login && router.values.searchParams['next']) {
                         router.actions.replace(router.values.searchParams['next'])
