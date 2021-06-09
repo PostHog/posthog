@@ -237,7 +237,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         except json.decoder.JSONDecodeError:
             raise ValidationError("Properties are unparsable!")
 
-        data = {"properties": properties}
+        data: Dict[str, Any] = {"properties": properties}
         start_entity_data = request.GET.get("start_entity", None)
         if start_entity_data:
             entity_data = json.loads(start_entity_data)
