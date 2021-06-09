@@ -8,18 +8,14 @@ import { getAppContext } from 'lib/utils/getAppContext'
 type PreflightMode = 'experimentation' | 'live'
 
 export const preflightLogic = kea<preflightLogicType<PreflightStatus, PreflightMode>>({
-    loaders: ({ actions }) => ({
+    loaders: {
         preflight: [
             null as PreflightStatus | null,
             {
-                loadPreflight: async () => {
-                    const response = await api.get('_preflight/')
-                    actions.registerInstrumentationProps()
-                    return response
-                },
+                loadPreflight: async () => await api.get('_preflight/'),
             },
         ],
-    }),
+    },
     actions: {
         registerInstrumentationProps: true,
         setPreflightMode: (mode: PreflightMode | null, noReload?: boolean) => ({ mode, noReload }),
@@ -75,6 +71,9 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus, PreflightM
         ],
     },
     listeners: ({ values, actions }) => ({
+        loadPreflightSuccess: () => {
+            actions.registerInstrumentationProps()
+        },
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
             if (posthog && values.preflight) {
