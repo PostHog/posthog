@@ -76,7 +76,7 @@ export async function resetTestDatabase(
     await db.end()
 }
 
-async function insertRow(db: Pool, table: string, object: Record<string, any>): Promise<void> {
+export async function insertRow(db: Pool, table: string, object: Record<string, any>): Promise<void> {
     const keys = Object.keys(object)
         .map((key) => `"${key}"`)
         .join(',')

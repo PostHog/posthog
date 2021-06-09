@@ -158,6 +158,19 @@ export function chainToElements(chain: string): Element[] {
     return elements
 }
 
+export function extractElements(elements: Record<string, any>[]): Element[] {
+    return elements.map((el) => ({
+        text: el['$el_text']?.slice(0, 400),
+        tag_name: el['tag_name'],
+        href: el['attr__href']?.slice(0, 2048),
+        attr_class: el['attr__class']?.split(' '),
+        attr_id: el['attr__id'],
+        nth_child: el['nth_child'],
+        nth_of_type: el['nth_of_type'],
+        attributes: Object.fromEntries(Object.entries(el).filter(([key]) => key.startsWith('attr__'))),
+    }))
+}
+
 export function timeoutGuard(
     message: string,
     context?: Record<string, any>,

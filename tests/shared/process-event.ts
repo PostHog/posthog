@@ -3,22 +3,12 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 import { performance } from 'perf_hooks'
 
-import { IEvent } from '../../src/config/idl/protos'
-import {
-    Database,
-    Event,
-    Hub,
-    LogLevel,
-    Person,
-    PluginsServerConfig,
-    SessionRecordingEvent,
-    Team,
-} from '../../src/types'
+import { Database, Event, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { hashElements } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { delay, UUIDT } from '../../src/utils/utils'
-import { EventsProcessor } from '../../src/worker/ingestion/process-event'
+import { EventProcessingResult, EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, onQuery, resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(600000) // 600 sec timeout.
@@ -100,7 +90,7 @@ export const createProcessEventTests = (
         now: DateTime,
         sentAt: DateTime | null,
         eventUuid: string
-    ): Promise<IEvent | SessionRecordingEvent> {
+    ): Promise<EventProcessingResult | void> {
         const response = await eventsProcessor.processEvent(
             distinctId,
             ip,
@@ -129,7 +119,6 @@ export const createProcessEventTests = (
         returned.hub = hub
         returned.closeHub = closeHub
         eventsProcessor = new EventsProcessor(hub)
-        await eventsProcessor.prepare()
         queryCounter = 0
         processEventCounter = 0
         team = await getFirstTeam(hub)
@@ -1685,25 +1674,6 @@ export const createProcessEventTests = (
         expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id'])
 
         expect(person.properties).toEqual({ a: 1, b: 2, c: 3, d: 4 })
-    })
-
-    test('distinct_id wrong type (number)', async () => {
-        await createPerson(hub, team, ['asdfasdfasdf'])
-        await processEvent(
-            (12345 as unknown) as string,
-            null,
-            '',
-            ({
-                event: '$pageview',
-                properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-            } as any) as PluginEvent,
-            team.id,
-            now,
-            now,
-            new UUIDT().toString()
-        )
-        const [event] = await hub.db.fetchEvents()
-        expect(event.distinct_id).toEqual('12345')
     })
 
     return returned

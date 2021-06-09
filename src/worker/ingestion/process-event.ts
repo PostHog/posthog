@@ -9,6 +9,7 @@ import { Event as EventProto, IEvent } from '../../config/idl/protos'
 import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
+    Event,
     Hub,
     Person,
     PersonDistinctId,
@@ -20,15 +21,25 @@ import {
 import { Client } from '../../utils/celery/client'
 import { DB } from '../../utils/db/db'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
-import { elementsToString, personInitialAndUTMProperties, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
+import {
+    elementsToString,
+    extractElements,
+    personInitialAndUTMProperties,
+    sanitizeEventName,
+    timeoutGuard,
+} from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, filterIncrementProperties, UUID, UUIDT } from '../../utils/utils'
-import { ActionManager } from './action-manager'
 import { PersonManager } from './person-manager'
 import { TeamManager } from './team-manager'
 
+export interface EventProcessingResult {
+    event: IEvent | SessionRecordingEvent | PostgresSessionRecordingEvent
+    eventId?: number
+    elements?: Element[]
+}
+
 export class EventsProcessor {
-    ready: boolean
     pluginsServer: Hub
     db: DB
     clickhouse: ClickHouse | undefined
@@ -36,10 +47,8 @@ export class EventsProcessor {
     celery: Client
     teamManager: TeamManager
     personManager: PersonManager
-    actionManager: ActionManager
 
     constructor(pluginsServer: Hub) {
-        this.ready = false
         this.pluginsServer = pluginsServer
         this.db = pluginsServer.db
         this.clickhouse = pluginsServer.clickhouse
@@ -47,12 +56,6 @@ export class EventsProcessor {
         this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
         this.teamManager = new TeamManager(pluginsServer.db)
         this.personManager = new PersonManager(pluginsServer)
-        this.actionManager = new ActionManager(pluginsServer.db)
-    }
-
-    public async prepare(): Promise<void> {
-        await this.actionManager.prepare()
-        this.ready = true
     }
 
     public async processEvent(
@@ -64,10 +67,7 @@ export class EventsProcessor {
         now: DateTime,
         sentAt: DateTime | null,
         eventUuid: string
-    ): Promise<IEvent | SessionRecordingEvent> {
-        if (!this.ready) {
-            throw new Error('EventsProcessor is not ready! Run eventsProcessor.prepare() before this')
-        }
+    ): Promise<EventProcessingResult | void> {
         if (!UUID.validateString(eventUuid, false)) {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
         }
@@ -76,10 +76,9 @@ export class EventsProcessor {
             event: JSON.stringify(data),
         })
 
+        let result: EventProcessingResult | void
         try {
-            // sanitize values, even though `sanitizeEvent` should have gotten to them
-            distinctId = distinctId?.toString()
-
+            // Sanitize values, even though `sanitizeEvent` should have gotten to them
             const properties: Properties = data.properties ?? {}
             if (data['$set']) {
                 properties['$set'] = { ...properties['$set'], ...data['$set'] }
@@ -100,15 +99,13 @@ export class EventsProcessor {
                 clearTimeout(timeout1)
             }
 
-            let result: IEvent | SessionRecordingEvent
-
             if (data['event'] === '$snapshot') {
                 const timeout2 = timeoutGuard(
                     'Still running "createSessionRecordingEvent". Timeout warning after 30 sec!',
                     { eventUuid }
                 )
                 try {
-                    result = await this.createSessionRecordingEvent(
+                    await this.createSessionRecordingEvent(
                         eventUuid,
                         teamId,
                         distinctId,
@@ -119,13 +116,14 @@ export class EventsProcessor {
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
+                    // No return value in case of snapshot events as we don't do action matching on them
                 } finally {
                     clearTimeout(timeout2)
                 }
             } else {
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
-                    result = await this.capture(
+                    const [event, eventId, elements] = await this.capture(
                         eventUuid,
                         personUuid,
                         ip,
@@ -140,15 +138,19 @@ export class EventsProcessor {
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
+                    result = {
+                        event,
+                        eventId,
+                        elements,
+                    }
                 } finally {
                     clearTimeout(timeout3)
                 }
             }
-
-            return result
         } finally {
             clearTimeout(timeout)
         }
+        return result
     }
 
     private handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null): DateTime {
@@ -375,22 +377,14 @@ export class EventsProcessor {
         properties: Properties,
         timestamp: DateTime,
         sentAt: DateTime | null
-    ): Promise<IEvent> {
+    ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
         let elementsList: Element[] = []
+
         if (elements && elements.length) {
             delete properties['$elements']
-            elementsList = elements.map((el) => ({
-                text: el['$el_text']?.slice(0, 400),
-                tag_name: el['tag_name'],
-                href: el['attr__href']?.slice(0, 2048),
-                attr_class: el['attr__class']?.split(' '),
-                attr_id: el['attr__id'],
-                nth_child: el['nth_child'],
-                nth_of_type: el['nth_of_type'],
-                attributes: Object.fromEntries(Object.entries(el).filter(([key]) => key.startsWith('attr__'))),
-            }))
+            elementsList = extractElements(elements)
         }
 
         const team = await this.teamManager.fetchTeam(teamId)
@@ -449,14 +443,14 @@ export class EventsProcessor {
         timestamp?: DateTime | string,
         elements?: Element[],
         siteUrl?: string
-    ): Promise<IEvent> {
+    ): Promise<[IEvent, Event['id'] | undefined, Element[] | undefined]> {
         const timestampString = castTimestampOrNow(
             timestamp,
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
-        const data: IEvent = {
+        const eventPayload: IEvent = {
             uuid,
             event,
             properties: JSON.stringify(properties ?? {}),
@@ -467,13 +461,15 @@ export class EventsProcessor {
             createdAt: timestampString,
         }
 
+        let eventId: Event['id'] | undefined
+
         if (this.kafkaProducer) {
             await this.kafkaProducer.queueMessage({
                 topic: KAFKA_EVENTS,
                 messages: [
                     {
                         key: uuid,
-                        value: EventProto.encodeDelimited(EventProto.create(data)).finish() as Buffer,
+                        value: EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer,
                     },
                 ],
             })
@@ -505,24 +501,25 @@ export class EventsProcessor {
             } = await this.db.postgresQuery(
                 'INSERT INTO posthog_event (created_at, event, distinct_id, properties, team_id, timestamp, elements, elements_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
                 [
-                    data.createdAt,
-                    data.event,
+                    eventPayload.createdAt,
+                    eventPayload.event,
                     distinctId,
-                    data.properties,
-                    data.teamId,
-                    data.timestamp,
+                    eventPayload.properties,
+                    eventPayload.teamId,
+                    eventPayload.timestamp,
                     JSON.stringify(elements || []),
                     elementsHash,
                 ],
                 'createEventInsert'
             )
+            eventId = event.id
             if (await this.teamManager.shouldSendWebhooks(teamId)) {
                 this.pluginsServer.statsd?.increment(`hooks.send_task`)
                 this.celery.sendTask('posthog.tasks.webhooks.post_event_to_webhook', [event.id, siteUrl], {})
             }
         }
 
-        return data
+        return [eventPayload, eventId, elements]
     }
 
     private async createSessionRecordingEvent(
@@ -554,13 +551,14 @@ export class EventsProcessor {
                 messages: [{ key: uuid, value: Buffer.from(JSON.stringify(data)) }],
             })
         } else {
-            const insertResult = await this.db.postgresQuery(
+            const {
+                rows: [eventCreated],
+            } = await this.db.postgresQuery(
                 'INSERT INTO posthog_sessionrecordingevent (created_at, team_id, distinct_id, session_id, timestamp, snapshot_data) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
                 [data.created_at, data.team_id, data.distinct_id, data.session_id, data.timestamp, data.snapshot_data],
                 'insertSessionRecording'
             )
-            const eventCreated = insertResult.rows[0] as PostgresSessionRecordingEvent
-            return eventCreated
+            return eventCreated as PostgresSessionRecordingEvent
         }
         return data
     }
