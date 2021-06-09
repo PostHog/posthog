@@ -63,6 +63,7 @@ function DefaultPathTab(): JSX.Element {
                 value={filter.start_point}
                 placeholder={'Select start element'}
                 operator={null}
+                isPathsSelector
             />
             <hr />
             <h4 className="secondary">Filters</h4>

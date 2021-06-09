@@ -16,9 +16,10 @@ export function PropertyValue({
     value,
     operator,
     outerOptions = undefined,
+    isPathsSelector = false,
 }) {
     const isMultiSelect = isOperatorMulti(operator)
-    const [input, setInput] = useState(isMultiSelect ? '' : value)
+    const [input, setInput] = useState(isMultiSelect || isPathsSelector ? '' : value)
     const [optionsCache, setOptionsCache] = useState({})
     const [options, setOptions] = useState({})
 
@@ -67,7 +68,7 @@ export function PropertyValue({
     const commonInputProps = {
         autoFocus: !value && !isMobile(),
         style: { width: '100%', ...style },
-        value: isMultiSelect ? value : input,
+        value: isMultiSelect || isPathsSelector ? value : input,
         loading: optionsCache[input] === 'loading',
         onSearch: (newInput) => {
             setInput(newInput)
@@ -90,38 +91,11 @@ export function PropertyValue({
         },
     }
 
+    console.log(input, value)
+
     return (
         <>
-            {!isMultiSelect ? (
-                <AutoComplete
-                    {...commonInputProps}
-                    onChange={(val) => {
-                        setInput(val ?? null)
-                    }}
-                    onSelect={(val) => {
-                        setValue(val ?? null)
-                    }}
-                >
-                    {input && (
-                        <Select.Option key={input} value={input} className="ph-no-capture">
-                            Specify: {input}
-                        </Select.Option>
-                    )}
-                    {displayOptions.map(({ name, id }, index) => (
-                        <AutoComplete.Option
-                            key={id || name}
-                            value={id || name}
-                            data-attr={'prop-val-' + index}
-                            className="ph-no-capture"
-                            title={name}
-                        >
-                            {name === true && 'true'}
-                            {name === false && 'false'}
-                            {name}
-                        </AutoComplete.Option>
-                    ))}
-                </AutoComplete>
-            ) : (
+            {isMultiSelect ? (
                 <SelectGradientOverflow
                     {...commonInputProps}
                     mode={isMultiSelect ? 'multiple' : undefined}
@@ -153,6 +127,40 @@ export function PropertyValue({
                         </Select.Option>
                     ))}
                 </SelectGradientOverflow>
+            ) : (
+                <AutoComplete
+                    {...commonInputProps}
+                    onChange={(val) => {
+                        setInput(val ?? null)
+                    }}
+                    onSelect={(val) => {
+                        console.log(val)
+                        setValue(val ?? null)
+                    }}
+                >
+                    {input || isPathsSelector ? (
+                        <Select.Option
+                            key={`specify-${isPathsSelector ? value : input}`}
+                            value={isPathsSelector ? value : input}
+                            className="ph-no-capture"
+                        >
+                            Specify: {isPathsSelector ? value : input}
+                        </Select.Option>
+                    ) : null}
+                    {displayOptions.map(({ name, id }, index) => (
+                        <AutoComplete.Option
+                            key={id || name}
+                            value={id || name}
+                            data-attr={'prop-val-' + index}
+                            className="ph-no-capture"
+                            title={name}
+                        >
+                            {name === true && 'true'}
+                            {name === false && 'false'}
+                            {name}
+                        </AutoComplete.Option>
+                    ))}
+                </AutoComplete>
             )}
             {validationError && <p className="text-danger">{validationError}</p>}
         </>

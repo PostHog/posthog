@@ -68,6 +68,7 @@ export function PathTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.El
                             value={filter.start_point}
                             placeholder={'Select start element'}
                             operator={null}
+                            isPathsSelector
                         />
                     </Col>
                 </Row>
