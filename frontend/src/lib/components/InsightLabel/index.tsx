@@ -2,7 +2,7 @@ import React from 'react'
 import { Tag } from 'antd'
 import { ActionFilter } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { operatorMap, capitalizeFirstLetter, alphabet, hexToRGBA } from 'lib/utils'
+import { capitalizeFirstLetter, alphabet, hexToRGBA } from 'lib/utils'
 import './InsightLabel.scss'
 import { MATHS } from 'lib/constants'
 
@@ -75,16 +75,6 @@ export function InsightLabel({
                 </>
             )}
 
-            {action.properties?.length > 0 && (
-                <span>
-                    {action.properties?.map((property, i) => (
-                        <Tag key={i}>
-                            {property.key && <PropertyKeyInfo disableIcon value={property.key} />}{' '}
-                            {operatorMap[property.operator || 'exact'].split(' ')[0]} {property.value}
-                        </Tag>
-                    ))}
-                </span>
-            )}
             <span className="value">{value}</span>
         </div>
     )
