@@ -126,7 +126,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
             actions.updateDefinition({ tags })
         },
         changeOwner: ({ ownerId }) => {
-            actions.updateDefinition({ owner_id: ownerId })
+            actions.updateDefinition({ owner: ownerId })
         },
         cancelDescription: () => {
             actions.setDescription(values.definition.description)

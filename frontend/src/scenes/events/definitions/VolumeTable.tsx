@@ -86,7 +86,7 @@ export function VolumeTable({
             render: function Render(_, record): JSX.Element {
                 return (
                     <span>
-                        <div style={{ display: 'flex', alignItems: 'baseline' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', paddingBottom: 4 }}>
                             <span className="ph-no-capture" style={{ paddingRight: 8 }}>
                                 <PropertyKeyInfo
                                     style={hasTaxonomyFeatures ? { fontWeight: 'bold' } : {}}

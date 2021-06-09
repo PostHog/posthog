@@ -4,7 +4,7 @@ import React from 'react'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 import Title from 'antd/es/typography/Title'
 import './VolumeTable.scss'
-import { Button, Collapse, Input, Select, Table, Tooltip } from 'antd'
+import { Button, Col, Collapse, Input, Row, Select, Table, Tooltip } from 'antd'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { Owner } from './VolumeTable'
@@ -13,7 +13,7 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 import { LineGraph } from 'scenes/insights/LineGraph'
 import { LineGraphEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { PersonType } from '~/types'
+import { PersonType, UserBasicType } from '~/types'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { Property } from 'lib/components/Property'
 
@@ -40,41 +40,49 @@ export function DefinitionDrawer(): JSX.Element {
                             ghost
                             style={{ borderBottom: '1px solid #D9D9D9' }}
                         >
-                            <Panel header="General" key="1" style={{ fontSize: 18, fontWeight: 600 }}>
-                                <div className="panel-wrapper">
-                                    <DefinitionDescription />
-                                    <div style={{ flexDirection: 'column', paddingLeft: 14 }}>
-                                        <Title level={5}>Tags</Title>
-                                        <ObjectTags
-                                            tags={definition.tags}
-                                            onTagSave={saveNewTag}
-                                            onTagDelete={deleteTag}
-                                            saving={definitionLoading}
-                                            tagsAvailable={eventDefinitionTags.filter(
-                                                (tag) => !definition.tags.includes(tag)
-                                            )}
-                                        />
-                                        <DefinitionOwner ownerId={definition.owner} />
-                                    </div>
-                                </div>
-                                <div className="detail-status">
+                            <Panel header="General" key="1" className="l3">
+                                <Row className="panel-wrapper">
+                                    <Col style={{ marginRight: 14 }}>
+                                        <DefinitionDescription />
+                                    </Col>
+                                    <Col>
+                                        <Row>
+                                            <Col>
+                                                <h4 className="l4">Tags</h4>
+                                                <ObjectTags
+                                                    tags={definition.tags}
+                                                    onTagSave={saveNewTag}
+                                                    onTagDelete={deleteTag}
+                                                    saving={definitionLoading}
+                                                    tagsAvailable={eventDefinitionTags.filter(
+                                                        (tag) => !definition.tags.includes(tag)
+                                                    )}
+                                                />
+                                            </Col>
+                                        </Row>
+                                        <Row>
+                                            <DefinitionOwner owner={definition.owner} />
+                                        </Row>
+                                    </Col>
+                                </Row>
+                                <Row className="detail-status">
                                     <div>
-                                        <Title level={5}>First seen</Title>
+                                        <h4 className="l4">First seen</h4>
                                         <span>-</span>
                                     </div>
                                     <div>
-                                        <Title level={5}>Last seen</Title>
+                                        <h4 className="l4">Last seen</h4>
                                         <span>-</span>
                                     </div>
                                     <div>
-                                        <Title level={5}>Last modified</Title>
-                                        <span>{humanFriendlyDetailedTime(definition.updated_at)}</span>
+                                        <h4 className="l4">Last modified</h4>
+                                        <span>{humanFriendlyDetailedTime(definition.updated_at || null)}</span>
                                     </div>
                                     <div>
-                                        <Title level={5}>Last modified by</Title>
+                                        <h4 className="l4">Last modified by</h4>
                                         <span>{definition.updated_by?.first_name || '-'}</span>
                                     </div>
-                                </div>
+                                </Row>
                             </Panel>
                         </Collapse>
 
@@ -84,13 +92,20 @@ export function DefinitionDrawer(): JSX.Element {
                             ghost
                             style={{ borderBottom: '1px solid #D9D9D9' }}
                         >
-                            <Panel header="Usage" key="3" style={{ fontSize: 18, fontWeight: 600 }}>
-                                <div className="panel-wrapper">
-                                    <div style={{ paddingRight: 32 }}>
-                                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
-                                            <Title level={5} style={{ marginBottom: 0 }}>
+                            <Panel header="Usage" key="3" className="l3">
+                                <Row className="panel-wrapper">
+                                    <div style={{ paddingRight: 32, textAlign: 'center' }}>
+                                        <div
+                                            style={{
+                                                display: 'flex',
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                textAlign: 'center',
+                                            }}
+                                        >
+                                            <h4 className="l4" style={{ marginBottom: 0 }}>
                                                 Total count (30 days)
-                                            </Title>
+                                            </h4>
                                             <Tooltip
                                                 placement="right"
                                                 title="Total number of events over the last 30 days. Can be delayed by up to an hour."
@@ -100,9 +115,11 @@ export function DefinitionDrawer(): JSX.Element {
                                         </div>
                                         <span>{definition.volume_30_day || '-'}</span>
                                     </div>
-                                    <div>
+                                    <div style={{ textAlign: 'center' }}>
                                         <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
-                                            <Title level={5}>Query Usage (30 days)</Title>
+                                            <h4 className="l4" style={{ marginBottom: 0 }}>
+                                                Query Usage (30 days)
+                                            </h4>
                                             <Tooltip
                                                 placement="right"
                                                 title={`Number of queries in PostHog that included a filter on this ${
@@ -114,17 +131,17 @@ export function DefinitionDrawer(): JSX.Element {
                                         </div>
                                         <span>{definition.query_usage_30_day || '-'}</span>
                                     </div>
-                                </div>
+                                </Row>
                             </Panel>
                         </Collapse>
 
-                        <Collapse defaultActiveKey={['3']} expandIconPosition="right" ghost>
-                            <Panel
-                                header="Recent"
-                                key="3"
-                                className="events-table"
-                                style={{ fontSize: 18, fontWeight: 600 }}
-                            >
+                        <Collapse
+                            style={{ paddingBottom: 32 }}
+                            defaultActiveKey={['3']}
+                            expandIconPosition="right"
+                            ghost
+                        >
+                            <Panel header="Recent" key="3" className="l3 events-table">
                                 <span className="text-muted" style={{ fontWeight: 400, fontSize: 14 }}>
                                     Most recent events received
                                 </span>
@@ -147,7 +164,7 @@ export function DefinitionDescription(): JSX.Element {
     return (
         <>
             <div style={{ flexDirection: 'column', minWidth: 300 }}>
-                <Title level={5}>Description</Title>
+                <h4 className="l4">Description</h4>
                 <Input.TextArea
                     style={{ minHeight: 108 }}
                     placeholder="Add description"
@@ -172,16 +189,16 @@ export function DefinitionDescription(): JSX.Element {
     )
 }
 
-export function DefinitionOwner({ ownerId }: { ownerId: number }): JSX.Element {
+export function DefinitionOwner({ owner }: { owner: UserBasicType | null }): JSX.Element {
     const { members } = useValues(membersLogic)
     const { changeOwner } = useActions(definitionDrawerLogic)
 
     return (
         <div style={{ paddingTop: 16 }}>
-            <Title level={5}>Owner</Title>
+            <h4 className="l4">Owner</h4>
             <Select
                 className="owner-select"
-                placeholder={<Owner ownerId={ownerId} />}
+                placeholder={<Owner user={owner} />}
                 style={{ minWidth: 200 }}
                 dropdownClassName="owner-option"
                 onChange={(val) => changeOwner(val)}
