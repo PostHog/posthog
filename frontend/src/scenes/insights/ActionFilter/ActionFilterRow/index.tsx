@@ -136,7 +136,7 @@ export function ActionFilterRow({
                 )}
                 {letter && (
                     <Col className="action-row-letter">
-                        <span>{letter}</span>
+                        <span className="graph-series-letter">{letter}</span>
                     </Col>
                 )}
                 {customRowPrefix ? <Col>{customRowPrefix}</Col> : <>{horizontalUI && <Col>Showing</Col>}</>}

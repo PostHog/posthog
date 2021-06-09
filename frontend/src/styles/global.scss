@@ -467,6 +467,14 @@ code.code {
     font-size: 12px;
 }
 
+.graph-series-letter {
+    background-color: $hc_light_lilac;
+    color: $hc_navy;
+    border-radius: $radius;
+    font-weight: bold;
+    padding: 2px 6px;
+}
+
 // Overlays styles
 
 #bottom-notice {

@@ -2,7 +2,7 @@ import React from 'react'
 import { Tag } from 'antd'
 import { ActionFilter } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { operatorMap, capitalizeFirstLetter } from 'lib/utils'
+import { operatorMap, capitalizeFirstLetter, alphabet } from 'lib/utils'
 import './InsightLabel.scss'
 import { MATHS } from 'lib/constants'
 
@@ -48,9 +48,11 @@ export function InsightLabel({
     showCountedByTag,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = !breakdownValue || hasMultipleSeries
-
     return (
         <div className="insights-label">
+            {hasMultipleSeries && action.order !== undefined && (
+                <span className="graph-series-letter">{alphabet[action.order]}</span>
+            )}
             {showEventName && <PropertyKeyInfo disableIcon value={action.name || fallbackName} />}
             {breakdownValue && (
                 <>
