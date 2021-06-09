@@ -86,7 +86,8 @@ class ClickhouseTrendsTotalVolume:
                     date_filter="{parsed_date_from} {parsed_date_to}",
                     should_join_pdi=True if join_condition != "" else False,
                 ).get_query(
-                    "e.timestamp as timestamp" + (", pdi.person_id as person_id" if entity.math == "dau" else "")
+                    "e.timestamp as timestamp, e.properties as properties"
+                    + (", pdi.person_id as person_id" if entity.math == "dau" else "")
                 )
                 event_query = event_query.format(**content_sql_params)
                 params = {**params, **event_query_params}
