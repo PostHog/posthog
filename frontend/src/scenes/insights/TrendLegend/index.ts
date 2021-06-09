@@ -1,1 +1,1 @@
-export * from './TrendsTable'
+export * from './InsightsTable'

@@ -29,12 +29,12 @@ function formatBreakdownLabel(breakdown_value: string | number | undefined, coho
     }
 }
 
-interface TrendsTableProps {
+interface InsightsTableProps {
     isLegend?: boolean
     showTotalCount?: boolean
 }
 
-export function TrendsTable({ isLegend = true, showTotalCount = false }: TrendsTableProps): JSX.Element | null {
+export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
     const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
@@ -124,6 +124,7 @@ export function TrendsTable({ isLegend = true, showTotalCount = false }: TrendsT
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
             scroll={indexedResults && indexedResults.length > 0 ? { x: indexedResults[0].data.length * 160 } : {}}
+            data-attr="insights-table-graph"
         />
     )
 }

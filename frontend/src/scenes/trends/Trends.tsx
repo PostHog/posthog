@@ -14,7 +14,7 @@ import { ActionsPie, ActionsLineGraph, ActionsBarValueGraph, ActionsTable } from
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { TrendsTable } from 'scenes/insights/TrendLegend'
+import { InsightsTable } from 'scenes/insights/TrendLegend'
 import { Button } from 'antd'
 
 interface Props {
@@ -47,7 +47,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             if (view === ViewType.SESSIONS && _filters.session === 'dist') {
                 return <ActionsTable filters={_filters} view={view} />
             }
-            return <TrendsTable isLegend={false} showTotalCount={view !== ViewType.SESSIONS} />
+            return <InsightsTable isLegend={false} showTotalCount={view !== ViewType.SESSIONS} />
         }
         if (_filters.display === ACTIONS_PIE_CHART) {
             return <ActionsPie filters={_filters} view={view} />
