@@ -7,6 +7,7 @@ export async function teardownPlugins(server: Hub, pluginConfig?: PluginConfig):
     const teardownPromises: Promise<void>[] = []
     for (const pluginConfig of pluginConfigs) {
         if (pluginConfig.vm) {
+            pluginConfig.vm.clearRetryTimeoutIfExists()
             const teardownPlugin = await pluginConfig.vm.getTeardownPlugin()
             if (teardownPlugin) {
                 teardownPromises.push(
