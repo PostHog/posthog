@@ -207,7 +207,7 @@ export function ActionFilterRow({
                         </Button>
                     </Col>
                 )}
-                {!horizontalUI && !singleFilter && filterCount > 1 && (
+                {!horizontalUI && !singleFilter && (
                     <Col>
                         <Button
                             type="link"
