@@ -235,7 +235,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # - from_dashboard: (dict) determines funnel is being retrieved from dashboard item to update dashboard_item metadata
     # - **shared filter types
     # ******************************************
-    @action(methods=["POST"], detail=False)
+    @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_funnel(request)
 

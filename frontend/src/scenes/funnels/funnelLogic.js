@@ -15,7 +15,7 @@ function wait(ms = 1000) {
 const SECONDS_TO_POLL = 3 * 60
 
 async function pollFunnel(params = {}) {
-    const { refresh, ...bodyParams } = params // eslint-disable-line
+    const { refresh, ...bodyParams } = params
     let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
     let start = window.performance.now()
     while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
