@@ -22,19 +22,19 @@ function MathTag({ math, mathProperty }: Record<string, string | undefined>): JS
         return <Tag>Total</Tag>
     }
     if (math === 'dau') {
-        return <Tag>Unique users</Tag>
+        return <Tag>Unique</Tag>
     }
     if (math && ['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(math || '')) {
         return (
-            <Tag>
-                {MATHS[math]?.name || capitalizeFirstLetter(math)}
+            <>
+                <Tag>{MATHS[math]?.name || capitalizeFirstLetter(math)}</Tag>
                 {mathProperty && (
                     <>
-                        {' of '}
+                        <span style={{ paddingLeft: 4, paddingRight: 2 }}>of</span>
                         <PropertyKeyInfo disableIcon value={mathProperty} />
                     </>
                 )}
-            </Tag>
+            </>
         )
     }
     return <Tag>{capitalizeFirstLetter(math)}</Tag>
@@ -63,6 +63,11 @@ export function InsightLabel({
                 <span className="graph-series-letter">{alphabet[action.order]}</span>
             )}
             {showEventName && <PropertyKeyInfo disableIcon value={action.name || fallbackName || ''} />}
+
+            {hasMultipleSeries && ((action.math && action.math !== 'total') || showCountedByTag) && (
+                <MathTag math={action.math} mathProperty={action.math_property} />
+            )}
+
             {breakdownValue && (
                 <>
                     {hasMultipleSeries && <span style={{ padding: '0 2px' }}>-</span>}
@@ -70,9 +75,6 @@ export function InsightLabel({
                 </>
             )}
 
-            {((action.math && action.math !== 'total') || showCountedByTag) && (
-                <MathTag math={action.math} mathProperty={action.math_property} />
-            )}
             {action.properties?.length > 0 && (
                 <span>
                     {action.properties?.map((property, i) => (
