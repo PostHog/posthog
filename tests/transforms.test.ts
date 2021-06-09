@@ -30,7 +30,47 @@ describe('transformCode', () => {
             "use strict";
 
             async function x() {
-              await __asyncGuard(console.log());
+              await __asyncGuard(console.log(), console.log);
+            }
+        `)
+    })
+
+    it('attaches caller information to awaits', () => {
+        const rawCode = code`
+            async function x() {
+              await anotherAsyncFunction('arg1', 'arg2')
+            }
+        `
+
+        const transformedCode = transformCode(rawCode, hub)
+
+        expect(transformedCode).toStrictEqual(code`
+            "use strict";
+
+            async function x() {
+              await __asyncGuard(anotherAsyncFunction('arg1', 'arg2'), anotherAsyncFunction);
+            }
+        `)
+    })
+
+    it('attaches caller information to awaits for anonymous functions', () => {
+        const rawCode = code`
+            async function x() {
+              await (async () => {console.log()})
+            }
+        `
+
+        const transformedCode = transformCode(rawCode, hub)
+
+        expect(transformedCode).toStrictEqual(code`
+            "use strict";
+
+            async function x() {
+              await __asyncGuard(async () => {
+                console.log();
+              }, async () => {
+                console.log();
+              });
             }
         `)
     })
