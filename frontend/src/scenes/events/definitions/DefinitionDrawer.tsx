@@ -4,10 +4,10 @@ import React from 'react'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 import Title from 'antd/es/typography/Title'
 import './VolumeTable.scss'
-import { Button, Col, Collapse, Input, Row, Select, Table, Tooltip } from 'antd'
+import { Alert, Button, Col, Collapse, Input, Row, Select, Table, Tooltip } from 'antd'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
-import { Owner } from './VolumeTable'
+import { Owner, UsageDisabledWarning } from './VolumeTable'
 import { humanFriendlyDetailedTime, Loading } from 'lib/utils'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { LineGraph } from 'scenes/insights/LineGraph'
@@ -16,11 +16,14 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { PersonType, UserBasicType } from '~/types'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { Property } from 'lib/components/Property'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export function DefinitionDrawer(): JSX.Element {
     const { drawerState, definition, definitionLoading, type, eventDefinitionTags } = useValues(definitionDrawerLogic)
     const { closeDrawer, saveNewTag, deleteTag } = useActions(definitionDrawerLogic)
+    const { preflight } = useValues(preflightLogic)
     const { Panel } = Collapse
+
     return (
         <>
             {definition && (
@@ -34,6 +37,21 @@ export function DefinitionDrawer(): JSX.Element {
                         width={'60vw'}
                         bodyStyle={{ padding: 14, paddingTop: 0 }}
                     >
+                        {preflight && !preflight?.is_event_property_usage_enabled ? (
+                            <div style={{ marginTop: 8 }}>
+                                <UsageDisabledWarning tab="Events Stats" />
+                            </div>
+                        ) : (
+                            definition.volume_30_day === null && (
+                                <>
+                                    <Alert
+                                        type="warning"
+                                        message="We haven't been able to get usage and volume data yet. Please check later."
+                                    />
+                                </>
+                            )
+                        )}
+
                         <Collapse
                             defaultActiveKey={['1']}
                             expandIconPosition="right"
@@ -86,54 +104,58 @@ export function DefinitionDrawer(): JSX.Element {
                             </Panel>
                         </Collapse>
 
-                        <Collapse
-                            defaultActiveKey={['3']}
-                            expandIconPosition="right"
-                            ghost
-                            style={{ borderBottom: '1px solid #D9D9D9' }}
-                        >
-                            <Panel header="Usage" key="3" className="l3">
-                                <Row className="panel-wrapper">
-                                    <div style={{ paddingRight: 32, textAlign: 'center' }}>
-                                        <div
-                                            style={{
-                                                display: 'flex',
-                                                flexDirection: 'row',
-                                                alignItems: 'center',
-                                                textAlign: 'center',
-                                            }}
-                                        >
-                                            <h4 className="l4" style={{ marginBottom: 0 }}>
-                                                Total count (30 days)
-                                            </h4>
-                                            <Tooltip
-                                                placement="right"
-                                                title="Total number of events over the last 30 days. Can be delayed by up to an hour."
+                        {preflight && preflight?.is_event_property_usage_enabled && (
+                            <Collapse
+                                defaultActiveKey={['3']}
+                                expandIconPosition="right"
+                                ghost
+                                style={{ borderBottom: '1px solid #D9D9D9' }}
+                            >
+                                <Panel header="Usage" key="3" className="l3">
+                                    <Row className="panel-wrapper">
+                                        <div style={{ paddingRight: 32, textAlign: 'center' }}>
+                                            <div
+                                                style={{
+                                                    display: 'flex',
+                                                    flexDirection: 'row',
+                                                    alignItems: 'center',
+                                                    textAlign: 'center',
+                                                }}
                                             >
-                                                <InfoCircleOutlined className="info-indicator" />
-                                            </Tooltip>
+                                                <h4 className="l4" style={{ marginBottom: 0 }}>
+                                                    Total count (30 days)
+                                                </h4>
+                                                <Tooltip
+                                                    placement="right"
+                                                    title="Total number of events over the last 30 days. Can be delayed by up to an hour."
+                                                >
+                                                    <InfoCircleOutlined className="info-indicator" />
+                                                </Tooltip>
+                                            </div>
+                                            <span>{definition.volume_30_day || '-'}</span>
                                         </div>
-                                        <span>{definition.volume_30_day || '-'}</span>
-                                    </div>
-                                    <div style={{ textAlign: 'center' }}>
-                                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
-                                            <h4 className="l4" style={{ marginBottom: 0 }}>
-                                                Query Usage (30 days)
-                                            </h4>
-                                            <Tooltip
-                                                placement="right"
-                                                title={`Number of queries in PostHog that included a filter on this ${
-                                                    type === 'event_definitions' ? 'event' : 'property'
-                                                }`}
+                                        <div style={{ textAlign: 'center' }}>
+                                            <div
+                                                style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}
                                             >
-                                                <InfoCircleOutlined className="info-indicator" />
-                                            </Tooltip>
+                                                <h4 className="l4" style={{ marginBottom: 0 }}>
+                                                    Query Usage (30 days)
+                                                </h4>
+                                                <Tooltip
+                                                    placement="right"
+                                                    title={`Number of queries in PostHog that included a filter on this ${
+                                                        type === 'event_definitions' ? 'event' : 'property'
+                                                    }`}
+                                                >
+                                                    <InfoCircleOutlined className="info-indicator" />
+                                                </Tooltip>
+                                            </div>
+                                            <span>{definition.query_usage_30_day || '-'}</span>
                                         </div>
-                                        <span>{definition.query_usage_30_day || '-'}</span>
-                                    </div>
-                                </Row>
-                            </Panel>
-                        </Collapse>
+                                    </Row>
+                                </Panel>
+                            </Collapse>
+                        )}
 
                         <Collapse
                             style={{ paddingBottom: 32 }}

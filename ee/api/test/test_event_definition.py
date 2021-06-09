@@ -24,7 +24,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["name"], "enterprise event")
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["tags"], ["deprecated"])
-        self.assertEqual(response_data["owner"], self.user.id)
+        self.assertEqual(response_data["owner"]["id"], self.user.id)
 
     def test_retrieve_create_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
