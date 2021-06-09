@@ -90,6 +90,15 @@ def factory_test_event_api(event_factory, person_factory, _):
                 ).json()
             self.assertEqual(response["results"][0]["id"], event2.pk)
 
+            properties = "invalid_json"
+
+            response = self.client.get(f"/api/event/?properties={properties}")
+
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertDictEqual(
+                response.json(), self.validation_error_response("Properties are unparsable!", "invalid_input")
+            )
+
         def test_filter_by_person(self):
             person = person_factory(
                 properties={"email": "tim@posthog.com"}, distinct_ids=["2", "some-random-uid"], team=self.team,
