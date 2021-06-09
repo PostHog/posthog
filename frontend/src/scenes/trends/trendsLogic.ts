@@ -358,7 +358,7 @@ export const trendsLogic = kea<
         ],
         numberOfSeries: [
             (selectors) => [selectors.filters],
-            (filters): number => filters.events.length + filters.actions.length,
+            (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
     }),
 

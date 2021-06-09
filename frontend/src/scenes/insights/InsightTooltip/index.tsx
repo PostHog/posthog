@@ -1,4 +1,5 @@
 import { DateDisplay } from 'lib/components/DateDisplay'
+import { IconHandClick } from 'lib/components/icons'
 import React from 'react'
 import { IntervalType } from '~/types'
 import './InsightTooltip.scss'
@@ -26,7 +27,7 @@ export function InsightTooltip({
     inspectUsersLabel,
 }: InsightTooltipProps): JSX.Element {
     return (
-        <>
+        <div className={`inner-tooltip${bodyLines.length > 1 ? ' multiple' : ''}`}>
             <header>{referenceDate ? <DateDisplay interval={interval} date={referenceDate} /> : altTitle}</header>
 
             <ul>
@@ -35,7 +36,11 @@ export function InsightTooltip({
                 })}
             </ul>
 
-            {inspectUsersLabel && <footer>Click to inspect users</footer>}
-        </>
+            {inspectUsersLabel && (
+                <footer>
+                    <IconHandClick /> Click to inspect users
+                </footer>
+            )}
+        </div>
     )
 }
