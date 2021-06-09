@@ -78,8 +78,8 @@ export function ActionsBarValueGraph({
                               const { dataset } = point
                               const action = dataset.actions[point.index]
                               const label = dataset.labels[point.index]
-                              const date_from = dataset?.days?.length ? dataset.days[0] : null
-                              const date_to = dataset?.days?.length ? dataset.days[dataset.days.length - 1] : null
+                              const date_from = filtersParam?.date_from
+                              const date_to = filtersParam?.date_to
                               loadPeople(action, label, date_from, date_to, null)
                           }
                 }
