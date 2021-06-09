@@ -19,7 +19,7 @@ export function PropertyValue({
     isPathsSelector = false,
 }) {
     const isMultiSelect = isOperatorMulti(operator)
-    const [input, setInput] = useState(isMultiSelect ? '' : value)
+    const [input, setInput] = useState(isMultiSelect ? '' : isPathsSelector && value ? String(value) : '')
     const [optionsCache, setOptionsCache] = useState({})
     const [options, setOptions] = useState({})
 
@@ -133,17 +133,17 @@ export function PropertyValue({
                 <AutoComplete
                     {...commonInputProps}
                     onChange={(val) => {
-                        setInput(val ?? null)
+                        setInput(val ? String(val) : null)
                     }}
                     onSelect={(val) => {
                         setValue(val ?? null)
                         if (isPathsSelector) {
-                            setInput(val ?? '')
+                            setInput(val ? String(val) : null)
                         }
                     }}
                 >
                     {input || isPathsSelector ? (
-                        <Select.Option key="specify" value={input ?? value} className="ph-no-capture">
+                        <Select.Option key="specify-value" value={input ?? value} className="ph-no-capture">
                             Specify: {input ?? value}
                         </Select.Option>
                     ) : null}
