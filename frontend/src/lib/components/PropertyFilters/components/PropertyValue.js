@@ -67,7 +67,7 @@ export function PropertyValue({
     const commonInputProps = {
         autoFocus: !value && !isMobile(),
         style: { width: '100%', ...style },
-        value: isMultiSelect ? value : input,
+        value: (isMultiSelect ? value : input) || placeholder,
         loading: optionsCache[input] === 'loading',
         onSearch: (newInput) => {
             setInput(newInput)
