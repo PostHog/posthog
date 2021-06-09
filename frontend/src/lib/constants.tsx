@@ -232,7 +232,7 @@ export const FEATURE_FLAGS: Record<string, string> = {
     QUERY_UX_V2: '4050-query-ui-optB',
     EVENT_COLUMN_CONFIG: '4141-event-columns',
     NPS_PROMPT: '4562-nps',
-    INGESTION_TAXONOMY: 'event-property-taxonomy',
+    INGESTION_TAXONOMY: '4267-event-property-taxonomy',
     NEW_TOOLTIPS: '4156-tooltips-legends',
 }
 

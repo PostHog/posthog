@@ -6,7 +6,7 @@ from django.db.models import Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.utils import timezone
 from django.utils.timezone import now
-from rest_framework import exceptions, request, response, serializers, viewsets
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -102,20 +102,9 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
         if self.action == "list" or self.action == "sessions" or self.action == "actions":
             queryset = self._filter_request(self.request, queryset)
-
         order_by_param = self.request.GET.get("orderBy")
         order_by = ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
-        queryset = queryset.order_by(*order_by)
-        limit_raw = self.request.GET.get("limit")
-        limit: Optional[int]
-        if limit_raw:
-            try:
-                limit = int(limit_raw)
-                valid_ids = queryset.values_list("pk", flat=True)[:limit]
-                queryset = queryset.filter(pk__in=valid_ids)
-            except ValueError:
-                raise exceptions.ValidationError("Query param limit must be omitted or an integer!")
-        return queryset
+        return queryset.order_by(*order_by)
 
     def _filter_request(self, request: request.Request, queryset: EventManager) -> QuerySet:
         for key, value in request.GET.items():
@@ -182,6 +171,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
         monday = now() + timedelta(days=-now().weekday())
+        limit = int(self.request.query_params["limit"]) if self.request.query_params["limit"] else 100
         # Don't allow events too far into the future
         queryset = self.get_queryset().filter(timestamp__lte=now() + timedelta(seconds=5))
         next_url: Optional[str] = None
@@ -203,7 +193,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                         events[99].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                     )
                 )
-            events = events[:100]
+            events = events[:limit]
 
         prefetched_events = self._prefetch_events(list(events))
 
