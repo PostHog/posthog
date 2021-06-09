@@ -95,7 +95,7 @@ export function ChartFilter(props) {
                           },
                           {
                               value: ACTIONS_BAR_CHART_VALUE,
-                              label: <Label icon={<BarChartOutlined />}>Value</Label>,
+                              label: <Label icon={<BarChartOutlined />}>Breakdown values</Label>,
                               disabled: barValueDisabled,
                           },
                       ],
