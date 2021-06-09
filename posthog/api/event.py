@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.utils.timezone import now
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -94,6 +95,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Event.objects.all()
     serializer_class = EventSerializer
+    pagination_class = LimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     CSV_EXPORT_LIMIT = 100_000  # Return at most this number of events in CSV export
@@ -171,7 +173,6 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
         monday = now() + timedelta(days=-now().weekday())
-        limit = int(self.request.query_params["limit"]) if self.request.query_params["limit"] else 100
         # Don't allow events too far into the future
         queryset = self.get_queryset().filter(timestamp__lte=now() + timedelta(seconds=5))
         next_url: Optional[str] = None
@@ -193,7 +194,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                         events[99].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                     )
                 )
-            events = events[:limit]
+            events = self.paginator.paginate_queryset(events, request)
 
         prefetched_events = self._prefetch_events(list(events))
 
