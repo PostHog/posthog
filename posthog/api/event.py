@@ -6,7 +6,7 @@ from django.db.models import Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.utils import timezone
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -106,9 +106,16 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         order_by_param = self.request.GET.get("orderBy")
         order_by = ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
         queryset = queryset.order_by(*order_by)
-        if self.request.GET.get("limit"):
-            valid_ids = queryset.values_list("pk", flat=True)[: int(self.request.GET.get("limit"))]
-            queryset = queryset.filter(pk__in=valid_ids)
+        limit_raw = self.request.GET.get("limit")
+        limit: Optional[int]
+        if limit_raw:
+            try:
+                limit = int(limit_raw)
+            except ValueError:
+                raise exceptions.ValidationError("Query param limit must be omitted or an integer!")
+            else:
+                valid_ids = queryset.values_list("pk", flat=True)[: int(self.request.GET.get("limit"))]
+                queryset = queryset.filter(pk__in=valid_ids)
         return queryset
 
     def _filter_request(self, request: request.Request, queryset: EventManager) -> QuerySet:

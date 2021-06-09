@@ -61,7 +61,7 @@ export function DefinitionDrawer(): JSX.Element {
                                             </Col>
                                         </Row>
                                         <Row>
-                                            <DefinitionOwner owner={definition.owner} />
+                                            <DefinitionOwner owner={definition.owner || null} />
                                         </Row>
                                     </Col>
                                 </Row>

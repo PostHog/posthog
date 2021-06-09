@@ -5,6 +5,7 @@ import { IndexedTrendResult } from 'scenes/trends/trendsLogic'
 import { EventDefinition, EventFormattedType, EventOrPropType } from '~/types'
 import { errorToast, toParams, uniqueBy } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { valueType } from 'antd/lib/statistic/utils'
 
 export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropType>>({
     actions: () => ({
@@ -15,7 +16,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
         setDefinitionLoading: (loading: boolean) => ({ loading }),
-        changeOwner: (ownerId: number) => ({ ownerId }),
+        changeOwner: (ownerId: valueType) => ({ ownerId }),
         setDescription: (description: string) => ({ description }),
         setDescriptionEditing: (editing: boolean) => ({ editing }),
         setGraphResults: (results: any) => ({ results }),
@@ -115,22 +116,23 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
             actions.loadEventsSnippet(response)
         },
         saveNewTag: ({ tag }) => {
-            if (values.definition.tags.includes(tag)) {
+            if (values.definition?.tags.includes(tag)) {
                 errorToast('Oops! This tag is already set', 'This event already includes the proposed tag.')
                 return
             }
-            actions.updateDefinition({ tags: [...values.definition.tags, tag] })
+            const currentTags = values.definition?.tags || []
+            actions.updateDefinition({ tags: [...currentTags, tag] })
         },
         deleteTag: async ({ tag }, breakpoint) => {
             await breakpoint(100)
-            const tags = values.definition.tags.filter((_tag: string) => _tag !== tag)
+            const tags = values.definition?.tags.filter((_tag: string) => _tag !== tag)
             actions.updateDefinition({ tags })
         },
         changeOwner: ({ ownerId }) => {
             actions.updateDefinition({ owner: ownerId })
         },
         cancelDescription: () => {
-            actions.setDescription(values.definition.description)
+            actions.setDescription(values.definition?.description || '')
             actions.setDescriptionEditing(false)
         },
         saveDescription: () => {
@@ -139,7 +141,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
         },
         updateDefinition: async ({ payload }) => {
             actions.setDefinitionLoading(true)
-            const response = await api.update(`api/projects/@current/${values.type}/${values.definition.id}/`, payload)
+            const response = await api.update(`api/projects/@current/${values.type}/${values.definition?.id}/`, payload)
             actions.setDefinition(response)
             actions.setDefinitionLoading(false)
             eventDefinitionsModel.actions.setEventDefinitions(response)
