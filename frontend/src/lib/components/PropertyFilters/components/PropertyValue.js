@@ -19,7 +19,7 @@ export function PropertyValue({
     isPathsSelector = false,
 }) {
     const isMultiSelect = isOperatorMulti(operator)
-    const [input, setInput] = useState(isMultiSelect || isPathsSelector ? '' : value)
+    const [input, setInput] = useState(isMultiSelect ? '' : value)
     const [optionsCache, setOptionsCache] = useState({})
     const [options, setOptions] = useState({})
 
@@ -65,10 +65,12 @@ export function PropertyValue({
 
     const validationError = getValidationError(operator, value)
 
+    const pathSelectorValue = typeof input === 'string' ? input : value
+
     const commonInputProps = {
         autoFocus: !value && !isMobile(),
         style: { width: '100%', ...style },
-        value: isMultiSelect || isPathsSelector ? value : input,
+        value: isMultiSelect ? value : isPathsSelector ? pathSelectorValue : input,
         loading: optionsCache[input] === 'loading',
         onSearch: (newInput) => {
             setInput(newInput)
@@ -90,8 +92,8 @@ export function PropertyValue({
             }
         },
     }
-
-    console.log(input, value)
+    console.log('input', input)
+    console.log('value', value)
 
     return (
         <>
@@ -134,17 +136,15 @@ export function PropertyValue({
                         setInput(val ?? null)
                     }}
                     onSelect={(val) => {
-                        console.log(val)
                         setValue(val ?? null)
+                        if (isPathsSelector) {
+                            setInput(val ?? '')
+                        }
                     }}
                 >
                     {input || isPathsSelector ? (
-                        <Select.Option
-                            key={`specify-${isPathsSelector ? value : input}`}
-                            value={isPathsSelector ? value : input}
-                            className="ph-no-capture"
-                        >
-                            Specify: {isPathsSelector ? value : input}
+                        <Select.Option key="specify" value={input ?? value} className="ph-no-capture">
+                            Specify: {input ?? value}
                         </Select.Option>
                     ) : null}
                     {displayOptions.map(({ name, id }, index) => (
