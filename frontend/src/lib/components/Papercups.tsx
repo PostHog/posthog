@@ -17,7 +17,8 @@ export function Papercups(): JSX.Element {
             subtitle="Ask us anything in the chat window below 😊"
             newMessagePlaceholder="Start typing…"
             primaryColor="#5375ff"
-            greeting="Hi! Send us a message and we'll respond as soon as we can."
+            awayMessage="We'll reply as soon as we're back online. You can check [our help center](https://www.posthog.com/docs) in the meantime."
+            greeting="Hi! We'll respond as soon as we can. For additional assistance, please check [our help center](https://www.posthog.com/docs)"
             customer={
                 user &&
                 preflight && {

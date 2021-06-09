@@ -3,22 +3,19 @@ import api from 'lib/api'
 import { PreflightStatus } from '~/types'
 import { preflightLogicType } from './logicType'
 import posthog from 'posthog-js'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 type PreflightMode = 'experimentation' | 'live'
 
 export const preflightLogic = kea<preflightLogicType<PreflightStatus, PreflightMode>>({
-    loaders: ({ actions }) => ({
+    loaders: {
         preflight: [
             null as PreflightStatus | null,
             {
-                loadPreflight: async () => {
-                    const response = await api.get('_preflight/')
-                    actions.registerInstrumentationProps()
-                    return response
-                },
+                loadPreflight: async () => await api.get('_preflight/'),
             },
         ],
-    }),
+    },
     actions: {
         registerInstrumentationProps: true,
         setPreflightMode: (mode: PreflightMode | null, noReload?: boolean) => ({ mode, noReload }),
@@ -74,6 +71,9 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus, PreflightM
         ],
     },
     listeners: ({ values, actions }) => ({
+        loadPreflightSuccess: () => {
+            actions.registerInstrumentationProps()
+        },
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
             if (posthog && values.preflight) {
@@ -94,7 +94,12 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus, PreflightM
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            actions.loadPreflight()
+            const preflight = getAppContext()?.preflight
+            if (preflight) {
+                actions.loadPreflightSuccess(preflight)
+            } else {
+                actions.loadPreflight()
+            }
         },
     }),
     actionToUrl: ({ values }) => ({

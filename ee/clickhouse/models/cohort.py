@@ -2,11 +2,18 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from dateutil import parser
+from django.conf import settings
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.sql.cohort import CALCULATE_COHORT_PEOPLE_SQL
+from ee.clickhouse.sql.cohort import (
+    CALCULATE_COHORT_PEOPLE_SQL,
+    GET_PERSON_ID_BY_COHORT_ID,
+    INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
+    REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
+)
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_ID_SQL,
@@ -16,16 +23,19 @@ from ee.clickhouse.sql.person import (
 )
 from posthog.models import Action, Cohort, Filter, Team
 
+# temporary marker to denote when cohortpeople table started being populated
+TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
-def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
+
+def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
     filters = []
     params: Dict[str, Any] = {}
 
+    custom_match_field = kwargs.get("custom_match_field", "person_id")
+
     if cohort.is_static:
         return (
-            "person_id IN (SELECT person_id FROM {} WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s)".format(
-                PERSON_STATIC_COHORT_TABLE
-            ),
+            f"{custom_match_field} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s)",
             {"cohort_id": cohort.pk, "team_id": cohort.team_id},
         )
 
@@ -60,7 +70,7 @@ def format_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
             or_queries.append(query.replace("AND ", "", 1))
     if len(or_queries) > 0:
         query = "AND ({})".format(" OR ".join(or_queries))
-        filters.append("person_id IN {}".format(GET_LATEST_PERSON_ID_SQL.format(query=query)))
+        filters.append("{} IN {}".format(custom_match_field, GET_LATEST_PERSON_ID_SQL.format(query=query)))
 
     joined_filter = " OR ".join(filters)
     return joined_filter, params
@@ -77,11 +87,29 @@ def parse_action_timestamps(days: int) -> Tuple[str, Dict[str, str]]:
 
 
 def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
-    person_query, params = format_person_query(cohort)
+    person_query, params = determine_precalculated_or_live_person_query(cohort)
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query, latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
     )
     return person_id_query, params
+
+
+def determine_precalculated_or_live_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
+    if (
+        cohort.last_calculation
+        and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
+        and not settings.DEBUG
+        and not settings.TEST
+    ):
+        return (
+            f"""
+        person_id IN ({GET_PERSON_ID_BY_COHORT_ID})
+        """,
+            {"team_id": cohort.team_id, "cohort_id": cohort.pk},
+        )
+    else:
+        person_query, params = format_person_query(cohort)
+        return person_query, params
 
 
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
@@ -107,3 +135,17 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
         for person_uuid in person_uuids
     )
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+
+
+def recalculate_cohortpeople(cohort: Cohort):
+    cohort_filter, cohort_params = format_person_query(cohort, custom_match_field="id")
+
+    cohort_filter = GET_PERSON_IDS_BY_FILTER.format(distinct_query="AND " + cohort_filter, query="")
+
+    insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
+
+    sync_execute(insert_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
+
+    remove_cohortpeople_sql = REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
+
+    sync_execute(remove_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})

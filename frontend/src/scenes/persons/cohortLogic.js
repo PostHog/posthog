@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import { Spin } from 'antd'
 import api from 'lib/api'
 import { router } from 'kea-router'
-import { cohortsModel } from '~/models'
+import { cohortsModel } from '~/models/cohortsModel'
 import { Link } from 'lib/components/Link'
 
 export const cohortLogic = kea({

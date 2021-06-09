@@ -39,16 +39,18 @@ import md5 from 'md5'
 export interface ProfilePictureProps {
     name?: string
     email?: string
+    small?: boolean
 }
 
-export function ProfilePicture({ name, email }: ProfilePictureProps): JSX.Element {
+export function ProfilePicture({ name, email, small }: ProfilePictureProps): JSX.Element {
     const [didImageError, setDidImageError] = useState(false)
+    const pictureClass = small ? 'profile-picture small' : 'profile-picture'
     if (email && !didImageError) {
         const emailHash = md5(email.trim().toLowerCase())
         const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
         return (
             <img
-                className="profile-picture"
+                className={pictureClass}
                 src={gravatarUrl}
                 onError={() => setDidImageError(true)}
                 title={`This is ${email}'s Gravatar.`}
@@ -56,11 +58,11 @@ export function ProfilePicture({ name, email }: ProfilePictureProps): JSX.Elemen
             />
         )
     } else if (name) {
-        return <div className="profile-picture">{name[0]?.toUpperCase()}</div>
+        return <div className={pictureClass}>{name[0]?.toUpperCase()}</div>
     } else if (email) {
-        return <div className="profile-picture">{email[0]?.toUpperCase()}</div>
+        return <div className={pictureClass}>{email[0]?.toUpperCase()}</div>
     }
-    return <div className="profile-picture">?</div>
+    return <div className={pictureClass}>?</div>
 }
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {

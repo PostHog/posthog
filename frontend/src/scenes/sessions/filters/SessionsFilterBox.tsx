@@ -9,14 +9,16 @@ import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionF
 import { FilterSelector, sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { Link } from 'lib/components/Link'
 import { cohortsModel } from '~/models/cohortsModel'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
 
 export function SessionsFilterBox({ selector }: { selector: FilterSelector }): JSX.Element | null {
-    const { openFilter, personProperties } = useValues(sessionsFiltersLogic)
+    const { personProperties } = useValues(personPropertiesModel)
+    const { openFilter } = useValues(sessionsFiltersLogic)
 
     const { closeFilterSelect, dropdownSelected } = useActions(sessionsFiltersLogic)
 
-    const { eventDefinitions } = useValues(eventDefinitionsLogic)
+    const { eventDefinitions } = useValues(eventDefinitionsModel)
     const { actions } = useValues(actionsModel)
     const { cohorts } = useValues(cohortsModel)
 

@@ -1297,6 +1297,33 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "taobojlen",
+      "name": "Tao Bojlén",
+      "avatar_url": "https://avatars.githubusercontent.com/u/66130243?v=4",
+      "profile": "https://www.btao.org/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "marcushyett-ph",
+      "name": "Marcus Hyett (PostHog)",
+      "avatar_url": "https://avatars.githubusercontent.com/u/85295485?v=4",
+      "profile": "https://github.com/marcushyett-ph",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "jonataslaw",
+      "name": "Jonny Borges",
+      "avatar_url": "https://avatars.githubusercontent.com/u/35742643?v=4",
+      "profile": "https://github.com/jonataslaw",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

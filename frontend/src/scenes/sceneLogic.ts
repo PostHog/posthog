@@ -1,16 +1,20 @@
-import { BuiltLogic, kea } from 'kea'
+import { kea, LogicWrapper } from 'kea'
 import { router } from 'kea-router'
 import { identifierToHuman, delay } from 'lib/utils'
-import { Error404 } from '~/layout/Error404'
-import { ErrorNetwork } from '~/layout/ErrorNetwork'
+import { Error404 as Error404Component } from '~/layout/Error404'
+import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
-import { eventUsageLogic } from '../lib/utils/eventUsageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { userLogic } from 'scenes/userLogic'
+import { afterLoginRedirect } from 'scenes/authentication/loginLogic'
 
 export enum Scene {
+    Error404 = '404',
+    ErrorNetwork = '4xx',
     Dashboards = 'dashboards',
     Dashboard = 'dashboard',
     DashboardInsight = 'dashboardInsight',
@@ -47,14 +51,25 @@ export enum Scene {
 
 interface LoadedScene {
     component: () => JSX.Element
-    logic?: BuiltLogic
+    logic?: LogicWrapper
 }
 
 interface Params {
     [param: string]: any
 }
 
+const preloadedScenes: Record<string, LoadedScene> = {
+    [Scene.Error404]: {
+        component: Error404Component,
+    },
+    [Scene.ErrorNetwork]: {
+        component: ErrorNetworkComponent,
+    },
+}
+
 export const scenes: Record<Scene, () => any> = {
+    [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
+    [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     [Scene.DashboardInsight]: () =>
@@ -192,10 +207,16 @@ export const routes: Record<string, Scene> = {
     '/home': Scene.Home,
 }
 
-export const sceneLogic = kea<sceneLogicType>({
+export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneConfig>>({
     actions: {
+        /* 1. Prepares to open the scene, as the listener may override and do something 
+            else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
+        openScene: (scene: Scene, params: Params) => ({ scene, params }),
+        // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
+        // 3. Set the `scene` reducer
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
+
         setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
         showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
         hideUpgradeModal: true,
@@ -215,14 +236,7 @@ export const sceneLogic = kea<sceneLogicType>({
             },
         ],
         loadedScenes: [
-            {
-                404: {
-                    component: Error404,
-                },
-                '4xx': {
-                    component: ErrorNetwork,
-                },
-            } as Record<string | number, LoadedScene>,
+            preloadedScenes,
             {
                 setLoadedScene: (state, { scene, loadedScene }) => ({ ...state, [scene]: loadedScene }),
             },
@@ -250,28 +264,28 @@ export const sceneLogic = kea<sceneLogicType>({
                 return sceneConfigurations[scene] ?? {}
             },
         ],
+        activeScene: [(s) => [s.loadingScene, s.scene], (loadingScene, scene) => loadingScene || scene],
     },
     urlToAction: ({ actions }) => {
-        featureFlagLogic.mount() // Otherwise logic is not loaded before this
-        if (featureFlagLogic && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
-            redirects['/'] = '/home'
-        }
-
         const mapping: Record<string, (params: Params) => any> = {}
 
-        for (const [paths, redirect] of Object.entries(redirects)) {
-            for (const path of paths.split('|')) {
-                mapping[path] = (params) =>
-                    router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
-            }
-        }
-        for (const [paths, scene] of Object.entries(routes)) {
-            for (const path of paths.split('|')) {
-                mapping[path] = (params) => actions.loadScene(scene, params)
+        for (const path of Object.keys(redirects)) {
+            mapping[path] = (params) => {
+                let redirect = redirects[path]
+
+                if (path === '/' && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
+                    redirect = '/home'
+                }
+
+                router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
 
-        mapping['/*'] = () => actions.loadScene('404', {})
+        for (const [path, scene] of Object.entries(routes)) {
+            mapping[path] = (params) => actions.openScene(scene, params)
+        }
+
+        mapping['/*'] = () => actions.loadScene(Scene.Error404, {})
 
         return mapping
     },
@@ -291,6 +305,54 @@ export const sceneLogic = kea<sceneLogicType>({
             posthog.capture('$pageview')
             document.title = values.scene ? `${identifierToHuman(values.scene)} • PostHog` : 'PostHog'
         },
+        openScene: ({ scene, params }) => {
+            const sceneConfig = sceneConfigurations[scene] || {}
+            const { user } = userLogic.values
+            const { preflight } = preflightLogic.values
+
+            if (scene === Scene.Signup && preflight && !preflight.cloud && preflight.initiated) {
+                // If user is on an already initiated self-hosted instance, redirect away from signup
+                router.actions.replace('/login')
+                return
+            }
+
+            if (user) {
+                // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
+                if (sceneConfig.onlyUnauthenticated) {
+                    if (scene === Scene.Login) {
+                        router.actions.replace(afterLoginRedirect())
+                    } else {
+                        router.actions.replace('/')
+                    }
+                    return
+                }
+
+                // Redirect to org/project creation if there's no org/project respectively, unless using invite
+                if (scene !== Scene.InviteSignup) {
+                    if (!user.organization) {
+                        if (location.pathname !== '/organization/create') {
+                            router.actions.replace('/organization/create')
+                            return
+                        }
+                    } else if (!user.team) {
+                        if (location.pathname !== '/project/create') {
+                            router.actions.replace('/project/create')
+                            return
+                        }
+                    } else if (
+                        !user.team.completed_snippet_onboarding &&
+                        !location.pathname.startsWith('/ingestion') &&
+                        !location.pathname.startsWith('/personalization')
+                    ) {
+                        // If ingestion tutorial not completed, redirect to it
+                        router.actions.replace('/ingestion')
+                        return
+                    }
+                }
+            }
+
+            actions.loadScene(scene, params)
+        },
         loadScene: async ({ scene, params = {} }: { scene: Scene; params: Params }, breakpoint) => {
             if (values.scene === scene) {
                 actions.setScene(scene, params)
@@ -298,7 +360,7 @@ export const sceneLogic = kea<sceneLogicType>({
             }
 
             if (!scenes[scene]) {
-                actions.setScene('404', {})
+                actions.setScene(Scene.Error404, {})
                 return
             }
 
@@ -318,7 +380,7 @@ export const sceneLogic = kea<sceneLogicType>({
                         } else {
                             // First scene, show an error page
                             console.error('App assets regenerated. Showing error page.')
-                            actions.setScene('4xx', {})
+                            actions.setScene(Scene.ErrorNetwork, {})
                         }
                     } else {
                         throw error
@@ -337,7 +399,7 @@ export const sceneLogic = kea<sceneLogicType>({
                         component:
                             Object.keys(others).length === 1
                                 ? others[Object.keys(others)[0]]
-                                : values.loadedScenes['404'].component,
+                                : values.loadedScenes[Scene.Error404].component,
                         logic: logic,
                     }
                     if (Object.keys(others).length > 1) {

@@ -1600,10 +1600,10 @@
     prop-types "^15.7.2"
     state-local "^1.0.7"
 
-"@papercups-io/chat-widget@^1.1.5":
-  version "1.1.5"
-  resolved "https://registry.yarnpkg.com/@papercups-io/chat-widget/-/chat-widget-1.1.5.tgz#294bc63370ffd6578714adef1b6ca63708491726"
-  integrity sha512-x5UvZgrQxDVOJ5FY2ytN7QIIw8CQSAYu/Vz1DJbCc6AoTJ1Vwm5FF4JTxzHC6QmcH5VWWPA5tdQ5Gjwt8dTD9w==
+"@papercups-io/chat-widget@^1.1.10":
+  version "1.1.10"
+  resolved "https://registry.yarnpkg.com/@papercups-io/chat-widget/-/chat-widget-1.1.10.tgz#6fae6ded9e0b832310612ac4a9a841c938aceb82"
+  integrity sha512-bXmOUWWO0fOuJl0CipzXrdjvkP0elusu6H9OTw+k4H+oHtCCrYQH3Do7x66x77d2apWbaFfDvZWMul4l2NGyhw==
   dependencies:
     framer-motion "^2.0.1"
     phoenix "^1.5.3"
@@ -1911,6 +1911,13 @@
   integrity sha512-Pzh9O3sTK8V6I1olsXpCfj2k/ygO2q1X0vhhnDrEQyYLHZesWz+zMZMVcwXLCYf0U36EtmyYaFGPfXlTtDHe3A==
   dependencies:
     "@babel/types" "^7.3.0"
+
+"@types/chart.js@^2.9.32":
+  version "2.9.32"
+  resolved "https://registry.yarnpkg.com/@types/chart.js/-/chart.js-2.9.32.tgz#b17d9a8c41ad348183a2ce041ebdeef892998251"
+  integrity sha512-d45JiRQwEOlZiKwukjqmqpbqbYzUX2yrXdH9qVn6kXpPDsTYCo6YbfFOlnUaJ8S/DhJwbBJiLsMjKpW5oP8B2A==
+  dependencies:
+    moment "^2.10.2"
 
 "@types/css-font-loading-module@0.0.4":
   version "0.0.4"
@@ -3443,6 +3450,13 @@ chartjs-color@^2.1.0:
     chartjs-color-string "^0.6.0"
     color-convert "^1.9.3"
 
+chartjs-plugin-crosshair@^1.1.6:
+  version "1.1.6"
+  resolved "https://registry.yarnpkg.com/chartjs-plugin-crosshair/-/chartjs-plugin-crosshair-1.1.6.tgz#3874c3114a5c2ea5d5569a200ef0b32425107ed2"
+  integrity sha512-faqHKnZzhNYh2ahIKaxTWB9ZX5afRJkQ+7jsZ8u0Z+PE4YPcs1jNCCKwWINWacYaryh6ih/OT6pLmMnkNMusHQ==
+  dependencies:
+    chart.js "^2.9.3"
+
 "chokidar@>=2.0.0 <4.0.0", chokidar@^3.4.1:
   version "3.5.1"
   resolved "https://registry.yarnpkg.com/chokidar/-/chokidar-3.5.1.tgz#ee9ce7bbebd2b79f49f304799d5468e31e14e68a"
@@ -4720,9 +4734,9 @@ dns-equal@^1.0.0:
   integrity sha1-s55/HabrCnW6nBcySzR1PEfgZU0=
 
 dns-packet@^1.3.1:
-  version "1.3.1"
-  resolved "https://registry.yarnpkg.com/dns-packet/-/dns-packet-1.3.1.tgz#12aa426981075be500b910eedcd0b47dd7deda5a"
-  integrity sha512-0UxfQkMhYAUaZI+xrNZOz/as5KgDU0M/fQ9b6SpkyLbk3GEswDi6PADJVaYJradtRVsRIlF1zLyOodbcTCDzUg==
+  version "1.3.4"
+  resolved "https://registry.yarnpkg.com/dns-packet/-/dns-packet-1.3.4.tgz#e3455065824a2507ba886c55a89963bb107dec6f"
+  integrity sha512-BQ6F4vycLXBvdrJZ6S3gZewt6rcrks9KBgM9vrhW+knGRqc8uEdT7fuCwloc7nny5xNoMJ17HGH0R/6fpo8ECA==
   dependencies:
     ip "^1.1.0"
     safe-buffer "^5.0.1"
@@ -9236,10 +9250,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.10.2:
-  version "1.10.2"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.10.2.tgz#74d6c84f9675b65dfd4ff6f4051ed8d3cb974076"
-  integrity sha512-JNjWstHEexhj5CEKldSeYNyPJbtOvZQ3ZPL55fxU7+f+gTBL8RlOb8eFohCPYIk0VhMf2UM1rXxwVBOeMQQQFw==
+posthog-js@1.11.2:
+  version "1.11.2"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.11.2.tgz#67d2213394cfec5ed93c88efcd7e94e4aef1847f"
+  integrity sha512-lUADT1j9V5kaqp19b2qSnjZ4ZDLjJK6Ff3qdgYdDiHumGdYXpdsjr26DJ5NKdq6WbVe3YQGNKJqcFKeYUyRsmg==
   dependencies:
     fflate "^0.4.1"
 
@@ -12399,9 +12413,9 @@ write@1.0.3:
     mkdirp "^0.5.1"
 
 ws@^6.2.1:
-  version "6.2.1"
-  resolved "https://registry.yarnpkg.com/ws/-/ws-6.2.1.tgz#442fdf0a47ed64f59b6a5d8ff130f4748ed524fb"
-  integrity sha512-GIyAXC2cB7LjvpgMt9EKS2ldqr0MTrORaleiOno6TweZ6r3TKtoFQWay/2PceJ3RuBasOHzXNn5Lrw1X0bEjqA==
+  version "6.2.2"
+  resolved "https://registry.yarnpkg.com/ws/-/ws-6.2.2.tgz#dd5cdbd57a9979916097652d78f1cc5faea0c32e"
+  integrity sha512-zmhltoSR8u1cnDsD43TX59mzoMZsLKqUweyYBAIvTngR3shc0W6aOZylZmq/7hqyVxPdi+5Ud2QInblgyE72fw==
   dependencies:
     async-limiter "~1.0.0"
 

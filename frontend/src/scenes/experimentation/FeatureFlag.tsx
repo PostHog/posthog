@@ -289,6 +289,7 @@ export function FeatureFlag(): JSX.Element {
                         {featureFlag.filters.groups.map((group, index) => (
                             <Col span={24} md={12} key={`${index}-${featureFlag.filters.groups.length}`}>
                                 <Card style={{ position: 'relative', marginBottom: 32, paddingBottom: 16 }}>
+                                    {index > 0 && <div className="stateful-badge pos-center-end or">OR</div>}
                                     {featureFlag.filters.groups.length > 1 && (
                                         <>
                                             <span style={{ position: 'absolute', top: 0, right: 0, margin: 4 }}>

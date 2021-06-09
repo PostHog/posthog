@@ -11,11 +11,9 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
 import os
-import shutil
 import sys
 from datetime import timedelta
-from distutils.util import strtobool
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -27,6 +25,7 @@ from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
 from posthog.constants import RDBMS
+from posthog.utils import print_warning, str_to_bool
 
 
 def get_from_env(key: str, default: Any = None, *, optional: bool = False, type_cast: Optional[Callable] = None) -> Any:
@@ -49,23 +48,18 @@ def get_list(text: str) -> List[str]:
     return [item.strip() for item in text.split(",")]
 
 
-def print_warning(warning_lines: Sequence[str]):
-    highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
-    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)
-
-
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-DEBUG = get_from_env("DEBUG", False, type_cast=strtobool)
+DEBUG = get_from_env("DEBUG", False, type_cast=str_to_bool)
 TEST = (
-    "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=strtobool)
+    "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=str_to_bool)
 )  # type: bool
 E2E_TESTING = get_from_env(
-    "E2E_TESTING", False, type_cast=strtobool,
+    "E2E_TESTING", False, type_cast=str_to_bool,
 )  # whether the app is currently running for E2E tests
-SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=strtobool)
-SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=strtobool)
+SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
+SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
 
 SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
@@ -74,7 +68,9 @@ if DEBUG:
 else:
     JS_URL = os.getenv("JS_URL", "")
 
-DISABLE_MMDB = get_from_env("DISABLE_MMDB", TEST, type_cast=strtobool)  # plugin server setting disabling GeoIP feature
+DISABLE_MMDB = get_from_env(
+    "DISABLE_MMDB", TEST, type_cast=str_to_bool
+)  # plugin server setting disabling GeoIP feature
 PLUGINS_PREINSTALLED_URLS: List[str] = os.getenv(
     "PLUGINS_PREINSTALLED_URLS", "https://github.com/PostHog/posthog-plugin-geoip"
 ).split(",") if not DISABLE_MMDB else []
@@ -96,7 +92,7 @@ if os.getenv("SECURE_COOKIES", None) is None:
     # Default to True if in production
     secure_cookies = not DEBUG and not TEST
 else:
-    secure_cookies = get_from_env("SECURE_COOKIES", True, type_cast=strtobool)
+    secure_cookies = get_from_env("SECURE_COOKIES", True, type_cast=str_to_bool)
 
 TOOLBAR_COOKIE_SECURE = secure_cookies
 SESSION_COOKIE_SECURE = secure_cookies
@@ -115,12 +111,12 @@ if not TEST:
             environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
         )
 
-if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=strtobool):
+if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=str_to_bool):
     SECURE_SSL_REDIRECT = False
 
 
 # Proxy settings
-IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=strtobool)
+IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
 TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
 TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
 
@@ -149,11 +145,11 @@ CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CA = os.getenv("CLICKHOUSE_CA", None)
-CLICKHOUSE_SECURE = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=strtobool)
-CLICKHOUSE_VERIFY = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=strtobool)
-CLICKHOUSE_REPLICATION = get_from_env("CLICKHOUSE_REPLICATION", False, type_cast=strtobool)
-CLICKHOUSE_ENABLE_STORAGE_POLICY = get_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False, type_cast=strtobool)
-CLICKHOUSE_ASYNC = get_from_env("CLICKHOUSE_ASYNC", False, type_cast=strtobool)
+CLICKHOUSE_SECURE = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=str_to_bool)
+CLICKHOUSE_VERIFY = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=str_to_bool)
+CLICKHOUSE_REPLICATION = get_from_env("CLICKHOUSE_REPLICATION", False, type_cast=str_to_bool)
+CLICKHOUSE_ENABLE_STORAGE_POLICY = get_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False, type_cast=str_to_bool)
+CLICKHOUSE_ASYNC = get_from_env("CLICKHOUSE_ASYNC", False, type_cast=str_to_bool)
 
 CLICKHOUSE_CONN_POOL_MIN = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
 CLICKHOUSE_CONN_POOL_MAX = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
@@ -171,13 +167,13 @@ CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS = [
     f"{_clickhouse_http_protocol}{host}:{_clickhouse_http_port}/" for host in _clickhouse_hosts
 ]
 
-IS_HEROKU = get_from_env("IS_HEROKU", False, type_cast=strtobool)
+IS_HEROKU = get_from_env("IS_HEROKU", False, type_cast=str_to_bool)
 
 # Kafka configs
 KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka")
 KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]
 KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
-KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=strtobool)
+KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
 _primary_db = os.getenv("PRIMARY_DB", "postgres")
 try:
@@ -189,7 +185,7 @@ EE_AVAILABLE = False
 
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
-ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", False, type_cast=strtobool)
+ASYNC_EVENT_PROPERTY_USAGE = get_from_env("ASYNC_EVENT_PROPERTY_USAGE", False, type_cast=str_to_bool)
 EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = get_from_env(
     "ASYNC_EVENT_PROPERTY_USAGE_INTERVAL_SECONDS", 60 * 60, type_cast=int
 )
@@ -217,10 +213,10 @@ STATSD_CLIENT = "statshog"
 STATSD_SEPARATOR = "_"
 
 # Whether to capture internal metrics
-CAPTURE_INTERNAL_METRICS = get_from_env("CAPTURE_INTERNAL_METRICS", False, type_cast=strtobool)
+CAPTURE_INTERNAL_METRICS = get_from_env("CAPTURE_INTERNAL_METRICS", False, type_cast=str_to_bool)
 
 # django-axes settings to lockout after too many attempts
-AXES_ENABLED = get_from_env("AXES_ENABLED", True, type_cast=strtobool)
+AXES_ENABLED = get_from_env("AXES_ENABLED", True, type_cast=str_to_bool)
 AXES_FAILURE_LIMIT = int(os.getenv("AXES_FAILURE_LIMIT", 5))
 AXES_COOLOFF_TIME = timedelta(minutes=15)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axess_logout"
@@ -318,7 +314,7 @@ WSGI_APPLICATION = "posthog.wsgi.application"
 
 SOCIAL_AUTH_POSTGRES_JSONFIELD = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
-SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=strtobool)
+SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
 
 AUTHENTICATION_BACKENDS = (
     "axes.backends.AxesBackend",
@@ -359,7 +355,7 @@ SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gi
 
 
 # See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
-DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=strtobool)
+DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
@@ -501,7 +497,7 @@ AUTH_USER_MODEL = "posthog.User"
 LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
-AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=strtobool)
+AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/.*$"
 
@@ -523,13 +519,13 @@ EXCEPTIONS_HOG = {
 }
 
 # Email
-EMAIL_ENABLED = get_from_env("EMAIL_ENABLED", True, type_cast=strtobool)
+EMAIL_ENABLED = get_from_env("EMAIL_ENABLED", True, type_cast=str_to_bool)
 EMAIL_HOST = os.getenv("EMAIL_HOST", None)
 EMAIL_PORT = os.getenv("EMAIL_PORT", "25")
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
-EMAIL_USE_TLS = get_from_env("EMAIL_USE_TLS", False, type_cast=strtobool)
-EMAIL_USE_SSL = get_from_env("EMAIL_USE_SSL", False, type_cast=strtobool)
+EMAIL_USE_TLS = get_from_env("EMAIL_USE_TLS", False, type_cast=str_to_bool)
+EMAIL_USE_SSL = get_from_env("EMAIL_USE_SSL", False, type_cast=str_to_bool)
 DEFAULT_FROM_EMAIL = os.getenv("EMAIL_DEFAULT_FROM", os.getenv("DEFAULT_FROM_EMAIL", "root@localhost"))
 EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", None)
 
@@ -596,7 +592,7 @@ if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
 
 
 # TODO: Temporary
-EMAIL_REPORTS_ENABLED: bool = get_from_env("EMAIL_REPORTS_ENABLED", False, type_cast=strtobool)
+EMAIL_REPORTS_ENABLED: bool = get_from_env("EMAIL_REPORTS_ENABLED", False, type_cast=str_to_bool)
 
 LOGGING = {
     "version": 1,

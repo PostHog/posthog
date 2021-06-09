@@ -11,7 +11,7 @@ import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { pluralize } from 'lib/utils'
 import './index.scss'
 
@@ -64,7 +64,7 @@ export function ActionFilterRow({
         updateFilterProperty,
         setEntityFilterVisibility,
     } = useActions(logic)
-    const { numericalPropertyNames } = useValues(propertyDefinitionsLogic)
+    const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -111,7 +111,7 @@ export function ActionFilterRow({
         value = entity.id || filter.id
     }
 
-    const orLabel = <div className="stateful-badge mc-main or width-locked">OR</div>
+    const orLabel = <div className="stateful-badge or width-locked">OR</div>
 
     return (
         <div className={horizontalUI ? 'action-row-striped' : ''}>

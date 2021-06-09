@@ -26,6 +26,8 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 import './UnifiedPropertyFilter.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 function FilterDropdown({ open, children }: { open: boolean; children: React.ReactNode }): JSX.Element | null {
     return open ? <div>{children}</div> : null
@@ -87,9 +89,11 @@ function CohortPropertiesInfo({ item }: { item: SelectedItem }): JSX.Element {
 }
 
 export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilterInternalProps): JSX.Element {
-    const { eventProperties, personProperties, filters } = useValues(logic)
     // TODO: PersonPropertiesInfo (which will require making new entries in `keyMapping`)
+    const { filters } = useValues(logic)
 
+    const { personProperties } = useValues(personPropertiesModel)
+    const { transformedPropertyDefinitions: eventProperties } = useValues(propertyDefinitionsModel)
     const { cohorts } = useValues(cohortsModel)
     const { setFilter } = useActions(logic)
     const { reportPropertySelectOpened } = useActions(eventUsageLogic)
@@ -110,12 +114,6 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
         setFilter(index, newKey, newValue, newOperator, newType)
     }
 
-    type PropertiesType = {
-        value: string
-        label: string
-        is_numerical: boolean
-    }
-
     const selectBoxItems: SelectBoxItem[] = [
         {
             name: 'Event properties',
@@ -126,12 +124,13 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </>
                 )
             },
-            dataSource: eventProperties?.map(({ value: eventValue, label, is_numerical }: PropertiesType) => ({
-                name: label,
-                key: `event_${eventValue}`,
-                eventValue,
-                is_numerical,
-            })),
+            dataSource:
+                eventProperties.map(({ value: eventValue, label, is_numerical }) => ({
+                    name: label || '',
+                    key: `event_${eventValue}`,
+                    eventValue,
+                    is_numerical,
+                })) || [],
             renderInfo: EventPropertiesInfo,
             type: 'event',
             key: 'events',
@@ -147,12 +146,11 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </>
                 )
             },
-            dataSource: personProperties?.map(({ value: propertyValue, label, is_numerical }: PropertiesType) => ({
-                name: label,
-                key: `person_${propertyValue}`,
-                propertyValue,
-                is_numerical,
-            })),
+            dataSource:
+                personProperties.map(({ name }) => ({
+                    name,
+                    key: `person_${name}`,
+                })) || [],
             renderInfo: function personPropertiesRenderInfo({ item }) {
                 return (
                     <>
@@ -186,14 +184,15 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </>
                 )
             },
-            dataSource: cohorts
-                ?.filter(({ deleted }) => !deleted)
-                .map((cohort) => ({
-                    name: cohort.name,
-                    key: `cohort_${cohort.id}`,
-                    value: cohort.name,
-                    cohort,
-                })),
+            dataSource:
+                cohorts
+                    ?.filter(({ deleted }) => !deleted)
+                    ?.map((cohort) => ({
+                        name: cohort.name || '',
+                        key: `cohort_${cohort.id}`,
+                        value: cohort.name,
+                        cohort,
+                    })) || [],
             renderInfo: CohortPropertiesInfo,
             type: 'cohort',
             key: 'cohorts',

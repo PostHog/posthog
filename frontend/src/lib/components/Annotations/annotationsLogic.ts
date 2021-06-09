@@ -1,43 +1,53 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import dayjs from 'dayjs'
-import { determineDifferenceType, deleteWithUndo, toParams, groupBy } from '~/lib/utils'
+import dayjs, { Dayjs, OpUnitType } from 'dayjs'
+import { deleteWithUndo, determineDifferenceType, groupBy, toParams } from '~/lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
+import { annotationsLogicType } from './annotationsLogicType'
+import { AnnotationScope, AnnotationType } from '~/types'
 
-export const annotationsLogic = kea({
+export const annotationsLogic = kea<annotationsLogicType<AnnotationType, AnnotationScope, Dayjs, OpUnitType>>({
     key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
     connect: {
         actions: [annotationsModel, ['loadGlobalAnnotations', 'deleteGlobalAnnotation', 'createGlobalAnnotation']],
         values: [annotationsModel, ['activeGlobalAnnotations']],
     },
     actions: () => ({
-        createAnnotation: (content, date_marker, scope = 'dashboard_item') => ({
+        createAnnotation: (
+            content: string,
+            date_marker: string,
+            scope: AnnotationScope = AnnotationScope.DashboardItem
+        ) => ({
             content,
             date_marker,
             created_at: dayjs(),
             scope,
         }),
-        createAnnotationNow: (content, date_marker, scope = 'dashboard_item') => ({
+        createAnnotationNow: (
+            content: string,
+            date_marker: string,
+            scope: AnnotationScope = AnnotationScope.DashboardItem
+        ) => ({
             content,
             date_marker,
             created_at: dayjs(),
             scope,
         }),
-        deleteAnnotation: (id) => ({ id }),
+        deleteAnnotation: (id: string) => ({ id }),
         clearAnnotationsToCreate: true,
-        updateDiffType: (dates) => ({ dates }),
-        setDiffType: (type) => ({ type }),
+        updateDiffType: (dates: string[]) => ({ dates }),
+        setDiffType: (type: OpUnitType) => ({ type }),
     }),
     loaders: ({ props }) => ({
         annotations: {
-            __default: [],
+            __default: [] as AnnotationType[],
             loadAnnotations: async ({ before, after }) => {
                 const params = {
                     ...(before ? { before } : {}),
                     ...(after ? { after } : {}),
                     ...(props.pageKey ? { dashboardItemId: props.pageKey } : {}),
-                    scope: 'dashboard_item',
+                    scope: AnnotationScope.DashboardItem,
                     deleted: false,
                 }
                 const response = await api.get('api/annotation/?' + toParams(params))
@@ -45,37 +55,47 @@ export const annotationsLogic = kea({
             },
         },
     }),
-    reducers: () => ({
+    reducers: {
         annotations: {
             createAnnotationNow: (state, { content, date_marker, created_at, scope }) => [
                 ...state,
-                { id: getNextKey(state), content, date_marker, created_at, created_by: 'local', scope },
+                {
+                    id: getNextKey(state).toString(),
+                    content,
+                    date_marker: date_marker,
+                    created_at: created_at.toISOString(),
+                    updated_at: created_at.toISOString(),
+                    created_by: 'local',
+                    scope,
+                },
             ],
             deleteAnnotation: (state, { id }) => {
-                if (id >= 0) {
+                if (parseInt(id) >= 0) {
                     return state.filter((a) => a.id !== id)
                 } else {
                     return state
                 }
             },
         },
+
         annotationsToCreate: [
-            [],
+            [] as AnnotationType[],
             {
                 createAnnotation: (state, { content, date_marker, created_at, scope }) => [
                     ...state,
                     {
-                        id: getNextKey(state),
+                        id: getNextKey(state).toString(),
                         content,
-                        date_marker,
-                        created_at,
+                        date_marker: date_marker,
+                        created_at: created_at.toISOString(),
+                        updated_at: created_at.toISOString(),
                         created_by: 'local',
                         scope,
                     },
                 ],
                 clearAnnotationsToCreate: () => [],
                 deleteAnnotation: (state, { id }) => {
-                    if (id < 0) {
+                    if (parseInt(id) < 0) {
                         return state.filter((a) => a.id !== id)
                     } else {
                         return state
@@ -84,37 +104,26 @@ export const annotationsLogic = kea({
             },
         ],
         diffType: [
-            'day',
+            'day' as string,
             {
                 setDiffType: (_, { type }) => type,
             },
         ],
-    }),
+    },
     selectors: ({ selectors }) => ({
         annotationsList: [
             () => [selectors.annotationsToCreate, selectors.annotations, selectors.activeGlobalAnnotations],
-            (annotationsToCreate, annotations, activeGlobalAnnotations) => {
-                const result = [
-                    ...annotationsToCreate.map((val) => ({
-                        ...val,
-                        id: parseInt(val.id),
-                    })),
-                    ...annotations.map((val) => ({
-                        ...val,
-                        id: parseInt(val.id),
-                    })),
-                    ...activeGlobalAnnotations.map((val) => ({
-                        ...val,
-                        id: parseInt(val.id),
-                    })),
-                ]
-                return result
-            },
+            (annotationsToCreate, annotations, activeGlobalAnnotations) =>
+                [...annotationsToCreate, ...annotations, ...activeGlobalAnnotations] as AnnotationType[],
         ],
         groupedAnnotations: [
             () => [selectors.annotationsList, selectors.diffType],
             (annotationsList, diffType) =>
-                groupBy(annotationsList, (annotation) => dayjs(annotation['date_marker']).startOf(diffType)),
+                groupBy(annotationsList, (annotation) =>
+                    dayjs(annotation['date_marker'])
+                        .startOf(diffType as OpUnitType)
+                        .format('YYYY-MM-DD')
+                ),
         ],
     }),
     listeners: ({ actions, props }) => ({
@@ -129,7 +138,7 @@ export const annotationsLogic = kea({
             actions.loadAnnotations({})
         },
         deleteAnnotation: async ({ id }) => {
-            id >= 0 &&
+            parseInt(id) >= 0 &&
                 deleteWithUndo({
                     endpoint: 'annotation',
                     object: { name: 'Annotation', id },

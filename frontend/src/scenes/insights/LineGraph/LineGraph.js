@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import ReactDOM from 'react-dom'
 import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
 import 'chartjs-adapter-dayjs'
@@ -10,7 +11,12 @@ import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import dayjs from 'dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import './LineGraph.scss'
+import 'chartjs-plugin-crosshair'
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { InsightTooltip } from '../InsightTooltip'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -20,7 +26,6 @@ Chart.defaults.global.elements.line.tension = 0
 //--Chart Style Options--//
 
 const noop = () => {}
-
 export function LineGraph({
     datasets,
     visibilityMap = null,
@@ -37,7 +42,10 @@ export function LineGraph({
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
-    const [left, setLeft] = useState(0)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newUI = featureFlags[FEATURE_FLAGS.NEW_TOOLTIPS]
+    const annotationsRoot = useRef()
+    const [left, setLeft] = useState(-1)
     const [holdLeft, setHoldLeft] = useState(0)
     const [enabled, setEnabled] = useState(false)
     const [focused, setFocused] = useState(false)
@@ -46,11 +54,11 @@ export function LineGraph({
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
     const { createAnnotation, createAnnotationNow, updateDiffType, createGlobalAnnotation } = !inSharedMode
-        ? useActions(annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null }))
+        ? useActions(annotationsLogic({ pageKey: dashboardItemId || null }))
         : { createAnnotation: noop, createAnnotationNow: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
     const { annotationsList, annotationsLoading } = !inSharedMode
-        ? useValues(annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null }))
+        ? useValues(annotationsLogic({ pageKey: dashboardItemId || null }))
         : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
     const [interval, setInterval] = useState(0)
@@ -58,7 +66,24 @@ export function LineGraph({
     const [annotationInRange, setInRange] = useState(false)
     const size = useWindowSize()
 
-    const annotationsCondition = type === 'line' && datasets.length > 0 && !datasets[0].compare && !inSharedMode
+    const annotationsCondition =
+        type === 'line' &&
+        datasets.length > 0 &&
+        !datasets[0].compare &&
+        !inSharedMode &&
+        datasets[0].labels[0] !== '1 day' // stickiness graphs
+
+    const colors = {
+        axisLabel: color === 'white' ? '#333' : 'rgba(255,255,255,0.8)',
+        axisLine: color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)',
+        axis: color === 'white' ? '#999' : 'rgba(255,255,255,0.6)',
+        crosshair: 'rgba(0,0,0,0.2)',
+        tooltipBackground: '#1dc9b7',
+        tooltipTitle: '#fff',
+        tooltipBody: '#fff',
+        annotationColor: color === 'white' ? null : 'white',
+        annotationAccessoryColor: color === 'white' ? null : 'black',
+    }
 
     useEscapeKey(() => setFocused(false), [focused])
 
@@ -126,7 +151,8 @@ export function LineGraph({
             hoverBackgroundColor: hoverColor,
             backgroundColor: (type === 'bar' || type === 'doughnut') && borderColor,
             fill: false,
-            borderWidth: 1,
+            borderWidth: newUI ? 2 : 1,
+            pointRadius: newUI ? 0 : undefined,
             pointHitRadius: 8,
             ...dataset,
         }
@@ -135,104 +161,227 @@ export function LineGraph({
     function buildChart() {
         const myChartRef = chartRef.current.getContext('2d')
 
-        const axisLabelColor = color === 'white' ? '#333' : 'rgba(255,255,255,0.8)'
-        const axisLineColor = color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)'
-        const axisColor = color === 'white' ? '#999' : 'rgba(255,255,255,0.6)'
-
         if (typeof myLineChart.current !== 'undefined') {
             myLineChart.current.destroy()
         }
+
         // if chart is line graph, make duplicate lines and overlay to show dotted lines
         const isLineGraph = type === 'line'
-        datasets = isLineGraph
-            ? [
-                  ...datasets.map((dataset, index) => {
-                      let datasetCopy = Object.assign({}, dataset)
-                      let data = [...dataset.data]
-                      let _labels = [...dataset.labels]
-                      let days = [...dataset.days]
-                      data.pop()
-                      _labels.pop()
-                      days.pop()
-                      datasetCopy.data = data
-                      datasetCopy.labels = _labels
-                      datasetCopy.days = days
-                      return processDataset(datasetCopy, index)
-                  }),
-                  ...datasets.map((dataset, index) => {
-                      let datasetCopy = Object.assign({}, dataset)
-                      let datasetLength = datasetCopy.data.length
-                      datasetCopy.dotted = true
+        if (isLineGraph) {
+            datasets = [
+                ...datasets.map((dataset, index) => {
+                    let datasetCopy = Object.assign({}, dataset)
+                    let data = [...dataset.data]
+                    let _labels = [...dataset.labels]
+                    let days = [...dataset.days]
+                    data.pop()
+                    _labels.pop()
+                    days.pop()
+                    datasetCopy.data = data
+                    datasetCopy.labels = _labels
+                    datasetCopy.days = days
+                    return processDataset(datasetCopy, index)
+                }),
+                ...datasets.map((dataset, index) => {
+                    let datasetCopy = Object.assign({}, dataset)
+                    let datasetLength = datasetCopy.data.length
+                    datasetCopy.dotted = true
 
-                      // if last date is still active show dotted line
-                      if (isInProgress) {
-                          datasetCopy.borderDash = [10, 10]
-                      }
+                    // if last date is still active show dotted line
+                    if (isInProgress) {
+                        datasetCopy.borderDash = [10, 10]
+                    }
 
-                      datasetCopy.data =
-                          datasetCopy.data.length > 2
-                              ? datasetCopy.data.map((datum, idx) =>
-                                    idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
-                                )
-                              : datasetCopy.data
-                      return processDataset(datasetCopy, index)
-                  }),
-              ]
-            : datasets.map((dataset, index) => processDataset(dataset, index))
-
-        if (isLineGraph && visibilityMap) {
-            datasets = datasets.filter((data) => visibilityMap[data.id])
+                    datasetCopy.data =
+                        datasetCopy.data.length > 2
+                            ? datasetCopy.data.map((datum, idx) =>
+                                  idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
+                              )
+                            : datasetCopy.data
+                    return processDataset(datasetCopy, index)
+                }),
+            ]
+            if (visibilityMap) {
+                datasets = datasets.filter((data) => visibilityMap[data.id])
+            }
+        } else {
+            datasets = datasets.map((dataset, index) => processDataset(dataset, index))
         }
+
+        const tickOptions = {
+            autoSkip: true,
+            beginAtZero: true,
+            min: 0,
+            fontColor: colors.axisLabel,
+            precision: 0,
+        }
+
+        const inspectUsersLabel = !dashboardItemId && onClick
+
+        const newUITooltipOptions = {
+            enabled: false, // disable builtin tooltip (use custom markup)
+            mode: 'nearest',
+            axis: 'x',
+            intersect: false,
+            callbacks: {
+                label: function labelElement(tooltipItem, data) {
+                    const entityData = data.datasets[tooltipItem.datasetIndex]
+                    if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
+                        return null
+                    }
+
+                    const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
+                    const action = entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
+
+                    let value = tooltipItem.yLabel.toLocaleString()
+                    const actionObjKey = type === 'horizontalBar' ? 'actions' : 'action'
+                    if (type === 'horizontalBar') {
+                        const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
+                        value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
+                    }
+
+                    const showCountedByTag = !!data.datasets.find(
+                        ({ [actionObjKey]: { math } }) => math && math !== 'total'
+                    )
+
+                    return (
+                        <InsightLabel
+                            propertyValue={label}
+                            action={action}
+                            value={value}
+                            showCountedByTag={showCountedByTag}
+                        />
+                    )
+                },
+            },
+            custom: function (tooltipModel) {
+                let tooltipEl = document.getElementById('ph-graph-tooltip')
+                // Create element on first render
+                if (!tooltipEl) {
+                    tooltipEl = document.createElement('div')
+                    tooltipEl.id = 'ph-graph-tooltip'
+                    tooltipEl.classList.add('ph-graph-tooltip')
+                    document.body.appendChild(tooltipEl)
+                }
+                if (tooltipModel.opacity === 0) {
+                    tooltipEl.style.opacity = 0
+                    return
+                }
+                // Set caret position
+                // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
+                tooltipEl.classList.remove('above', 'below', 'no-transform')
+                tooltipEl.classList.add(tooltipModel.yAlign || 'no-transform')
+                const bounds = chartRef.current.getBoundingClientRect()
+                const chartClientLeft = bounds.left + window.pageXOffset
+                const chartClientTop = bounds.top + window.pageYOffset
+                const tooltipCaretOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltipModel.caretX - 50)
+                const maxXPosition = bounds.right - 150 // ensure the tooltip doesn't exceed the bounds of the window
+                tooltipEl.style.opacity = 1
+                tooltipEl.style.position = 'absolute'
+                tooltipEl.style.left = Math.min(tooltipCaretOffsetLeft, maxXPosition) + 'px'
+                tooltipEl.style.top = chartClientTop + 'px'
+                tooltipEl.style.padding = tooltipModel.padding + 'px'
+                tooltipEl.style.pointerEvents = 'none'
+                if (tooltipModel.body) {
+                    const titleLines = tooltipModel.title || []
+                    const bodyLines = tooltipModel.body
+                        .flatMap(({ lines }) => lines)
+                        .map((component, idx) => ({
+                            id: idx,
+                            component,
+                            ...tooltipModel.labelColors[idx],
+                        }))
+                    ReactDOM.render(
+                        <InsightTooltip
+                            titleLines={titleLines}
+                            bodyLines={bodyLines}
+                            inspectUsersLabel={inspectUsersLabel}
+                        />,
+                        tooltipEl
+                    )
+                }
+            },
+        }
+
+        const tooltipOptions = newUI
+            ? newUITooltipOptions
+            : {
+                  enabled: true,
+                  intersect: false,
+                  mode: 'nearest',
+                  // If bar, we want to only show the tooltip for what we're hovering over
+                  // to avoid confusion
+                  axis: { bar: 'x', horizontalBar: 'y' }[type],
+                  bodySpacing: 5,
+                  position: 'nearest',
+                  yPadding: 10,
+                  xPadding: 10,
+                  caretPadding: 0,
+                  displayColors: false,
+                  backgroundColor: colors.tooltipBackground,
+                  titleFontColor: colors.tooltipTitle,
+                  bodyFontColor: colors.tooltipBody,
+                  footerFontColor: colors.tooltipBody,
+                  borderColor: colors.tooltipBorder,
+                  labelFontSize: 23,
+                  cornerRadius: 4,
+                  fontSize: 12,
+                  footerSpacing: 0,
+                  titleSpacing: 0,
+                  footerFontStyle: 'italic',
+                  callbacks: {
+                      label: function (tooltipItem, data) {
+                          let entityData = data.datasets[tooltipItem.datasetIndex]
+                          if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
+                              return null
+                          }
+                          const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
+                          const action =
+                              entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
+                          const formattedLabel = action ? formatLabel(label, action) : label
+
+                          let value = tooltipItem.yLabel.toLocaleString()
+                          if (type === 'horizontalBar') {
+                              const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
+                              value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
+                          }
+                          return (formattedLabel ? formattedLabel + ' — ' : '') + value + (percentage ? '%' : '')
+                      },
+                      footer: () => (inspectUsersLabel ? 'Click to see users related to the datapoint' : ''),
+                  },
+                  itemSort: (a, b) => b.yLabel - a.yLabel,
+              }
 
         let options = {
             responsive: true,
             maintainAspectRatio: false,
             scaleShowHorizontalLines: false,
-            tooltips: {
-                enabled: true,
-                intersect: false,
-                mode: 'nearest',
-                // If bar, we want to only show the tooltip for what we're hovering over
-                // to avoid confusion
-                axis: { bar: 'x', horizontalBar: 'y' }[type],
-                bodySpacing: 5,
-                position: 'nearest',
-                yPadding: 10,
-                xPadding: 10,
-                caretPadding: 0,
-                displayColors: false,
-                backgroundColor: '#1dc9b7',
-                titleFontColor: '#ffffff',
-                labelFontSize: 23,
-                cornerRadius: 4,
-                fontSize: 12,
-                footerSpacing: 0,
-                titleSpacing: 0,
-                footerFontStyle: 'italic',
-                callbacks: {
-                    label: function (tooltipItem, data) {
-                        let entityData = data.datasets[tooltipItem.datasetIndex]
-                        if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1)) {
-                            return null
-                        }
-                        const label = entityData.chartLabel || entityData.label || tooltipItem.label || ''
-                        const action =
-                            entityData.action || (entityData.actions && entityData.actions[tooltipItem.index])
-                        const formattedLabel = action ? formatLabel(label, action) : label
-
-                        let value = tooltipItem.yLabel.toLocaleString()
-                        if (type === 'horizontalBar') {
-                            const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
-                            value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
-                        }
-                        return (formattedLabel ? formattedLabel + ' — ' : '') + value + (percentage ? '%' : '')
-                    },
-                    footer: () => (dashboardItemId || !onClick ? '' : 'Click to see users related to the datapoint'),
-                },
-                itemSort: (a, b) => b.yLabel - a.yLabel,
-            },
+            tooltips: tooltipOptions,
+            plugins: newUI
+                ? {
+                      crosshair: {
+                          snapping: {
+                              enabled: true, // Snap crosshair to data points
+                          },
+                          sync: {
+                              enabled: false, // Sync crosshairs across multiple Chartjs instances
+                          },
+                          zoom: {
+                              enabled: false, // Allow drag to zoom
+                          },
+                          line: {
+                              color: colors.crosshair,
+                              width: 1,
+                          },
+                      },
+                  }
+                : {
+                      crosshair: false,
+                  },
             hover: {
                 mode: 'nearest',
+                axis: newUI ? 'x' : 'xy',
+                intersect: newUI ? false : true,
                 onHover(evt) {
                     if (onClick) {
                         const point = this.getElementAtEvent(evt)
@@ -272,12 +421,12 @@ export function LineGraph({
 
         if (type === 'bar') {
             options.scales = {
-                xAxes: [{ stacked: true, ticks: { fontColor: axisLabelColor } }],
+                xAxes: [{ stacked: true, ticks: { fontColor: colors.axisLabel } }],
                 yAxes: [
                     {
                         stacked: true,
                         ticks: {
-                            fontColor: axisLabelColor,
+                            fontColor: colors.axisLabel,
                             callback: (value) => {
                                 return maybeAddCommasToInteger(value)
                             },
@@ -290,13 +439,9 @@ export function LineGraph({
                 xAxes: [
                     {
                         display: true,
-                        gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
+                        gridLines: { lineWidth: 0, color: colors.axisLine, zeroLineColor: colors.axis },
                         ticks: {
-                            autoSkip: true,
-                            beginAtZero: true,
-                            min: 0,
-                            fontColor: axisLabelColor,
-                            precision: 0,
+                            ...tickOptions,
                             padding: annotationsLoading || !annotationInRange ? 0 : 35,
                         },
                     },
@@ -304,7 +449,7 @@ export function LineGraph({
                 yAxes: [
                     {
                         display: true,
-                        gridLines: { color: axisLineColor, zeroLineColor: axisColor },
+                        gridLines: { color: colors.axisLine, zeroLineColor: colors.axis },
                         ticks: percentage
                             ? {
                                   callback: function (value) {
@@ -312,11 +457,7 @@ export function LineGraph({
                                   },
                               }
                             : {
-                                  autoSkip: true,
-                                  beginAtZero: true,
-                                  min: 0,
-                                  fontColor: axisLabelColor,
-                                  precision: 0,
+                                  ...tickOptions,
                                   callback: (value) => {
                                       return maybeAddCommasToInteger(value)
                                   },
@@ -330,11 +471,7 @@ export function LineGraph({
                     {
                         display: true,
                         ticks: {
-                            autoSkip: true,
-                            beginAtZero: true,
-                            min: 0,
-                            fontColor: axisLabelColor,
-                            precision: 0,
+                            ...tickOptions,
                             callback: (value) => {
                                 return maybeAddCommasToInteger(value)
                             },
@@ -343,7 +480,7 @@ export function LineGraph({
                 ],
                 yAxes: [
                     {
-                        ticks: { fontColor: axisLabelColor },
+                        ticks: { fontColor: colors.axisLabel },
                     },
                 ],
             }
@@ -354,6 +491,9 @@ export function LineGraph({
                 hover: {
                     mode: 'index',
                     onHover: options.hover.onHover,
+                },
+                plugins: {
+                    crosshair: false,
                 },
                 onClick: options.onClick,
             }
@@ -373,7 +513,7 @@ export function LineGraph({
             onMouseMove={(e) => {
                 setEnabled(true)
                 if (annotationsCondition && myLineChart.current) {
-                    var rect = e.currentTarget.getBoundingClientRect(),
+                    const rect = e.currentTarget.getBoundingClientRect(),
                         offsetX = e.clientX - rect.left,
                         offsetY = e.clientY - rect.top
                     if (offsetY < topExtent - 30 && !focused && !annotationsFocused) {
@@ -382,11 +522,12 @@ export function LineGraph({
                         return
                     }
 
-                    const _leftExtent = myLineChart.current.scales['x-axis-0'].left
-                    const _rightExtent = myLineChart.current.scales['x-axis-0'].right
-                    const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
-                    const delta = _rightExtent - _leftExtent
-                    const _interval = delta / (ticks - 1)
+                    const xAxis = myLineChart.current.scales['x-axis-0'],
+                        _leftExtent = xAxis.left,
+                        _rightExtent = xAxis.right,
+                        ticks = xAxis.ticks.length,
+                        delta = _rightExtent - _leftExtent,
+                        _interval = delta / (ticks - 1)
                     if (offsetX < _leftExtent - _interval / 2) {
                         return
                     }
@@ -400,6 +541,7 @@ export function LineGraph({
             onMouseLeave={() => setEnabled(false)}
         >
             <canvas ref={chartRef} />
+            <div className="annotations-root" ref={annotationsRoot} />
             {annotationsCondition && (
                 <Annotations
                     labeledDays={datasets[0].labels}
@@ -415,12 +557,10 @@ export function LineGraph({
                         setFocused(false)
                         setAnnotationsFocused(true)
                     }}
-                    onClose={() => {
-                        setAnnotationsFocused(false)
-                    }}
+                    onClose={() => setAnnotationsFocused(false)}
                     graphColor={color}
-                    color={color === 'white' ? null : 'white'}
-                    accessoryColor={color === 'white' ? null : 'black'}
+                    color={colors.annotationColor}
+                    accessoryColor={colors.annotationAccessoryColor}
                 />
             )}
             {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
@@ -433,6 +573,7 @@ export function LineGraph({
                         setHoldLabelIndex(labelIndex)
                         setSelectedDayLabel(datasets[0].days[labelIndex])
                     }}
+                    getPopupContainer={() => annotationsRoot?.current}
                     onCreateAnnotation={(textInput, applyAll) => {
                         if (applyAll) {
                             createGlobalAnnotation(textInput, datasets[0].days[holdLabelIndex], dashboardItemId)
@@ -443,15 +584,14 @@ export function LineGraph({
                             toast('This annotation will be saved if the graph is made into a dashboard item!')
                         }
                     }}
-                    onCancelAnnotation={() => [setFocused(false)]}
                     onClose={() => setFocused(false)}
                     dynamic={true}
                     left={(focused ? holdLeft : left) - 12.5}
                     top={topExtent}
                     label={'Add Note'}
-                    color={color === 'white' ? null : 'white'}
                     graphColor={color}
-                    accessoryColor={color === 'white' ? null : 'black'}
+                    color={colors.annotationColor}
+                    accessoryColor={colors.annotationAccessoryColor}
                 />
             )}
         </div>

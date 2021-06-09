@@ -33,7 +33,7 @@ django-stubs==1.8.0
     # via
     #   -r requirements-dev.in
     #   djangorestframework-stubs
-django==3.1.8
+django==3.1.12
     # via
     #   -r requirements-dev.in
     #   django-stubs
@@ -162,7 +162,7 @@ typing-extensions==3.7.4.2
     #   mypy
 uritemplate==3.0.1
     # via coreapi
-urllib3==1.26.4
+urllib3==1.26.5
     # via requests
 
 # The following packages are considered to be unsafe in a requirements file:
