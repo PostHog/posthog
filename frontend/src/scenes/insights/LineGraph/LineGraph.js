@@ -240,12 +240,16 @@ export function LineGraph({
                         ({ [actionObjKey]: { math } }) => math && math !== 'total'
                     )
 
+                    const numberOfSeries = new Set(data.datasets.flatMap(({ [actionObjKey]: { order } }) => order)).size
+
                     return (
                         <InsightLabel
-                            propertyValue={label}
+                            fallbackName={label}
                             action={action}
                             value={value}
                             showCountedByTag={showCountedByTag}
+                            hasMultipleSeries={numberOfSeries > 1}
+                            breakdownValue={entityData.breakdown_value}
                         />
                     )
                 },
