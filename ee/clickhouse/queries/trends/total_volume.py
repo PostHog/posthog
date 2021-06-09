@@ -51,7 +51,7 @@ class ClickhouseTrendsTotalVolume:
                 team_id,
                 date_filter="{parsed_date_from} {parsed_date_to}",
                 should_join_pdi=True if join_condition != "" else False,
-            ).get_query("*")
+            ).get_query()
             event_query = event_query.format(**content_sql_params)
             params = {**params, **event_query_params}
             content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
@@ -73,7 +73,7 @@ class ClickhouseTrendsTotalVolume:
                     team_id,
                     date_filter="{parsed_date_from_prev_range} {parsed_date_to}",
                     should_join_pdi=True,
-                ).get_query("*")
+                ).get_query()
                 sql_params = get_active_user_params(filter, entity, team_id)
                 params = {**params, **event_query_params}
                 event_query = event_query.format(**sql_params, parsed_date_to=parsed_date_to)
@@ -85,10 +85,7 @@ class ClickhouseTrendsTotalVolume:
                     team_id,
                     date_filter="{parsed_date_from} {parsed_date_to}",
                     should_join_pdi=True if join_condition != "" else False,
-                ).get_query(
-                    "e.timestamp as timestamp, e.properties as properties"
-                    + (", pdi.person_id as person_id" if entity.math == "dau" else "")
-                )
+                ).get_query()
                 event_query = event_query.format(**content_sql_params)
                 params = {**params, **event_query_params}
                 content_sql = VOLUME_SQL.format(event_query=event_query, **content_sql_params)

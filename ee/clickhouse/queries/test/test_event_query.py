@@ -43,10 +43,11 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         entity = Entity({"id": "viewed", "type": "events"})
 
-        query, params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query("event")
+        query, params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
 
         correct = """
-        SELECT event
+        SELECT e.timestamp as timestamp,
+        e.properties as properties
         FROM events e
         WHERE team_id = %(team_id)s
             AND event = %(event)s
@@ -80,9 +81,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         entity = Entity({"id": "viewed", "type": "events"})
 
-        global_prop_query, global_prop_query_params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query(
-            "event"
-        )
+        global_prop_query, global_prop_query_params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
         sync_execute(global_prop_query, global_prop_query_params)
 
         filter = Filter(
@@ -104,9 +103,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        entity_prop_query, entity_prop_query_params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query(
-            "event"
-        )
+        entity_prop_query, entity_prop_query_params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
 
         # global queries and enttiy queries should be the same
         self.assertEqual(

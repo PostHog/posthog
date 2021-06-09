@@ -51,7 +51,13 @@ class ClickhouseEventQuery:
 
         self._should_round_interval = round_interval
 
-    def get_query(self, fields) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+        _fields = (
+            "e.timestamp as timestamp, e.properties as properties"
+            + (", pdi.person_id as person_id" if self._should_join_pdi else "")
+            + (", person.person_props as person_props" if self._should_join_persons else "")
+        )
+
         prop_query, prop_params = self._get_props()
         self.params.update(prop_params)
 
@@ -62,7 +68,7 @@ class ClickhouseEventQuery:
         self.params.update(date_params)
 
         query = f"""
-            SELECT {fields} FROM events {self.EVENT_TABLE_ALIAS}
+            SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_pdi_query()}
             {self._get_person_query()}
             WHERE team_id = %(team_id)s
