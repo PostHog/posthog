@@ -29,12 +29,12 @@ function formatBreakdownLabel(breakdown_value: string | number | undefined, coho
     }
 }
 
-interface TrendLegendProps {
-    showColors?: boolean
+interface TrendsTableProps {
+    isLegend?: boolean
     showTotalCount?: boolean
 }
 
-export function TrendLegend({ showColors = true, showTotalCount = false }: TrendLegendProps): JSX.Element | null {
+export function TrendsTable({ isLegend = true, showTotalCount = false }: TrendsTableProps): JSX.Element | null {
     const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
@@ -47,7 +47,7 @@ export function TrendLegend({ showColors = true, showTotalCount = false }: Trend
     // Build up columns to include. Order matters.
     const columns: ColumnsType<IndexedTrendResult> = []
 
-    if (showColors) {
+    if (isLegend) {
         columns.push({
             title: '',
             render: function RenderCheckbox({}, item: IndexedTrendResult, index: number) {
@@ -84,10 +84,10 @@ export function TrendLegend({ showColors = true, showTotalCount = false }: Trend
 
     if (showTotalCount) {
         columns.push({
-            title: 'Count',
+            title: 'Total',
             dataIndex: 'count',
             fixed: 'left',
-            width: 60,
+            width: 100,
         })
     }
 

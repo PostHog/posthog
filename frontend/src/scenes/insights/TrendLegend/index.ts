@@ -1,1 +1,1 @@
-export * from './TrendLegend'
+export * from './TrendsTable'
