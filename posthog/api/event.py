@@ -194,7 +194,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                         events[99].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                     )
                 )
-            events = self.paginator.paginate_queryset(events, request)
+            events = self.paginator.paginate_queryset(events, request, view=self)  # type: ignore
 
         prefetched_events = self._prefetch_events(list(events))
 
