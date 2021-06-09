@@ -833,3 +833,7 @@ export interface TiledIconModuleProps {
 }
 
 export type EventOrPropType = EventDefinition & PropertyDefinition
+export interface AppContext {
+    current_user: UserType | null
+    preflight: PreflightStatus
+}
