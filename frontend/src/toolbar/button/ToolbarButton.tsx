@@ -105,16 +105,6 @@ export function ToolbarButton(): JSX.Element {
             width={62}
             className="floating-toolbar-button"
             content={<HogLogo style={{ width: 45, cursor: 'pointer' }} />}
-            label={
-                isAuthenticated ? null : (
-                    <div style={{ lineHeight: '22px', paddingTop: 15 }}>
-                        Click here to
-                        <br />
-                        authenticate
-                    </div>
-                )
-            }
-            labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0, marginTop: 16 }}
             {...clickEvents}
             onMouseOver={isAuthenticated ? undefined : () => setExtensionPercentage(1)}
             style={{ borderRadius: 10, height: 46, marginTop: -23 }}
