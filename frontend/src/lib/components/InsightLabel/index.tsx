@@ -2,16 +2,17 @@ import React from 'react'
 import { Tag } from 'antd'
 import { ActionFilter } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { operatorMap, capitalizeFirstLetter, alphabet } from 'lib/utils'
+import { operatorMap, capitalizeFirstLetter, alphabet, hexToRGBA } from 'lib/utils'
 import './InsightLabel.scss'
 import { MATHS } from 'lib/constants'
 
 // InsightsLabel pretty prints the action (or event) returned from /insights
 interface InsightsLabelProps {
     action: ActionFilter
+    seriesColor: string
     value?: string
     breakdownValue?: string
-    fallbackName: string // Name to display for the series if it can be determined from `action`
+    fallbackName?: string // Name to display for the series if it can be determined from `action`
     hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
 }
@@ -41,6 +42,7 @@ function MathTag({ math, mathProperty }: Record<string, string | undefined>): JS
 
 export function InsightLabel({
     action,
+    seriesColor,
     value,
     breakdownValue,
     fallbackName,
@@ -50,10 +52,17 @@ export function InsightLabel({
     const showEventName = !breakdownValue || hasMultipleSeries
     return (
         <div className="insights-label">
+            <div
+                className="color-icon"
+                style={{
+                    background: seriesColor,
+                    boxShadow: `0px 0px 0px 1px ${hexToRGBA(seriesColor, 0.5)}`,
+                }}
+            />
             {hasMultipleSeries && action.order !== undefined && (
                 <span className="graph-series-letter">{alphabet[action.order]}</span>
             )}
-            {showEventName && <PropertyKeyInfo disableIcon value={action.name || fallbackName} />}
+            {showEventName && <PropertyKeyInfo disableIcon value={action.name || fallbackName || ''} />}
             {breakdownValue && (
                 <>
                     {hasMultipleSeries && <span style={{ padding: '0 2px' }}>-</span>}

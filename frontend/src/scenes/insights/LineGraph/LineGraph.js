@@ -244,9 +244,10 @@ export function LineGraph({
 
                     return (
                         <InsightLabel
-                            fallbackName={label}
                             action={action}
+                            seriesColor={entityData.backgroundColor || entityData.borderColor}
                             value={value}
+                            fallbackName={label}
                             showCountedByTag={showCountedByTag}
                             hasMultipleSeries={numberOfSeries > 1}
                             breakdownValue={entityData.breakdown_value}
