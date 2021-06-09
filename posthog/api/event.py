@@ -111,11 +111,10 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if limit_raw:
             try:
                 limit = int(limit_raw)
+                valid_ids = queryset.values_list("pk", flat=True)[:limit]
+                queryset = queryset.filter(pk__in=valid_ids)
             except ValueError:
                 raise exceptions.ValidationError("Query param limit must be omitted or an integer!")
-            else:
-                valid_ids = queryset.values_list("pk", flat=True)[: int(self.request.GET.get("limit"))]
-                queryset = queryset.filter(pk__in=valid_ids)
         return queryset
 
     def _filter_request(self, request: request.Request, queryset: EventManager) -> QuerySet:
