@@ -52,7 +52,6 @@ describe('ingestion benchmarks', () => {
             LOG_LEVEL: LogLevel.Log,
         })
         eventsProcessor = new EventsProcessor(hub)
-        await eventsProcessor.prepare()
         team = await getFirstTeam(hub)
         now = DateTime.utc()
 

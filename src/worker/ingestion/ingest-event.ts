@@ -6,14 +6,15 @@ import { Hub, IngestEventResponse } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 
-export async function ingestEvent(server: Hub, event: PluginEvent): Promise<IngestEventResponse> {
+export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestEventResponse> {
     const timeout = timeoutGuard('Still ingesting event inside worker. Timeout warning after 30 sec!', {
         event: JSON.stringify(event),
     })
     try {
-        const { distinct_id, ip, site_url, team_id, now, sent_at, uuid } = event
-        await server.eventsProcessor.processEvent(
-            distinct_id,
+        const { ip, site_url, team_id, now, sent_at, uuid } = event
+        const distinctId = event.distinct_id.toString()
+        const result = await hub.eventsProcessor.processEvent(
+            distinctId,
             ip,
             site_url,
             event,
@@ -22,6 +23,13 @@ export async function ingestEvent(server: Hub, event: PluginEvent): Promise<Inge
             sent_at ? DateTime.fromISO(sent_at) : null,
             uuid! // it will throw if it's undefined
         )
+        if (hub.PLUGIN_SERVER_ACTION_MATCHING >= 1 && result) {
+            const person = await hub.db.fetchPerson(team_id, distinctId)
+            const actionMatches = await hub.actionMatcher.match(event, person, result.elements)
+            if (hub.PLUGIN_SERVER_ACTION_MATCHING >= 2 && actionMatches.length && result.eventId !== undefined) {
+                await hub.db.registerEventActionOccurrences(result.eventId, actionMatches)
+            }
+        }
         // We don't want to return the inserted DB entry that `processEvent` returns.
         // This response is passed to piscina and would be discarded anyway.
         return { success: true }

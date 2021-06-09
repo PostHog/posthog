@@ -43,13 +43,13 @@ export const workerTasks: Record<string, TaskRunner> = {
         await loadSchedule(hub)
     },
     reloadAllActions: async (hub) => {
-        return await hub.eventsProcessor.actionManager.reloadAllActions()
+        return await hub.actionManager.reloadAllActions()
     },
     reloadAction: async (hub, args: { teamId: Team['id']; actionId: Action['id'] }) => {
-        return await hub.eventsProcessor.actionManager.reloadAction(args.teamId, args.actionId)
+        return await hub.actionManager.reloadAction(args.teamId, args.actionId)
     },
     dropAction: (hub, args: { teamId: Team['id']; actionId: Action['id'] }) => {
-        return hub.eventsProcessor.actionManager.dropAction(args.teamId, args.actionId)
+        return hub.actionManager.dropAction(args.teamId, args.actionId)
     },
     teardownPlugins: async (hub) => {
         await teardownPlugins(hub)

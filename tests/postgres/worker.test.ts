@@ -10,6 +10,7 @@ import { createHub } from '../../src/utils/db/hub'
 import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { ActionManager } from '../../src/worker/ingestion/action-manager'
+import { ActionMatcher } from '../../src/worker/ingestion/action-matcher'
 import { ingestEvent } from '../../src/worker/ingestion/ingest-event'
 import { makePiscina } from '../../src/worker/piscina'
 import { runPluginTask, runProcessEvent } from '../../src/worker/plugins/run'
@@ -20,6 +21,7 @@ import { resetTestDatabase } from '../helpers/sql'
 import { setupPiscina } from '../helpers/worker'
 
 jest.mock('../../src/worker/ingestion/action-manager')
+jest.mock('../../src/worker/ingestion/action-matcher')
 jest.mock('../../src/utils/db/sql')
 jest.mock('../../src/utils/status')
 jest.mock('../../src/worker/ingestion/ingest-event')
@@ -45,6 +47,7 @@ beforeEach(() => {
     jest.spyOn(ActionManager.prototype, 'reloadAllActions')
     jest.spyOn(ActionManager.prototype, 'reloadAction')
     jest.spyOn(ActionManager.prototype, 'dropAction')
+    jest.spyOn(ActionMatcher.prototype, 'match')
 })
 
 test('piscina worker test', async () => {
@@ -180,7 +183,10 @@ describe('queue logic', () => {
         expect(pluginsServer.piscina.queueSize).toBe(0)
 
         const client = new Client(pluginsServer.hub.db, pluginsServer.hub.PLUGINS_CELERY_QUEUE)
-        for (let i = 0; i < 2; i++) {
+
+        let tasksSentSoFar = 0
+
+        for (tasksSentSoFar; tasksSentSoFar < 2; tasksSentSoFar++) {
             client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
         }
 
@@ -193,12 +199,13 @@ describe('queue logic', () => {
         await delay(5000)
 
         expect(pluginsServer.piscina.queueSize).toBe(0)
-        expect(pluginsServer.piscina.completed).toBe(baseCompleted + 2 * 3) // 2 x (process + on + ingest)
+        // tasksSentSoFar * (processEvent + onEvent + ingestEvent)
+        expect(pluginsServer.piscina.completed).toBe(baseCompleted + tasksSentSoFar * 3)
         expect(pluginsServer.queue.isPaused()).toBe(false)
 
         // 2 tasks * 2 threads = 4 active
         // 2 threads * 2 threads = 4 queue excess
-        for (let i = 0; i < 50; i++) {
+        for (tasksSentSoFar; tasksSentSoFar < 52; tasksSentSoFar++) {
             client.sendTask('posthog.tasks.process_event.process_event_with_plugins', args, {})
         }
 
@@ -220,7 +227,8 @@ describe('queue logic', () => {
         expect(pausedTimes).toBeGreaterThanOrEqual(10)
         expect(pluginsServer.queue.isPaused()).toBe(false)
         expect(pluginsServer.piscina.queueSize).toBe(0)
-        expect(pluginsServer.piscina.completed).toEqual(baseCompleted + 156)
+        // tasksSentSoFar x (processEvent + onEvent + ingestEvent)
+        expect(pluginsServer.piscina.completed).toEqual(baseCompleted + tasksSentSoFar * 3)
 
         const duration = pluginsServer.piscina.duration - startTime
         const expectedTimeMs = (50 / 4) * 1000
@@ -302,19 +310,19 @@ describe('createTaskRunner()', () => {
     it('handles `reloadAllActions` task', async () => {
         await taskRunner({ task: 'reloadAllActions' })
 
-        expect(hub.eventsProcessor.actionManager.reloadAllActions).toHaveBeenCalledWith()
+        expect(hub.actionManager.reloadAllActions).toHaveBeenCalledWith()
     })
 
     it('handles `reloadAction` task', async () => {
         await taskRunner({ task: 'reloadAction', args: { teamId: 2, actionId: 777 } })
 
-        expect(hub.eventsProcessor.actionManager.reloadAction).toHaveBeenCalledWith(2, 777)
+        expect(hub.actionManager.reloadAction).toHaveBeenCalledWith(2, 777)
     })
 
     it('handles `dropAction` task', async () => {
         await taskRunner({ task: 'dropAction', args: { teamId: 2, actionId: 777 } })
 
-        expect(hub.eventsProcessor.actionManager.dropAction).toHaveBeenCalledWith(2, 777)
+        expect(hub.actionManager.dropAction).toHaveBeenCalledWith(2, 777)
     })
 
     it('handles `teardownPlugin` task', async () => {

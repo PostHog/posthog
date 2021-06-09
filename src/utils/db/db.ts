@@ -536,6 +536,17 @@ export class DB {
         }
     }
 
+    // Cohort & CohortPeople
+
+    public async doesPersonBelongToCohort(cohortId: number, personId: Person['id']): Promise<boolean> {
+        const selectResult = await this.postgresQuery(
+            `SELECT EXISTS (SELECT 1 FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2);`,
+            [cohortId, personId],
+            'doesPersonBelongToCohort'
+        )
+        return selectResult.rows[0]
+    }
+
     // Organization
 
     public async fetchOrganization(organizationId: string): Promise<RawOrganization | undefined> {
@@ -724,7 +735,7 @@ export class DB {
         ).rows as PropertyDefinitionType[]
     }
 
-    // Action & ActionStep
+    // Action & ActionStep & Action<>Event
 
     public async fetchAllActionsGroupedByTeam(): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
         const rawActions: RawAction[] = (
@@ -770,6 +781,15 @@ export class DB {
         ).rows
         const action: Action = { ...rawActions[0], steps }
         return action
+    }
+
+    public async registerEventActionOccurrences(eventId: Event['id'], actions: Action[]): Promise<void> {
+        const valuesClause = actions.map((action, index) => `($1, $${index + 2})`).join(', ')
+        await this.postgresQuery(
+            `INSERT INTO posthog_action_events (event_id, action_id) VALUES ${valuesClause}`,
+            [eventId, ...actions.map((action) => action.id)],
+            'registerEventActionOccurrences'
+        )
     }
 
     // Team Internal Metrics

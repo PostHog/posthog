@@ -21,11 +21,11 @@ export class ActionManager {
         this.ready = true
     }
 
-    public getTeamActions(teamId: Team['id']): ActionMap | null {
+    public getTeamActions(teamId: Team['id']): ActionMap {
         if (!this.ready) {
             throw new Error('ActionManager is not ready! Run actionManager.prepare() before this')
         }
-        return this.actionCache[teamId] || null
+        return this.actionCache[teamId] || {}
     }
 
     public async reloadAllActions(): Promise<void> {
@@ -35,7 +35,15 @@ export class ActionManager {
 
     public async reloadAction(teamId: Team['id'], actionId: Action['id']): Promise<void> {
         const refetchedAction = await this.db.fetchAction(actionId)
-        const wasCachedAlready = teamId in this.actionCache && actionId in this.actionCache[teamId]
+
+        let wasCachedAlready = true
+        if (!this.actionCache[teamId]) {
+            wasCachedAlready = false
+            this.actionCache[teamId] = {}
+        } else if (!this.actionCache[teamId][actionId]) {
+            wasCachedAlready = false
+        }
+
         if (refetchedAction) {
             status.debug(
                 '🍿',
@@ -59,7 +67,8 @@ export class ActionManager {
     }
 
     public dropAction(teamId: Team['id'], actionId: Action['id']): void {
-        const wasCachedAlready = teamId in this.actionCache && actionId in this.actionCache[teamId]
+        const wasCachedAlready = !!this.actionCache?.[teamId]?.[actionId]
+
         if (wasCachedAlready) {
             status.info('🍿', `Deleted action ID ${actionId} (team ID ${teamId}) from cache`)
             delete this.actionCache[teamId][actionId]
