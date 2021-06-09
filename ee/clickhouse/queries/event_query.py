@@ -19,7 +19,7 @@ class ClickhouseEventQuery:
     _should_join_pdi = False
     _should_join_persons = False
     _should_round_interval = False
-    _date_filter = False
+    _date_filter = None
 
     def __init__(
         self,
