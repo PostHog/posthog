@@ -28,7 +28,7 @@ type CustomTagProps = Parameters<Exclude<SelectProps<any>['tagRender'], undefine
 
 function CustomTag({ label, onClose, value }: CustomTagProps): JSX.Element {
     return (
-        <Tooltip title={value.toString()}>
+        <Tooltip title={value?.toString() || ''}>
             <Tag>
                 <span className="label">{label}</span>
                 <CloseButton onClick={onClose} />
