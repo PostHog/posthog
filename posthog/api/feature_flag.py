@@ -2,11 +2,12 @@ from typing import Any, Dict, Optional, cast
 
 import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import serializers, viewsets
+from rest_framework import authentication, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -100,6 +101,12 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    authentication_classes = [
+        TemporaryTokenAuthentication,
+        PersonalAPIKeyAuthentication,
+        authentication.SessionAuthentication,
+        authentication.BasicAuthentication,
+    ]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

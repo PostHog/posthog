@@ -4,6 +4,7 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogicType } from './toolbarButtonLogicType'
+import { posthog } from '~/toolbar/posthog'
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     actions: () => ({
@@ -11,10 +12,13 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         hideHeatmapInfo: true,
         showActionsInfo: true,
         hideActionsInfo: true,
+        showStats: true,
+        hideStats: true,
         setExtensionPercentage: (percentage: number) => ({ percentage }),
         saveDragPosition: (x: number, y: number) => ({ x, y }),
         saveHeatmapPosition: (x: number, y: number) => ({ x, y }),
         saveActionsPosition: (x: number, y: number) => ({ x, y }),
+        saveStatsPosition: (x: number, y: number) => ({ x, y }),
     }),
 
     windowValues: () => ({
@@ -41,6 +45,13 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
                 [actionsTabLogic.actionTypes.hideButtonActions]: () => false,
             },
         ],
+        statsVisible: [
+            false,
+            {
+                showStats: () => true,
+                hideStats: () => false,
+            },
+        ],
         extensionPercentage: [
             0,
             {
@@ -64,6 +75,12 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             { x: 120, y: 100 } as { x: number; y: number },
             {
                 saveActionsPosition: (_, { x, y }) => ({ x, y }),
+            },
+        ],
+        statsPosition: [
+            { x: 140, y: 100 } as { x: number; y: number },
+            {
+                saveStatsPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
     }),
@@ -135,10 +152,22 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             (s) => [s.actionsInfoVisible, actionsTabLogic.selectors.buttonActionsVisible],
             (actionsInfoVisible, buttonActionsVisible) => actionsInfoVisible && buttonActionsVisible,
         ],
+        statsExtensionPercentage: [
+            (s) => [s.statsVisible, s.extensionPercentage],
+            (statsVisible, extensionPercentage) =>
+                statsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
+        ],
     },
+
     listeners: () => ({
         hideActionsInfo: () => {
             actionsTabLogic.actions.selectAction(null)
+        },
+        showStats: () => {
+            posthog.capture('toolbar mode triggered', { mode: 'stats', enabled: true })
+        },
+        hideStats: () => {
+            posthog.capture('toolbar mode triggered', { mode: 'stats', enabled: false })
         },
     }),
 })
