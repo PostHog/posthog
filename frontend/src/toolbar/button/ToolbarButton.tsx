@@ -57,32 +57,25 @@ export function ToolbarButton(): JSX.Element {
     })
 
     useEffect(() => {
-        globalMouseMove.current = function (e: MouseEvent): void {
-            const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')
-            if (buttonDiv) {
-                const rect = buttonDiv.getBoundingClientRect()
-                const x = rect.left + rect.width / 2
-                const y = rect.top + rect.height / 2
-                const distance = Math.sqrt((e.clientX - x) * (e.clientX - x) + (e.clientY - y) * (e.clientY - y))
+        if (isAuthenticated) {
+            globalMouseMove.current = function (e: MouseEvent): void {
+                const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')
+                if (buttonDiv) {
+                    const rect = buttonDiv.getBoundingClientRect()
+                    const x = rect.left + rect.width / 2
+                    const y = rect.top + rect.height / 2
+                    const distance = Math.sqrt((e.clientX - x) * (e.clientX - x) + (e.clientY - y) * (e.clientY - y))
+                    const maxDistance = 300
 
-                const startDistance = isAuthenticated ? 230 : 130
-                const endDistance = isAuthenticated ? 160 : 60
-
-                if (distance >= startDistance) {
-                    if (toolbarButtonLogic.values.extensionPercentage !== 0) {
+                    // pull in the toolbar buttons if more than 300px away from the center
+                    if (distance >= maxDistance && toolbarButtonLogic.values.extensionPercentage !== 0) {
                         setExtensionPercentage(0)
-                    }
-                } else if (distance >= endDistance && distance < startDistance) {
-                    setExtensionPercentage((startDistance - distance) / (startDistance - endDistance))
-                } else if (distance < endDistance) {
-                    if (toolbarButtonLogic.values.extensionPercentage !== 1) {
-                        setExtensionPercentage(1)
                     }
                 }
             }
+            window.addEventListener('mousemove', globalMouseMove.current)
+            return () => window.removeEventListener('mousemove', globalMouseMove.current)
         }
-        window.addEventListener('mousemove', globalMouseMove.current)
-        return () => window.removeEventListener('mousemove', globalMouseMove.current)
     }, [isAuthenticated])
 
     // using useLongPress for short presses (clicks) since it detects if the element was dragged (no click) or not (click)
