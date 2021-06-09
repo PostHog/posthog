@@ -57,25 +57,23 @@ export function ToolbarButton(): JSX.Element {
     })
 
     useEffect(() => {
-        if (isAuthenticated) {
-            globalMouseMove.current = function (e: MouseEvent): void {
-                const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')
-                if (buttonDiv) {
-                    const rect = buttonDiv.getBoundingClientRect()
-                    const x = rect.left + rect.width / 2
-                    const y = rect.top + rect.height / 2
-                    const distance = Math.sqrt((e.clientX - x) * (e.clientX - x) + (e.clientY - y) * (e.clientY - y))
-                    const maxDistance = 300
+        globalMouseMove.current = function (e: MouseEvent): void {
+            const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')
+            if (buttonDiv) {
+                const rect = buttonDiv.getBoundingClientRect()
+                const x = rect.left + rect.width / 2
+                const y = rect.top + rect.height / 2
+                const distance = Math.sqrt((e.clientX - x) * (e.clientX - x) + (e.clientY - y) * (e.clientY - y))
 
-                    // pull in the toolbar buttons if more than 300px away from the center
-                    if (distance >= maxDistance && toolbarButtonLogic.values.extensionPercentage !== 0) {
-                        setExtensionPercentage(0)
-                    }
+                const maxDistance = isAuthenticated ? 300 : 100
+
+                if (distance >= maxDistance && toolbarButtonLogic.values.extensionPercentage !== 0) {
+                    setExtensionPercentage(0)
                 }
             }
-            window.addEventListener('mousemove', globalMouseMove.current)
-            return () => window.removeEventListener('mousemove', globalMouseMove.current)
         }
+        window.addEventListener('mousemove', globalMouseMove.current)
+        return () => window.removeEventListener('mousemove', globalMouseMove.current)
     }, [isAuthenticated])
 
     // using useLongPress for short presses (clicks) since it detects if the element was dragged (no click) or not (click)
