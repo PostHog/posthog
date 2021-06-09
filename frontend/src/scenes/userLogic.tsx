@@ -19,23 +19,6 @@ export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
     }),
-    reducers: {
-        user: [
-            null as UserType | null,
-            {
-                setUser: (_, payload) => payload.user,
-                userUpdateSuccess: (_, payload) => payload.user,
-            },
-        ],
-        userUpdateLoading: [
-            false,
-            {
-                userUpdateRequest: () => true,
-                userUpdateSuccess: () => false,
-                userUpdateFailure: () => false,
-            },
-        ],
-    },
     selectors: ({ selectors }) => ({
         demoOnlyProject: [
             () => [selectors.user],
