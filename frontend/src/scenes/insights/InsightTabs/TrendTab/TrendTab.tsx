@@ -47,7 +47,9 @@ function DefaultTrendTab({ view }: TrendTabProps): JSX.Element {
                 {filters.insight === ViewType.LIFECYCLE ? 'Target Action/Event' : 'Actions & Events'}
             </h4>
             {filtersLoading ? (
-                <Skeleton active />
+                <div data-test-filters-loading>
+                    <Skeleton active />
+                </div>
             ) : (
                 <ActionFilter
                     filters={filters}
@@ -90,7 +92,9 @@ function DefaultTrendTab({ view }: TrendTabProps): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             {filtersLoading ? (
-                <Skeleton active paragraph={{ rows: 2 }} />
+                <div data-test-filters-loading>
+                    <Skeleton active paragraph={{ rows: 2 }} />
+                </div>
             ) : (
                 <>
                     <PropertyFilters pageKey="trends-filters" />
