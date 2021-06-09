@@ -1,6 +1,7 @@
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
-import { createPluginConfigVM } from '../../src/worker/vm/vm'
+import { delay } from '../../src/utils/utils'
+import { createPluginConfigVM, TimeoutError } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
@@ -224,14 +225,18 @@ describe('vm timeout tests', () => {
         const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
         const date = new Date()
         let errorMessage = undefined
+        let caller = undefined
         try {
             await vm.methods.processEvent!({ ...defaultEvent })
         } catch (e) {
+            expect(e).toBeInstanceOf(TimeoutError)
             errorMessage = e.message
+            caller = e.caller
         }
         expect(new Date().valueOf() - date.valueOf()).toBeGreaterThanOrEqual(1000)
         expect(new Date().valueOf() - date.valueOf()).toBeLessThan(4000)
         expect(errorMessage!).toEqual('Script execution timed out after promise waited for 1 second')
+        expect(caller).toEqual('processEvent')
     })
 
     test('small promises and overriding async guard', async () => {

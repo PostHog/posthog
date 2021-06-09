@@ -31,7 +31,12 @@ export const promiseTimeout: PluginGen = () => ({ types: t }) => ({
             exit(path: any) {
                 const { node } = path
                 if (node && !node[REPLACED]) {
-                    const newAwait = t.awaitExpression(t.callExpression(t.identifier('__asyncGuard'), [node.argument]))
+                    const newAwait = t.awaitExpression(
+                        t.callExpression(t.identifier('__asyncGuard'), [
+                            node.argument,
+                            node.argument.callee || node.argument,
+                        ])
+                    )
                     ;(newAwait as any)[REPLACED] = true
                     path.replaceWith(newAwait)
                 }

@@ -14,6 +14,16 @@ import { imports } from './imports'
 import { transformCode } from './transforms'
 import { upgradeExportEvents } from './upgrades/export-events'
 
+export class TimeoutError extends Error {
+    name = 'TimeoutError'
+    caller?: string = undefined
+
+    constructor(message: string, caller?: string) {
+        super(message)
+        this.caller = caller
+    }
+}
+
 export async function createPluginConfigVM(
     hub: Hub,
     pluginConfig: PluginConfig, // NB! might have team_id = 0
@@ -46,7 +56,7 @@ export async function createPluginConfigVM(
     // Creating this outside the vm (so not in a babel plugin for example)
     // because `setTimeout` is not available inside the vm... and we don't want to
     // make it available for now, as it makes it easier to create malicious code
-    const asyncGuard = async (promise: () => Promise<any>) => {
+    const asyncGuard = async (promise: Promise<any>, name?: string) => {
         const timeout = hub.TASK_TIMEOUT
         return await Promise.race([
             promise,
@@ -55,7 +65,7 @@ export async function createPluginConfigVM(
                     const message = `Script execution timed out after promise waited for ${timeout} second${
                         timeout === 1 ? '' : 's'
                     }`
-                    reject(new Error(message))
+                    reject(new TimeoutError(message, `${name}`))
                 }, timeout * 1000)
             ),
         ])
@@ -122,8 +132,8 @@ export async function createPluginConfigVM(
 
             // export helpers
             function __getExported (key) { return exportDestinations.find(a => a[key])?.[key] };
-            function __asyncFunctionGuard (func) {
-                return func ? function __innerAsyncGuard${pluginConfigIdentifier}(...args) { return __asyncGuard(func(...args)) } : func
+            function __asyncFunctionGuard (func, name) {
+                return func ? function __innerAsyncGuard${pluginConfigIdentifier}(...args) { return __asyncGuard(func(...args), name) } : func
             };
 
             // inject the meta object + shareable 'global' to the end of each exported function
@@ -149,12 +159,12 @@ export async function createPluginConfigVM(
 
             // export various functions
             const __methods = {
-                setupPlugin: __asyncFunctionGuard(__bindMeta('setupPlugin')),
-                teardownPlugin: __asyncFunctionGuard(__bindMeta('teardownPlugin')),
-                exportEvents: __asyncFunctionGuard(__bindMeta('exportEvents')),
-                onEvent: __asyncFunctionGuard(__bindMeta('onEvent')),
-                onSnapshot: __asyncFunctionGuard(__bindMeta('onSnapshot')),
-                processEvent: __asyncFunctionGuard(__bindMeta('processEvent')),
+                setupPlugin: __asyncFunctionGuard(__bindMeta('setupPlugin'), 'setupPlugin'),
+                teardownPlugin: __asyncFunctionGuard(__bindMeta('teardownPlugin'), 'teardownPlugin'),
+                exportEvents: __asyncFunctionGuard(__bindMeta('exportEvents'), 'exportEvents'),
+                onEvent: __asyncFunctionGuard(__bindMeta('onEvent'), 'onEvent'),
+                onSnapshot: __asyncFunctionGuard(__bindMeta('onSnapshot'), 'onSnapshot'),
+                processEvent: __asyncFunctionGuard(__bindMeta('processEvent'), 'processEvent'),
             };
 
             const __tasks = {
