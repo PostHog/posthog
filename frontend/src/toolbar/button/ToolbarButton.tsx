@@ -116,6 +116,7 @@ export function ToolbarButton(): JSX.Element {
             }
             labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0, marginTop: 16 }}
             {...clickEvents}
+            onMouseOver={isAuthenticated ? undefined : () => setExtensionPercentage(1)}
             style={{ borderRadius: 10, height: 46, marginTop: -23 }}
             zIndex={3}
         >
