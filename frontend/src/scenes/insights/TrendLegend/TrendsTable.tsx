@@ -40,7 +40,7 @@ export function TrendsTable({ isLegend = true, showTotalCount = false }: TrendsT
     const { cohorts } = useValues(cohortsModel)
     const isSingleEntity = indexedResults.length === 1
 
-    if (indexedResults.length === 0) {
+    if (indexedResults.length === 0 || !indexedResults?.[0]?.data) {
         return null
     }
 
@@ -101,6 +101,8 @@ export function TrendsTable({ isLegend = true, showTotalCount = false }: TrendsT
             width: 150,
         })
     }
+
+    console.log('data', indexedResults, filters)
 
     if (indexedResults && indexedResults.length > 0) {
         const valueColumns = indexedResults[0].data.map(({}, index: number) => ({

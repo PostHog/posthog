@@ -57,8 +57,6 @@ export function TrendInsight({ view }: Props): JSX.Element {
         }
     }
 
-    console.log('FILTERS', _filters)
-
     return (
         <>
             {(_filters.actions || _filters.events || _filters.session) && (
