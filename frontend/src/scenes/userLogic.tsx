@@ -21,7 +21,7 @@ export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
     }),
     reducers: {
         user: [
-            (window as any)['POSTHOG_APP_USER'] || (null as UserType | null),
+            null as UserType | null,
             {
                 setUser: (_, payload) => payload.user,
                 userUpdateSuccess: (_, payload) => payload.user,
