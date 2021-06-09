@@ -10,6 +10,7 @@ import { preflightLogic } from './PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
+import { afterLoginRedirect } from 'scenes/authentication/loginLogic'
 
 export enum Scene {
     Error404 = '404',
@@ -318,8 +319,8 @@ export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneCo
             if (user) {
                 // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
                 if (sceneConfig.onlyUnauthenticated) {
-                    if (scene === Scene.Login && router.values.searchParams['next']) {
-                        router.actions.replace(router.values.searchParams['next'])
+                    if (scene === Scene.Login) {
+                        router.actions.replace(afterLoginRedirect())
                     } else {
                         router.actions.replace('/')
                     }
