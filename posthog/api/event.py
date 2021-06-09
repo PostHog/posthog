@@ -100,13 +100,16 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
-
         if self.action == "list" or self.action == "sessions" or self.action == "actions":
             queryset = self._filter_request(self.request, queryset)
 
         order_by_param = self.request.GET.get("orderBy")
         order_by = ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
-        return queryset.order_by(*order_by)
+        queryset = queryset.order_by(*order_by)
+        if self.request.GET.get("limit"):
+            valid_ids = queryset.values_list("pk", flat=True)[: int(self.request.GET.get("limit"))]
+            queryset = queryset.filter(pk__in=valid_ids)
+        return queryset
 
     def _filter_request(self, request: request.Request, queryset: EventManager) -> QuerySet:
         for key, value in request.GET.items():

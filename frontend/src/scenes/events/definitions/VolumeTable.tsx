@@ -12,6 +12,8 @@ import { EventDefinition, EventOrPropType, PropertyDefinition, UserBasicType } f
 import './VolumeTable.scss'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 import { ObjectTags } from 'lib/components/ObjectTags'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 type EventTableType = 'event' | 'property'
 
@@ -78,7 +80,10 @@ export function VolumeTable({
     const [dataWithWarnings, setDataWithWarnings] = useState([] as VolumeTableRecord[])
     const { user } = useValues(userLogic)
     const { openDrawer } = useActions(definitionDrawerLogic)
-    const hasTaxonomyFeatures = user?.organization?.available_features?.includes('ingestion_taxonomy')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const hasTaxonomyFeatures =
+        featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
+        user?.organization?.available_features?.includes('ingestion_taxonomy')
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {
@@ -93,7 +98,9 @@ export function VolumeTable({
                                     value={record.eventOrProp.name}
                                 />
                             </span>
-                            <ObjectTags tags={record.eventOrProp.tags || []} staticOnly />
+                            {hasTaxonomyFeatures ? (
+                                <ObjectTags tags={record.eventOrProp.tags || []} staticOnly />
+                            ) : null}
                         </div>
                         {hasTaxonomyFeatures &&
                             type === 'event' &&

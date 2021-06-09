@@ -33,9 +33,10 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
                         properties: {},
                         ...{ event: definition.name },
                         orderBy: ['-timestamp'],
+                        limit: 5,
                     })
                     const events = await api.get(`api/event/?${urlParams}`)
-                    return events.results.slice(0, 3)
+                    return events.results
                 },
             },
         ],
