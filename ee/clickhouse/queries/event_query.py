@@ -3,7 +3,8 @@ from typing import Any, Dict, Tuple
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
 from ee.clickhouse.queries.trends.util import populate_entity_params
-from posthog.model import Cohort, Entity, Filter, Property, Team
+from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
+from posthog.models import Cohort, Entity, Filter, Property, Team
 
 
 class ClickhouseEventQuery:
@@ -14,27 +15,51 @@ class ClickhouseEventQuery:
     _PERSON_PROPERTIES_ALIAS = "person_props"
     _filter: Filter
     _entity: Entity
-    _team: Team
+    _team_id: int
     _should_join_pdi = False
     _should_join_persons = False
+    _should_round_interval = False
+    _date_filter = False
 
-    def __init__(self, filter: Filter, entity: Entity, team: Team, **kwargs) -> None:
+    def __init__(
+        self,
+        filter: Filter,
+        entity: Entity,
+        team_id: int,
+        round_interval=False,
+        should_join_pdi=False,
+        should_join_persons=False,
+        date_filter=None,
+        **kwargs,
+    ) -> None:
         self._filter = filter
         self._entity = entity
-        self._team = team
+        self._team_id = team_id
         self.params = {
-            "team_id": self._team.pk,
+            "team_id": self._team_id,
         }
+        self._date_filter = date_filter
 
-        self._determine_should_join_pdi()
-        self._determine_should_join_persons()
+        self._should_join_pdi = should_join_pdi
+        self._should_join_persons = should_join_persons
+
+        if not self._should_join_pdi:
+            self._determine_should_join_pdi()
+
+        if not self._should_join_persons:
+            self._determine_should_join_persons()
+
+        self._should_round_interval = round_interval
 
     def get_query(self, fields) -> Tuple[str, Dict[str, Any]]:
         prop_query, prop_params = self._get_props()
         self.params.update(prop_params)
 
-        entity_query, entity_params = populate_entity_params(self._entity)
+        entity_query, entity_params = self._get_entity_query()
         self.params.update(entity_params)
+
+        date_query, date_params = self._get_date_filter()
+        self.params.update(date_params)
 
         query = f"""
             SELECT {fields} FROM events {self.EVENT_TABLE_ALIAS}
@@ -42,6 +67,7 @@ class ClickhouseEventQuery:
             {self._get_person_query()}
             WHERE team_id = %(team_id)s
             {entity_query}
+            {date_query}
             {prop_query}
         """
 
@@ -96,6 +122,15 @@ class ClickhouseEventQuery:
             self._should_join_pdi = True
             self._should_join_persons = True
 
+        if self._filter.filter_test_accounts:
+            test_account_filters = Team.objects.only("test_account_filters").get(id=self._team_id).test_account_filters
+            test_filter_props = [Property(**prop) for prop in test_account_filters]
+            for prop in test_filter_props:
+                if prop.type == "person":
+                    self._should_join_pdi = True
+                    self._should_join_persons = True
+                    return
+
     def _get_person_query(self) -> str:
         if self._should_join_persons:
             return f"""
@@ -116,11 +151,29 @@ class ClickhouseEventQuery:
         else:
             return ""
 
+    def _get_entity_query(self) -> Tuple[str, Dict]:
+        entity_params, entity_format_params = populate_entity_params(self._entity)
+
+        return entity_format_params["entity_query"], entity_params
+
+    def _get_date_filter(self) -> Tuple[str, Dict]:
+        if self._date_filter:
+            return self._date_filter, {}
+
+        parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)
+
+        query = f"""
+        {parsed_date_from}
+        {parsed_date_to}
+        """
+
+        return query, date_params
+
     def _get_props(self, allow_denormalized_props: bool = False) -> Tuple[str, Dict]:
 
-        filters = self._filter.properties
+        filters = [*self._filter.properties, *self._entity.properties]
         filter_test_accounts = self._filter.filter_test_accounts
-        team_id = self._team.pk
+        team_id = self._team_id
         table_name = f"{self.EVENT_TABLE_ALIAS}."
         prepend = "global"
 
