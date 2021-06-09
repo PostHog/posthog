@@ -187,7 +187,7 @@ def insight_test_factory(event_factory, person_factory):
                 ).json()
                 self.assertEqual(response["result"]["loading"], True)
 
-            # Ensure backwards-compatibility
+            # Tests backwards-compatibility when we changed GET to POST | GET
             @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
             def test_insight_funnels_basic_get(self):
                 event_factory(team=self.team, event="user signed up", distinct_id="1")
