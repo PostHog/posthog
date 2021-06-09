@@ -217,16 +217,19 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
 
     # Set the frontend app context
-    from posthog.api.user import UserSerializer
-    from posthog.views import preflight_check
+    if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.user import UserSerializer
+        from posthog.views import preflight_check
 
-    posthog_app_context: Dict = {"current_user": None, "preflight": json.loads(preflight_check(request).getvalue())}
+        posthog_app_context: Dict = {"current_user": None, "preflight": json.loads(preflight_check(request).getvalue())}
 
-    if request.user.pk:
-        user = UserSerializer(request.user, context={"request": request}, many=False)
-        posthog_app_context["current_user"] = user.data
+        if request.user.pk:
+            user = UserSerializer(request.user, context={"request": request}, many=False)
+            posthog_app_context["current_user"] = user.data
 
-    context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
+        context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
+    else:
+        context["posthog_app_context"] = "null"
 
     html = template.render(context, request=request)
     return HttpResponse(html)
