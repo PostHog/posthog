@@ -101,7 +101,7 @@ future==0.18.2
     # via lzstring
 grpcio==1.33.1
     # via -r requirements.in
-gunicorn==20.0.4
+gunicorn==20.1.0
     # via -r requirements.in
 idna==2.8
     # via
