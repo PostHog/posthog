@@ -2,10 +2,11 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { definitionDrawerLogicType } from './definitionDrawerLogicType'
 import { IndexedTrendResult } from 'scenes/trends/trendsLogic'
-import { EventDefinition, EventFormattedType, EventOrPropType } from '~/types'
+import { EventDefinition, EventFormattedType, EventOrPropType, EventType, PropertyDefinition } from '~/types'
 import { errorToast, toParams, uniqueBy } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { valueType } from 'antd/lib/statistic/utils'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 
 export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropType>>({
     actions: () => ({
@@ -25,22 +26,33 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
         cancelDescription: true,
         saveDescription: true,
     }),
-    loaders: () => ({
+    loaders: ({ actions }) => ({
         eventsSnippet: [
             [] as EventFormattedType[],
             {
                 loadEventsSnippet: async (definition: EventOrPropType) => {
-                    const urlParams = toParams({
+                    const eventsParams = toParams({
                         properties: {},
                         ...{ event: definition.name },
                         orderBy: ['-timestamp'],
                         limit: 5,
                     })
-                    const events = await api.get(`api/event/?${urlParams}`)
+                    const events = await api.get(`api/event/?${eventsParams}`)
+                    const propertyNames = Object.keys(events.results[0].properties).filter(key => !keyMapping.event[key])
+                    actions.loadPropertyDefinitions(propertyNames)
                     return events.results
                 },
             },
         ],
+        eventProperties: [
+            [] as PropertyDefinition[],
+            {
+                loadPropertyDefinitions: async (properties) => {
+                    const propertyDefinitions = await api.get(`api/projects/@current/property_definitions/?properties=${properties}`)
+                    return propertyDefinitions.results
+                }
+            }
+        ]
     }),
     reducers: () => ({
         drawerState: [

@@ -36,6 +36,7 @@ export function DefinitionDrawer(): JSX.Element {
                         onClose={closeDrawer}
                         width={'60vw'}
                         bodyStyle={{ padding: 14, paddingTop: 0 }}
+                        className="definition-drawer"
                     >
                         {preflight && !preflight?.is_event_property_usage_enabled ? (
                             <div style={{ marginTop: 8 }}>

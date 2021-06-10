@@ -1,3 +1,4 @@
+from ee.models.property_definition import EnterprisePropertyDefinition
 from typing import Type
 
 from rest_framework import filters, mixins, permissions, serializers, viewsets
@@ -43,15 +44,25 @@ class PropertyDefinitionViewSet(
             except ImportError:
                 pass
             else:
+                team_id = self.request.user.team.id
+                properties_to_filter = self.request.GET.get("properties", None)
+                name_filter = ""
+                names = ()
+                if properties_to_filter:
+                    names = tuple(properties_to_filter.split(","))
+                    name_filter = f"AND name IN %(names)s"
                 ee_property_definitions = EnterprisePropertyDefinition.objects.raw(
-                    """
+                    f"""
                     SELECT *
                     FROM ee_enterprisepropertydefinition
                     FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
-                    WHERE team_id = %s
+                    WHERE team_id = %(team_id)s {name_filter}
                     ORDER BY name
                     """,
-                    params=[self.request.user.team.id],  # type: ignore
+                    params={
+                        "team_id": team_id,
+                        "names": names
+                    },
                 )
                 return ee_property_definitions
         return self.filter_queryset_by_parents_lookups(PropertyDefinition.objects.all()).order_by(self.ordering)
