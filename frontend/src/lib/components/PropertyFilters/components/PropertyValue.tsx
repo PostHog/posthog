@@ -19,15 +19,15 @@ type Option = {
 
 interface PropertyValueProps {
     propertyKey: string
-    type: any // TODO
-    endpoint?: string
+    type: string
+    endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     style?: Partial<React.CSSProperties>
     bordered?: boolean
     onSet: CallableFunction
     value?: string | number | Array<string | number> | null
     operator?: PropertyOperator
-    outerOptions?: Option[]
+    outerOptions?: Option[] // If no endpoint provided, options are given here
 }
 
 function matchesLowerCase(needle: string, haystack?: string): boolean {
