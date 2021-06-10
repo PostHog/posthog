@@ -176,16 +176,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        entity = Entity(
-            {
-                "id": "viewed",
-                "type": "events",
-                "properties": [
-                    {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
-                    {"key": "key", "value": "val"},
-                ],
-            }
-        )
+        entity = Entity({"id": "viewed", "type": "events",})
 
         query, params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
         sync_execute(query, params)
+        print(sqlparse.format(query, reindent=True))

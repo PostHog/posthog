@@ -1,6 +1,6 @@
 from typing import Any, Dict, Tuple
 
-from ee.clickhouse.models.cohort import determine_precalculated_or_live_person_query, format_filter_query
+from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
 from ee.clickhouse.queries.trends.util import populate_entity_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
@@ -117,6 +117,10 @@ class ClickhouseEventQuery:
                 self._should_join_pdi = True
                 self._should_join_persons = True
                 return
+            if prop.type == "cohort" and self._does_cohort_need_persons(prop):
+                self._should_join_pdi = True
+                self._should_join_persons = True
+                return
 
         for prop in self._entity.properties:
             if prop.type == "person":
@@ -136,6 +140,13 @@ class ClickhouseEventQuery:
                     self._should_join_pdi = True
                     self._should_join_persons = True
                     return
+
+    def _does_cohort_need_persons(self, prop: Property) -> bool:
+        cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        for group in cohort.groups:
+            if group.get("properties"):
+                return True
+        return False
 
     def _get_person_query(self) -> str:
         if self._should_join_persons:
@@ -192,12 +203,10 @@ class ClickhouseEventQuery:
 
         for idx, prop in enumerate(filters):
             if prop.type == "cohort":
-                cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
-                person_id_query, cohort_filter_params = determine_precalculated_or_live_person_query(
-                    cohort, custom_match_field="pdi.person_id"
-                )
+                person_id_query, cohort_filter_params = self._get_cohort_subquery(prop)
                 params = {**params, **cohort_filter_params}
                 final.append(f"AND {person_id_query}")
+
             elif prop.type == "person":
                 filter_query, filter_params = prop_filter_json_extract(
                     prop,
@@ -220,3 +229,15 @@ class ClickhouseEventQuery:
                 final.append(filter_query)
                 params.update(filter_params)
         return " ".join(final), params
+
+    def _get_cohort_subquery(self, prop) -> Tuple[str, Dict[str, Any]]:
+        cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        is_precalculated = is_precalculated_query(cohort)
+
+        person_id_query, cohort_filter_params = (
+            get_precalculated_query(cohort, custom_match_field="pdi.person_id")
+            if is_precalculated
+            else format_person_query(cohort, custom_match_field="pdi.person_id")
+        )
+
+        return person_id_query, cohort_filter_params
