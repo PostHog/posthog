@@ -4,27 +4,12 @@ import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
-import { FEATURE_FLAGS, MATHS } from 'lib/constants'
 import { cohortsModel } from '~/models/cohortsModel'
 import { CohortType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { maybeAddCommasToInteger } from 'lib/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { InsightsTableV2 } from './InsightsTableV2'
-
-export function InsightsTable(props: InsightsTableProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags[FEATURE_FLAGS.NEW_TOOLTIPS] ? <InsightsTableV2 {...props} /> : <InsightsTableV1 {...props} />
-}
-
-function formatLabel(item: IndexedTrendResult): string {
-    const name = item.action?.name || item.label
-    const math = item.action?.math
-    const mathLabel = math ? MATHS[math].name : ''
-    const propNum = item.action?.properties.length
-    const propLabel = propNum ? propNum + (propNum === 1 ? ' property' : ' properties') : ''
-    return name + (mathLabel ? ' — ' + mathLabel : '') + (propLabel ? ' — ' + propLabel : '')
-}
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {
     if (breakdown_value && typeof breakdown_value == 'number') {
@@ -41,8 +26,8 @@ interface InsightsTableProps {
     showTotalCount?: boolean
 }
 
-function InsightsTableV1({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
-    const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
+export function InsightsTableV2({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
+    const { indexedResults, visibilityMap, filters, numberOfSeries } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
     const isSingleEntity = indexedResults.length === 1
@@ -50,6 +35,9 @@ function InsightsTableV1({ isLegend = true, showTotalCount = false }: InsightsTa
     if (indexedResults.length === 0 || !indexedResults?.[0]?.data) {
         return null
     }
+
+    const colorList = getChartColors('white')
+    const showCountedByTag = !!indexedResults.find(({ action: { math } }) => math && math !== 'total')
 
     // Build up columns to include. Order matters.
     const columns: ColumnsType<IndexedTrendResult> = []
@@ -61,7 +49,7 @@ function InsightsTableV1({ isLegend = true, showTotalCount = false }: InsightsTa
                 // legend will always be on insight page where the background is white
                 return (
                     <PHCheckbox
-                        color={getChartColors('white')[index]}
+                        color={colorList[index]}
                         checked={visibilityMap[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                         disabled={isSingleEntity}
@@ -69,43 +57,45 @@ function InsightsTableV1({ isLegend = true, showTotalCount = false }: InsightsTa
                 )
             },
             fixed: 'left',
-            width: 60,
-        })
-    }
-
-    columns.push({
-        title: 'Label',
-        render: function RenderLabel({}, item: IndexedTrendResult) {
-            return (
-                <span
-                    style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
-                    onClick={() => !isSingleEntity && toggleVisibility(item.id)}
-                >
-                    {formatLabel(item)}
-                </span>
-            )
-        },
-        fixed: 'left',
-        width: 150,
-    })
-
-    if (showTotalCount) {
-        columns.push({
-            title: 'Total',
-            dataIndex: 'count',
-            fixed: 'left',
-            width: 100,
+            width: 30,
         })
     }
 
     if (filters.breakdown) {
         columns.push({
-            title: 'Breakdown Value',
+            title: <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown || 'Breakdown Value'} />,
             render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
                 return formatBreakdownLabel(item.breakdown_value, cohorts)
             },
             fixed: 'left',
             width: 150,
+        })
+    }
+
+    if (!(numberOfSeries === 1 && indexedResults[0].breakdown_value)) {
+        columns.push({
+            title: 'Event or Action',
+            render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
+                return (
+                    <div
+                        style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
+                        onClick={() => !isSingleEntity && toggleVisibility(item.id)}
+                    >
+                        <InsightLabel
+                            seriesColor={colorList[index]}
+                            action={item.action}
+                            fallbackName={item.label}
+                            hasMultipleSeries={indexedResults.length > 1}
+                            showCountedByTag={showCountedByTag}
+                            breakdownValue={item.breakdown_value?.toString()}
+                            hideBreakdown
+                            hideIcon
+                        />
+                    </div>
+                )
+            },
+            fixed: 'left',
+            width: 200,
         })
     }
 
@@ -118,6 +108,15 @@ function InsightsTableV1({ isLegend = true, showTotalCount = false }: InsightsTa
         }))
 
         columns.push(...valueColumns)
+    }
+
+    if (showTotalCount) {
+        columns.push({
+            title: 'Total',
+            dataIndex: 'count',
+            fixed: 'right',
+            width: 100,
+        })
     }
 
     return (
