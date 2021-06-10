@@ -1,4 +1,5 @@
 import React from 'react'
+import dayjs from 'dayjs'
 import { SceneLoading } from 'lib/utils'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -6,7 +7,7 @@ import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CalendarOutlined } from '@ant-design/icons'
+import { CalendarOutlined, ReloadOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
 import { DashboardMode } from '../../types'
@@ -14,6 +15,7 @@ import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
+import { Button } from 'antd'
 
 interface Props {
     id: string
@@ -30,9 +32,11 @@ export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
 }
 
 function DashboardView(): JSX.Element {
-    const { dashboard, itemsLoading, items, filters: dashboardFilters, dashboardMode } = useValues(dashboardLogic)
+    const { dashboard, itemsLoading, items, filters: dashboardFilters, dashboardMode, lastRefreshed } = useValues(
+        dashboardLogic
+    )
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
+    const { setDashboardMode, addGraph, setDates, loadDashboardItems } = useActions(dashboardLogic)
 
     useKeyboardHotkeys(
         dashboardMode === DashboardMode.Public || dashboardMode === DashboardMode.Internal
@@ -89,23 +93,25 @@ function DashboardView(): JSX.Element {
             {items && items.length ? (
                 <div>
                     <div className="dashboard-items-actions">
-                        {/* :TODO: Bring this back when addressing https://github.com/PostHog/posthog/issues/3609
                         <div className="left-item">
                             Last updated <b>{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</b>
                             {dashboardMode !== DashboardMode.Public && (
-                                <Button type="link" icon={<ReloadOutlined />} onClick={refreshAllDashboardItems}>
+                                <Button
+                                    type="link"
+                                    icon={<ReloadOutlined />}
+                                    onClick={() => loadDashboardItems({ refresh: true })}
+                                >
                                     Refresh
                                 </Button>
                             )}
                         </div>
-                         */}
+
                         {dashboardMode !== DashboardMode.Public && (
                             <div
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'flex-end',
-                                    width: '100%',
                                 }}
                             >
                                 <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />

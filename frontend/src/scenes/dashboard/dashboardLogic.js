@@ -40,10 +40,10 @@ export const dashboardLogic = kea({
         allItems: [
             {},
             {
-                loadDashboardItems: async () => {
+                loadDashboardItems: async ({ refresh = undefined } = {}) => {
                     try {
                         const dashboard = await api.get(
-                            `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`
+                            `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken, refresh })}`
                         )
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
@@ -262,7 +262,7 @@ export const dashboardLogic = kea({
     }),
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
-            actions.loadDashboardItems()
+            actions.loadDashboardItems({ refresh: props.internal })
             if (props.shareToken) {
                 actions.setDashboardMode(
                     props.internal ? DashboardMode.Internal : DashboardMode.Public,
