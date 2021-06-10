@@ -1,11 +1,11 @@
 import { kea } from 'kea'
-import { npsLogicType } from 'lib/experimental/NPSPromptType'
 import { UserType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 import dayjs from 'dayjs'
 import posthog from 'posthog-js'
+import { npsLogicType } from 'lib/experimental/npsLogicType'
 
 const NPS_APPEAR_TIMEOUT = 10000
 const NPS_HIDE_TIMEOUT = 3500
@@ -23,11 +23,11 @@ export const npsLogic = kea<npsLogicType<NPSPayload, Step, UserType>>({
     selectors: {
         featureFlagEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.NPS_PROMPT],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.NPS_PROMPT],
         ],
         userIsOldEnough: [
             () => [userLogic.selectors.user],
-            (user) => user && dayjs(user.date_joined).isBefore(dayjs().add(-15, 'day')),
+            (user) => !!user && dayjs(user.date_joined).isBefore(dayjs().add(-15, 'day')),
         ],
         npsPromptEnabled: [
             (s) => [s.featureFlagEnabled, s.userIsOldEnough],
