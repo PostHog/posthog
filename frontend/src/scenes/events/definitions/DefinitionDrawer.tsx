@@ -105,6 +105,12 @@ export function DefinitionDrawer(): JSX.Element {
                             </Panel>
                         </Collapse>
 
+                        <Collapse defaultActiveKey={['2']} expandIconPosition="right" ghost>
+                            <Panel header="Properties" key="2" className="l3">
+                                <EventPropertiesStats />
+                            </Panel>
+                        </Collapse>
+
                         {preflight && preflight?.is_event_property_usage_enabled && (
                             <Collapse
                                 defaultActiveKey={['3']}
@@ -314,5 +320,54 @@ export function EventsTableSnippet(): JSX.Element {
                 pagination={false}
             />
         </div>
+    )
+}
+
+export function EventPropertiesStats(): JSX.Element {
+    const { eventProperties, eventsSnippet } = useValues(definitionDrawerLogic)
+    const propertyExamples = eventsSnippet[0]?.properties
+    console.log(eventsSnippet)
+    const tableColumns = [
+        {
+            title: 'Property',
+            key: 'property',
+            render: function renderProperty({ name }: { name: string}) {
+                return <span>{name}</span>
+            }
+        },
+        {
+            title: 'Description',
+            key: 'description',
+            render: function renderDescription({ description }: { description: string}) {
+
+                return (<DefinitionDescription />)
+            }
+        },
+        {
+            title: 'Tags',
+            key: 'tags'
+        },
+        {
+            title: 'Example',
+            key: 'example',
+            render: function renderExample({ name }: { name: string }) {
+                return <span>{propertyExamples[name]}</span>
+            }
+        }
+    ]
+    return(
+        <>
+            <Row>
+                <span>
+                    Top properties that are sent with this event. Please note that description and tags are shared across events.
+                    Posthog properties are <b>excluded</b> from this list.
+                </span>
+            </Row>
+            <Table
+                dataSource={eventProperties}
+                columns={tableColumns}
+                rowKey={(row) => row.id}
+            />
+        </>
     )
 }
