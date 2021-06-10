@@ -73,9 +73,16 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step, UserType>>({
             }
         },
         submit: () => {
+            const payload = values.payload
+            let result = 'dismissed'
+            if (payload) {
+                result = 'partial'
+                if (payload.score && payload.feedback_score && payload.feedback_persona) {
+                    result = 'completed'
+                }
+            }
+            posthog.capture('nps feedback', { ...payload, result })
             // `nps_2106` is used to identify users who have replied to the NPS survey (via cohorts)
-            const result = ['dismissed', 'partial', 'partial', 'completed'][values.step]
-            posthog.capture('nps feedback', { ...values.payload, result })
             posthog.people.set({ nps_2106: true })
             localStorage.setItem(NPS_LOCALSTORAGE_KEY, 'true')
             cache.timeout = window.setTimeout(() => actions.hide(), NPS_HIDE_TIMEOUT)
