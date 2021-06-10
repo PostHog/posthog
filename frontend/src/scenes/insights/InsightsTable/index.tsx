@@ -4,20 +4,11 @@ import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
-import { MATHS } from 'lib/constants'
 import { cohortsModel } from '~/models/cohortsModel'
 import { CohortType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { maybeAddCommasToInteger } from 'lib/utils'
-
-function formatLabel(item: IndexedTrendResult): string {
-    const name = item.action?.name || item.label
-    const math = item.action?.math
-    const mathLabel = math ? MATHS[math].name : ''
-    const propNum = item.action?.properties.length
-    const propLabel = propNum ? propNum + (propNum === 1 ? ' property' : ' properties') : ''
-    return name + (mathLabel ? ' — ' + mathLabel : '') + (propLabel ? ' — ' + propLabel : '')
-}
+import { InsightLabel } from 'lib/components/InsightLabel'
 
 function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {
     if (breakdown_value && typeof breakdown_value == 'number') {
@@ -44,6 +35,9 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         return null
     }
 
+    const colorList = getChartColors('white')
+    const showCountedByTag = !!indexedResults.find(({ action: { math } }) => math && math !== 'total')
+
     // Build up columns to include. Order matters.
     const columns: ColumnsType<IndexedTrendResult> = []
 
@@ -54,7 +48,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                 // legend will always be on insight page where the background is white
                 return (
                     <PHCheckbox
-                        color={getChartColors('white')[index]}
+                        color={colorList[index]}
                         checked={visibilityMap[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                         disabled={isSingleEntity}
@@ -62,24 +56,33 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                 )
             },
             fixed: 'left',
-            width: 60,
+            width: 30,
         })
     }
 
     columns.push({
-        title: 'Label',
-        render: function RenderLabel({}, item: IndexedTrendResult) {
+        title: 'Series',
+        render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
             return (
-                <span
+                <div
                     style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
                     onClick={() => !isSingleEntity && toggleVisibility(item.id)}
                 >
-                    {formatLabel(item)}
-                </span>
+                    <InsightLabel
+                        seriesColor={colorList[index]}
+                        action={item.action}
+                        fallbackName={item.label}
+                        hasMultipleSeries={indexedResults.length > 1}
+                        showCountedByTag={showCountedByTag}
+                        breakdownValue={item.breakdown_value?.toString()}
+                        hideBreakdown
+                        hideIcon
+                    />
+                </div>
             )
         },
         fixed: 'left',
-        width: 150,
+        width: 200,
     })
 
     if (showTotalCount) {
