@@ -1,6 +1,6 @@
 describe('Actions', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-events]').click()
+        cy.clickNavMenu('events')
         cy.get('[data-attr=events-actions-tab]').click()
     })
 
