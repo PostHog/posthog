@@ -40,6 +40,8 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     const { cohorts } = useValues(cohortsModel)
     const isSingleEntity = indexedResults.length === 1
 
+    console.log('indexedResults', indexedResults)
+
     if (indexedResults.length === 0 || !indexedResults?.[0]?.data) {
         return null
     }

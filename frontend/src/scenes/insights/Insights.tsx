@@ -374,7 +374,7 @@ export function Insights(): JSX.Element {
                                     <Card style={{ marginTop: 16 }}>
                                         <BindLogic
                                             logic={trendsLogic}
-                                            props={{ dashboardItemId: null, view: activeView }}
+                                            props={{ dashboardItemId: null, view: activeView, filters: allFilters }}
                                         >
                                             <InsightsTable />
                                         </BindLogic>
