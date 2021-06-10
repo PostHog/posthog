@@ -54,12 +54,13 @@ export function PathTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.El
                     <Col>starting at</Col>
                     <Col>
                         <PropertyValue
-                            endpoint={filter.path_type === AUTOCAPTURE && 'api/paths/elements'}
+                            endpoint={filter.path_type === AUTOCAPTURE ? 'api/paths/elements' : undefined}
                             outerOptions={
-                                filter.path_type === CUSTOM_EVENT &&
-                                customEventNames.map((name) => ({
-                                    name,
-                                }))
+                                filter.path_type === CUSTOM_EVENT
+                                    ? customEventNames.map((name) => ({
+                                          name,
+                                      }))
+                                    : undefined
                             }
                             onSet={(value: string | number): void => setFilter({ start_point: value })}
                             propertyKey={pathOptionsToProperty[filter.path_type || PAGEVIEW]}
@@ -67,7 +68,6 @@ export function PathTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.El
                             style={{ width: 200, paddingTop: 2 }}
                             value={filter.start_point}
                             placeholder={'Select start element'}
-                            operator={null}
                         />
                     </Col>
                 </Row>

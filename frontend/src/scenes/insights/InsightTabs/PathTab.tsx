@@ -49,12 +49,13 @@ function DefaultPathTab(): JSX.Element {
             <hr />
             <h4 className="secondary">Start Point</h4>
             <PropertyValue
-                endpoint={filter.path_type === AUTOCAPTURE && 'api/paths/elements'}
+                endpoint={filter.path_type === AUTOCAPTURE ? 'api/paths/elements' : undefined}
                 outerOptions={
-                    filter.path_type === CUSTOM_EVENT &&
-                    customEventNames.map((name) => ({
-                        name,
-                    }))
+                    filter.path_type === CUSTOM_EVENT
+                        ? customEventNames.map((name) => ({
+                              name,
+                          }))
+                        : undefined
                 }
                 onSet={(value: string | number): void => setFilter({ start_point: value })}
                 propertyKey={pathOptionsToProperty[filter.path_type || PAGEVIEW]}
@@ -62,7 +63,6 @@ function DefaultPathTab(): JSX.Element {
                 style={{ width: 200, paddingTop: 2 }}
                 value={filter.start_point}
                 placeholder={'Select start element'}
-                operator={null}
             />
             <hr />
             <h4 className="secondary">Filters</h4>

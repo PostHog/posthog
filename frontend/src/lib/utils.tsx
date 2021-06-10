@@ -261,7 +261,7 @@ export function isOperatorRegex(operator: string): boolean {
     return ['regex', 'not_regex'].includes(operator)
 }
 
-export function isValidRegex(value: string): boolean {
+export function isValidRegex(value: any): boolean {
     try {
         new RegExp(value)
         return true
@@ -854,4 +854,8 @@ export function maybeAddCommasToInteger(value: any): any {
     }
     const internationalNumberFormat = new Intl.NumberFormat('en-US')
     return internationalNumberFormat.format(value)
+}
+
+export function toString(input?: any | null): string {
+    return input?.toString() || ''
 }
