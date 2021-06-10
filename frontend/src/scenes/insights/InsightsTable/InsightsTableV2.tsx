@@ -10,17 +10,6 @@ import { ColumnsType } from 'antd/lib/table'
 import { maybeAddCommasToInteger } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-
-function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {
-    if (breakdown_value && typeof breakdown_value == 'number') {
-        return cohorts.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
-    } else if (typeof breakdown_value == 'string') {
-        return breakdown_value === 'nan' ? 'Other' : breakdown_value
-    } else {
-        return ''
-    }
-}
-
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
     showTotalCount?: boolean
@@ -38,6 +27,17 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
 
     const colorList = getChartColors('white')
     const showCountedByTag = !!indexedResults.find(({ action: { math } }) => math && math !== 'total')
+
+    function SeriesToggleWrapper({ children, id }: { children: JSX.Element; id: number }): JSX.Element {
+        return (
+            <div
+                style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
+                onClick={() => !isSingleEntity && toggleVisibility(id)}
+            >
+                {children}
+            </div>
+        )
+    }
 
     // Build up columns to include. Order matters.
     const columns: ColumnsType<IndexedTrendResult> = []
@@ -65,7 +65,11 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
         columns.push({
             title: <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown || 'Breakdown Value'} />,
             render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
-                return formatBreakdownLabel(item.breakdown_value, cohorts)
+                return (
+                    <SeriesToggleWrapper id={item.id}>
+                        <>{formatBreakdownLabel(item.breakdown_value, cohorts)}</>
+                    </SeriesToggleWrapper>
+                )
             },
             fixed: 'left',
             width: 150,
@@ -77,10 +81,7 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
             title: 'Event or Action',
             render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
                 return (
-                    <div
-                        style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
-                        onClick={() => !isSingleEntity && toggleVisibility(item.id)}
-                    >
+                    <SeriesToggleWrapper id={item.id}>
                         <InsightLabel
                             seriesColor={colorList[index]}
                             action={item.action}
@@ -91,7 +92,7 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
                             hideBreakdown
                             hideIcon
                         />
-                    </div>
+                    </SeriesToggleWrapper>
                 )
             },
             fixed: 'left',
@@ -131,4 +132,14 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
             data-attr="insights-table-graph"
         />
     )
+}
+
+function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {
+    if (breakdown_value && typeof breakdown_value == 'number') {
+        return cohorts.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
+    } else if (typeof breakdown_value == 'string') {
+        return breakdown_value === 'nan' ? 'Other' : breakdown_value
+    } else {
+        return ''
+    }
 }
