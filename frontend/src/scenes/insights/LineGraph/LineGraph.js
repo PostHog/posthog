@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
-import { formatLabel, compactNumber } from '~/lib/utils'
+import { formatLabel, compactNumber, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
@@ -141,16 +141,16 @@ export function LineGraph({
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
-        const borderColor = dataset?.status
-            ? getBarColorFromStatus(dataset.status)
-            : colorList[index % colorList.length]
-        const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : undefined
+        const mainColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index % colorList.length]
+        const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
+
+        const BACKGROUND_CHARTS = ['bar', 'horizontalBar', 'doughnut']
 
         return {
-            borderColor,
-            hoverBorderColor: hoverColor,
-            hoverBackgroundColor: hoverColor,
-            backgroundColor: (type === 'bar' || type === 'doughnut') && borderColor,
+            borderColor: mainColor,
+            hoverBorderColor: type === 'bar' || type === 'doughnut' ? lightenDarkenColor(mainColor, -20) : hoverColor,
+            hoverBackgroundColor: BACKGROUND_CHARTS.includes(type) ? lightenDarkenColor(mainColor, -20) : undefined,
+            backgroundColor: BACKGROUND_CHARTS.includes(type) ? mainColor : undefined,
             fill: false,
             borderWidth: newUI ? 2 : 1,
             pointRadius: newUI ? 0 : undefined,
