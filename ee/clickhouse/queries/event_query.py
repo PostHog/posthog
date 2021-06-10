@@ -1,6 +1,6 @@
 from typing import Any, Dict, Tuple
 
-from ee.clickhouse.models.cohort import format_filter_query
+from ee.clickhouse.models.cohort import determine_precalculated_or_live_person_query, format_filter_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
 from ee.clickhouse.queries.trends.util import populate_entity_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
@@ -58,14 +58,14 @@ class ClickhouseEventQuery:
             + (", person.person_props as person_props" if self._should_join_persons else "")
         )
 
+        date_query, date_params = self._get_date_filter()
+        self.params.update(date_params)
+
         prop_query, prop_params = self._get_props()
         self.params.update(prop_params)
 
         entity_query, entity_params = self._get_entity_query()
         self.params.update(entity_params)
-
-        date_query, date_params = self._get_date_filter()
-        self.params.update(date_params)
 
         query = f"""
             SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
@@ -193,9 +193,11 @@ class ClickhouseEventQuery:
         for idx, prop in enumerate(filters):
             if prop.type == "cohort":
                 cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
-                person_id_query, cohort_filter_params = format_filter_query(cohort)
+                person_id_query, cohort_filter_params = determine_precalculated_or_live_person_query(
+                    cohort, custom_match_field="pdi.person_id"
+                )
                 params = {**params, **cohort_filter_params}
-                final.append(f"AND {table_name}distinct_id IN ({person_id_query})")
+                final.append(f"AND {person_id_query}")
             elif prop.type == "person":
                 filter_query, filter_params = prop_filter_json_extract(
                     prop,

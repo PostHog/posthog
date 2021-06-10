@@ -94,7 +94,10 @@ def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
     return person_id_query, params
 
 
-def determine_precalculated_or_live_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
+def determine_precalculated_or_live_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
+
+    custom_match_field = kwargs.get("custom_match_field", "person_id")
+
     if (
         cohort.last_calculation
         and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
@@ -103,12 +106,12 @@ def determine_precalculated_or_live_person_query(cohort: Cohort) -> Tuple[str, D
     ):
         return (
             f"""
-        person_id IN ({GET_PERSON_ID_BY_COHORT_ID})
+        {custom_match_field} IN ({GET_PERSON_ID_BY_COHORT_ID})
         """,
             {"team_id": cohort.team_id, "cohort_id": cohort.pk},
         )
     else:
-        person_query, params = format_person_query(cohort)
+        person_query, params = format_person_query(cohort, custom_match_field=custom_match_field)
         return person_query, params
 
 

@@ -6,6 +6,9 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.models.action import Action
+from posthog.models.action_step import ActionStep
+from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.person import Person
@@ -20,6 +23,22 @@ def _create_person(**kwargs):
 def _create_event(**kwargs):
     kwargs.update({"event_uuid": uuid4()})
     create_event(**kwargs)
+
+
+def _create_cohort(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    groups = kwargs.pop("groups")
+    cohort = Cohort.objects.create(team=team, name=name, groups=groups)
+    return cohort
+
+
+def _create_action(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    action = Action.objects.create(team=team, name=name)
+    ActionStep.objects.create(action=action, event=name)
+    return action
 
 
 class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
@@ -54,19 +73,12 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             AND timestamp >= '2021-05-01 00:00:00'
             AND timestamp <= '2021-05-07 23:59:59'
         """
-        correct_params = {
-            "team_id": self.team.pk,
-            "event": "viewed",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 23:59:59",
-        }
 
         self.assertEqual(sqlparse.format(query, reindent=True), sqlparse.format(correct, reindent=True))
-        self.assertEqual(params, correct_params)
 
         sync_execute(query, params)
 
-    def test_properties_filter(self):
+    def test_person_properties_filter(self):
         filter = Filter(
             data={
                 "date_from": "2021-05-01 00:00:00",
@@ -111,8 +123,69 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
         sync_execute(entity_prop_query, entity_prop_query_params)
 
-    def test_cohort_filter(self):
-        pass
+    def test_event_properties_filter(self):
+        filter = Filter(
+            data={
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "events": [{"id": "viewed", "order": 0},],
+                "properties": [{"key": "some_key", "value": "test_val", "operator": "exact", "type": "event"}],
+            }
+        )
 
-    def test_action_entity(self):
-        pass
+        entity = Entity({"id": "viewed", "type": "events"})
+
+        global_prop_query, global_prop_query_params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
+        sync_execute(global_prop_query, global_prop_query_params)
+
+        filter = Filter(
+            data={
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "events": [{"id": "viewed", "order": 0},],
+            }
+        )
+
+        entity = Entity(
+            {
+                "id": "viewed",
+                "type": "events",
+                "properties": [{"key": "some_key", "value": "test_val", "operator": "exact", "type": "event"}],
+            }
+        )
+
+        entity_prop_query, entity_prop_query_params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
+
+        # global queries and enttiy queries should be the same
+        self.assertEqual(
+            sqlparse.format(global_prop_query, reindent=True), sqlparse.format(entity_prop_query, reindent=True)
+        )
+
+        sync_execute(entity_prop_query, entity_prop_query_params)
+
+    # just smoke test making sure query runs because no new functions are used here
+    def test_cohort_filter(self):
+        cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "test"}}])
+
+        filter = Filter(
+            data={
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "events": [{"id": "viewed", "order": 0},],
+                "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+            }
+        )
+
+        entity = Entity(
+            {
+                "id": "viewed",
+                "type": "events",
+                "properties": [
+                    {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                    {"key": "key", "value": "val"},
+                ],
+            }
+        )
+
+        query, params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
+        sync_execute(query, params)
