@@ -15,7 +15,7 @@ beforeEach(() => {
         cy.clock(1578225600000, ['Date'])
     } else {
         if (Cypress.spec.name.includes('Premium')) {
-            cy.visit('/login')
+            cy.visit('/login?next=/?no-preloaded-app-context=true')
             cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
             cy.login()
         } else {

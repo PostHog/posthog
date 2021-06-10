@@ -21,7 +21,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { EventFormattedType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TableConfig } from 'lib/components/ResizableTable'
-import { propertyDefinitionsLogic } from './propertyDefinitionsLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -55,7 +55,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         columnConfig,
         columnConfigSaving,
     } = useValues(logic)
-    const { propertyNames } = useValues(propertyDefinitionsLogic)
+    const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 

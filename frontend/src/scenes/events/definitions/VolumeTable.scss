@@ -1,0 +1,47 @@
+.definition-description {
+    &.ant-input:placeholder-shown {
+        font-style: italic;
+    }
+}
+
+.panel-wrapper {
+    display: flex;
+    flex-direction: row;
+    padding-top: 0;
+
+    span {
+        font-weight: 400;
+        font-size: 14px;
+    }
+}
+
+.definition-drawer {
+    .ant-collapse-content > .ant-collapse-content-box {
+        padding-top: 0;
+    }
+}
+.owner-select {
+    .ant-select-selector {
+        .ant-select-selection-placeholder {
+            color: black;
+            font-weight: 400;
+        }
+    }
+}
+
+.detail-status {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-evenly;
+    margin-top: 30px;
+    text-align: center;
+
+    .ant-typography {
+        margin-bottom: 0;
+    }
+
+    span {
+        font-weight: 400;
+        font-size: 14px;
+    }
+}

@@ -11,7 +11,7 @@ import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { pluralize } from 'lib/utils'
 import './index.scss'
 
@@ -64,7 +64,7 @@ export function ActionFilterRow({
         updateFilterProperty,
         setEntityFilterVisibility,
     } = useActions(logic)
-    const { numericalPropertyNames } = useValues(propertyDefinitionsLogic)
+    const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -207,7 +207,7 @@ export function ActionFilterRow({
                         </Button>
                     </Col>
                 )}
-                {!horizontalUI && !singleFilter && filterCount > 1 && (
+                {!horizontalUI && !singleFilter && (
                     <Col>
                         <Button
                             type="link"

@@ -1,38 +1,37 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { VolumeTable, UsageDisabledWarning } from './EventsVolumeTable'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { propertyDefinitionsLogic } from './propertyDefinitionsLogic'
 import { PageHeader } from 'lib/components/PageHeader'
+import { UsageDisabledWarning, VolumeTable } from './VolumeTable'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
-export function PropertiesVolumeTable(): JSX.Element | null {
+export function EventsVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { propertyDefinitions, loaded } = useValues(propertyDefinitionsLogic)
+    const { eventDefinitions, loaded } = useValues(eventDefinitionsModel)
 
     return (
         <>
             <PageHeader
-                title="Properties Stats"
-                caption="See all property keys that have ever been sent to this team, including the volume and how often
-                queries where made using this property key."
+                title="Events Stats"
+                caption="See all event names that have ever been sent to this team, including the volume and how often queries where made using this event."
                 style={{ marginTop: 0 }}
             />
             {loaded ? (
                 <>
                     {preflight && !preflight?.is_event_property_usage_enabled ? (
-                        <UsageDisabledWarning tab="Properties Stats" />
+                        <UsageDisabledWarning tab="Events Stats" />
                     ) : (
-                        propertyDefinitions[0].volume_30_day === null && (
+                        eventDefinitions[0].volume_30_day === null && (
                             <>
                                 <Alert
                                     type="warning"
-                                    message="We haven't been able to get usage and volume data yet. Please check back later."
+                                    message="We haven't been able to get usage and volume data yet. Please check later."
                                 />
                             </>
                         )
                     )}
-                    <VolumeTable data={propertyDefinitions} type="property" />
+                    <VolumeTable data={eventDefinitions} type="event" />
                 </>
             ) : (
                 <Skeleton active paragraph={{ rows: 5 }} />

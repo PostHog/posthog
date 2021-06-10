@@ -1,6 +1,6 @@
 describe('Cohorts', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-cohorts]').click()
+        cy.clickNavMenu('cohorts')
     })
 
     it('Cohorts new and list', () => {
@@ -19,6 +19,7 @@ describe('Cohorts', () => {
 
         // select the first property
         cy.get('[data-attr=property-filter-dropdown]').click()
+        cy.get('[data-attr=property-filter-dropdown]').type('is_demo')
         cy.get('[data-attr=prop-filter-person-0]').click({ force: true })
 
         cy.get('[data-attr=prop-val]').click()

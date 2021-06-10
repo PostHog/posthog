@@ -1,4 +1,3 @@
-from distutils.util import strtobool
 from typing import Any, Dict, Type
 
 from django.core.cache import cache
@@ -32,7 +31,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
-from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.utils import generate_cache_key, get_safe_cache, should_refresh, str_to_bool
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -131,7 +130,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     filterset_fields = ["short_id"]
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
-        if (self.action == "list" or self.action == "retrieve") and strtobool(
+        if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0"),
         ):
             return InsightBasicSerializer
@@ -156,7 +155,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         for key in filters:
             if key == "saved":
-                if strtobool(str(request.GET["saved"])):
+                if str_to_bool(request.GET["saved"]):
                     queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
                 else:
                     queryset = queryset.filter(Q(saved=False))
@@ -236,7 +235,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # - from_dashboard: (dict) determines funnel is being retrieved from dashboard item to update dashboard_item metadata
     # - **shared filter types
     # ******************************************
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_funnel(request)
 
@@ -245,9 +244,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function()
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
-        refresh = request.GET.get("refresh", None)
+        refresh = should_refresh(request)
 
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
+        filter = Filter(request=request, data={**request.data, "insight": INSIGHT_FUNNELS})
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
         result = {"loading": True}
 
@@ -258,7 +257,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             if cached_result:
                 task_id = cached_result.get("task_id", None)
                 if not task_id:
-                    return cached_result["result"]
+                    return {"result": cached_result["result"]}
                 else:
                     return {"result": result}
 

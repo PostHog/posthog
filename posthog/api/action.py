@@ -39,7 +39,7 @@ from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import base, retention, stickiness, trends
 from posthog.tasks.calculate_action import calculate_action
-from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.utils import generate_cache_key, get_safe_cache, should_refresh
 
 from .person import PersonSerializer, paginated_result
 
@@ -246,7 +246,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
-        refresh = request.GET.get("refresh", None)
+        refresh = should_refresh(request)
         dashboard_id = request.GET.get("from_dashboard", None)
 
         filter = Filter(request=request)
@@ -353,10 +353,17 @@ def _filter_person_prop_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
     return events
 
 
+def _filter_event_prop_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
+    if filter.breakdown_type == "event":
+        events = events.filter(**{"properties__{}".format(filter.breakdown): filter.breakdown_value,})
+    return events
+
+
 def calculate_people(team: Team, events: QuerySet, filter: Filter, use_offset: bool = True) -> QuerySet:
     events = events.values("person_id").distinct()
     events = _filter_cohort_breakdown(events, filter)
     events = _filter_person_prop_breakdown(events, filter)
+    events = _filter_event_prop_breakdown(events, filter)
 
     people = Person.objects.filter(
         team=team,

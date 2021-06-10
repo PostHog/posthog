@@ -6,7 +6,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 import time
 import uuid
 from itertools import count
@@ -17,6 +19,7 @@ from typing import (
     List,
     Mapping,
     Optional,
+    Sequence,
     Tuple,
     Union,
 )
@@ -33,11 +36,11 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
+from rest_framework.request import Request
 from sentry_sdk import push_scope
 
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
-from posthog.settings import print_warning
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -214,8 +217,28 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
 
+    # Set the frontend app context
+    if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.user import UserSerializer
+        from posthog.views import preflight_check
+
+        posthog_app_context: Dict = {"current_user": None, "preflight": json.loads(preflight_check(request).getvalue())}
+
+        if request.user.pk:
+            user = UserSerializer(request.user, context={"request": request}, many=False)
+            posthog_app_context["current_user"] = user.data
+
+        context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
+    else:
+        context["posthog_app_context"] = "null"
+
     html = template.render(context, request=request)
     return HttpResponse(html)
+
+
+def json_uuid_convert(o):
+    if isinstance(o, uuid.UUID):
+        return str(o)
 
 
 def friendly_time(seconds: float):
@@ -661,3 +684,22 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
         offset_hours = int(offset.total_seconds()) / 3600
         result[tz] = offset_hours
     return result
+
+
+def should_refresh(request: Request) -> bool:
+    key = "refresh"
+    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true"
+
+
+def str_to_bool(value: Any) -> bool:
+    """Return whether the provided string (or any value really) represents true. Otherwise false.
+    Just like plugin server stringToBoolean.
+    """
+    if not value:
+        return False
+    return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
+
+
+def print_warning(warning_lines: Sequence[str]):
+    highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
+    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)

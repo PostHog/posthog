@@ -79,3 +79,7 @@ ON events.distinct_id = pid.distinct_id
 WHERE team_id = %(team_id)s {date_query} AND {entity_query}
 GROUP BY person_id HAVING count(*) {count_operator} %(count)s
 """
+
+GET_PERSON_ID_BY_COHORT_ID = """
+SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s GROUP BY person_id, cohort_id, team_id HAVING sum(sign) > 0
+"""

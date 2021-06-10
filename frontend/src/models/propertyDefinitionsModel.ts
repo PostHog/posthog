@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { PropertyDefinition, SelectOption } from '~/types'
-import { propertyDefinitionsLogicType } from './propertyDefinitionsLogicType'
+import { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 
 interface PropertySelectOption extends SelectOption {
     is_numerical?: boolean
@@ -13,8 +13,8 @@ interface PropertyDefinitionStorage {
     results: PropertyDefinition[]
 }
 
-export const propertyDefinitionsLogic = kea<
-    propertyDefinitionsLogicType<PropertyDefinitionStorage, PropertyDefinition, PropertySelectOption>
+export const propertyDefinitionsModel = kea<
+    propertyDefinitionsModelType<PropertyDefinitionStorage, PropertySelectOption, PropertyDefinition>
 >({
     loaders: ({ values }) => ({
         propertyStorage: [

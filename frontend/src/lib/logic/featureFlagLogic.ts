@@ -56,6 +56,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
     reducers: {
         featureFlags: [
             {} as FeatureFlagsSet,
+            { persist: true },
             {
                 setFeatureFlags: (_, { featureFlags }) => {
                     const flags: FeatureFlagsSet = {}
@@ -64,6 +65,12 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
                     }
                     return spyOnFeatureFlags(flags)
                 },
+            },
+        ],
+        receivedFeatureFlags: [
+            false,
+            {
+                setFeatureFlags: () => true,
             },
         ],
     },

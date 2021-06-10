@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { loginLogicType } from './loginLogicType'
+import { router } from 'kea-router'
 
 interface AuthenticateResponseType {
     success: boolean
@@ -8,18 +9,11 @@ interface AuthenticateResponseType {
     errorDetail?: string
 }
 
+export function afterLoginRedirect(): string {
+    return router.values.searchParams['next'] || '/'
+}
+
 export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
-    actions: {
-        setNext: (next: string) => ({ next }),
-    },
-    reducers: {
-        nextUrl: [
-            null as string | null,
-            {
-                setNext: (_, { next }) => next,
-            },
-        ],
-    },
     loaders: {
         authenticateResponse: [
             null as AuthenticateResponseType | null,
@@ -35,18 +29,11 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
             },
         ],
     },
-    listeners: ({ values }) => ({
-        authenticateSuccess: () => {
-            if (values.authenticateResponse?.success) {
-                window.location.href = values.nextUrl ? values.nextUrl : '/'
+    listeners: {
+        authenticateSuccess: ({ authenticateResponse }) => {
+            if (authenticateResponse?.success) {
+                window.location.href = afterLoginRedirect()
             }
         },
-    }),
-    urlToAction: ({ actions }) => ({
-        '/login': (_: any, { next }: { next: string }) => {
-            if (next) {
-                actions.setNext(next)
-            }
-        },
-    }),
+    },
 })

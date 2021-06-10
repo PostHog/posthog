@@ -5,7 +5,7 @@ import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { MATHS } from 'lib/constants'
-import { cohortsModel } from '~/models'
+import { cohortsModel } from '~/models/cohortsModel'
 import { CohortType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { maybeAddCommasToInteger } from 'lib/utils'
@@ -29,18 +29,26 @@ function formatBreakdownLabel(breakdown_value: string | number | undefined, coho
     }
 }
 
-export function TrendLegend(): JSX.Element | null {
+interface InsightsTableProps {
+    isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
+    showTotalCount?: boolean
+}
+
+export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
     const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
     const isSingleEntity = indexedResults.length === 1
 
-    if (indexedResults.length === 0) {
+    if (indexedResults.length === 0 || !indexedResults?.[0]?.data) {
         return null
     }
 
-    const columns: ColumnsType<IndexedTrendResult> = [
-        {
+    // Build up columns to include. Order matters.
+    const columns: ColumnsType<IndexedTrendResult> = []
+
+    if (isLegend) {
+        columns.push({
             title: '',
             render: function RenderCheckbox({}, item: IndexedTrendResult, index: number) {
                 // legend will always be on insight page where the background is white
@@ -55,23 +63,33 @@ export function TrendLegend(): JSX.Element | null {
             },
             fixed: 'left',
             width: 60,
+        })
+    }
+
+    columns.push({
+        title: 'Label',
+        render: function RenderLabel({}, item: IndexedTrendResult) {
+            return (
+                <span
+                    style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
+                    onClick={() => !isSingleEntity && toggleVisibility(item.id)}
+                >
+                    {formatLabel(item)}
+                </span>
+            )
         },
-        {
-            title: 'Label',
-            render: function RenderLabel({}, item: IndexedTrendResult) {
-                return (
-                    <span
-                        style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
-                        onClick={() => !isSingleEntity && toggleVisibility(item.id)}
-                    >
-                        {formatLabel(item)}
-                    </span>
-                )
-            },
+        fixed: 'left',
+        width: 150,
+    })
+
+    if (showTotalCount) {
+        columns.push({
+            title: 'Total',
+            dataIndex: 'count',
             fixed: 'left',
-            width: 150,
-        },
-    ]
+            width: 100,
+        })
+    }
 
     if (filters.breakdown) {
         columns.push({
@@ -104,6 +122,7 @@ export function TrendLegend(): JSX.Element | null {
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
             scroll={indexedResults && indexedResults.length > 0 ? { x: indexedResults[0].data.length * 160 } : {}}
+            data-attr="insights-table-graph"
         />
     )
 }

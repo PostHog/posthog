@@ -1,5 +1,7 @@
 describe('Funnels', () => {
     beforeEach(() => {
+        // :TRICKY: Race condition populating the first dropdown in funnel
+        cy.get('[data-test-filters-loading]').should('not.exist')
         cy.get('[data-attr=insight-funnels-tab]').click()
         cy.wait(200)
     })
