@@ -1,5 +1,5 @@
 import React from 'react'
-import { Tag } from 'antd'
+import { Col, Row, Tag } from 'antd'
 import { ActionFilter } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
@@ -56,33 +56,42 @@ export function InsightLabel({
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
 
     return (
-        <div className="insights-label">
-            {!(hasMultipleSeries && !breakdownValue) && (
-                <div
-                    className="color-icon"
-                    style={{
-                        background: seriesColor,
-                        boxShadow: `0px 0px 0px 1px ${hexToRGBA(seriesColor, 0.5)}`,
-                    }}
-                />
-            )}
-            {hasMultipleSeries && action?.order !== undefined && (
-                <SeriesLetter seriesIndex={action.order} seriesColor={seriesColor} hasBreakdown={!!breakdownValue} />
-            )}
-            {showEventName && <PropertyKeyInfo disableIcon value={eventName} />}
+        <Row className="insights-label" wrap={false}>
+            <Col style={{ display: 'flex', alignItems: 'center' }} flex="auto">
+                {!(hasMultipleSeries && !breakdownValue) && (
+                    <div
+                        className="color-icon"
+                        style={{
+                            background: seriesColor,
+                            boxShadow: `0px 0px 0px 1px ${hexToRGBA(seriesColor, 0.5)}`,
+                        }}
+                    />
+                )}
+                {hasMultipleSeries && action?.order !== undefined && (
+                    <SeriesLetter
+                        seriesIndex={action.order}
+                        seriesColor={seriesColor}
+                        hasBreakdown={!!breakdownValue}
+                    />
+                )}
+                <div className="protect-width">
+                    {showEventName && <PropertyKeyInfo disableIcon value={eventName} />}
 
-            {hasMultipleSeries && ((action?.math && action.math !== 'total') || showCountedByTag) && (
-                <MathTag math={action?.math} mathProperty={action?.math_property} />
-            )}
+                    {hasMultipleSeries && ((action?.math && action.math !== 'total') || showCountedByTag) && (
+                        <MathTag math={action?.math} mathProperty={action?.math_property} />
+                    )}
 
-            {breakdownValue && (
-                <>
-                    {hasMultipleSeries && <span style={{ padding: '0 2px' }}>-</span>}
-                    {breakdownValue === 'total' ? <i>Total</i> : breakdownValue}
-                </>
-            )}
-
-            <span className="value">{value}</span>
-        </div>
+                    {breakdownValue && (
+                        <>
+                            {hasMultipleSeries && <span style={{ padding: '0 2px' }}>-</span>}
+                            {breakdownValue === 'total' ? <i>Total</i> : breakdownValue}
+                        </>
+                    )}
+                </div>
+            </Col>
+            <Col flex="none">
+                <span className="value">{value}</span>
+            </Col>
+        </Row>
     )
 }

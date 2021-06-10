@@ -4,11 +4,14 @@ $inter_items_padding: 0.3rem;
 
 .insights-label {
     margin-bottom: 0.1rem;
-    display: flex;
-    align-items: center;
+    max-width: 100%;
 
     .property-key-info {
         display: inline;
+    }
+
+    .protect-width {
+        @extend .text-ellipsis;
     }
 
     .value {
