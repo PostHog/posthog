@@ -93,7 +93,10 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
     if count:
         count_operator = _get_count_operator(count_operator)
         extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
-            entity_query=entity_query, date_query=date_query, count_operator=count_operator
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            entity_query=entity_query,
+            date_query=date_query,
+            count_operator=count_operator,
         )
         params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
         return f"person_id IN ({extract_person})", params

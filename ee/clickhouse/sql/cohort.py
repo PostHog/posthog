@@ -59,20 +59,7 @@ SELECT person_id FROM events
 INNER JOIN (
     SELECT person_id,
         distinct_id
-    FROM (
-            SELECT *
-            FROM person_distinct_id
-            JOIN (
-                    SELECT distinct_id,
-                        max(_offset) as _offset
-                    FROM person_distinct_id
-                    WHERE team_id = %(team_id)s
-                    GROUP BY distinct_id
-                ) as person_max
-                ON person_distinct_id.distinct_id = person_max.distinct_id
-            AND person_distinct_id._offset = person_max._offset
-            WHERE team_id = %(team_id)s
-        )
+    FROM ({latest_distinct_id_sql})
     WHERE team_id = %(team_id)s
 ) as pid
 ON events.distinct_id = pid.distinct_id

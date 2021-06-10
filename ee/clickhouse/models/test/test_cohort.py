@@ -409,7 +409,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         results = sync_execute("SELECT person_id FROM cohortpeople")
         self.assertEqual(len(results), 1)
 
-    def test_cohortpeople_action_count(self):
+    def _setup_actions_with_different_counts(self):
         action = _create_action(team=self.team, name="$pageview")
         p1 = Person.objects.create(
             team_id=self.team.pk,
@@ -467,6 +467,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             properties={"attr": "some_val"},
             timestamp=datetime(2020, 1, 9, 12, 0, 1),
         )
+        return action
+
+    def test_cohortpeople_action_count(self):
+
+        action = self._setup_actions_with_different_counts()
 
         # test operators
         cohort1 = Cohort.objects.create(
