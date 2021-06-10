@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { AutoComplete, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
@@ -57,8 +57,11 @@ export function PropertyValue({
     outerOptions = undefined,
 }: PropertyValueProps): JSX.Element {
     const isMultiSelect = operator && isOperatorMulti(operator)
+    const autoFocus = !value && !isMobile()
     const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
     const [options, setOptions] = useState({} as Record<string, Option>)
+    const [open, setOpen] = useState(autoFocus ? false : undefined) // only set if autoFocus is defined; will set true once values are loaded
+    const autoCompleteRef = useRef<HTMLElement>(null)
 
     const loadPropertyValues = useThrottledCallback((newInput) => {
         if (type === 'cohort') {
@@ -98,16 +101,30 @@ export function PropertyValue({
 
     useEffect(() => {
         loadPropertyValues('')
+        setOpen(true)
     }, [propertyKey])
 
-    const displayOptions = ((options[propertyKey] && options[propertyKey].values) || []).filter(
+    const displayOptions = (options[propertyKey]?.values || []).filter(
         (option) => input === '' || matchesLowerCase(input, toString(option?.name))
     )
+
+    useEffect(() => {
+        if (autoFocus && Object.keys(displayOptions).length) {
+            console.log('options callback', displayOptions, autoCompleteRef.current)
+            autoCompleteRef.current?.focus()
+            setOpen(true)
+        }
+    }, [options])
+
+    useEffect(() => {
+        if (open) {
+            autoCompleteRef.current?.focus()
+        }
+    }, [open])
 
     const validationError = operator ? getValidationError(operator, value) : null
 
     const commonInputProps = {
-        autoFocus: !value && !isMobile(),
         style: { width: '100%', ...style },
         loading: options[input]?.status === 'loading',
         onSearch: (newInput: string) => {
@@ -136,6 +153,7 @@ export function PropertyValue({
             {isMultiSelect ? (
                 <SelectGradientOverflow
                     {...commonInputProps}
+                    autoFocus={autoFocus}
                     value={value === null ? [] : value}
                     mode="multiple"
                     showSearch
@@ -172,6 +190,7 @@ export function PropertyValue({
             ) : (
                 <AutoComplete
                     {...commonInputProps}
+                    autoFocus={autoFocus}
                     value={input}
                     onChange={(val) => {
                         setInput(toString(val))
@@ -179,6 +198,11 @@ export function PropertyValue({
                     onSelect={(val) => {
                         setValue(toString(val))
                     }}
+                    onClick={() => {
+                        setOpen(true)
+                    }}
+                    open={open}
+                    ref={autoCompleteRef}
                 >
                     {input && (
                         <AutoComplete.Option key="specify-value" value={input} className="ph-no-capture">
