@@ -50,7 +50,7 @@ class ClickhouseTrendsTotalVolume:
                 entity,
                 team_id,
                 date_filter="{parsed_date_from} {parsed_date_to}",
-                should_join_pdi=True if join_condition != "" else False,
+                should_join_distinct_ids=True if join_condition != "" else False,
             ).get_query()
             event_query = event_query.format(**content_sql_params)
             params = {**params, **event_query_params}
@@ -72,7 +72,7 @@ class ClickhouseTrendsTotalVolume:
                     entity,
                     team_id,
                     date_filter="{parsed_date_from_prev_range} {parsed_date_to}",
-                    should_join_pdi=True,
+                    should_join_distinct_ids=True,
                 ).get_query()
                 sql_params = get_active_user_params(filter, entity, team_id)
                 params = {**params, **event_query_params}
@@ -84,7 +84,7 @@ class ClickhouseTrendsTotalVolume:
                     entity,
                     team_id,
                     date_filter="{parsed_date_from} {parsed_date_to}",
-                    should_join_pdi=True if join_condition != "" else False,
+                    should_join_distinct_ids=True if join_condition != "" else False,
                 ).get_query()
                 event_query = event_query.format(**content_sql_params)
                 params = {**params, **event_query_params}

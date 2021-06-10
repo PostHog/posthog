@@ -8,7 +8,7 @@ from posthog.models import Cohort, Entity, Filter, Property, Team
 
 
 class ClickhouseEventQuery:
-    PDI_TABLE_ALIAS = "pdi"
+    DISTINCT_ID_TABLE_ALIAS = "pdi"
     PERSON_TABLE_ALIAS = "person"
     EVENT_TABLE_ALIAS = "e"
 
@@ -16,7 +16,7 @@ class ClickhouseEventQuery:
     _filter: Filter
     _entity: Entity
     _team_id: int
-    _should_join_pdi = False
+    _should_join_distinct_ids = False
     _should_join_persons = False
     _should_round_interval = False
     _date_filter = None
@@ -27,7 +27,7 @@ class ClickhouseEventQuery:
         entity: Entity,
         team_id: int,
         round_interval=False,
-        should_join_pdi=False,
+        should_join_distinct_ids=False,
         should_join_persons=False,
         date_filter=None,
         **kwargs,
@@ -40,11 +40,11 @@ class ClickhouseEventQuery:
         }
         self._date_filter = date_filter
 
-        self._should_join_pdi = should_join_pdi
+        self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
 
-        if not self._should_join_pdi:
-            self._determine_should_join_pdi()
+        if not self._should_join_distinct_ids:
+            self._determine_should_join_distinct_ids()
 
         if not self._should_join_persons:
             self._determine_should_join_persons()
@@ -53,9 +53,9 @@ class ClickhouseEventQuery:
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = (
-            "e.timestamp as timestamp, e.properties as properties"
-            + (", pdi.person_id as person_id" if self._should_join_pdi else "")
-            + (", person.person_props as person_props" if self._should_join_persons else "")
+            f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp, {self.EVENT_TABLE_ALIAS}.properties as properties"
+            + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
+            + (f", {self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons else "")
         )
 
         date_query, date_params = self._get_date_filter()
@@ -69,7 +69,7 @@ class ClickhouseEventQuery:
 
         query = f"""
             SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_pdi_query()}
+            {self._get_disintct_id_query()}
             {self._get_person_query()}
             WHERE team_id = %(team_id)s
             {entity_query}
@@ -79,13 +79,13 @@ class ClickhouseEventQuery:
 
         return query, self.params
 
-    def _determine_should_join_pdi(self) -> None:
+    def _determine_should_join_distinct_ids(self) -> None:
         if self._entity.math == "dau":
-            self._should_join_pdi = True
+            self._should_join_distinct_ids = True
             return
 
-    def _get_pdi_query(self) -> str:
-        if self._should_join_pdi:
+    def _get_disintct_id_query(self) -> str:
+        if self._should_join_distinct_ids:
             return f"""
             INNER JOIN (
                 SELECT person_id,
@@ -105,8 +105,8 @@ class ClickhouseEventQuery:
                         WHERE team_id = %(team_id)s
                     )
                 WHERE team_id = %(team_id)s
-            ) AS {self.PDI_TABLE_ALIAS}
-            ON events.distinct_id = {self.PDI_TABLE_ALIAS}.distinct_id
+            ) AS {self.DISTINCT_ID_TABLE_ALIAS}
+            ON events.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
             """
         else:
             return ""
@@ -114,22 +114,22 @@ class ClickhouseEventQuery:
     def _determine_should_join_persons(self) -> None:
         for prop in self._filter.properties:
             if prop.type == "person":
-                self._should_join_pdi = True
+                self._should_join_distinct_ids = True
                 self._should_join_persons = True
                 return
             if prop.type == "cohort" and self._does_cohort_need_persons(prop):
-                self._should_join_pdi = True
+                self._should_join_distinct_ids = True
                 self._should_join_persons = True
                 return
 
         for prop in self._entity.properties:
             if prop.type == "person":
-                self._should_join_pdi = True
+                self._should_join_distinct_ids = True
                 self._should_join_persons = True
                 return
 
         if self._filter.breakdown_type == "person":
-            self._should_join_pdi = True
+            self._should_join_distinct_ids = True
             self._should_join_persons = True
 
         if self._filter.filter_test_accounts:
@@ -137,7 +137,7 @@ class ClickhouseEventQuery:
             test_filter_props = [Property(**prop) for prop in test_account_filters]
             for prop in test_filter_props:
                 if prop.type == "person":
-                    self._should_join_pdi = True
+                    self._should_join_distinct_ids = True
                     self._should_join_persons = True
                     return
 
@@ -163,7 +163,7 @@ class ClickhouseEventQuery:
                     HAVING is_deleted = 0
                 )
             ) {self.PERSON_TABLE_ALIAS} 
-            ON {self.PERSON_TABLE_ALIAS}.id = {self.PDI_TABLE_ALIAS}.person_id
+            ON {self.PERSON_TABLE_ALIAS}.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             """
         else:
             return ""
@@ -235,9 +235,9 @@ class ClickhouseEventQuery:
         is_precalculated = is_precalculated_query(cohort)
 
         person_id_query, cohort_filter_params = (
-            get_precalculated_query(cohort, custom_match_field="pdi.person_id")
+            get_precalculated_query(cohort, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
             if is_precalculated
-            else format_person_query(cohort, custom_match_field="pdi.person_id")
+            else format_person_query(cohort, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
         )
 
         return person_id_query, cohort_filter_params
