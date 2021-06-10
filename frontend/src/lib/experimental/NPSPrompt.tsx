@@ -53,7 +53,6 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step, UserType>>({
             {
                 setStep: (_, { step }) => step,
                 stepBack: (state) => Math.max(state - 1, 0) as Step,
-                submit: () => 3,
                 // go to step 1 when selecting the score on step 0
                 setPayload: (state, { payload }) => (state === 0 && typeof payload?.score !== 'undefined' ? 1 : state),
             },
@@ -73,15 +72,8 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step, UserType>>({
             }
         },
         submit: () => {
-            const payload = values.payload
-            let result = 'dismissed'
-            if (payload) {
-                result = 'partial'
-                if (payload.score && payload.feedback_score && payload.feedback_persona) {
-                    result = 'completed'
-                }
-            }
-            posthog.capture('nps feedback', { ...payload, result })
+            const result = ['dismissed', 'partial', 'partial', 'completed'][values.step]
+            posthog.capture('nps feedback', { ...values.payload, result })
             // `nps_2106` is used to identify users who have replied to the NPS survey (via cohorts)
             posthog.people.set({ nps_2106: true })
             localStorage.setItem(NPS_LOCALSTORAGE_KEY, 'true')
@@ -168,7 +160,7 @@ export function NPSPrompt(): JSX.Element | null {
                                 onKeyDown={(e) => e.key === 'Enter' && e.metaKey && setStep(2)}
                             />
                             <div style={{ textAlign: 'left' }} className="mt">
-                                <Button type="link" style={{ paddingLeft: 0 }} onClick={() => submit()}>
+                                <Button type="link" style={{ paddingLeft: 0 }} onClick={submit}>
                                     Finish
                                 </Button>
                                 <Button style={{ float: 'right' }} onClick={() => setStep(2)}>
@@ -188,10 +180,10 @@ export function NPSPrompt(): JSX.Element | null {
                                 placeholder="You can describe their role, background, company or team size, ..."
                                 value={payload?.feedback_persona || ''}
                                 onChange={(e) => setPayload({ feedback_persona: e.target.value })}
-                                onKeyDown={(e) => e.key === 'Enter' && e.metaKey && submit()}
+                                onKeyDown={(e) => e.key === 'Enter' && e.metaKey && setStep(3) && submit()}
                             />
                             <div style={{ textAlign: 'left' }} className="mt">
-                                <Button style={{ float: 'right' }} onClick={submit}>
+                                <Button style={{ float: 'right' }} onClick={() => setStep(3) && submit()}>
                                     Finish
                                 </Button>
                             </div>
