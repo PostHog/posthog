@@ -75,7 +75,7 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step, UserType>>({
             }
         },
         dismiss: () => {
-            const result = typeof values.payload?.score !== 'undefined' ? 'partial' : 'dimissed'
+            const result = typeof values.payload?.score !== 'undefined' ? 'partial' : 'dismissed'
             actions.hide()
             actions.send(result)
         },
