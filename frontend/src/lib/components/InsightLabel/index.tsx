@@ -2,9 +2,10 @@ import React from 'react'
 import { Tag } from 'antd'
 import { ActionFilter } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, alphabet, hexToRGBA } from 'lib/utils'
+import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
 import './InsightLabel.scss'
 import { MATHS } from 'lib/constants'
+import { SeriesLetter } from '../SeriesLetter'
 
 // InsightsLabel pretty prints the action (or event) returned from /insights
 interface InsightsLabelProps {
@@ -52,15 +53,17 @@ export function InsightLabel({
     const showEventName = !breakdownValue || hasMultipleSeries
     return (
         <div className="insights-label">
-            <div
-                className="color-icon"
-                style={{
-                    background: seriesColor,
-                    boxShadow: `0px 0px 0px 1px ${hexToRGBA(seriesColor, 0.5)}`,
-                }}
-            />
+            {!(hasMultipleSeries && !breakdownValue) && (
+                <div
+                    className="color-icon"
+                    style={{
+                        background: seriesColor,
+                        boxShadow: `0px 0px 0px 1px ${hexToRGBA(seriesColor, 0.5)}`,
+                    }}
+                />
+            )}
             {hasMultipleSeries && action.order !== undefined && (
-                <span className="graph-series-letter">{alphabet[action.order]}</span>
+                <SeriesLetter seriesIndex={action.order} seriesColor={seriesColor} hasBreakdown={!!breakdownValue} />
             )}
             {showEventName && <PropertyKeyInfo disableIcon value={action.name || fallbackName || ''} />}
 

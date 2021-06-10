@@ -1,3 +1,5 @@
+@import '~/vars';
+
 $inter_items_padding: 0.3rem;
 
 .insights-label {
@@ -19,6 +21,9 @@ $inter_items_padding: 0.3rem;
     .ant-tag {
         margin-right: 0;
         margin-left: $inter_items_padding;
+        background-color: $border_light;
+        border: 0;
+        color: $primary_alt;
     }
 
     .graph-series-letter {

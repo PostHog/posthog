@@ -468,11 +468,16 @@ code.code {
 }
 
 .graph-series-letter {
-    background-color: $hc_light_lilac;
-    color: $hc_navy;
-    border-radius: $radius;
+    border-radius: 50%;
+    border: 2px solid $text_default;
     font-weight: bold;
-    padding: 2px 6px;
+    font-size: 12px;
+    height: 22px;
+    width: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
 }
 
 // Overlays styles
