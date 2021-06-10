@@ -15,6 +15,8 @@ import {
     ClickHouseEvent,
     ClickHousePerson,
     ClickHousePersonDistinctId,
+    Cohort,
+    CohortPeople,
     Database,
     Element,
     ElementGroup,
@@ -538,13 +540,42 @@ export class DB {
 
     // Cohort & CohortPeople
 
+    public async createCohort(cohort: Partial<Cohort>): Promise<Cohort> {
+        const insertResult = await this.postgresQuery(
+            `INSERT INTO posthog_cohort (name, deleted, groups, team_id, created_at, created_by_id, is_calculating, last_calculation,errors_calculating, is_static) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *;`,
+            [
+                cohort.name,
+                cohort.deleted ?? false,
+                cohort.groups ?? [],
+                cohort.team_id,
+                cohort.created_at ?? new Date().toISOString(),
+                cohort.created_by_id,
+                cohort.is_calculating ?? false,
+                cohort.last_calculation ?? new Date().toISOString(),
+                cohort.errors_calculating ?? 0,
+                cohort.is_static ?? false,
+            ],
+            'createCohort'
+        )
+        return insertResult.rows[0]
+    }
+
     public async doesPersonBelongToCohort(cohortId: number, personId: Person['id']): Promise<boolean> {
         const selectResult = await this.postgresQuery(
             `SELECT EXISTS (SELECT 1 FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2);`,
             [cohortId, personId],
             'doesPersonBelongToCohort'
         )
-        return selectResult.rows[0]
+        return selectResult.rows[0].exists
+    }
+
+    public async addPersonToCohort(cohortId: number, personId: Person['id']): Promise<CohortPeople> {
+        const insertResult = await this.postgresQuery(
+            `INSERT INTO posthog_cohortpeople (cohort_id, person_id) VALUES ($1, $2) RETURNING *;`,
+            [cohortId, personId],
+            'addPersonToCohort'
+        )
+        return insertResult.rows[0]
     }
 
     // Organization

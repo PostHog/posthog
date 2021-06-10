@@ -15,7 +15,6 @@ import {
     EventPropertyFilter,
     Person,
     PersonPropertyFilter,
-    PluginsServerConfig,
     PropertyFilter,
     PropertyFilterWithOperator,
     PropertyOperator,
@@ -24,11 +23,22 @@ import { DB } from '../../utils/db/db'
 import { extractElements } from '../../utils/db/utils'
 import { ActionManager } from './action-manager'
 
-const propertyOperatorToRequiredValueType: Partial<Record<PropertyOperator, 'string'>> = {
-    [PropertyOperator.IContains]: 'string',
-    [PropertyOperator.NotIContains]: 'string',
-    [PropertyOperator.Regex]: 'string',
-    [PropertyOperator.NotRegex]: 'string',
+/** These operators can only be matched if the provided filter's value has the right type. */
+const propertyOperatorToRequiredValueType: Partial<Record<PropertyOperator, string[]>> = {
+    [PropertyOperator.IContains]: ['string'],
+    [PropertyOperator.NotIContains]: ['string'],
+    [PropertyOperator.Regex]: ['string'],
+    [PropertyOperator.NotRegex]: ['string'],
+    [PropertyOperator.GreaterThan]: ['number', 'boolean'],
+    [PropertyOperator.LessThan]: ['number', 'boolean'],
+}
+
+/** These operators do match when the property is not there, as opposed to normal ones. */
+const emptyMatchingOperator: Partial<Record<PropertyOperator, boolean>> = {
+    [PropertyOperator.IsNotSet]: true,
+    [PropertyOperator.IsNot]: true,
+    [PropertyOperator.NotIContains]: true,
+    [PropertyOperator.NotRegex]: true,
 }
 
 export class ActionMatcher {
@@ -125,7 +135,11 @@ export class ActionMatcher {
                 case ActionStepUrlMatching.Regex:
                     // Using RE2 here because that's what ClickHouse uses for regex matching anyway
                     // It's also safer for user-provided patterns because of a few explicit limitations
-                    doesUrlMatch = new RE2(step.url).test(eventUrl)
+                    try {
+                        doesUrlMatch = new RE2(step.url).test(eventUrl)
+                    } catch {
+                        doesUrlMatch = false
+                    }
                     break
                 case ActionStepUrlMatching.Exact:
                     doesUrlMatch = step.url === eventUrl
@@ -228,16 +242,10 @@ export class ActionMatcher {
             case 'event':
                 return this.checkEventAgainstEventFilter(event, filter)
             case 'person':
-                if (!person) {
-                    return false
-                }
                 return this.checkEventAgainstPersonFilter(person, filter)
             case 'element':
                 return this.checkEventAgainstElementFilter(elements, filter)
             case 'cohort':
-                if (!person) {
-                    return false
-                }
                 return await this.checkEventAgainstCohortFilter(person, filter)
             default:
                 return false
@@ -254,9 +262,9 @@ export class ActionMatcher {
     /**
      * Sublevel 4 of action matching.
      */
-    private checkEventAgainstPersonFilter(person: Person, filter: PersonPropertyFilter): boolean {
-        if (!person.properties) {
-            return false
+    private checkEventAgainstPersonFilter(person: Person | undefined, filter: PersonPropertyFilter): boolean {
+        if (!person?.properties) {
+            return !!(filter.operator && emptyMatchingOperator[filter.operator]) // NO PERSON OR PROPERTIES TO MATCH AGAINST FILTER
         }
         return this.checkPropertiesAgainstFilter(person.properties, filter)
     }
@@ -275,9 +283,12 @@ export class ActionMatcher {
     /**
      * Sublevel 4 of action matching.
      */
-    private async checkEventAgainstCohortFilter(person: Person, filter: CohortPropertyFilter): Promise<boolean> {
-        if (!person.properties) {
-            return false
+    private async checkEventAgainstCohortFilter(
+        person: Person | undefined,
+        filter: CohortPropertyFilter
+    ): Promise<boolean> {
+        if (!person) {
+            return false // NO PERSON TO MATCH AGAINST COHORT
         }
         let cohortId = filter.value
         if (typeof cohortId !== 'number') {
@@ -296,45 +307,44 @@ export class ActionMatcher {
         properties: Properties | null | undefined,
         filter: PropertyFilterWithOperator
     ): boolean {
-        if (!properties) {
-            return false // MISMATCH DUE TO LACK OF PROPERTIES THAT COULD FULFILL CONDITION
+        const foundValue = properties?.[filter.key]
+        if (foundValue === undefined) {
+            return !!(filter.operator && emptyMatchingOperator[filter.operator]) // NO PROPERTIES TO MATCH AGAINST FILTER
         }
 
-        const possibleValues = Array.isArray(filter.value) ? filter.value : [filter.value]
-        const foundValue = properties[filter.key]
+        const okValues = Array.isArray(filter.value) ? filter.value : [filter.value]
         let foundValueLowerCase: string // only calculated if needed for a case-insensitive operator
 
         const requiredValueType = filter.operator && propertyOperatorToRequiredValueType[filter.operator]
-        if (requiredValueType && typeof foundValue !== requiredValueType) {
-            return false // MISMATCH DUE TO VALUE TYPE INCOMPATIBLE WITH OPERATOR SUPPORT
+        if (requiredValueType && !requiredValueType.includes(typeof foundValue)) {
+            return !!(filter.operator && emptyMatchingOperator[filter.operator]) // INCOMPATIBLE WITH OPERATOR SUPPORT
         }
 
-        let test: (possibleValue: any) => boolean
+        let test: (okValue: any) => boolean
         switch (filter.operator) {
             case PropertyOperator.IsNot:
-                test = (possibleValue) => possibleValue !== foundValue
+                test = (okValue) => okValue !== foundValue
                 break
             case PropertyOperator.IContains:
                 foundValueLowerCase = foundValue.toLowerCase()
-                test = (possibleValue) =>
-                    typeof possibleValue === 'string' && foundValueLowerCase.includes(possibleValue.toLowerCase())
+                test = (okValue) => typeof okValue === 'string' && foundValueLowerCase.includes(okValue.toLowerCase())
                 break
             case PropertyOperator.NotIContains:
                 foundValueLowerCase = foundValue.toLowerCase()
-                test = (possibleValue) =>
-                    typeof possibleValue === 'string' && !foundValueLowerCase.includes(possibleValue.toLowerCase())
+                test = (okValue) =>
+                    !(typeof okValue === 'string' && foundValueLowerCase.includes(okValue.toLowerCase()))
                 break
             case PropertyOperator.Regex:
-                test = (possibleValue) => typeof possibleValue === 'string' && new RE2(possibleValue).test(foundValue)
+                test = (okValue) => typeof okValue === 'string' && new RE2(okValue).test(foundValue)
                 break
             case PropertyOperator.NotRegex:
-                test = (possibleValue) => typeof possibleValue === 'string' && !new RE2(possibleValue).test(foundValue)
+                test = (okValue) => !(typeof okValue === 'string' && new RE2(okValue).test(foundValue))
                 break
             case PropertyOperator.GreaterThan:
-                test = (possibleValue) => foundValue > possibleValue
+                test = (okValue) => foundValue > okValue
                 break
             case PropertyOperator.LessThan:
-                test = (possibleValue) => foundValue < possibleValue
+                test = (okValue) => foundValue < okValue
                 break
             case PropertyOperator.IsSet:
                 test = () => foundValue !== undefined
@@ -344,10 +354,10 @@ export class ActionMatcher {
                 break
             case PropertyOperator.Exact:
             default:
-                test = (possibleValue) => possibleValue === foundValue
+                test = (okValue) => okValue === foundValue
         }
 
-        return possibleValues.some(test) // ANY OF POSSIBLE VALUES MUST BE A MATCH AGAINST THE FOUND VALUE
+        return okValues.some(test) // ANY OF POSSIBLE VALUES MUST BE A MATCH AGAINST THE FOUND VALUE
     }
 
     /**
