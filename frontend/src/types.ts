@@ -644,6 +644,7 @@ export interface TrendResult {
     label: string
     labels: string[]
     breakdown_value?: string | number
+    aggregated_value: number
     status?: string
 }
 
@@ -771,22 +772,26 @@ export interface LicenseType {
 
 export interface EventDefinition {
     id: string
-    owner: UserBasicType | null
     name: string
     description: string
     tags: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
+    owner?: UserBasicType | null
+    updated_at?: string
+    updated_by?: UserBasicType | null
 }
 
 export interface PropertyDefinition {
     id: string
-    owner: UserBasicType | null
     name: string
     description: string
     tags: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
+    owner?: UserBasicType | null
+    updated_at?: string
+    updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
 }
 
@@ -827,4 +832,10 @@ export interface TiledIconModuleProps {
     header?: string
     subHeader?: string
     analyticsModuleKey?: string
+}
+
+export type EventOrPropType = EventDefinition & PropertyDefinition
+export interface AppContext {
+    current_user: UserType | null
+    preflight: PreflightStatus
 }

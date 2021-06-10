@@ -17,8 +17,9 @@ from posthog.queries.test.test_trends import trend_test_factory
 def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
+    properties = kwargs.pop("properties", {})
     action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
+    ActionStep.objects.create(action=action, event=name, properties=properties)
     return action
 
 
@@ -159,6 +160,39 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                     "breakdown": "email",
                     "breakdown_type": "person",
                     "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,},],
+                }
+            ),
+            self.team,
+        )
+        self.assertEqual(response[0]["label"], "sign up - none")
+        self.assertEqual(response[1]["label"], "sign up - test@gmail.com")
+        self.assertEqual(response[2]["label"], "sign up - test@posthog.com")
+
+        self.assertEqual(response[0]["count"], 1)
+        self.assertEqual(response[1]["count"], 1)
+        self.assertEqual(response[2]["count"], 1)
+
+    # ensure that column names are properly handled when subqueries and person subquery share properties column
+    def test_breakdown_filtering_persons_with_action_props(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person3"], properties={})
+
+        _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
+        _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
+        _create_event(event="sign up", distinct_id="person3", team=self.team, properties={"key": "val"})
+        action = _create_action(
+            name="sign up",
+            team=self.team,
+            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        )
+        response = ClickhouseTrends().run(
+            Filter(
+                data={
+                    "date_from": "-14d",
+                    "breakdown": "email",
+                    "breakdown_type": "person",
+                    "actions": [{"id": action.pk, "type": "actions", "order": 0}],
                 }
             ),
             self.team,

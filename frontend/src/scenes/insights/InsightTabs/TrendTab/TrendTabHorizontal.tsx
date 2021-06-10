@@ -54,7 +54,9 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                         }
                     />
                     {filtersLoading ? (
-                        <Skeleton active />
+                        <div data-test-filters-loading>
+                            <Skeleton active />
+                        </div>
                     ) : (
                         <ActionFilter
                             horizontalUI
@@ -83,7 +85,9 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                             <hr />
                             <h4 className="secondary">Lifecycle Toggles</h4>
                             {filtersLoading ? (
-                                <Skeleton active />
+                                <div data-test-filters-loading>
+                                    <Skeleton active />
+                                </div>
                             ) : (
                                 <div className="toggles">
                                     {lifecycles.map((lifecycle, idx) => (

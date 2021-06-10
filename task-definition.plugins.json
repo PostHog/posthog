@@ -67,6 +67,10 @@
                 {
                     "name": "CAPTURE_INTERNAL_METRICS",
                     "value": "True"
+                },
+                {
+                    "name": "PLUGIN_SERVER_ACTION_MATCHING",
+                    "value": "1"
                 }
             ],
             "secrets": [
