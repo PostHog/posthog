@@ -115,18 +115,13 @@ export class ActionMatcher {
      */
     private checkStepUrl(event: PluginEvent, step: ActionStep): boolean {
         // CHECK CONDITIONS, OTHERWISE SKIPPED
-        if (step.url_matching && step.url) {
+        if (step.url) {
             const eventUrl = event.properties?.$current_url
             if (!eventUrl || typeof eventUrl !== 'string') {
                 return false // URL IS UNKNOWN
             }
             let doesUrlMatch: boolean
             switch (step.url_matching) {
-                case ActionStepUrlMatching.Contains:
-                    // Simulating SQL LIKE behavior (_ = any single character, % = any zero or more characters)
-                    const adjustedRegExpString = escapeStringRegexp(step.url).replace(/_/g, '.').replace(/%/g, '.*')
-                    doesUrlMatch = new RegExp(adjustedRegExpString).test(eventUrl)
-                    break
                 case ActionStepUrlMatching.Regex:
                     // Using RE2 here because that's what ClickHouse uses for regex matching anyway
                     // It's also safer for user-provided patterns because of a few explicit limitations
@@ -135,8 +130,11 @@ export class ActionMatcher {
                 case ActionStepUrlMatching.Exact:
                     doesUrlMatch = step.url === eventUrl
                     break
+                case ActionStepUrlMatching.Contains:
                 default:
-                    throw new Error(`Unrecognized ActionStep.url_matching value ${step.url_matching}!`)
+                    // Simulating SQL LIKE behavior (_ = any single character, % = any zero or more characters)
+                    const adjustedRegExpString = escapeStringRegexp(step.url).replace(/_/g, '.').replace(/%/g, '.*')
+                    doesUrlMatch = new RegExp(adjustedRegExpString).test(eventUrl)
             }
             if (!doesUrlMatch) {
                 return false // URL IS A MISMATCH
@@ -306,16 +304,13 @@ export class ActionMatcher {
         const foundValue = properties[filter.key]
         let foundValueLowerCase: string // only calculated if needed for a case-insensitive operator
 
-        const requiredValueType = propertyOperatorToRequiredValueType[filter.operator]
+        const requiredValueType = filter.operator && propertyOperatorToRequiredValueType[filter.operator]
         if (requiredValueType && typeof foundValue !== requiredValueType) {
             return false // MISMATCH DUE TO VALUE TYPE INCOMPATIBLE WITH OPERATOR SUPPORT
         }
 
         let test: (possibleValue: any) => boolean
         switch (filter.operator) {
-            case PropertyOperator.Exact:
-                test = (possibleValue) => possibleValue === foundValue
-                break
             case PropertyOperator.IsNot:
                 test = (possibleValue) => possibleValue !== foundValue
                 break
@@ -347,10 +342,9 @@ export class ActionMatcher {
             case PropertyOperator.IsNotSet:
                 test = () => foundValue === undefined
                 break
+            case PropertyOperator.Exact:
             default:
-                throw new Error(
-                    `Operator ${filter.operator} is unknown and can't be used for event property filtering!`
-                )
+                test = (possibleValue) => possibleValue === foundValue
         }
 
         return possibleValues.some(test) // ANY OF POSSIBLE VALUES MUST BE A MATCH AGAINST THE FOUND VALUE

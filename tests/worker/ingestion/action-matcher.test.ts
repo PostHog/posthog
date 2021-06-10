@@ -1,6 +1,14 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Action, ActionStep, ActionStepUrlMatching, Element, Hub, RawAction } from '../../../src/types'
+import {
+    Action,
+    ActionStep,
+    ActionStepUrlMatching,
+    Element,
+    Hub,
+    PropertyOperator,
+    RawAction,
+} from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { commonUserId } from '../../helpers/plugins'
@@ -10,11 +18,13 @@ describe('ActionMatcher', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
     let actionMatcher: ActionMatcher
+    let actionCounter: number
 
     beforeEach(async () => {
-        await resetTestDatabase()
+        await resetTestDatabase(undefined, undefined, undefined, { withExtendedTestData: false })
         ;[hub, closeServer] = await createHub()
         actionMatcher = hub.actionMatcher
+        actionCounter = 0
     })
 
     afterEach(async () => {
@@ -24,7 +34,7 @@ describe('ActionMatcher', () => {
     /** Return a test action created on a common base using provided steps. */
     async function createTestAction(partialSteps: Partial<ActionStep>[]): Promise<Action> {
         const action: RawAction = {
-            id: 1,
+            id: actionCounter++,
             team_id: 2,
             name: 'Test',
             created_at: new Date().toISOString(),
@@ -39,7 +49,7 @@ describe('ActionMatcher', () => {
         const steps: ActionStep[] = partialSteps.map(
             (partialStep, index) =>
                 ({
-                    id: index + 50,
+                    id: action.id * 100 + index,
                     action_id: action.id,
                     tag_name: null,
                     text: null,
@@ -83,11 +93,50 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(event)).toEqual([])
         })
 
+        it('returns a match in case of property operator exact', async () => {
+            const actionDefinitionOpExact: Action = await createTestAction([
+                {
+                    properties: [{ type: 'event', key: 'foo', value: 'bar', operator: 'exact' as PropertyOperator }],
+                },
+            ])
+            const actionDefinitionOpUndefined: Action = await createTestAction([
+                {
+                    properties: [{ type: 'event', key: 'foo', value: 'bar' }], // undefined operator should mean "exact"
+                },
+            ])
+
+            const eventFooBar: PluginEvent = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBaR: PluginEvent = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz: PluginEvent = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooBarabara: PluginEvent = createTestEvent({ properties: { foo: 'barabara' } })
+            const eventFooNumber: PluginEvent = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing: PluginEvent = createTestEvent()
+            const eventFigNumber: PluginEvent = createTestEvent({ properties: { fig: 999 } })
+
+            expect(await actionMatcher.match(eventFooBar)).toEqual([
+                actionDefinitionOpExact,
+                actionDefinitionOpUndefined,
+            ])
+            expect(await actionMatcher.match(eventFooBaR)).toEqual([])
+            expect(await actionMatcher.match(eventFooBaz)).toEqual([])
+            expect(await actionMatcher.match(eventFooBarabara)).toEqual([])
+            expect(await actionMatcher.match(eventFooNumber)).toEqual([])
+            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
+        })
+
         it('returns a match in case of URL contains page view', async () => {
             const actionDefinition: Action = await createTestAction([
                 {
                     url: 'example.com',
                     url_matching: ActionStepUrlMatching.Contains,
+                    event: '$pageview',
+                },
+            ])
+            const actionDefinitionEmptyMatching: Action = await createTestAction([
+                {
+                    url: 'example.com',
+                    url_matching: '' as ActionStepUrlMatching, // Empty url_matching should mean "contains"
                     event: '$pageview',
                 },
             ])
@@ -100,7 +149,7 @@ describe('ActionMatcher', () => {
             })
 
             expect(await actionMatcher.match(eventPosthog)).toEqual([])
-            expect(await actionMatcher.match(eventExample)).toEqual([actionDefinition])
+            expect(await actionMatcher.match(eventExample)).toEqual([actionDefinition, actionDefinitionEmptyMatching])
         })
 
         it('returns a match in case of URL contains page views with % and _', async () => {
@@ -108,6 +157,13 @@ describe('ActionMatcher', () => {
                 {
                     url: 'exampl_.com/%.html',
                     url_matching: ActionStepUrlMatching.Contains,
+                    event: '$pageview',
+                },
+            ])
+            const actionDefinitionEmptyMatching: Action = await createTestAction([
+                {
+                    url: 'exampl_.com/%.html',
+                    url_matching: '' as ActionStepUrlMatching, // Empty url_matching should mean "contains"
                     event: '$pageview',
                 },
             ])
@@ -120,7 +176,10 @@ describe('ActionMatcher', () => {
             })
 
             expect(await actionMatcher.match(eventExample)).toEqual([])
-            expect(await actionMatcher.match(eventExampleHtml)).toEqual([actionDefinition])
+            expect(await actionMatcher.match(eventExampleHtml)).toEqual([
+                actionDefinition,
+                actionDefinitionEmptyMatching,
+            ])
         })
 
         it('returns a match in case of URL matches regex page views', async () => {

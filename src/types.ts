@@ -500,7 +500,7 @@ interface PropertyFilterBase {
 
 /** Sync with posthog/frontend/src/types.ts */
 export interface PropertyFilterWithOperator extends PropertyFilterBase {
-    operator: PropertyOperator
+    operator?: PropertyOperator
 }
 
 /** Sync with posthog/frontend/src/types.ts */
