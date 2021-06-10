@@ -12,6 +12,7 @@ interface BodyLine {
 }
 
 interface InsightTooltipProps {
+    chartType: string
     altTitle?: string // Alternate string to display as title (in case date reference is not available, e.g. when comparing previous)
     referenceDate?: string
     interval: IntervalType
@@ -20,6 +21,7 @@ interface InsightTooltipProps {
 }
 
 export function InsightTooltip({
+    chartType,
     altTitle,
     referenceDate,
     interval,
@@ -28,8 +30,9 @@ export function InsightTooltip({
 }: InsightTooltipProps): JSX.Element {
     return (
         <div className={`inner-tooltip${bodyLines.length > 1 ? ' multiple' : ''}`}>
-            <header>{referenceDate ? <DateDisplay interval={interval} date={referenceDate} /> : altTitle}</header>
-
+            {chartType !== 'horizontalBar' && (
+                <header>{referenceDate ? <DateDisplay interval={interval} date={referenceDate} /> : altTitle}</header>
+            )}
             <ul>
                 {bodyLines.map((line, i) => {
                     return <li key={i}>{line.component}</li>

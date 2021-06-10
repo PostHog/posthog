@@ -216,7 +216,9 @@ export function LineGraph({
         const newUITooltipOptions = {
             enabled: false, // disable builtin tooltip (use custom markup)
             mode: 'nearest',
-            axis: 'x',
+            // If bar, we want to only show the tooltip for what we're hovering over
+            // to avoid confusion
+            axis: { bar: 'x', horizontalBar: 'y' }[type],
             intersect: false,
             itemSort: (a, b) => b.yLabel - a.yLabel,
             callbacks: {
@@ -231,21 +233,29 @@ export function LineGraph({
 
                     let value = tooltipItem.yLabel.toLocaleString()
                     const actionObjKey = type === 'horizontalBar' ? 'actions' : 'action'
+
                     if (type === 'horizontalBar') {
                         const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
                         value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
                     }
 
-                    const showCountedByTag = !!data.datasets.find(
-                        ({ [actionObjKey]: { math } }) => math && math !== 'total'
-                    )
+                    let showCountedByTag = false
+                    let numberOfSeries = 1
+                    if (data.datasets.find((item) => item[actionObjKey])) {
+                        // The above statement will always be true except in Sessions tab
+                        showCountedByTag = !!data.datasets.find(
+                            ({ [actionObjKey]: { math } }) => math && math !== 'total'
+                        )
+                        numberOfSeries = new Set(data.datasets.flatMap(({ [actionObjKey]: { order } }) => order)).size
+                    }
 
-                    const numberOfSeries = new Set(data.datasets.flatMap(({ [actionObjKey]: { order } }) => order)).size
+                    // This could either be a color or an array of colors
+                    const colorSet = entityData.backgroundColor || entityData.borderColor
 
                     return (
                         <InsightLabel
                             action={action}
-                            seriesColor={entityData.backgroundColor || entityData.borderColor}
+                            seriesColor={type === 'horizontalBar' ? colorSet[tooltipItem.index] : colorSet}
                             value={value}
                             fallbackName={label}
                             showCountedByTag={showCountedByTag}
@@ -307,6 +317,7 @@ export function LineGraph({
                             interval={interval}
                             bodyLines={bodyLines}
                             inspectUsersLabel={inspectUsersLabel}
+                            chartType={type}
                         />,
                         tooltipEl
                     )
@@ -372,27 +383,28 @@ export function LineGraph({
             maintainAspectRatio: false,
             scaleShowHorizontalLines: false,
             tooltips: tooltipOptions,
-            plugins: newUI
-                ? {
-                      crosshair: {
-                          snapping: {
-                              enabled: true, // Snap crosshair to data points
+            plugins:
+                newUI && type !== 'horizontalBar'
+                    ? {
+                          crosshair: {
+                              snapping: {
+                                  enabled: true, // Snap crosshair to data points
+                              },
+                              sync: {
+                                  enabled: false, // Sync crosshairs across multiple Chartjs instances
+                              },
+                              zoom: {
+                                  enabled: false, // Allow drag to zoom
+                              },
+                              line: {
+                                  color: colors.crosshair,
+                                  width: 1,
+                              },
                           },
-                          sync: {
-                              enabled: false, // Sync crosshairs across multiple Chartjs instances
-                          },
-                          zoom: {
-                              enabled: false, // Allow drag to zoom
-                          },
-                          line: {
-                              color: colors.crosshair,
-                              width: 1,
-                          },
+                      }
+                    : {
+                          crosshair: false,
                       },
-                  }
-                : {
-                      crosshair: false,
-                  },
             hover: {
                 mode: 'nearest',
                 axis: newUI ? 'x' : 'xy',

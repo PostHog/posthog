@@ -9,8 +9,8 @@ import { SeriesLetter } from '../SeriesLetter'
 
 // InsightsLabel pretty prints the action (or event) returned from /insights
 interface InsightsLabelProps {
-    action: ActionFilter
     seriesColor: string
+    action?: ActionFilter
     value?: string
     breakdownValue?: string
     seriesStatus?: string // Used by lifecycle chart to display the series name
@@ -43,8 +43,8 @@ function MathTag({ math, mathProperty }: Record<string, string | undefined>): JS
 }
 
 export function InsightLabel({
-    action,
     seriesColor,
+    action,
     value,
     breakdownValue,
     seriesStatus,
@@ -53,7 +53,7 @@ export function InsightLabel({
     showCountedByTag,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = !breakdownValue || hasMultipleSeries
-    const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action.name || fallbackName || ''
+    const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
 
     return (
         <div className="insights-label">
@@ -66,13 +66,13 @@ export function InsightLabel({
                     }}
                 />
             )}
-            {hasMultipleSeries && action.order !== undefined && (
+            {hasMultipleSeries && action?.order !== undefined && (
                 <SeriesLetter seriesIndex={action.order} seriesColor={seriesColor} hasBreakdown={!!breakdownValue} />
             )}
             {showEventName && <PropertyKeyInfo disableIcon value={eventName} />}
 
-            {hasMultipleSeries && ((action.math && action.math !== 'total') || showCountedByTag) && (
-                <MathTag math={action.math} mathProperty={action.math_property} />
+            {hasMultipleSeries && ((action?.math && action.math !== 'total') || showCountedByTag) && (
+                <MathTag math={action?.math} mathProperty={action?.math_property} />
             )}
 
             {breakdownValue && (
