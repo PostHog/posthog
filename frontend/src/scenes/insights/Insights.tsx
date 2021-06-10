@@ -27,7 +27,7 @@ import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { People } from 'scenes/funnels/People'
-import { TrendLegend } from './TrendLegend'
+import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { HotKeys } from '~/types'
@@ -376,7 +376,7 @@ export function Insights(): JSX.Element {
                                             logic={trendsLogic}
                                             props={{ dashboardItemId: null, view: activeView }}
                                         >
-                                            <TrendLegend />
+                                            <InsightsTable />
                                         </BindLogic>
                                     </Card>
                                 )}

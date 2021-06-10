@@ -94,7 +94,7 @@ describe('Trends', () => {
         cy.get('[data-attr=chart-filter]').click()
         cy.contains('Table').click()
 
-        cy.get('[data-attr=trend-table-graph]').should('exist')
+        cy.get('[data-attr=insights-table-graph]').should('exist')
     })
 
     it('Apply date filter', () => {
