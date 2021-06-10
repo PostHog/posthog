@@ -30,7 +30,7 @@ function formatBreakdownLabel(breakdown_value: string | number | undefined, coho
 }
 
 interface InsightsTableProps {
-    isLegend?: boolean
+    isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
     showTotalCount?: boolean
 }
 
@@ -101,8 +101,6 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             width: 150,
         })
     }
-
-    console.log('data', indexedResults, filters)
 
     if (indexedResults && indexedResults.length > 0) {
         const valueColumns = indexedResults[0].data.map(({}, index: number) => ({
