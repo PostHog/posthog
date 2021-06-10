@@ -251,6 +251,7 @@ export function LineGraph({
                             showCountedByTag={showCountedByTag}
                             hasMultipleSeries={numberOfSeries > 1}
                             breakdownValue={entityData.breakdown_value}
+                            seriesStatus={entityData.status}
                         />
                     )
                 },

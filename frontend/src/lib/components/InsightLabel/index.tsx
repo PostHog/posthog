@@ -13,6 +13,7 @@ interface InsightsLabelProps {
     seriesColor: string
     value?: string
     breakdownValue?: string
+    seriesStatus?: string // Used by lifecycle chart to display the series name
     fallbackName?: string // Name to display for the series if it can be determined from `action`
     hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
@@ -46,11 +47,14 @@ export function InsightLabel({
     seriesColor,
     value,
     breakdownValue,
+    seriesStatus,
     fallbackName,
     hasMultipleSeries,
     showCountedByTag,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = !breakdownValue || hasMultipleSeries
+    const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action.name || fallbackName || ''
+
     return (
         <div className="insights-label">
             {!(hasMultipleSeries && !breakdownValue) && (
@@ -65,7 +69,7 @@ export function InsightLabel({
             {hasMultipleSeries && action.order !== undefined && (
                 <SeriesLetter seriesIndex={action.order} seriesColor={seriesColor} hasBreakdown={!!breakdownValue} />
             )}
-            {showEventName && <PropertyKeyInfo disableIcon value={action.name || fallbackName || ''} />}
+            {showEventName && <PropertyKeyInfo disableIcon value={eventName} />}
 
             {hasMultipleSeries && ((action.math && action.math !== 'total') || showCountedByTag) && (
                 <MathTag math={action.math} mathProperty={action.math_property} />
