@@ -40,7 +40,12 @@ export function Plugins({ user }: { user: UserType }): JSX.Element | null {
                         </sup>
                     </>
                 }
-                caption="Plugins enable you to extend PostHog's core data processing functionality."
+                caption={
+                    <>
+                        Plugins enable you to extend PostHog's core data processing functionality. You can also{' '}
+                        <a href="https://posthog.com/docs/plugins/build">build your own.</a>
+                    </>
+                }
             />
             {canInstallPlugins(user.organization) ? (
                 <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>

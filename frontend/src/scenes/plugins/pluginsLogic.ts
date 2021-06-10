@@ -157,7 +157,6 @@ export const pluginsLogic = kea<
                     if (!editingPlugin) {
                         return pluginConfigs
                     }
-
                     const formData = getPluginConfigFormData(editingPlugin, pluginConfigChanges)
 
                     if (!editingPlugin.pluginConfig?.enabled) {
