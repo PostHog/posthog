@@ -9,6 +9,7 @@ import { CohortType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { maybeAddCommasToInteger } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {
     if (breakdown_value && typeof breakdown_value == 'number') {
@@ -60,9 +61,20 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         })
     }
 
+    if (filters.breakdown) {
+        columns.push({
+            title: <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown || 'Breakdown Value'} />,
+            render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
+                return formatBreakdownLabel(item.breakdown_value, cohorts)
+            },
+            fixed: 'left',
+            width: 150,
+        })
+    }
+
     if (!(numberOfSeries === 1 && indexedResults[0].breakdown_value)) {
         columns.push({
-            title: 'Series',
+            title: 'Event or Action',
             render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
                 return (
                     <div
@@ -93,17 +105,6 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             dataIndex: 'count',
             fixed: 'left',
             width: 100,
-        })
-    }
-
-    if (filters.breakdown) {
-        columns.push({
-            title: 'Breakdown Value',
-            render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
-                return formatBreakdownLabel(item.breakdown_value, cohorts)
-            },
-            fixed: 'left',
-            width: 150,
         })
     }
 
