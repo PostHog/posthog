@@ -12,7 +12,7 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
     })
     try {
         const { ip, site_url, team_id, now, sent_at, uuid } = event
-        const distinctId = event.distinct_id.toString()
+        const distinctId = String(event.distinct_id)
         const result = await hub.eventsProcessor.processEvent(
             distinctId,
             ip,

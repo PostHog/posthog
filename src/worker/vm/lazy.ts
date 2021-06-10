@@ -62,7 +62,7 @@ export class LazyPluginVM {
         return (await this.resolveInternalVm)?.tasks?.[type] || {}
     }
 
-    public clearRetryTimeoutIfExists() {
+    public clearRetryTimeoutIfExists(): void {
         if (this.initRetryTimeout) {
             clearTimeout(this.initRetryTimeout)
         }

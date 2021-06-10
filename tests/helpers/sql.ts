@@ -40,6 +40,8 @@ export async function resetTestDatabase(
     } catch {}
 
     await db.query(`
+        DELETE FROM posthog_cohortpeople;
+        DELETE FROM posthog_cohort;
         DELETE FROM posthog_actionstep;
         DELETE FROM posthog_action;
         DELETE FROM posthog_element;

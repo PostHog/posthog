@@ -470,6 +470,21 @@ export interface ClickHousePersonDistinctId {
     distinct_id: string
 }
 
+/** Usable Cohort model. */
+export interface Cohort {
+    id: number
+    name: string
+    deleted: boolean
+    groups: any[]
+    team_id: Team['id']
+    created_at: string
+    created_by_id: number
+    is_calculating: boolean
+    last_calculation: string
+    errors_calculating: number
+    is_static: boolean
+}
+
 /** Usable CohortPeople model. */
 export interface CohortPeople {
     id: number
@@ -494,7 +509,7 @@ export enum PropertyOperator {
 /** Sync with posthog/frontend/src/types.ts */
 interface PropertyFilterBase {
     key: string
-    value: string | number | Array<string | number> | null
+    value?: string | number | Array<string | number> | null
     label?: string
 }
 
