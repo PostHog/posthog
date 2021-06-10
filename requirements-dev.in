@@ -1,6 +1,6 @@
 # pip-compile requirements-dev.in
 
-Django==3.1.8 # freeze version to the same as in production
+Django==3.1.12 # freeze version to the same as in production
 djangorestframework==3.12.2 # freeze version to the same as in production
 
 flake8

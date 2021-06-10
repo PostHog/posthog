@@ -10,7 +10,7 @@ import { AnnotationScope, AnnotationType } from '~/types'
 export const annotationsLogic = kea<annotationsLogicType<AnnotationType, AnnotationScope, Dayjs, OpUnitType>>({
     key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
     connect: {
-        actions: [annotationsModel, ['loadGlobalAnnotations', 'deleteGlobalAnnotation', 'createGlobalAnnotation']],
+        actions: [annotationsModel, ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
         values: [annotationsModel, ['activeGlobalAnnotations']],
     },
     actions: () => ({
@@ -42,10 +42,8 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationType, Annotat
     loaders: ({ props }) => ({
         annotations: {
             __default: [] as AnnotationType[],
-            loadAnnotations: async ({ before, after }) => {
+            loadAnnotations: async () => {
                 const params = {
-                    ...(before ? { before } : {}),
-                    ...(after ? { after } : {}),
                     ...(props.pageKey ? { dashboardItemId: props.pageKey } : {}),
                     scope: AnnotationScope.DashboardItem,
                     deleted: false,
@@ -135,14 +133,14 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationType, Annotat
                 dashboard_item: props.pageKey,
                 scope,
             })
-            actions.loadAnnotations({})
+            actions.loadAnnotations()
         },
         deleteAnnotation: async ({ id }) => {
             parseInt(id) >= 0 &&
                 deleteWithUndo({
                     endpoint: 'annotation',
                     object: { name: 'Annotation', id },
-                    callback: () => actions.loadAnnotations({}),
+                    callback: () => actions.loadAnnotations(),
                 })
         },
         updateDiffType: ({ dates }) => {
@@ -150,6 +148,6 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationType, Annotat
         },
     }),
     events: ({ actions, props }) => ({
-        afterMount: () => props.pageKey && actions.loadAnnotations({}),
+        afterMount: () => props.pageKey && actions.loadAnnotations(),
     }),
 })

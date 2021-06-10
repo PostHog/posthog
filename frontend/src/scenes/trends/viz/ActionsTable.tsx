@@ -51,7 +51,7 @@ export function ActionsTable({
                 rowKey="label"
                 pagination={{ pageSize: 9999, hideOnSinglePage: true }}
                 dataSource={data}
-                data-attr="trend-table-graph"
+                data-attr="actions-table-graph"
             />
         ) : (
             <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>

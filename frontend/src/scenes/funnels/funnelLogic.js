@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
-import { autocorrectInterval, objectsEqual, toParams, uuid } from 'lib/utils'
+import { autocorrectInterval, objectsEqual, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '../../models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -15,12 +15,12 @@ function wait(ms = 1000) {
 const SECONDS_TO_POLL = 3 * 60
 
 async function pollFunnel(params = {}) {
-    let result = await api.get('api/insight/funnel/?' + toParams(params))
+    const { refresh, ...bodyParams } = params
+    let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
     let start = window.performance.now()
     while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
-        const { refresh: _, ...restParams } = params // eslint-disable-line
-        result = await api.get('api/insight/funnel/?' + toParams(restParams))
+        result = await api.create('api/insight/funnel', bodyParams)
     }
     // if endpoint is still loading after 3 minutes just return default
     if (result.loading) {
@@ -58,6 +58,8 @@ export const funnelLogic = kea({
         setFilters: (filters, refresh = false) => ({ filters, refresh }),
         saveFunnelInsight: (name) => ({ name }),
         setStepsWithCountLoading: (stepsWithCountLoading) => ({ stepsWithCountLoading }),
+        loadConversionWindow: (days) => ({ days }),
+        setConversionWindowInDays: (days) => ({ days }),
     }),
 
     connect: {
@@ -78,6 +80,7 @@ export const funnelLogic = kea({
                     ...(refresh ? { refresh: true } : {}),
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
+                    funnel_window_days: values.conversionWindowInDays,
                 }
 
                 let result
@@ -135,6 +138,14 @@ export const funnelLogic = kea({
         people: {
             clearFunnel: () => null,
         },
+        conversionWindowInDays: [
+            14,
+            {
+                setConversionWindowInDays: (state, { days }) => {
+                    return days >= 1 && days <= 365 ? Math.round(days) : state.conversionWindowInDays
+                },
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
@@ -204,6 +215,11 @@ export const funnelLogic = kea({
             if (props.dashboardItemId) {
                 actions.setFilters(filters, true)
             }
+        },
+        loadConversionWindow: async ({ days }, breakpoint) => {
+            await breakpoint(1000)
+            actions.setConversionWindowInDays(days)
+            actions.loadResults()
         },
     }),
     actionToUrl: ({ actions, values, props }) => ({

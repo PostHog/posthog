@@ -165,6 +165,29 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response["items"][0]["result"], None)
         self.assertEqual(response["items"][0]["last_refresh"], None)
 
+    def test_refresh_cache(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        with freeze_time("2020-01-04T13:00:01Z"):
+            # Pretend we cached something a while ago, but we won't have anything in the redis cache
+            item = DashboardItem.objects.create(
+                dashboard=dashboard, filters=Filter(data=filter_dict).to_dict(), team=self.team, last_refresh=now()
+            )
+
+        with freeze_time("2020-01-20T13:00:01Z"):
+            response = self.client.get("/api/dashboard/%s?refresh=true" % dashboard.pk).json()
+
+            self.assertIsNotNone(response["items"][0]["result"])
+            self.assertIsNotNone(response["items"][0]["last_refresh"])
+            self.assertEqual(response["items"][0]["result"][0]["count"], 0)
+
+            item = DashboardItem.objects.get(pk=item.pk)
+            self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+
     def test_dashboard_endpoints(self):
         # create
         response = self.client.post("/api/dashboard/", {"name": "Default", "pinned": "true"},)
@@ -293,3 +316,13 @@ class TestDashboard(APIBaseTest):
         # Expecting this to only have one day as per the dashboard filter
         response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
         self.assertEqual(len(response["items"][0]["result"][0]["days"]), 2)  # type: ignore
+
+    def test_invalid_properties(self):
+        properties = "invalid_json"
+
+        response = self.client.get(f"/api/insight/trend/?properties={properties}")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertDictEqual(
+            response.json(), self.validation_error_response("Properties are unparsable!", "invalid_input")
+        )
