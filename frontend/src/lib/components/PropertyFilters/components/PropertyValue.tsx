@@ -136,7 +136,7 @@ export function PropertyValue({
             {isMultiSelect ? (
                 <SelectGradientOverflow
                     {...commonInputProps}
-                    value={value}
+                    value={value === null ? [] : value}
                     mode="multiple"
                     showSearch
                     onChange={(val, payload) => {
