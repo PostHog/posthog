@@ -8,7 +8,6 @@ import {
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
     ACTIONS_BAR_CHART_VALUE,
-    FEATURE_FLAGS,
 } from 'lib/constants'
 
 import { ActionsPie, ActionsLineGraph, ActionsBarValueGraph, ActionsTable } from './viz'
@@ -17,7 +16,6 @@ import { trendsLogic } from './trendsLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface Props {
     view: ViewType
@@ -35,7 +33,6 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { saveCohortWithFilters, refreshCohort, loadMoreBreakdownValues } = useActions(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -50,12 +47,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             if (view === ViewType.SESSIONS && _filters.session === 'dist') {
                 return <ActionsTable filters={_filters} view={view} />
             }
-            return (
-                <InsightsTable
-                    isLegend={false}
-                    showTotalCount={featureFlags[FEATURE_FLAGS.NEW_TOOLTIPS] && view !== ViewType.SESSIONS}
-                />
-            )
+            return <InsightsTable isLegend={false} showTotalCount={view !== ViewType.SESSIONS} />
         }
         if (_filters.display === ACTIONS_PIE_CHART) {
             return <ActionsPie filters={_filters} view={view} />

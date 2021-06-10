@@ -99,15 +99,6 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         })
     }
 
-    if (showTotalCount) {
-        columns.push({
-            title: 'Total',
-            dataIndex: 'count',
-            fixed: 'left',
-            width: 100,
-        })
-    }
-
     if (indexedResults && indexedResults.length > 0) {
         const valueColumns = indexedResults[0].data.map(({}, index: number) => ({
             title: indexedResults[0].labels[index],
@@ -117,6 +108,15 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         }))
 
         columns.push(...valueColumns)
+    }
+
+    if (showTotalCount) {
+        columns.push({
+            title: 'Total',
+            dataIndex: 'count',
+            fixed: 'right',
+            width: 100,
+        })
     }
 
     return (
