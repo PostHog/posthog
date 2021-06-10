@@ -26,7 +26,7 @@ interface InsightsTableProps {
 }
 
 export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
-    const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
+    const { indexedResults, visibilityMap, filters, numberOfSeries } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
     const isSingleEntity = indexedResults.length === 1
@@ -60,30 +60,32 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         })
     }
 
-    columns.push({
-        title: 'Series',
-        render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
-            return (
-                <div
-                    style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
-                    onClick={() => !isSingleEntity && toggleVisibility(item.id)}
-                >
-                    <InsightLabel
-                        seriesColor={colorList[index]}
-                        action={item.action}
-                        fallbackName={item.label}
-                        hasMultipleSeries={indexedResults.length > 1}
-                        showCountedByTag={showCountedByTag}
-                        breakdownValue={item.breakdown_value?.toString()}
-                        hideBreakdown
-                        hideIcon
-                    />
-                </div>
-            )
-        },
-        fixed: 'left',
-        width: 200,
-    })
+    if (!(numberOfSeries === 1 && indexedResults[0].breakdown_value)) {
+        columns.push({
+            title: 'Series',
+            render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
+                return (
+                    <div
+                        style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
+                        onClick={() => !isSingleEntity && toggleVisibility(item.id)}
+                    >
+                        <InsightLabel
+                            seriesColor={colorList[index]}
+                            action={item.action}
+                            fallbackName={item.label}
+                            hasMultipleSeries={indexedResults.length > 1}
+                            showCountedByTag={showCountedByTag}
+                            breakdownValue={item.breakdown_value?.toString()}
+                            hideBreakdown
+                            hideIcon
+                        />
+                    </div>
+                )
+            },
+            fixed: 'left',
+            width: 200,
+        })
+    }
 
     if (showTotalCount) {
         columns.push({
