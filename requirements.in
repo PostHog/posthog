@@ -1,13 +1,13 @@
 # pip-compile requirements.in
 
 git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
+git+https://github.com/macobo/clickhouse-pool.git@fix-clickhouse-pool-release-on-error
 amqp==2.5.2
 asgiref==3.3.1
 aioch==0.0.2
 celery==4.4.2
 celery-redbeat==2.0.0
 clickhouse-driver==0.2.0
-clickhouse-pool==0.4.3
 defusedxml==0.6.0
 dj-database-url==0.5.0
 Django==3.1.12
