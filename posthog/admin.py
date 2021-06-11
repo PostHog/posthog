@@ -35,7 +35,7 @@ class PluginAdmin(admin.ModelAdmin):
         "organization_id",
         "is_global",
     )
-    list_filter = ("type", "is_global")
+    list_filter = ("plugin_type", "is_global")
     search_fields = ("name",)
     ordering = ("-created_at",)
 
