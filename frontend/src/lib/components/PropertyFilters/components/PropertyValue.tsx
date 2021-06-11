@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef } from 'react'
 import { AutoComplete, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
-import { isMobile, isOperatorFlag, isOperatorMulti, isOperatorRegex, isValidRegex, toString } from 'lib/utils'
+import { isOperatorFlag, isOperatorMulti, isOperatorRegex, isValidRegex, toString } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { PropertyOperator } from '~/types'
 
 type PropValue = {
+    id?: number
     name?: string | boolean
 }
 
@@ -28,10 +29,12 @@ interface PropertyValueProps {
     value?: string | number | Array<string | number> | null
     operator?: PropertyOperator
     outerOptions?: Option[] // If no endpoint provided, options are given here
+    autoFocus?: boolean
+    allowCustom?: boolean
 }
 
-function matchesLowerCase(needle: string, haystack?: string): boolean {
-    if (typeof haystack !== 'string') {
+function matchesLowerCase(needle?: string, haystack?: string): boolean {
+    if (typeof haystack !== 'string' || typeof needle !== 'string') {
         return false
     }
     return haystack.toLowerCase().indexOf(needle.toLowerCase()) > -1
@@ -55,12 +58,12 @@ export function PropertyValue({
     value,
     operator,
     outerOptions = undefined,
+    autoFocus = false,
+    allowCustom = true,
 }: PropertyValueProps): JSX.Element {
     const isMultiSelect = operator && isOperatorMulti(operator)
-    const autoFocus = !value && !isMobile()
     const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
     const [options, setOptions] = useState({} as Record<string, Option>)
-    const [open, setOpen] = useState(autoFocus ? false : undefined) // only set if autoFocus is defined; will set true once values are loaded
     const autoCompleteRef = useRef<HTMLElement>(null)
 
     const loadPropertyValues = useThrottledCallback((newInput) => {
@@ -101,26 +104,11 @@ export function PropertyValue({
 
     useEffect(() => {
         loadPropertyValues('')
-        setOpen(true)
     }, [propertyKey])
 
     const displayOptions = (options[propertyKey]?.values || []).filter(
         (option) => input === '' || matchesLowerCase(input, toString(option?.name))
     )
-
-    useEffect(() => {
-        if (autoFocus && Object.keys(displayOptions).length) {
-            console.log('options callback', displayOptions, autoCompleteRef.current)
-            autoCompleteRef.current?.focus()
-            setOpen(true)
-        }
-    }, [options])
-
-    useEffect(() => {
-        if (open) {
-            autoCompleteRef.current?.focus()
-        }
-    }, [open])
 
     const validationError = operator ? getValidationError(operator, value) : null
 
@@ -143,7 +131,10 @@ export function PropertyValue({
                 e.target.blur()
             }
             if (!isMultiSelect && e.key === 'Enter') {
-                setValue(input)
+                // We have not explicitly selected a dropdown item by pressing the up/down keys
+                if (autoCompleteRef.current?.querySelectorAll('.ant-select-item-option-active')?.length === 0) {
+                    setValue(input)
+                }
             }
         },
     }
@@ -192,37 +183,43 @@ export function PropertyValue({
                     {...commonInputProps}
                     autoFocus={autoFocus}
                     value={input}
+                    onClear={() => {
+                        setInput('')
+                        setValue('')
+                    }}
                     onChange={(val) => {
+                        console.log('onChange')
                         setInput(toString(val))
                     }}
-                    onSelect={(val) => {
+                    onSelect={(val, option) => {
+                        setInput(option.title)
                         setValue(toString(val))
                     }}
-                    onClick={() => {
-                        setOpen(true)
-                    }}
-                    open={open}
                     ref={autoCompleteRef}
                 >
-                    {input && (
-                        <AutoComplete.Option key="specify-value" value={input} className="ph-no-capture">
-                            Specify: {input}
-                        </AutoComplete.Option>
-                    )}
-                    {displayOptions.map(({ name: _name }, index) => {
-                        const name = toString(_name)
-                        return (
-                            <AutoComplete.Option
-                                key={name}
-                                value={name}
-                                data-attr={'prop-val-' + index}
-                                className="ph-no-capture"
-                                title={name}
-                            >
-                                {name}
-                            </AutoComplete.Option>
-                        )
-                    })}
+                    {[
+                        ...(input && allowCustom
+                            ? [
+                                  <AutoComplete.Option key="@@@specify-value" value={input} className="ph-no-capture">
+                                      Specify: {input}
+                                  </AutoComplete.Option>,
+                              ]
+                            : []),
+                        ...displayOptions.map(({ name: _name, id }, index) => {
+                            const name = toString(_name)
+                            return (
+                                <AutoComplete.Option
+                                    key={id ? toString(id) : name}
+                                    value={id ? toString(id) : name}
+                                    data-attr={'prop-val-' + index}
+                                    className="ph-no-capture"
+                                    title={name}
+                                >
+                                    {name}
+                                </AutoComplete.Option>
+                            )
+                        }),
+                    ]}
                 </AutoComplete>
             )}
             {validationError && <p className="text-danger">{validationError}</p>}

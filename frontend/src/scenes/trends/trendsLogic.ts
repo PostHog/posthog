@@ -8,8 +8,6 @@ import {
     ACTIONS_LINE_GRAPH_CUMULATIVE,
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_TABLE,
-    PAGEVIEW,
-    SCREEN,
     EVENT_TYPE,
     ACTION_TYPE,
     ShownAsValue,
@@ -17,7 +15,16 @@ import {
 import { ViewType, insightLogic, defaultFilterTestAccounts, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
-import { ActionFilter, ActionType, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes } from '~/types'
+import {
+    ActionFilter,
+    ActionType,
+    FilterType,
+    PersonType,
+    PropertyFilter,
+    TrendResult,
+    EntityTypes,
+    PathType,
+} from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -124,7 +131,11 @@ function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: stri
     the first random event). We load this default events when `currentTeam` is loaded (because that's when
     `eventNames` become available) and on every view change (through the urlToAction map) */
     if (!currentFilters.actions?.length && !currentFilters.events?.length && eventNames.length) {
-        const event = eventNames.includes(PAGEVIEW) ? PAGEVIEW : eventNames.includes(SCREEN) ? SCREEN : eventNames[0]
+        const event = eventNames.includes(PathType.PageView)
+            ? PathType.PageView
+            : eventNames.includes(PathType.Screen)
+            ? PathType.Screen
+            : eventNames[0]
 
         const defaultFilters = {
             [EntityTypes.EVENTS]: [
