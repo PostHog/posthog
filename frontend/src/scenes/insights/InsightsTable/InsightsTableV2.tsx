@@ -12,6 +12,7 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
 import { DownOutlined } from '@ant-design/icons'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -30,6 +31,7 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
     const { cohorts } = useValues(cohortsModel)
     const { calcColumnState } = useValues(insightsTableLogic)
     const { setCalcColumnState } = useActions(insightsTableLogic)
+    const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
 
     if (indexedResults.length === 0 || !indexedResults?.[0]?.data) {
         return null
@@ -53,7 +55,13 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
     const calcColumnMenu = (
         <Menu>
             {Object.keys(CALC_COLUMN_LABELS).map((key) => (
-                <Menu.Item key={key} onClick={() => setCalcColumnState(key as CalcColumnState)}>
+                <Menu.Item
+                    key={key}
+                    onClick={() => {
+                        setCalcColumnState(key as CalcColumnState)
+                        reportInsightsTableCalcToggled(key)
+                    }}
+                >
                     {CALC_COLUMN_LABELS[key as CalcColumnState]}
                 </Menu.Item>
             ))}
@@ -122,11 +130,12 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
     }
 
     if (indexedResults && indexedResults.length > 0) {
-        const valueColumns = indexedResults[0].data.map(({}, index: number) => ({
+        const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
             title: indexedResults[0].labels[index],
             render: function RenderPeriod({}, item: IndexedTrendResult) {
                 return maybeAddCommasToInteger(item.data[index])
             },
+            align: 'center',
         }))
 
         columns.push(...valueColumns)
@@ -135,7 +144,7 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
     if (showTotalCount) {
         columns.push({
             title: (
-                <Dropdown overlay={calcColumnMenu}>
+                <Dropdown overlay={calcColumnMenu} trigger={['click']}>
                     <span className="cursor-pointer">
                         {CALC_COLUMN_LABELS[calcColumnState]} <DownOutlined />
                     </span>
@@ -152,6 +161,7 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
             dataIndex: 'count',
             fixed: 'right',
             width: 100,
+            align: 'center',
         })
     }
 
