@@ -166,7 +166,7 @@ function maybeAddEnvironmentProperty(url) {
 
 function reportError(method, url, response, startTime) {
     const duration = new Date().getTime() - startTime
-    const pathname = new URL(url).pathname
+    const pathname = new URL(url, location.origin).pathname
     posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
 }
 
