@@ -13,9 +13,11 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
         openDrawer: (type: string, id: string) => ({ type, id }),
         setType: (type: string) => ({ type }),
         setDefinition: (definition: EventOrPropType) => ({ definition }),
-        updateDefinition: (payload: Partial<EventOrPropType>) => ({ payload }),
+        updateDefinition: (payload: Partial<EventOrPropType>, id?: string) => ({ payload, id }),
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
+        saveNewPropertyTag: (tag: string, currentTags: string[], propertyId: string) => ({ tag, currentTags, propertyId}),
+        deletePropertyTag: (tag: string, currentTags: string[], propertyId: string) => ({ tag, currentTags, propertyId}),
         setDefinitionLoading: (loading: boolean) => ({ loading }),
         changeOwner: (ownerId: valueType) => ({ ownerId }),
         setDescription: (description: string) => ({ description }),
@@ -26,7 +28,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
         cancelDescription: true,
         saveDescription: true,
     }),
-    loaders: ({ actions }) => ({
+    loaders: ({ actions, values }) => ({
         eventsSnippet: [
             [] as EventFormattedType[],
             {
@@ -50,7 +52,10 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
                 loadPropertyDefinitions: async (properties) => {
                     const propertyDefinitions = await api.get(`api/projects/@current/property_definitions/?properties=${properties}`)
                     return propertyDefinitions.results
-                }
+                },
+                setPropertyDefinitions: (newProperty) => {
+                    return values.eventProperties.map(prop => prop.id === newProperty.id ? newProperty : prop)
+                },
             }
         ]
     }),
@@ -117,6 +122,14 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
                     (item) => item
                 ).sort(),
         ],
+        propertyDefinitionTags: [
+            (selectors) => [selectors.eventProperties],
+            (properties: PropertyDefinition[]): string[] =>
+                uniqueBy(
+                    properties.flatMap(({ tags }) => tags),
+                    (item) => item
+                ).sort(),
+        ]
     }),
     listeners: ({ actions, values }) => ({
         openDrawer: async ({ type, id }) => {
@@ -151,12 +164,29 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
             actions.setDescriptionEditing(false)
             actions.updateDefinition({ description: values.description })
         },
-        updateDefinition: async ({ payload }) => {
+        saveNewPropertyTag: ({ tag, currentTags, propertyId }) => {
+            actions.setType('property_definitions')
+            console.log(tag, currentTags, propertyId)
+            actions.updateDefinition({ tags: [...currentTags, tag]}, propertyId)
+        },
+        deletePropertyTag: async ({ tag, currentTags, propertyId }, breakpoint) => {
+            await breakpoint(100)
+            console.log(tag, currentTags, propertyId)
+            actions.setType('property_definitions')
+            const tags = currentTags.filter((_tag: string) => _tag !== tag)
+            actions.updateDefinition({ tags }, propertyId)
+        },
+        updateDefinition: async ({ payload, id }) => {
             actions.setDefinitionLoading(true)
-            const response = await api.update(`api/projects/@current/${values.type}/${values.definition?.id}/`, payload)
-            actions.setDefinition(response)
+            const definitionId = id ? id : values.definition?.id
+            const response = await api.update(`api/projects/@current/${values.type}/${definitionId}/`, payload)
             actions.setDefinitionLoading(false)
-            eventDefinitionsModel.actions.setEventDefinitions(response)
+            if (values.type === 'event_definitions') {
+                actions.setDefinition(response)
+                eventDefinitionsModel.actions.setEventDefinitions(response)
+            } else {
+                actions.setPropertyDefinitions(response)
+            }
         },
     }),
 })

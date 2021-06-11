@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Drawer } from 'lib/components/Drawer'
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 import Title from 'antd/es/typography/Title'
 import './VolumeTable.scss'
@@ -195,7 +195,7 @@ export function DefinitionDescription(): JSX.Element {
             <div style={{ flexDirection: 'column', minWidth: 300 }}>
                 <h4 className="l4">Description</h4>
                 <Input.TextArea
-                    style={{ minHeight: 108 }}
+                    // style={{ minHeight: 108 }}
                     placeholder="Add description"
                     value={description || ''}
                     onChange={(e) => {
@@ -324,28 +324,56 @@ export function EventsTableSnippet(): JSX.Element {
 }
 
 export function EventPropertiesStats(): JSX.Element {
-    const { eventProperties, eventsSnippet } = useValues(definitionDrawerLogic)
+    const { eventProperties, eventsSnippet, propertyDefinitionTags, definitionLoading } = useValues(definitionDrawerLogic)
+    const { saveNewPropertyTag, deletePropertyTag, setDescription } = useActions(definitionDrawerLogic)
+    const [displayedColumns, setDisplayedColumns] = useState([])
+
+
     const propertyExamples = eventsSnippet[0]?.properties
-    console.log(eventsSnippet)
+    console.log('event properties', eventProperties)
     const tableColumns = [
         {
             title: 'Property',
             key: 'property',
             render: function renderProperty({ name }: { name: string}) {
-                return <span>{name}</span>
+                return <span className="text-default">{name}</span>
             }
         },
         {
             title: 'Description',
             key: 'description',
             render: function renderDescription({ description }: { description: string}) {
-
-                return (<DefinitionDescription />)
+                return (
+                    <Input.TextArea
+                        style={{ minWidth: 200 }}
+                        placeholder="Add description"
+                        value={description || ''}
+                        onChange={(e) => {
+                            setDescription(e.target.value)
+                            // setDescriptionEditing(true)
+                        }}
+                    />
+                )
             }
         },
         {
             title: 'Tags',
-            key: 'tags'
+            key: 'tags',
+            render: function renderTags({ id, tags }: { id: string, tags: string[] }) {
+                // const { saveNewPropertyTag } = useValues(definitionDrawerLogic)
+                return (
+                    <ObjectTags
+                        id={id}
+                        tags={tags || []}
+                        onTagSave={(tag, currentTags, propertyId) => saveNewPropertyTag(tag, currentTags, propertyId)}
+                        onTagDelete={(tag, currentTags, propertyId) => deletePropertyTag(tag, currentTags, propertyId)}
+                        saving={definitionLoading}
+                        tagsAvailable={propertyDefinitionTags.filter(
+                            (tag) => !tags?.includes(tag)
+                        )}
+                    />
+                )
+            }
         },
         {
             title: 'Example',
@@ -355,10 +383,24 @@ export function EventPropertiesStats(): JSX.Element {
             }
         }
     ]
+
+    // useEffect(() => {
+    //     if (eventProperties) {
+    //         setDisplayedColumns
+    //     }
+    //     if (!user?.organization?.available_features.includes('dashboard_collaboration')) {
+    //         setDisplayedColumns(
+    //             columns.filter((col) => !col.dataIndex || !['description', 'tags'].includes(col.dataIndex.toString()))
+    //         )
+    //     } else {
+    //         setDisplayedColumns(columns)
+    //     }
+    // }, [user?.organization?.available_features, dashboardTags])
+
     return(
         <>
-            <Row>
-                <span>
+            <Row style={{paddingBottom: 16}}>
+                <span className="text-default text-muted">
                     Top properties that are sent with this event. Please note that description and tags are shared across events.
                     Posthog properties are <b>excluded</b> from this list.
                 </span>
@@ -367,6 +409,8 @@ export function EventPropertiesStats(): JSX.Element {
                 dataSource={eventProperties}
                 columns={tableColumns}
                 rowKey={(row) => row.id}
+                size="small"
+                pagination={{ pageSize: 5, hideOnSinglePage: true }}
             />
         </>
     )
