@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { PersonModal } from './PersonModal'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
@@ -47,7 +47,11 @@ export function TrendInsight({ view }: Props): JSX.Element {
             if (view === ViewType.SESSIONS && _filters.session === 'dist') {
                 return <ActionsTable filters={_filters} view={view} />
             }
-            return <InsightsTable isLegend={false} showTotalCount={view !== ViewType.SESSIONS} />
+            return (
+                <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
+                    <InsightsTable isLegend={false} showTotalCount={view !== ViewType.SESSIONS} />
+                </BindLogic>
+            )
         }
         if (_filters.display === ACTIONS_PIE_CHART) {
             return <ActionsPie filters={_filters} view={view} />

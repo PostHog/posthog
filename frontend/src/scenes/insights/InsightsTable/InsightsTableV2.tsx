@@ -139,7 +139,7 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
             title: (
                 <DateDisplay
                     interval={(filters.interval as IntervalType) || 'day'}
-                    date={indexedResults[0].days[index]}
+                    date={(indexedResults[0].dates || indexedResults[0].days)[index]}
                     hideWeekRange
                 />
             ),
