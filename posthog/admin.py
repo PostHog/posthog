@@ -12,6 +12,8 @@ from posthog.models import (
     FeatureFlag,
     Organization,
     Person,
+    Plugin,
+    PluginConfig,
     Team,
     User,
 )
@@ -23,6 +25,8 @@ admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(DashboardItem)
+admin.site.register(Plugin)
+admin.site.register(PluginConfig)
 
 
 @admin.register(Event)
