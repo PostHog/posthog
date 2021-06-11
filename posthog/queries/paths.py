@@ -42,7 +42,7 @@ class Paths(BaseQuery):
             marked_plus
         )
 
-        return sessionified, tuple(start_point) + sql_params
+        return sessionified, (start_point,) + sql_params
 
     def _add_elements(self, query_string: str) -> str:
         element = 'SELECT \'<\'|| e."tag_name" || \'> \'  || e."text" as tag_name_source, e."text" as text_source FROM "posthog_element" e JOIN \
