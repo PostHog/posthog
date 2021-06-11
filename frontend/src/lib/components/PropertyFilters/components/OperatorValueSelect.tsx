@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { PropertyOperator } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
-import { isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
+import { isMobile, isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
 
@@ -70,6 +70,7 @@ export function OperatorValueSelect({
                         onSet={(newValue: string | number | string[] | null) => {
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
+                        autoFocus={!isMobile()}
                     />
                 </Col>
             )}

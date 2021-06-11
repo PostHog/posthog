@@ -1,14 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import {
-    PAGEVIEW,
-    AUTOCAPTURE,
-    CUSTOM_EVENT,
-    pathOptionsToLabels,
-    pathOptionsToProperty,
-    pathsLogic,
-} from 'scenes/paths/pathsLogic'
+import { pathOptionsToLabels, pathOptionsToProperty, pathsLogic } from 'scenes/paths/pathsLogic'
 import { Col, Row, Select, Skeleton } from 'antd'
 import { PropertyValue } from 'lib/components/PropertyFilters'
 import { TestAccountFilter } from '../TestAccountFilter'
@@ -17,6 +10,7 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { BaseTabProps } from '../Insights'
 import { InsightTitle } from './InsightTitle'
 import { InsightActionBar } from './InsightActionBar'
+import { PathType } from '~/types'
 
 export function PathTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsModel)
@@ -36,8 +30,8 @@ export function PathTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.El
                     <Col>Showing paths from</Col>
                     <Col>
                         <Select
-                            value={filter?.path_type || PAGEVIEW}
-                            defaultValue={PAGEVIEW}
+                            value={filter?.path_type || PathType.PageView}
+                            defaultValue={PathType.PageView}
                             dropdownMatchSelectWidth={false}
                             onChange={(value): void => setFilter({ path_type: value, start_point: null })}
                             style={{ paddingTop: 2 }}
@@ -54,20 +48,22 @@ export function PathTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.El
                     <Col>starting at</Col>
                     <Col>
                         <PropertyValue
-                            endpoint={filter.path_type === AUTOCAPTURE && 'api/paths/elements'}
+                            endpoint={filter.path_type === PathType.AutoCapture ? 'api/paths/elements' : undefined}
                             outerOptions={
-                                filter.path_type === CUSTOM_EVENT &&
-                                customEventNames.map((name) => ({
-                                    name,
-                                }))
+                                filter.path_type === PathType.CustomEvent
+                                    ? customEventNames.map((name) => ({
+                                          name,
+                                      }))
+                                    : undefined
                             }
                             onSet={(value: string | number): void => setFilter({ start_point: value })}
-                            propertyKey={pathOptionsToProperty[filter.path_type || PAGEVIEW]}
+                            propertyKey={pathOptionsToProperty[filter.path_type || PathType.PageView]}
                             type="event"
                             style={{ width: 200, paddingTop: 2 }}
                             value={filter.start_point}
                             placeholder={'Select start element'}
-                            operator={null}
+                            autoFocus={false}
+                            allowCustom={filter.path_type !== PathType.AutoCapture}
                         />
                     </Col>
                 </Row>
