@@ -45,7 +45,9 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step, UserType>>({
         setStep: (step: Step) => ({ step }),
         stepBack: true,
         setPayload: (payload: NPSPayload | null) => ({ payload }),
-        submit: true,
+        submit: (completed?: boolean) => ({ completed }),
+        dismiss: true,
+        send: (result: 'completed' | 'partial' | 'dismissed') => ({ result }), // Sends response data to PostHog
     },
     reducers: {
         step: [
@@ -72,20 +74,23 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step, UserType>>({
                 actions.setPayload(null)
             }
         },
-        submit: () => {
-            const payload = values.payload
-            let result = 'dismissed'
-            if (payload) {
-                result = 'partial'
-                if (payload.score && payload.feedback_score && payload.feedback_persona) {
-                    result = 'completed'
-                }
-            }
-            posthog.capture('nps feedback', { ...payload, result })
+        dismiss: () => {
+            const result = typeof values.payload?.score !== 'undefined' ? 'partial' : 'dismissed'
+            actions.hide()
+            actions.send(result)
+        },
+        submit: ({ completed }) => {
+            const result = completed ? 'completed' : 'partial'
+            actions.send(result)
+            cache.timeout = window.setTimeout(() => actions.hide(), NPS_HIDE_TIMEOUT)
+        },
+        send: ({ result }) => {
+            posthog.capture('nps feedback', { ...values.payload, result })
+
             // `nps_2106` is used to identify users who have replied to the NPS survey (via cohorts)
             posthog.people.set({ nps_2106: true })
+
             localStorage.setItem(NPS_LOCALSTORAGE_KEY, 'true')
-            cache.timeout = window.setTimeout(() => actions.hide(), NPS_HIDE_TIMEOUT)
         },
         show: () => {
             posthog.capture('nps modal shown')
@@ -111,7 +116,7 @@ be shown to a user, we follow these rules:
     which excludes a user from the feature flag.
 */
 export function NPSPrompt(): JSX.Element | null {
-    const { setStep, setPayload, stepBack, submit } = useActions(npsLogic)
+    const { setStep, setPayload, stepBack, submit, dismiss } = useActions(npsLogic)
     const { step, payload, hidden, npsPromptEnabled } = useValues(npsLogic)
 
     if (!npsPromptEnabled) {
@@ -134,7 +139,7 @@ export function NPSPrompt(): JSX.Element | null {
     return (
         <>
             <div className={`nps-prompt${hidden ? ' hide' : ''}`}>
-                <span className="nps-dismiss" onClick={submit}>
+                <span className="nps-dismiss" onClick={dismiss}>
                     <CloseOutlined />
                 </span>
                 <div className="prompt-inner">
@@ -168,7 +173,7 @@ export function NPSPrompt(): JSX.Element | null {
                                 onKeyDown={(e) => e.key === 'Enter' && e.metaKey && setStep(2)}
                             />
                             <div style={{ textAlign: 'left' }} className="mt">
-                                <Button type="link" style={{ paddingLeft: 0 }} onClick={() => submit()}>
+                                <Button type="link" style={{ paddingLeft: 0 }} onClick={() => submit(false)}>
                                     Finish
                                 </Button>
                                 <Button style={{ float: 'right' }} onClick={() => setStep(2)}>
@@ -188,10 +193,10 @@ export function NPSPrompt(): JSX.Element | null {
                                 placeholder="You can describe their role, background, company or team size, ..."
                                 value={payload?.feedback_persona || ''}
                                 onChange={(e) => setPayload({ feedback_persona: e.target.value })}
-                                onKeyDown={(e) => e.key === 'Enter' && e.metaKey && submit()}
+                                onKeyDown={(e) => e.key === 'Enter' && e.metaKey && submit(true)}
                             />
                             <div style={{ textAlign: 'left' }} className="mt">
-                                <Button style={{ float: 'right' }} onClick={submit}>
+                                <Button style={{ float: 'right' }} onClick={() => submit(true)}>
                                     Finish
                                 </Button>
                             </div>

@@ -86,30 +86,36 @@ def parse_action_timestamps(days: int) -> Tuple[str, Dict[str, str]]:
     )
 
 
-def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
-    person_query, params = determine_precalculated_or_live_person_query(cohort)
-    person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
-        query=person_query, latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
-    )
-    return person_id_query, params
-
-
-def determine_precalculated_or_live_person_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
+def is_precalculated_query(cohort: Cohort) -> bool:
     if (
         cohort.last_calculation
         and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
         and not settings.DEBUG
         and not settings.TEST
     ):
-        return (
-            f"""
-        person_id IN ({GET_PERSON_ID_BY_COHORT_ID})
-        """,
-            {"team_id": cohort.team_id, "cohort_id": cohort.pk},
-        )
+        return True
     else:
-        person_query, params = format_person_query(cohort)
-        return person_query, params
+        return False
+
+
+def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
+    is_precalculated = is_precalculated_query(cohort)
+    person_query, params = get_precalculated_query(cohort) if is_precalculated else format_person_query(cohort)
+
+    person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
+        query=person_query, latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
+    )
+    return person_id_query, params
+
+
+def get_precalculated_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
+    custom_match_field = kwargs.get("custom_match_field", "person_id")
+    return (
+        f"""
+        {custom_match_field} IN ({GET_PERSON_ID_BY_COHORT_ID})
+        """,
+        {"team_id": cohort.team_id, "cohort_id": cohort.pk},
+    )
 
 
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
