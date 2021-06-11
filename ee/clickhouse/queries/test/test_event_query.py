@@ -4,7 +4,7 @@ import sqlparse
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.queries.event_query import TrendsEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -62,7 +62,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         entity = Entity({"id": "viewed", "type": "events"})
 
-        query, params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
+        query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
 
         correct = """
         SELECT e.timestamp as timestamp,
@@ -93,7 +93,9 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         entity = Entity({"id": "viewed", "type": "events"})
 
-        global_prop_query, global_prop_query_params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
+        global_prop_query, global_prop_query_params = TrendsEventQuery(
+            filter=filter, entity=entity, team_id=self.team.pk
+        ).get_query()
         sync_execute(global_prop_query, global_prop_query_params)
 
         filter = Filter(
@@ -115,7 +117,9 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        entity_prop_query, entity_prop_query_params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
+        entity_prop_query, entity_prop_query_params = TrendsEventQuery(
+            filter=filter, entity=entity, team_id=self.team.pk
+        ).get_query()
 
         # global queries and enttiy queries should be the same
         self.assertEqual(
@@ -135,7 +139,9 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         entity = Entity({"id": "viewed", "type": "events"})
 
-        global_prop_query, global_prop_query_params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
+        global_prop_query, global_prop_query_params = TrendsEventQuery(
+            filter=filter, entity=entity, team_id=self.team.pk
+        ).get_query()
         sync_execute(global_prop_query, global_prop_query_params)
 
         filter = Filter(
@@ -154,7 +160,9 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        entity_prop_query, entity_prop_query_params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
+        entity_prop_query, entity_prop_query_params = TrendsEventQuery(
+            filter=filter, entity=entity, team_id=self.team.pk
+        ).get_query()
 
         # global queries and enttiy queries should be the same
         self.assertEqual(
@@ -178,6 +186,6 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         entity = Entity({"id": "viewed", "type": "events",})
 
-        query, params = ClickhouseEventQuery(filter, entity, self.team.pk).get_query()
+        query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
         sync_execute(query, params)
         print(sqlparse.format(query, reindent=True))
