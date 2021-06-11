@@ -5,7 +5,7 @@ import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { CohortType } from '~/types'
+import { CohortType, IntervalType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { average, median, maybeAddCommasToInteger } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -13,6 +13,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
 import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DateDisplay } from 'lib/components/DateDisplay'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -135,7 +136,13 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
 
     if (indexedResults && indexedResults.length > 0) {
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
-            title: indexedResults[0].labels[index],
+            title: (
+                <DateDisplay
+                    interval={(filters.interval as IntervalType) || 'day'}
+                    date={indexedResults[0].days[index]}
+                    hideWeekRange
+                />
+            ),
             render: function RenderPeriod({}, item: IndexedTrendResult) {
                 return maybeAddCommasToInteger(item.data[index])
             },
