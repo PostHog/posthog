@@ -172,7 +172,7 @@ export function PropertyValue({
                         }
                     }}
                 >
-                    {input && (
+                    {input && !displayOptions.some(({ name }) => input === toString(name)) && (
                         <Select.Option key="specify-value" value={input} className="ph-no-capture">
                             Specify: {input}
                         </Select.Option>
@@ -211,7 +211,7 @@ export function PropertyValue({
                     ref={autoCompleteRef}
                 >
                     {[
-                        ...(input && allowCustom
+                        ...(input && allowCustom && !displayOptions.some(({ name }) => input === toString(name))
                             ? [
                                   <AutoComplete.Option key="@@@specify-value" value={input} className="ph-no-capture">
                                       Specify: {input}
