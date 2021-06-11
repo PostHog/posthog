@@ -136,19 +136,9 @@ describe('LazyPluginVM', () => {
                 ['⚠️', 'I failed, please retry me!'],
                 ['⚠️', 'Failed to load failure plugin. Retrying in 768 s.'],
                 ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 1536 s.'],
-                ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 3072 s.'],
-                ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 6144 s.'],
-                ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 12288 s.'],
-                ['⚠️', 'I failed, please retry me!'],
-                ['⚠️', 'Failed to load failure plugin. Retrying in 24576 s.'],
-                ['⚠️', 'I failed, please retry me!'],
                 [
                     '⚠️',
-                    'Failed to load failure plugin. Disabling it due to too many retries – tried to load it 15 times before giving up.',
+                    'Failed to load failure plugin. Disabling it due to too many retries – tried to load it 10 times before giving up.',
                 ],
             ])
 
