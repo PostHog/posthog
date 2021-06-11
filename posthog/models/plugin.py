@@ -159,6 +159,11 @@ class Plugin(models.Model):
                     config[config_entry["key"]] = default
         return config
 
+    def __str__(self) -> str:
+        return self.name
+
+    __repr__ = sane_repr("id", "name", "organization_id", "is_global")
+
 
 class PluginConfig(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)

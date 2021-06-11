@@ -12,6 +12,8 @@ from posthog.models import (
     FeatureFlag,
     Organization,
     Person,
+    Plugin,
+    PluginConfig,
     Team,
     User,
 )
@@ -23,6 +25,28 @@ admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(DashboardItem)
+
+
+@admin.register(Plugin)
+class PluginAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "organization_id",
+        "is_global",
+    )
+    list_filter = ("plugin_type", "is_global")
+    search_fields = ("name",)
+    ordering = ("-created_at",)
+
+
+@admin.register(PluginConfig)
+class PluginConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        "plugin_id",
+        "team_id",
+    )
+    ordering = ("-created_at",)
 
 
 @admin.register(Event)
