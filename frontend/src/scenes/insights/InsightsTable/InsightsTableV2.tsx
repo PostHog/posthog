@@ -1,5 +1,5 @@
 import React from 'react'
-import { Dropdown, Menu, Table } from 'antd'
+import { Dropdown, Menu, Table, Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
@@ -11,7 +11,7 @@ import { average, median, maybeAddCommasToInteger } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
-import { DownOutlined } from '@ant-design/icons'
+import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface InsightsTableProps {
@@ -29,9 +29,13 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
     const { indexedResults, visibilityMap, filters, numberOfSeries } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
-    const { calcColumnState } = useValues(insightsTableLogic)
-    const { setCalcColumnState } = useActions(insightsTableLogic)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
+    const hasUniqueFilter = !!(
+        filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
+    )
+    const logic = insightsTableLogic({ hasUniqueFilter })
+    const { calcColumnState } = useValues(logic)
+    const { setCalcColumnState } = useActions(logic)
 
     if (indexedResults.length === 0 || !indexedResults?.[0]?.data) {
         return null
@@ -156,7 +160,16 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
                 } else if (calcColumnState === 'median') {
                     return median(item.data).toLocaleString()
                 }
-                return count.toLocaleString()
+                return (
+                    <>
+                        {count.toLocaleString()}
+                        {item.action.math === 'dau' && (
+                            <Tooltip title="Keep in mind this is just the sum of all values in the row, not the unique users across the entire time period (i.e. this number may contain duplicate users).">
+                                <InfoCircleOutlined style={{ marginLeft: 4, color: 'var(--primary-alt)' }} />
+                            </Tooltip>
+                        )}
+                    </>
+                )
             },
             dataIndex: 'count',
             fixed: 'right',
