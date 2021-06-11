@@ -37,7 +37,7 @@ clickhouse-driver==0.2.0
     #   -r requirements.in
     #   aioch
     #   clickhouse-pool
-clickhouse-pool==0.4.3
+git+https://github.com/macobo/clickhouse-pool.git@fix-clickhouse-pool-release-on-error
     # via -r requirements.in
 cryptography==3.4.7
     # via
