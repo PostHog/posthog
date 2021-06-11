@@ -6,7 +6,7 @@ from django.utils import timezone
 from ee.clickhouse.client import format_sql, sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.queries.event_query import TrendsEventQuery
 from ee.clickhouse.queries.trends.util import (
     enumerate_time_range,
     get_active_user_params,
@@ -46,10 +46,10 @@ class ClickhouseTrendsTotalVolume:
         params = {**params, **math_params, **date_params}
 
         if filter.display in TRENDS_DISPLAY_BY_VALUE:
-            event_query, event_query_params = ClickhouseEventQuery(
-                filter,
-                entity,
-                team_id,
+            event_query, event_query_params = TrendsEventQuery(
+                filter=filter,
+                entity=entity,
+                team_id=team_id,
                 date_filter="{parsed_date_from} {parsed_date_to}",
                 should_join_distinct_ids=True if join_condition != "" else False,
             ).get_query()
@@ -68,10 +68,10 @@ class ClickhouseTrendsTotalVolume:
         else:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-                event_query, event_query_params = ClickhouseEventQuery(
-                    filter,
-                    entity,
-                    team_id,
+                event_query, event_query_params = TrendsEventQuery(
+                    filter=filter,
+                    entity=entity,
+                    team_id=team_id,
                     date_filter="{parsed_date_from_prev_range} {parsed_date_to}",
                     should_join_distinct_ids=True,
                 ).get_query()
@@ -80,10 +80,10 @@ class ClickhouseTrendsTotalVolume:
                 event_query = event_query.format(**sql_params, parsed_date_to=parsed_date_to)
                 content_sql = ACTIVE_USER_SQL.format(event_query=event_query, **content_sql_params, **sql_params)
             else:
-                event_query, event_query_params = ClickhouseEventQuery(
-                    filter,
-                    entity,
-                    team_id,
+                event_query, event_query_params = TrendsEventQuery(
+                    filter=filter,
+                    entity=entity,
+                    team_id=team_id,
                     date_filter="{parsed_date_from} {parsed_date_to}",
                     should_join_distinct_ids=True if join_condition != "" else False,
                 ).get_query()
