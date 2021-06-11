@@ -95,6 +95,31 @@ describe('Trends', () => {
         cy.contains('Table').click()
 
         cy.get('[data-attr=insights-table-graph]').should('exist')
+
+        // Select Total Count math property
+        cy.get('[data-attr=math-selector-0]').click()
+        cy.get('[data-attr=math-total-0]').click()
+
+        // Should contain more than label column
+        cy.get('[data-attr=insights-table-graph]').find('.ant-table-cell').its('length').should('be.gte', 1)
+    })
+
+    it('Apply table filter with breakdown', () => {
+        cy.get('[data-attr=chart-filter]').click()
+        cy.contains('Table').click()
+
+        cy.get('[data-attr=insights-table-graph]').should('exist')
+
+        // Select breakdown filter
+        cy.get('[data-attr=add-breakdown-button]').click()
+        cy.get('[data-attr=prop-breakdown-select]').click()
+        cy.get('[data-attr=prop-breakdown-0]').click()
+
+        // Should contain breakdown value column
+        cy.get('[data-attr=insights-table-graph]')
+            .find('.ant-table-cell.ant-table-cell-fix-left')
+            .eq(1)
+            .should('have.text', 'Breakdown Value')
     })
 
     it('Apply date filter', () => {

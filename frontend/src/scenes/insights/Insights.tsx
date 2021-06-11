@@ -376,7 +376,12 @@ export function Insights(): JSX.Element {
                                             logic={trendsLogic}
                                             props={{ dashboardItemId: null, view: activeView, filters: allFilters }}
                                         >
-                                            <InsightsTable />
+                                            <InsightsTable
+                                                showTotalCount={
+                                                    featureFlags[FEATURE_FLAGS.NEW_TOOLTIPS] &&
+                                                    activeView !== ViewType.SESSIONS
+                                                }
+                                            />
                                         </BindLogic>
                                     </Card>
                                 )}
