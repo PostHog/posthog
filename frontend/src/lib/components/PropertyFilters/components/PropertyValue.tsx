@@ -202,7 +202,6 @@ export function PropertyValue({
                         setValue('')
                     }}
                     onChange={(val) => {
-                        console.log('onChange')
                         setInput(toString(val))
                     }}
                     onSelect={(val, option) => {
