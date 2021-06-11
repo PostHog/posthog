@@ -66,6 +66,20 @@ export function PropertyValue({
     const [options, setOptions] = useState({} as Record<string, Option>)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
+    // update the input field if passed a new `value` prop
+    useEffect(() => {
+        if (!value) {
+            setInput('')
+        } else if (value !== input) {
+            const valueObject = options[propertyKey]?.values?.find((v) => v.id === value)
+            if (valueObject) {
+                setInput(toString(valueObject.name))
+            } else {
+                setInput(toString(value))
+            }
+        }
+    }, [value])
+
     const loadPropertyValues = useThrottledCallback((newInput) => {
         if (type === 'cohort') {
             return
