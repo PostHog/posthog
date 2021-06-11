@@ -17,7 +17,7 @@ import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { status } from '../../utils/status'
 import { createPluginConfigVM } from './vm'
 
-const MAX_SETUP_RETRIES = 15
+const MAX_SETUP_RETRIES = 10
 const INITIALIZATION_RETRY_MULTIPLIER = 2
 const INITIALIZATION_RETRY_BASE_MS = 3000
 
