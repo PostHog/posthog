@@ -363,7 +363,7 @@ export function Insights(): JSX.Element {
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && (
-                                    <Card style={{ marginTop: 16 }}>
+                                    <Card style={{ marginTop: 8 }}>
                                         <FunnelPeople />
                                     </Card>
                                 )}
@@ -371,11 +371,12 @@ export function Insights(): JSX.Element {
                                 allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
                                 allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) &&
                                 (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
-                                    <Card style={{ marginTop: 16 }}>
+                                    <Card style={{ marginTop: 8 }}>
                                         <BindLogic
                                             logic={trendsLogic}
                                             props={{ dashboardItemId: null, view: activeView }}
                                         >
+                                            <h3 className="l3">Details table</h3>
                                             <InsightsTable showTotalCount={activeView !== ViewType.SESSIONS} />
                                         </BindLogic>
                                     </Card>

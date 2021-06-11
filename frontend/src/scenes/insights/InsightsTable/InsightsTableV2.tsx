@@ -1,5 +1,5 @@
 import React from 'react'
-import { Table } from 'antd'
+import { Dropdown, Menu, Table } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
@@ -7,24 +7,35 @@ import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
 import { CohortType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
-import { maybeAddCommasToInteger } from 'lib/utils'
+import { average, median, maybeAddCommasToInteger } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
+import { DownOutlined } from '@ant-design/icons'
+
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
     showTotalCount?: boolean
+}
+
+const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
+    total: 'Total Sum',
+    average: 'Average',
+    median: 'Median',
 }
 
 export function InsightsTableV2({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
     const { indexedResults, visibilityMap, filters, numberOfSeries } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
-    const isSingleEntity = indexedResults.length === 1
+    const { calcColumnState } = useValues(insightsTableLogic)
+    const { setCalcColumnState } = useActions(insightsTableLogic)
 
     if (indexedResults.length === 0 || !indexedResults?.[0]?.data) {
         return null
     }
 
+    const isSingleEntity = indexedResults.length === 1
     const colorList = getChartColors('white')
     const showCountedByTag = !!indexedResults.find(({ action: { math } }) => math && math !== 'total')
 
@@ -38,6 +49,16 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
             </div>
         )
     }
+
+    const calcColumnMenu = (
+        <Menu>
+            {Object.keys(CALC_COLUMN_LABELS).map((key) => (
+                <Menu.Item key={key} onClick={() => setCalcColumnState(key as CalcColumnState)}>
+                    {CALC_COLUMN_LABELS[key as CalcColumnState]}
+                </Menu.Item>
+            ))}
+        </Menu>
+    )
 
     // Build up columns to include. Order matters.
     const columns: ColumnsType<IndexedTrendResult> = []
@@ -113,7 +134,21 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
 
     if (showTotalCount) {
         columns.push({
-            title: 'Total',
+            title: (
+                <Dropdown overlay={calcColumnMenu}>
+                    <span className="cursor-pointer">
+                        {CALC_COLUMN_LABELS[calcColumnState]} <DownOutlined />
+                    </span>
+                </Dropdown>
+            ),
+            render: function RenderCalc(count: number, item: IndexedTrendResult) {
+                if (calcColumnState === 'average') {
+                    return average(item.data).toLocaleString()
+                } else if (calcColumnState === 'median') {
+                    return median(item.data).toLocaleString()
+                }
+                return count.toLocaleString()
+            },
             dataIndex: 'count',
             fixed: 'right',
             width: 100,
