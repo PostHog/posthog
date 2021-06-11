@@ -8,6 +8,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.trends.util import (
+    enumerate_time_range,
     get_active_user_params,
     parse_response,
     populate_entity_params,
@@ -55,7 +56,7 @@ class ClickhouseTrendsTotalVolume:
             event_query = event_query.format(**content_sql_params)
             params = {**params, **event_query_params}
             content_sql = VOLUME_TOTAL_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
-            time_range = self._enumerate_time_range(filter, seconds_in_interval)
+            time_range = enumerate_time_range(filter, seconds_in_interval)
 
             return (
                 content_sql,
@@ -98,24 +99,6 @@ class ClickhouseTrendsTotalVolume:
             )
             final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
             return final_query, params, self._parse_total_volume_result(filter)
-
-    def _enumerate_time_range(self, filter: Filter, seconds_in_interval: int) -> List[str]:
-        date_from = filter.date_from
-        date_to = filter.date_to
-        delta = timedelta(seconds=seconds_in_interval)
-        time_range: List[str] = []
-
-        if not date_from or not date_to:
-            return time_range
-
-        while date_from <= date_to:
-            time_range.append(
-                date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else "")
-                )
-            )
-            date_from += delta
-        return time_range
 
     def _parse_total_volume_result(self, filter: Filter) -> Callable:
         def _parse(result: List) -> List:

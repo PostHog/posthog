@@ -37,13 +37,13 @@ export function ActionsBarValueGraph({
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
         const colorList = getChartColors(color)
         const days = results.length > 0 ? results[0].days : []
-
         setData([
             {
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
                 days,
+                breakdownValues: _data.map((item) => item.breakdown_value),
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
                 hoverBorderColor: colorList,
@@ -80,7 +80,10 @@ export function ActionsBarValueGraph({
                               const label = dataset.labels[point.index]
                               const date_from = filtersParam?.date_from
                               const date_to = filtersParam?.date_to
-                              loadPeople(action, label, date_from, date_to, null)
+                              const breakdownValue = dataset.breakdownValues[point.index]
+                                  ? dataset.breakdownValues[point.index]
+                                  : null
+                              loadPeople(action, label, date_from, date_to, breakdownValue)
                           }
                 }
             />

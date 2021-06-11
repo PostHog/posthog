@@ -2059,6 +2059,42 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 ],
             )
 
+        def test_breakdown_filtering_bar_chart_by_value(self):
+            self._create_events()
+
+            # test breakdown filtering
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-7d",
+                            "breakdown": "$some_property",
+                            "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,},],
+                            "display": TRENDS_BAR_VALUE,
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(
+                response[0]["count"], 2
+            )  # postgres returns none for display by value TODO: update clickhouse query to return this also
+            self.assertEqual(response[1]["aggregated_value"], 1)
+            self.assertEqual(response[2]["aggregated_value"], 1)
+            self.assertEqual(
+                response[0]["days"],
+                [
+                    "2019-12-28",
+                    "2019-12-29",
+                    "2019-12-30",
+                    "2019-12-31",
+                    "2020-01-01",
+                    "2020-01-02",
+                    "2020-01-03",
+                    "2020-01-04",
+                ],
+            )
+
     return TestTrends
 
 

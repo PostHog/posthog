@@ -6,6 +6,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.constants import TRENDS_BAR_VALUE
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
@@ -566,3 +567,36 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(result[0]["count"], 2)
         result = ClickhouseTrends().run(filter_3, self.team,)
         self.assertEqual(result[1]["count"], 1)
+
+    def test_breakdown_filtering_bar_chart_by_value(self):
+        self._create_events()
+
+        # test breakdown filtering
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-7d",
+                        "breakdown": "$some_property",
+                        "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,},],
+                        "display": TRENDS_BAR_VALUE,
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["aggregated_value"], 1)
+        self.assertEqual(response[1]["aggregated_value"], 1)
+        self.assertEqual(
+            response[0]["days"],
+            [
+                "2019-12-28",
+                "2019-12-29",
+                "2019-12-30",
+                "2019-12-31",
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+            ],
+        )
