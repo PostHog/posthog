@@ -16,6 +16,7 @@ import { userLogic } from 'scenes/userLogic'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -32,6 +33,7 @@ export function ActionsTable(): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const [filterByMe, setFilterByMe] = useState(false)
     const { user } = useValues(userLogic)
+    const tableScrollBreakpoint = getBreakpoint('lg')
 
     const columns = [
         {
@@ -242,6 +244,7 @@ export function ActionsTable(): JSX.Element {
                 data-attr="actions-table"
                 dataSource={data}
                 locale={{ emptyText: 'The first step to standardized analytics is creating your first action.' }}
+                scroll={{ x: `${tableScrollBreakpoint}px` }}
             />
         </div>
     )
