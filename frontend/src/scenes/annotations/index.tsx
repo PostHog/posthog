@@ -15,6 +15,7 @@ import { AnnotationType, AnnotationScope } from '~/types'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 const { TextArea } = Input
@@ -27,11 +28,13 @@ export function Annotations(): JSX.Element {
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null as AnnotationType | null)
+    const tableScrollBreakpoint = getBreakpoint('lg')
 
     const columns = [
         {
             title: 'Annotation',
             key: 'annotation',
+            fixed: true,
             render: function RenderAnnotation(annotation: AnnotationType): JSX.Element {
                 return (
                     <span
@@ -118,6 +121,7 @@ export function Annotations(): JSX.Element {
                             setOpen(true)
                         },
                     })}
+                    scroll={{ x: `${tableScrollBreakpoint}px` }}
                 />
                 <div
                     style={{

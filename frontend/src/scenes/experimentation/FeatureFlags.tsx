@@ -12,11 +12,13 @@ import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { router } from 'kea-router'
 import { LinkButton } from 'lib/components/LinkButton'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
 
 export function FeatureFlags(): JSX.Element {
     const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags } = useActions(featureFlagsLogic)
     const { push } = useActions(router)
+    const tableScrollBreakpoint = getBreakpoint('lg')
 
     const BackTo = '#backTo=Feature Flags&backToURL=/feature_flags'
 
@@ -25,6 +27,8 @@ export function FeatureFlags(): JSX.Element {
             title: 'Key',
             dataIndex: 'key',
             className: 'ph-no-capture',
+            fixed: true,
+            ellipsis: true,
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
@@ -47,6 +51,8 @@ export function FeatureFlags(): JSX.Element {
             dataIndex: 'name',
             className: 'ph-no-capture',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.name).localeCompare(b.name),
+            width: '40%',
+            ellipsis: true,
         },
         createdAtColumn(),
         createdByColumn(featureFlags),
@@ -148,6 +154,7 @@ export function FeatureFlags(): JSX.Element {
                 size="small"
                 rowClassName="cursor-pointer"
                 data-attr="feature-flag-table"
+                scroll={{ x: `${tableScrollBreakpoint}px` }}
             />
         </div>
     )
