@@ -59,13 +59,16 @@ export function ObjectTags({
                             (deletedTags.includes(tag) ? (
                                 <SyncOutlined spin />
                             ) : (
-                                <CloseOutlined style={{ cursor: 'pointer' }} onClick={() => handleDelete(tag, tags, id)} />
+                                <CloseOutlined
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={() => handleDelete(tag, tags, id)}
+                                />
                             ))}
                     </Tag>
                 )
             })}
             {!staticOnly && onTagSave && saving !== undefined && (
-                <span style={{ display: 'inline-flex' }}>
+                <span style={{ display: 'inline-flex', fontWeight: 400 }}>
                     <Tag
                         onClick={() => setAddingNewTag(true)}
                         data-attr="button-add-tag"
@@ -101,7 +104,7 @@ export function ObjectTags({
                         >
                             {newTag ? (
                                 <Select.Option
-                                    key={newTag}
+                                    key={newTag + id}
                                     value={newTag}
                                     className="ph-no-capture"
                                     data-attr="new-tag-option"

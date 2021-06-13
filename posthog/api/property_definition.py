@@ -59,10 +59,7 @@ class PropertyDefinitionViewSet(
                     WHERE team_id = %(team_id)s {name_filter}
                     ORDER BY name
                     """,
-                    params={
-                        "team_id": team_id,
-                        "names": names
-                    },
+                    params={"team_id": team_id, "names": names},
                 )
                 return ee_property_definitions
         return self.filter_queryset_by_parents_lookups(PropertyDefinition.objects.all()).order_by(self.ordering)

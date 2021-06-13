@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Drawer } from 'lib/components/Drawer'
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 import Title from 'antd/es/typography/Title'
 import './VolumeTable.scss'
@@ -17,10 +17,13 @@ import { PersonType, UserBasicType } from '~/types'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { Property } from 'lib/components/Property'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { useDebouncedCallback } from 'use-debounce/lib'
 
 export function DefinitionDrawer(): JSX.Element {
-    const { drawerState, definition, definitionLoading, type, eventDefinitionTags } = useValues(definitionDrawerLogic)
-    const { closeDrawer, saveNewTag, deleteTag } = useActions(definitionDrawerLogic)
+    const { drawerState, definition, definitionLoading, type, eventDefinitionTags, saveAllLoading } = useValues(
+        definitionDrawerLogic
+    )
+    const { closeDrawer, saveNewTag, deleteTag, updateAllDescriptions } = useActions(definitionDrawerLogic)
     const { preflight } = useValues(preflightLogic)
     const { Panel } = Collapse
 
@@ -37,6 +40,16 @@ export function DefinitionDrawer(): JSX.Element {
                         width={'60vw'}
                         bodyStyle={{ padding: 14, paddingTop: 0 }}
                         className="definition-drawer"
+                        footer={
+                            <Button
+                                style={{ float: 'right' }}
+                                type="primary"
+                                loading={saveAllLoading}
+                                onClick={updateAllDescriptions}
+                            >
+                                Save
+                            </Button>
+                        }
                     >
                         {preflight && !preflight?.is_event_property_usage_enabled ? (
                             <div style={{ marginTop: 8 }}>
@@ -185,8 +198,8 @@ export function DefinitionDrawer(): JSX.Element {
 }
 
 export function DefinitionDescription(): JSX.Element {
-    const { description, editing } = useValues(definitionDrawerLogic)
-    const { setDescription, saveDescription, cancelDescription, setDescriptionEditing } = useActions(
+    const { description } = useValues(definitionDrawerLogic)
+    const { setDescription } = useActions(
         definitionDrawerLogic
     )
 
@@ -195,24 +208,13 @@ export function DefinitionDescription(): JSX.Element {
             <div style={{ flexDirection: 'column', minWidth: 300 }}>
                 <h4 className="l4">Description</h4>
                 <Input.TextArea
-                    // style={{ minHeight: 108 }}
+                    style={{ minHeight: 108, marginBottom: 8 }}
                     placeholder="Add description"
                     value={description || ''}
                     onChange={(e) => {
                         setDescription(e.target.value)
-                        setDescriptionEditing(true)
                     }}
                 />
-                {editing && (
-                    <>
-                        <Button style={{ marginRight: 8 }} size="small" type="primary" onClick={saveDescription}>
-                            Save
-                        </Button>
-                        <Button onClick={cancelDescription} size="small">
-                            Cancel
-                        </Button>
-                    </>
-                )}
             </div>
         </>
     )
@@ -324,43 +326,44 @@ export function EventsTableSnippet(): JSX.Element {
 }
 
 export function EventPropertiesStats(): JSX.Element {
-    const { eventProperties, eventsSnippet, propertyDefinitionTags, definitionLoading } = useValues(definitionDrawerLogic)
-    const { saveNewPropertyTag, deletePropertyTag, setDescription } = useActions(definitionDrawerLogic)
-    const [displayedColumns, setDisplayedColumns] = useState([])
-
-
+    const { eventProperties, eventsSnippet, propertyDefinitionTags, definitionLoading } = useValues(
+        definitionDrawerLogic
+    )
+    const { saveNewPropertyTag, deletePropertyTag, setPropertyDescription } = useActions(definitionDrawerLogic)
     const propertyExamples = eventsSnippet[0]?.properties
-    console.log('event properties', eventProperties)
     const tableColumns = [
         {
             title: 'Property',
             key: 'property',
-            render: function renderProperty({ name }: { name: string}) {
+            render: function renderProperty({ name }: { name: string }) {
                 return <span className="text-default">{name}</span>
-            }
+            },
         },
         {
             title: 'Description',
             key: 'description',
-            render: function renderDescription({ description }: { description: string}) {
+            render: function renderDescription({ description, id }: { description: string; id: string }) {
+                const [newDescription, setNewDescription] = useState(description)
+                const debouncePropertyDescription = useDebouncedCallback((value) => {
+                    setPropertyDescription(value, id)
+                }, 1000)
+
                 return (
                     <Input.TextArea
-                        style={{ minWidth: 200 }}
                         placeholder="Add description"
-                        value={description || ''}
+                        value={newDescription || ''}
                         onChange={(e) => {
-                            setDescription(e.target.value)
-                            // setDescriptionEditing(true)
+                            setNewDescription(e.target.value)
+                            debouncePropertyDescription(e.target.value)
                         }}
                     />
                 )
-            }
+            },
         },
         {
             title: 'Tags',
             key: 'tags',
-            render: function renderTags({ id, tags }: { id: string, tags: string[] }) {
-                // const { saveNewPropertyTag } = useValues(definitionDrawerLogic)
+            render: function renderTags({ id, tags }: { id: string; tags: string[] }) {
                 return (
                     <ObjectTags
                         id={id}
@@ -368,41 +371,32 @@ export function EventPropertiesStats(): JSX.Element {
                         onTagSave={(tag, currentTags, propertyId) => saveNewPropertyTag(tag, currentTags, propertyId)}
                         onTagDelete={(tag, currentTags, propertyId) => deletePropertyTag(tag, currentTags, propertyId)}
                         saving={definitionLoading}
-                        tagsAvailable={propertyDefinitionTags.filter(
-                            (tag) => !tags?.includes(tag)
-                        )}
+                        tagsAvailable={propertyDefinitionTags.filter((tag) => !tags?.includes(tag))}
                     />
                 )
-            }
+            },
         },
         {
             title: 'Example',
             key: 'example',
             render: function renderExample({ name }: { name: string }) {
-                return <span>{propertyExamples[name]}</span>
-            }
-        }
+                return (
+                    <div style={{ backgroundColor: '#F0F0F0', padding: '4px, 15px', textAlign: 'center' }}>
+                        <span style={{ fontSize: 10, fontWeight: 400, fontFamily: 'monaco' }}>
+                            {propertyExamples[name]}
+                        </span>
+                    </div>
+                )
+            },
+        },
     ]
 
-    // useEffect(() => {
-    //     if (eventProperties) {
-    //         setDisplayedColumns
-    //     }
-    //     if (!user?.organization?.available_features.includes('dashboard_collaboration')) {
-    //         setDisplayedColumns(
-    //             columns.filter((col) => !col.dataIndex || !['description', 'tags'].includes(col.dataIndex.toString()))
-    //         )
-    //     } else {
-    //         setDisplayedColumns(columns)
-    //     }
-    // }, [user?.organization?.available_features, dashboardTags])
-
-    return(
+    return (
         <>
-            <Row style={{paddingBottom: 16}}>
+            <Row style={{ paddingBottom: 16 }}>
                 <span className="text-default text-muted">
-                    Top properties that are sent with this event. Please note that description and tags are shared across events.
-                    Posthog properties are <b>excluded</b> from this list.
+                    Top properties that are sent with this event. Please note that description and tags are shared
+                    across events. Posthog properties are <b>excluded</b> from this list.
                 </span>
             </Row>
             <Table
@@ -410,6 +404,7 @@ export function EventPropertiesStats(): JSX.Element {
                 columns={tableColumns}
                 rowKey={(row) => row.id}
                 size="small"
+                tableLayout="fixed"
                 pagination={{ pageSize: 5, hideOnSinglePage: true }}
             />
         </>
