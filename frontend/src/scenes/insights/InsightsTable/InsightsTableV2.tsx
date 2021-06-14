@@ -31,10 +31,10 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
-    const hasUniqueFilter = !!(
+    const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
-    const logic = insightsTableLogic({ hasUniqueFilter })
+    const logic = insightsTableLogic({ hasMathUniqueFilter })
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
 
@@ -166,6 +166,9 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
                     return average(item.data).toLocaleString()
                 } else if (calcColumnState === 'median') {
                     return median(item.data).toLocaleString()
+                } else if (calcColumnState === 'total' && filters.display === 'ActionsLineGraphCumulative') {
+                    // Special handling because `count` will contain the last amount, instead of the cumulative sum.
+                    return item.data.reduce((acc, val) => acc + val, 0).toLocaleString()
                 }
                 return (
                     <>

@@ -5,14 +5,14 @@ export type CalcColumnState = 'total' | 'average' | 'median'
 
 export const insightsTableLogic = kea<insightsTableLogicType<CalcColumnState>>({
     props: {} as {
-        hasUniqueFilter: boolean
+        hasMathUniqueFilter: boolean
     },
     actions: {
         setCalcColumnState: (state: CalcColumnState) => ({ state }),
     },
     reducers: ({ props }) => ({
         calcColumnState: [
-            (props.hasUniqueFilter ? 'average' : 'total') as CalcColumnState,
+            (props.hasMathUniqueFilter ? 'average' : 'total') as CalcColumnState,
             {
                 setCalcColumnState: (_, { state }) => state,
             },
