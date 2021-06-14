@@ -1,4 +1,3 @@
-from ee.models.property_definition import EnterprisePropertyDefinition
 from typing import Type
 
 from rest_framework import filters, mixins, permissions, serializers, viewsets

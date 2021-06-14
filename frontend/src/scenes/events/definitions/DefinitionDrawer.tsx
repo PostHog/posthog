@@ -199,9 +199,7 @@ export function DefinitionDrawer(): JSX.Element {
 
 export function DefinitionDescription(): JSX.Element {
     const { description } = useValues(definitionDrawerLogic)
-    const { setDescription } = useActions(
-        definitionDrawerLogic
-    )
+    const { setDescription } = useActions(definitionDrawerLogic)
 
     return (
         <>
