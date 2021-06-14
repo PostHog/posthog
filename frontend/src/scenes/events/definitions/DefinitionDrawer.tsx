@@ -73,7 +73,7 @@ export function DefinitionDrawer(): JSX.Element {
                                                     onTagDelete={deleteTag}
                                                     saving={definitionLoading}
                                                     tagsAvailable={eventDefinitionTags.filter(
-                                                        (tag) => !definition.tags.includes(tag)
+                                                        (tag) => !definition.tags?.includes(tag)
                                                     )}
                                                 />
                                             </Col>
