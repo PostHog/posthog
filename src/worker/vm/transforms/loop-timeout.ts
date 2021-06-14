@@ -46,35 +46,39 @@ const generateInside = ({
     )
 }
 
-const protect = (t: typeof types, timeout: number) => (path: any): void => {
-    if (!path.node.loc) {
-        // I don't really know _how_ we get into this state, but https://jsbin.com/mipesawapi/1/ triggers it,
-        // and the node, I'm guessing after translation, doesn't have a line in the code, so this blows up.
-        return
+const protect =
+    (t: typeof types, timeout: number) =>
+    (path: any): void => {
+        if (!path.node.loc) {
+            // I don't really know _how_ we get into this state, but https://jsbin.com/mipesawapi/1/ triggers it,
+            // and the node, I'm guessing after translation, doesn't have a line in the code, so this blows up.
+            return
+        }
+        const id = path.scope.generateUidIdentifier('LP')
+        const before = generateBefore(t, id)
+        const inside = generateInside({
+            t,
+            id,
+            line: path.node.loc.start.line,
+            ch: path.node.loc.start.column,
+            timeout,
+        })
+        const body = path.get('body')
+
+        // if we have an expression statement, convert it to a block
+        if (!t.isBlockStatement(body)) {
+            body.replaceWith(t.blockStatement([body.node]))
+        }
+        path.insertBefore(before)
+        body.unshiftContainer('body', inside)
     }
-    const id = path.scope.generateUidIdentifier('LP')
-    const before = generateBefore(t, id)
-    const inside = generateInside({
-        t,
-        id,
-        line: path.node.loc.start.line,
-        ch: path.node.loc.start.column,
-        timeout,
+
+export const loopTimeout: PluginGen =
+    (server) =>
+    ({ types: t }) => ({
+        visitor: {
+            WhileStatement: protect(t, server.TASK_TIMEOUT),
+            ForStatement: protect(t, server.TASK_TIMEOUT),
+            DoWhileStatement: protect(t, server.TASK_TIMEOUT),
+        },
     })
-    const body = path.get('body')
-
-    // if we have an expression statement, convert it to a block
-    if (!t.isBlockStatement(body)) {
-        body.replaceWith(t.blockStatement([body.node]))
-    }
-    path.insertBefore(before)
-    body.unshiftContainer('body', inside)
-}
-
-export const loopTimeout: PluginGen = (server) => ({ types: t }) => ({
-    visitor: {
-        WhileStatement: protect(t, server.TASK_TIMEOUT),
-        ForStatement: protect(t, server.TASK_TIMEOUT),
-        DoWhileStatement: protect(t, server.TASK_TIMEOUT),
-    },
-})

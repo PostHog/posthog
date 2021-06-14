@@ -17,15 +17,13 @@ export class JobQueueManager implements JobQueue {
             .map((q) => q.trim() as JobQueueType)
             .filter((q) => !!q)
 
-        this.jobQueues = this.jobQueueTypes.map(
-            (queue): JobQueue => {
-                if (jobQueueMap[queue]) {
-                    return jobQueueMap[queue].getQueue(pluginsServer)
-                } else {
-                    throw new Error(`Unknown job queue "${queue}"`)
-                }
+        this.jobQueues = this.jobQueueTypes.map((queue): JobQueue => {
+            if (jobQueueMap[queue]) {
+                return jobQueueMap[queue].getQueue(pluginsServer)
+            } else {
+                throw new Error(`Unknown job queue "${queue}"`)
             }
-        )
+        })
     }
 
     async connectProducer(): Promise<void> {

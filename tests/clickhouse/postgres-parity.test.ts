@@ -262,7 +262,7 @@ describe('postgres parity', () => {
 
         // move 'distinct1' from person to to anotherPerson
 
-        await hub.db.moveDistinctId(postgresPerson, postgresDistinctIds[0], anotherPerson)
+        await hub.db.moveDistinctId(postgresDistinctIds[0], anotherPerson)
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
 
         // it got added

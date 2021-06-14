@@ -264,8 +264,10 @@ export class DB {
                 return rest
             }) as ClickHousePerson[]
         } else if (database === Database.Postgres) {
-            return ((await this.postgresQuery('SELECT * FROM posthog_person', undefined, 'fetchPersons'))
-                .rows as RawPerson[]).map(
+            return (
+                (await this.postgresQuery('SELECT * FROM posthog_person', undefined, 'fetchPersons'))
+                    .rows as RawPerson[]
+            ).map(
                 (rawPerson: RawPerson) =>
                     ({
                         ...rawPerson,
@@ -613,8 +615,9 @@ export class DB {
 
     public async fetchSessionRecordingEvents(): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
         if (this.kafkaProducer) {
-            const events = ((await this.clickhouseQuery(`SELECT * FROM session_recording_events`))
-                .data as SessionRecordingEvent[]).map((event) => {
+            const events = (
+                (await this.clickhouseQuery(`SELECT * FROM session_recording_events`)).data as SessionRecordingEvent[]
+            ).map((event) => {
                 return {
                     ...event,
                     snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
