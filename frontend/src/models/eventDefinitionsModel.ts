@@ -19,7 +19,7 @@ export const eventDefinitionsModel = kea<
     eventDefinitionsModelType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface>
 >({
     actions: () => ({
-        updateEventDefinition: (id: string, description: string | null) => ({ id, description }),
+        updateEventDescription: (id: string, description: string | null) => ({ id, description }),
         setEventDefinitions: (event) => ({ event }),
     }),
     loaders: ({ values }) => ({
@@ -57,7 +57,7 @@ export const eventDefinitionsModel = kea<
                 actions.loadEventDefinitions()
             }
         },
-        updateEventDefinition: async ({ id, description }) => {
+        updateEventDescription: async ({ id, description }) => {
             const response = await api.update(`api/projects/@current/event_definitions/${id}`, { description })
             actions.setEventDefinitions(response)
         },

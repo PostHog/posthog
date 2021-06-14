@@ -1,4 +1,4 @@
-import { Alert, Button, Input, Tooltip } from 'antd'
+import { Alert, Button, Input, Row, Tooltip } from 'antd'
 import { InfoCircleOutlined, WarningOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import Table, { ColumnsType } from 'antd/lib/table'
 import Fuse from 'fuse.js'
@@ -14,6 +14,8 @@ import { definitionDrawerLogic } from './definitionDrawerLogic'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { useDebouncedCallback } from 'use-debounce/lib'
 
 type EventTableType = 'event' | 'property'
 
@@ -105,7 +107,10 @@ export function VolumeTable({
                         {hasTaxonomyFeatures &&
                             type === 'event' &&
                             (isPosthogEvent(record.eventOrProp.name) ? null : (
-                                <VolumeTableRecordDescription description={record.eventOrProp.description} />
+                                <VolumeTableRecordDescription
+                                    id={record.eventOrProp.id}
+                                    description={record.eventOrProp.description}
+                                />
                             ))}
                         {record.warnings?.map((warning) => (
                             <Tooltip
@@ -248,14 +253,38 @@ export function VolumeTable({
     )
 }
 
-export function VolumeTableRecordDescription({ description }: { description: string }): JSX.Element {
+export function VolumeTableRecordDescription({ id, description }: { id: string; description: string }): JSX.Element {
+    const { updateEventDescription } = useActions(eventDefinitionsModel)
+    const [newDescription, setDescription] = useState(description)
+    const [editing, setEditing] = useState(false)
+    const debounceUpdateDescription = useDebouncedCallback((eventId, value) => {
+        updateEventDescription(eventId, value)
+    }, 1000)
+
     return (
-        <>
-            {description ? (
-                <div style={{ display: 'flex', maxWidth: 500 }}>{description}</div>
-            ) : (
-                <div className="text-muted">Click to add description</div>
-            )}
-        </>
+        <Row>
+            <Input.TextArea
+                value={newDescription || ''}
+                style={{ paddingLeft: 0 }}
+                bordered={editing}
+                onClick={(e) => {
+                    e.stopPropagation()
+                    setEditing(true)
+                }}
+                onBlur={() => setEditing(false)}
+                placeholder="Click to add description"
+                onChange={(e) => {
+                    setDescription(e.target.value)
+                    debounceUpdateDescription(id, e.target.value)
+                }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                        setEditing(false)
+                        updateEventDescription(id, newDescription)
+                    }
+                }}
+                autoSize
+            />
+        </Row>
     )
 }
