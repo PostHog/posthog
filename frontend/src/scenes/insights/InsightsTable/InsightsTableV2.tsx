@@ -14,6 +14,7 @@ import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
 import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -166,7 +167,7 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
                     return average(item.data).toLocaleString()
                 } else if (calcColumnState === 'median') {
                     return median(item.data).toLocaleString()
-                } else if (calcColumnState === 'total' && filters.display === 'ActionsLineGraphCumulative') {
+                } else if (calcColumnState === 'total' && filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
                     // Special handling because `count` will contain the last amount, instead of the cumulative sum.
                     return item.data.reduce((acc, val) => acc + val, 0).toLocaleString()
                 }

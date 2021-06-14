@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, FUNNEL_VIZ, FEATURE_FLAGS } from 'lib/constants'
+import { FUNNEL_VIZ, FEATURE_FLAGS, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -368,9 +368,14 @@ export function Insights(): JSX.Element {
                                     </Card>
                                 )}
                             {(!allFilters.display ||
-                                allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                                allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) &&
+                                (allFilters.display !== ACTIONS_TABLE &&
+                                    allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
                                 (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
+                                    /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
+                                    Exclusions:
+                                        1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+                                        2. Bar value chart. Because this view displays data in completely different dimensions.
+                                    */
                                     <Card style={{ marginTop: 8 }}>
                                         <BindLogic
                                             logic={trendsLogic}
