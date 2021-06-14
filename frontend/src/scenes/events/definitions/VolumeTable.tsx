@@ -15,7 +15,6 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { useDebouncedCallback } from 'use-debounce/lib'
 
 type EventTableType = 'event' | 'property'
 
@@ -257,34 +256,55 @@ export function VolumeTableRecordDescription({ id, description }: { id: string; 
     const { updateEventDescription } = useActions(eventDefinitionsModel)
     const [newDescription, setDescription] = useState(description)
     const [editing, setEditing] = useState(false)
-    const debounceUpdateDescription = useDebouncedCallback((eventId, value) => {
-        updateEventDescription(eventId, value)
-    }, 1000)
 
     return (
-        <Row>
-            <Input.TextArea
-                value={newDescription || ''}
-                style={{ paddingLeft: 0 }}
-                bordered={editing}
-                onClick={(e) => {
-                    e.stopPropagation()
-                    setEditing(true)
-                }}
-                onBlur={() => setEditing(false)}
-                placeholder="Click to add description"
-                onChange={(e) => {
-                    setDescription(e.target.value)
-                    debounceUpdateDescription(id, e.target.value)
-                }}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                        setEditing(false)
-                        updateEventDescription(id, newDescription)
-                    }
-                }}
-                autoSize
-            />
-        </Row>
+        <>
+            <Row>
+                <Input.TextArea
+                    value={newDescription || ''}
+                    style={{ paddingLeft: 0 }}
+                    bordered={editing}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        setEditing(true)
+                    }}
+                    // onBlur={() => setEditing(false)}
+                    placeholder="Click to add description"
+                    onChange={(e) => setDescription(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            setEditing(false)
+                            updateEventDescription(id, newDescription)
+                        }
+                    }}
+                    autoSize
+                />
+            </Row>
+            {editing && (
+                <Row style={{ float: 'right', marginTop: 8 }}>
+                    <Button
+                        size="small"
+                        style={{ marginRight: 8 }}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setEditing(false)
+                            setDescription(description)
+                        }}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        type="primary"
+                        size="small"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            updateEventDescription(id, newDescription)
+                        }}
+                    >
+                        Save
+                    </Button>
+                </Row>
+            )}
+        </>
     )
 }

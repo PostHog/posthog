@@ -141,9 +141,14 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
         eventDefinitionTags: [
             () => [eventDefinitionsModel.selectors.eventDefinitions],
             (definitions: EventDefinition[]): string[] => {
-                const allTags = definitions
-                    .flatMap(({ tags }) => tags)
-                    .filter((a) => typeof a !== 'undefined') as string[]
+                const allTags = definitions.flatMap(({ tags }) => tags).filter((a) => !!a) as string[]
+                return uniqueBy(allTags, (item) => item).sort()
+            },
+        ],
+        propertyDefinitionTags: [
+            (selectors) => [selectors.eventProperties],
+            (properties: PropertyDefinition[]): string[] => {
+                const allTags = properties.flatMap(({ tags }) => tags).filter((a) => !!a) as string[]
                 return uniqueBy(allTags, (item) => item).sort()
             },
         ],
