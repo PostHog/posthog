@@ -32,12 +32,12 @@ cffi==1.14.5
     # via cryptography
 chardet==3.0.4
     # via requests
-clickhouse-driver==0.2.0
+clickhouse-driver==0.2.1
     # via
     #   -r requirements.in
     #   aioch
     #   clickhouse-pool
-git+https://github.com/macobo/clickhouse-pool.git@fix-clickhouse-pool-release-on-error
+clickhouse-pool==0.5.3
     # via -r requirements.in
 cryptography==3.4.7
     # via
