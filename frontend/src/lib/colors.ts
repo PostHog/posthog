@@ -1,4 +1,24 @@
+/* Used for graphs line or background color (as applicable) */
 export const lightColors = [
+    'navy',
+    'blue',
+    'cyan',
+    'orange',
+    'yellow',
+    'olive',
+    'green',
+    'lime',
+    'mint',
+    'maroon',
+    'brown',
+    'apricot',
+    'pink',
+    'salmon',
+    'indigo',
+    'purple',
+]
+
+export const tagColors = [
     'blue',
     'cyan',
     'orange',
