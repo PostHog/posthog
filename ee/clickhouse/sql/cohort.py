@@ -50,6 +50,23 @@ INSERT INTO cohortpeople
     AND id IN ({cohort_filter})
 """
 
+GET_DISTINCT_ID_BY_ENTITY_SQL = """
+SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {entity_query}
+"""
+
+GET_PERSON_ID_BY_ENTITY_COUNT_SQL = """
+SELECT person_id FROM events 
+INNER JOIN (
+    SELECT person_id,
+        distinct_id
+    FROM ({latest_distinct_id_sql})
+    WHERE team_id = %(team_id)s
+) as pid
+ON events.distinct_id = pid.distinct_id
+WHERE team_id = %(team_id)s {date_query} AND {entity_query}
+GROUP BY person_id HAVING count(*) {count_operator} %(count)s
+"""
+
 GET_PERSON_ID_BY_COHORT_ID = """
 SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s GROUP BY person_id, cohort_id, team_id HAVING sum(sign) > 0
 """

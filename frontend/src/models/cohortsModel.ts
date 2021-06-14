@@ -44,7 +44,7 @@ export const cohortsModel = kea<cohortsModelType<CohortType>>({
             },
             deleteCohort: (state, cohort) => {
                 if (!cohort) {
-                    return null
+                    return state
                 }
                 return [...state].filter((flag) => flag.id !== cohort.id)
             },

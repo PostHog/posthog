@@ -133,7 +133,7 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 
 def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, distinct_id: str):
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
-    if event["properties"].get("$lib") == "web" and not event["properties"].get("$active_feature_flags"):
+    if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
         event["properties"]["$active_feature_flags"] = get_active_feature_flags(team, distinct_id)
 
 

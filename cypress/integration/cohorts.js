@@ -1,6 +1,6 @@
 describe('Cohorts', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-cohorts]').click()
+        cy.clickNavMenu('cohorts')
     })
 
     it('Cohorts new and list', () => {
