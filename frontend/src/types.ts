@@ -540,6 +540,7 @@ export type DisplayType =
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
+export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 export enum PathType {
     PageView = '$pageview',
@@ -553,7 +554,7 @@ export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_
 export interface FilterType {
     insight?: InsightType
     display?: DisplayType
-    interval?: string
+    interval?: string // TODO: Move to IntervalType
     date_from?: string
     date_to?: string
     properties?: PropertyFilter[]

@@ -126,7 +126,9 @@ $z_main_nav: 948;
 $z_pinned_dashboards_popup: 962;
 $z_mobile_nav_overlay: 931;
 $z_top_navigation: 800;
+$z_graph_tooltip: 740;
 $z_content_overlay: 488;
+$z_graph_annotation_prompt: 99;
 $z_raised: 5;
 $z_city_background_content: 1;
 $z_city_background_image: 0;
@@ -141,4 +143,5 @@ $xxl: 1600px;
 // Export variables for TS access
 :export {
     zDrawer: $z_drawer;
+    zGraphAnnotationPrompt: $z_graph_annotation_prompt;
 }

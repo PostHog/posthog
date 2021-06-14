@@ -65,12 +65,13 @@ export function ActionsBarValueGraph({
         total > 0 ? (
             <LineGraph
                 data-attr="trend-bar-value-graph"
-                type={'horizontalBar'}
+                type="horizontalBar"
                 color={color}
                 datasets={data}
                 labels={data[0].labels}
                 dashboardItemId={dashboardItemId}
                 totalValue={total}
+                interval={filtersParam?.interval}
                 onClick={
                     dashboardItemId
                         ? null
