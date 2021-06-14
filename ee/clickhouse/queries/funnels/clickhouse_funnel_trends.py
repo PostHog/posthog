@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.clickhouse_funnel_base import ClickhouseFunnelBase
+from ee.clickhouse.queries.funnels.clickhouse_funnel_base import ClickhouseFunnelBase
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import NULL_SQL_FUNNEL_TRENDS
 from ee.clickhouse.sql.funnels.funnel_trend import FUNNEL_TREND_SQL

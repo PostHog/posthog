@@ -151,7 +151,7 @@ def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, 
     dashboard_items.update(refreshing=True)
 
     if is_clickhouse_enabled():
-        insight_class = import_from("ee.clickhouse.queries.clickhouse_funnel", "ClickhouseFunnel")
+        insight_class = import_from("ee.clickhouse.queries.funnels", "ClickhouseFunnel")
     else:
         insight_class = import_from("posthog.queries.funnel", "Funnel")
 
