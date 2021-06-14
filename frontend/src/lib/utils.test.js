@@ -9,6 +9,7 @@ import {
     pluralize,
     endWithPunctation,
     dateFilterToText,
+    hexToRGBA,
 } from './utils'
 
 describe('capitalizeFirstLetter()', () => {
@@ -157,5 +158,13 @@ describe('dateFilterToText()', () => {
         expect(dateFilterToText('-48h', undefined, 'default')).toEqual('Last 48 hours')
         expect(dateFilterToText('-1d', 'dStart', 'default')).toEqual('Yesterday')
         expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
+    })
+})
+
+describe('hexToRGBA()', () => {
+    it('converts hex to RGBA correctly', () => {
+        expect(hexToRGBA('#ff0000', 0.3)).toEqual('rgba(255,0,0,0.3)')
+        expect(hexToRGBA('#0000Cc', 0)).toEqual('rgba(0,0,204,0)')
+        expect(hexToRGBA('#5375ff', 1)).toEqual('rgba(83,117,255,1)')
     })
 })

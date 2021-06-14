@@ -39,6 +39,7 @@ export function ActionsLineGraph({
                 isInProgress={!filters.date_to}
                 dashboardItemId={dashboardItemId || fromItem}
                 inSharedMode={inSharedMode}
+                interval={filters.interval}
                 onClick={
                     dashboardItemId
                         ? null

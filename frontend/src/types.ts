@@ -1,12 +1,8 @@
 import {
     ACTION_TYPE,
-    AUTOCAPTURE,
-    CUSTOM_EVENT,
     EVENT_TYPE,
     OrganizationMembershipLevel,
     PluginsAccessLevel,
-    PAGEVIEW,
-    SCREEN,
     ShownAsValue,
     RETENTION_RECURRING,
     RETENTION_FIRST_TIME,
@@ -544,14 +540,21 @@ export type DisplayType =
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
-export type PathType = typeof PAGEVIEW | typeof AUTOCAPTURE | typeof SCREEN | typeof CUSTOM_EVENT
+export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+
+export enum PathType {
+    PageView = '$pageview',
+    AutoCapture = '$autocapture',
+    Screen = '$screen',
+    CustomEvent = 'custom_event',
+}
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
 export interface FilterType {
     insight?: InsightType
     display?: DisplayType
-    interval?: string
+    interval?: string // TODO: Move to IntervalType
     date_from?: string
     date_to?: string
     properties?: PropertyFilter[]
@@ -643,6 +646,7 @@ export interface TrendResult {
     label: string
     labels: string[]
     breakdown_value?: string | number
+    aggregated_value: number
     status?: string
 }
 

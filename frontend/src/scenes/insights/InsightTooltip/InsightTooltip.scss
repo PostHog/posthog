@@ -1,38 +1,66 @@
 @import '~/vars';
 
 .ph-graph-tooltip {
-    background: #fff;
+    background: #fafafa;
     border: 1px solid $border;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     border-radius: $radius;
-    padding: 8px 12px;
+    padding: 8px 0;
+    font-size: 0.85rem;
+    max-width: 480px;
+    overflow-x: hidden;
+    z-index: $z_graph_tooltip;
 
     header {
-        font-weight: 700;
+        padding: 0 8px;
+        font-weight: bold;
+        margin-bottom: $default_spacing / 2;
     }
 
     footer {
+        padding: 0 8px;
         margin-top: 0.5rem;
-        font-weight: 500;
+        font-weight: bold;
         font-size: 85%;
         color: $text_muted;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        svg {
+            font-size: 1.4em;
+            margin-right: 4px;
+        }
+    }
+
+    .series-container {
+        position: relative;
     }
 
     ul {
         list-style-type: none;
-        padding-left: 0;
+        padding: 0 $default_spacing;
         margin-bottom: 0;
+        max-height: 32vh;
+        overflow-y: hidden; // As the element has pointer-events: none to allow proper function, scrolling is not supported anyways
 
         li {
-            position: relative;
             display: flex;
             align-items: center;
+            padding-bottom: 2px;
+        }
+    }
 
-            .color-icon {
-                width: 12px;
-                height: 12px;
-                border-radius: 50%;
-                margin-right: 2px;
+    .inner-tooltip {
+        &.multiple {
+            header {
+                padding-bottom: 4px;
+                border-bottom: 1px solid $border;
+            }
+
+            footer {
+                margin-top: 0 !important;
+                padding-top: 6px;
+                border-top: 1px solid $border;
             }
         }
     }

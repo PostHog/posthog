@@ -8,13 +8,16 @@ import {
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
     ACTIONS_BAR_CHART_VALUE,
+    FEATURE_FLAGS,
 } from 'lib/constants'
 
-import { ActionsPie, ActionsTable, ActionsLineGraph, ActionsBarValueGraph } from './viz'
+import { ActionsPie, ActionsLineGraph, ActionsBarValueGraph, ActionsTable } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface Props {
     view: ViewType
@@ -32,6 +35,36 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { saveCohortWithFilters, refreshCohort, loadMoreBreakdownValues } = useActions(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const renderViz = (): JSX.Element | undefined => {
+        if (
+            !_filters.display ||
+            _filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
+            _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
+            _filters.display === ACTIONS_BAR_CHART
+        ) {
+            return <ActionsLineGraph view={view} />
+        }
+        if (_filters.display === ACTIONS_TABLE) {
+            if (view === ViewType.SESSIONS && _filters.session === 'dist') {
+                return <ActionsTable filters={_filters} view={view} />
+            }
+            return (
+                <InsightsTable
+                    isLegend={false}
+                    showTotalCount={featureFlags[FEATURE_FLAGS.NEW_TOOLTIPS] && view !== ViewType.SESSIONS}
+                />
+            )
+        }
+        if (_filters.display === ACTIONS_PIE_CHART) {
+            return <ActionsPie filters={_filters} view={view} />
+        }
+        if (_filters.display === ACTIONS_BAR_CHART_VALUE) {
+            return <ActionsBarValueGraph filters={_filters} view={view} />
+        }
+    }
+
     return (
         <>
             {(_filters.actions || _filters.events || _filters.session) && (
@@ -41,15 +74,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                         position: 'relative',
                     }}
                 >
-                    {(!_filters.display ||
-                        _filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                        _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
-                        _filters.display === ACTIONS_BAR_CHART) && <ActionsLineGraph view={view} />}
-                    {_filters.display === ACTIONS_TABLE && <ActionsTable filters={_filters} view={view} />}
-                    {_filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={_filters} view={view} />}
-                    {_filters.display === ACTIONS_BAR_CHART_VALUE && (
-                        <ActionsBarValueGraph filters={_filters} view={view} />
-                    )}
+                    {renderViz()}
                 </div>
             )}
             {_filters.breakdown && !resultsLoading && (

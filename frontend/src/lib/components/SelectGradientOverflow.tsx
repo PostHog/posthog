@@ -1,8 +1,9 @@
 import React, { ReactElement, RefObject, useEffect, useRef, useState } from 'react'
 import { Select, Tag, Tooltip } from 'antd'
 import { RefSelectProps, SelectProps } from 'antd/lib/select'
-import './SelectGradientOverflow.scss'
 import { CloseButton } from './CloseButton'
+import { toString } from 'lib/utils'
+import './SelectGradientOverflow.scss'
 
 interface DropdownGradientRendererProps {
     updateScrollGradient: () => void
@@ -28,7 +29,7 @@ type CustomTagProps = Parameters<Exclude<SelectProps<any>['tagRender'], undefine
 
 function CustomTag({ label, onClose, value }: CustomTagProps): JSX.Element {
     return (
-        <Tooltip title={value.toString()}>
+        <Tooltip title={toString(value)}>
             <Tag>
                 <span className="label">{label}</span>
                 <CloseButton onClick={onClose} />

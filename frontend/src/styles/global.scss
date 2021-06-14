@@ -472,6 +472,19 @@ code.code {
     font-size: 12px;
 }
 
+.graph-series-letter {
+    border-radius: 50%;
+    border: 2px solid $text_default;
+    font-weight: bold;
+    font-size: 12px;
+    height: 22px;
+    width: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
 // Overlays styles
 
 #bottom-notice {

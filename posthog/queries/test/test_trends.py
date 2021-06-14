@@ -1798,22 +1798,23 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(event_response[0]["label"], "watched movie - cohort1")
-            self.assertEqual(event_response[1]["label"], "watched movie - cohort2")
-            self.assertEqual(event_response[2]["label"], "watched movie - cohort3")
-            self.assertEqual(event_response[3]["label"], "watched movie - all users")
 
-            self.assertEqual(sum(event_response[0]["data"]), 1)
-            self.assertEqual(event_response[0]["breakdown_value"], cohort.pk)
+            counts = {}
+            break_val = {}
+            for res in event_response:
+                counts[res["label"]] = sum(res["data"])
+                break_val[res["label"]] = res["breakdown_value"]
 
-            self.assertEqual(sum(event_response[1]["data"]), 3)
-            self.assertEqual(event_response[1]["breakdown_value"], cohort2.pk)
+            self.assertEqual(counts["watched movie - cohort1"], 1)
+            self.assertEqual(counts["watched movie - cohort2"], 3)
+            self.assertEqual(counts["watched movie - cohort3"], 4)
+            self.assertEqual(counts["watched movie - all users"], 7)
 
-            self.assertEqual(sum(event_response[2]["data"]), 4)
-            self.assertEqual(event_response[2]["breakdown_value"], cohort3.pk)
+            self.assertEqual(break_val["watched movie - cohort1"], cohort.pk)
+            self.assertEqual(break_val["watched movie - cohort2"], cohort2.pk)
+            self.assertEqual(break_val["watched movie - cohort3"], cohort3.pk)
+            self.assertEqual(break_val["watched movie - all users"], "all")
 
-            self.assertEqual(sum(event_response[3]["data"]), 7)
-            self.assertEqual(event_response[3]["breakdown_value"], "all")
             self.assertEntityResponseEqual(
                 event_response, action_response,
             )
@@ -2045,6 +2046,42 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
             self.assertEqual(response[0]["aggregated_value"], 4)
             self.assertEqual(response[1]["aggregated_value"], 1)
+            self.assertEqual(
+                response[0]["days"],
+                [
+                    "2019-12-28",
+                    "2019-12-29",
+                    "2019-12-30",
+                    "2019-12-31",
+                    "2020-01-01",
+                    "2020-01-02",
+                    "2020-01-03",
+                    "2020-01-04",
+                ],
+            )
+
+        def test_breakdown_filtering_bar_chart_by_value(self):
+            self._create_events()
+
+            # test breakdown filtering
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-7d",
+                            "breakdown": "$some_property",
+                            "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,},],
+                            "display": TRENDS_BAR_VALUE,
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(
+                response[0]["count"], 2
+            )  # postgres returns none for display by value TODO: update clickhouse query to return this also
+            self.assertEqual(response[1]["aggregated_value"], 1)
+            self.assertEqual(response[2]["aggregated_value"], 1)
             self.assertEqual(
                 response[0]["days"],
                 [
