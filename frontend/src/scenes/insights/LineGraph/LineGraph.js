@@ -293,10 +293,11 @@ export function LineGraph({
                 const bounds = chartRef.current.getBoundingClientRect()
                 const chartClientLeft = bounds.left + window.pageXOffset
                 const chartClientTop = bounds.top + window.pageYOffset
-                const tooltipCaretOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltipModel.caretX - 50)
+                const tooltipCaretOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltipModel.caretX + 8)
+
                 tooltipEl.style.opacity = 1
                 tooltipEl.style.position = 'absolute'
-                tooltipEl.style.left = Math.min(tooltipCaretOffsetLeft, bounds.right - 250) + 'px' // guess typical width for initial render
+                tooltipEl.style.left = tooltipCaretOffsetLeft + 'px'
                 tooltipEl.style.top = chartClientTop + 'px'
                 tooltipEl.style.padding = tooltipModel.padding + 'px'
                 tooltipEl.style.pointerEvents = 'none'
@@ -329,9 +330,11 @@ export function LineGraph({
                     )
                 }
 
-                // get real width to make sure tooltip doesn't exceed window boundaries
+                // If tooltip is too large (or close to the edge), show it to the left of the data point instead
                 const maxXPosition = bounds.right - tooltipEl.clientWidth
-                tooltipEl.style.left = Math.min(tooltipCaretOffsetLeft, maxXPosition) + 'px'
+                if (tooltipCaretOffsetLeft > maxXPosition) {
+                    tooltipEl.style.left = `${chartClientLeft + tooltipModel.caretX - tooltipEl.clientWidth - 8}px`
+                }
             },
         }
 
