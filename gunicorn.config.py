@@ -3,6 +3,7 @@
 
 
 loglevel = "error"
+keepalive = 120
 
 
 def on_starting(server):
