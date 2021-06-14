@@ -44,9 +44,9 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
 
     const isSingleEntity = indexedResults.length === 1
     const colorList = getChartColors('white')
-    const showCountedByTag = !!indexedResults.find(({ action: { math } }) => math && math !== 'total')
+    const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
-    function SeriesToggleWrapper({ children, id }: { children: JSX.Element; id: number }): JSX.Element {
+    function SeriesToggleWrapper({ children, id }: { children: JSX.Element | string; id: number }): JSX.Element {
         return (
             <div
                 style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
@@ -101,7 +101,7 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
             render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
                 return (
                     <SeriesToggleWrapper id={item.id}>
-                        <>{formatBreakdownLabel(item.breakdown_value, cohorts)}</>
+                        {formatBreakdownLabel(item.breakdown_value, cohorts)}
                     </SeriesToggleWrapper>
                 )
             },
