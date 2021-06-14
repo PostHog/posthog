@@ -4,6 +4,8 @@
 
 loglevel = "error"
 keepalive = 120
+timeout = 90
+grateful_timeout = 120
 
 
 def on_starting(server):
