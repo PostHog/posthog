@@ -1,20 +1,15 @@
 export const lightColors = [
-    'navy',
     'blue',
     'cyan',
     'orange',
-    'yellow',
-    'olive',
+    'gold',
     'green',
     'lime',
-    'mint',
-    'maroon',
-    'brown',
-    'apricot',
-    'pink',
-    'salmon',
-    'indigo',
+    'volcano',
+    'magenta',
     'purple',
+    'red',
+    'geekblue',
 ]
 
 const getColorVar = (variable: string): string => getComputedStyle(document.body).getPropertyValue('--' + variable)
