@@ -1,14 +1,10 @@
 import { responsiveMap } from 'antd/lib/_util/responsiveObserve'
 import { ANTD_EXPAND_BUTTON_WIDTH } from '../components/ResizableTable'
 
-const BREAKPOINT_MAP = Object.entries(responsiveMap).reduce<Record<string, number>>(
-    (acc, [key, cssStatement]) => ({
-        ...acc,
-        [key]: parsePixelValue(cssStatement),
-    }),
-    {}
+const BREAKPOINT_MAP = Object.fromEntries(
+    Object.entries(responsiveMap).map(([key, cssStatement]) => [key, parsePixelValue(cssStatement)])
 )
-const BREAKPOINT_VALUES = Object.values(BREAKPOINT_MAP)
+const BREAKPOINT_VALUES = Object.values(BREAKPOINT_MAP).sort((a, b) => a - b)
 
 export function getMinColumnWidth(breakpoint: number): number {
     return breakpoint < 576 ? 150 : 50
@@ -23,15 +19,10 @@ export function parsePixelValue(cssStatement: string): number {
     return parseFloat(cssStatement.replace(/[^\d.]/g, ''))
 }
 
-export function getActiveBreakpoint(): number {
-    const { innerWidth: width } = window
-    let breakpoint = BREAKPOINT_VALUES[0]
-    BREAKPOINT_VALUES.forEach((value) => {
-        if (width > breakpoint) {
-            breakpoint = value
-        }
-    })
-    return breakpoint
+export function getActiveBreakpointValue(): number {
+    const windowWidth = window.innerWidth
+    const lastMatchingBreakpoint = BREAKPOINT_VALUES.filter((value) => windowWidth >= value).pop()
+    return lastMatchingBreakpoint || BREAKPOINT_VALUES[0]
 }
 
 export function getBreakpoint(breakpointKey: string): number {
