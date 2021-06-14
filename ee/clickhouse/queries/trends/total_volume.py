@@ -1,20 +1,8 @@
-from datetime import timedelta
 from typing import Any, Callable, Dict, List, Tuple
 
-from django.utils import timezone
-
-from ee.clickhouse.client import format_sql, sync_execute
-from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
-from ee.clickhouse.queries.trends.util import (
-    enumerate_time_range,
-    get_active_user_params,
-    parse_response,
-    populate_entity_params,
-    process_math,
-)
-from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_response, process_math
+from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
 from ee.clickhouse.sql.trends.volume import ACTIVE_USER_SQL, VOLUME_SQL, VOLUME_TOTAL_AGGREGATE_SQL

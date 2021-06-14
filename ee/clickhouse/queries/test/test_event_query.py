@@ -33,14 +33,6 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
-    return action
-
-
 class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         self._create_sample_data()
@@ -70,7 +62,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         FROM events e
         WHERE team_id = %(team_id)s
             AND event = %(event)s
-            AND timestamp >= '2021-05-01 00:00:00'
+            AND toStartOfDay(timestamp) >= toStartOfDay(toDateTime(%(date_from)s))
             AND timestamp <= '2021-05-07 23:59:59'
         """
 
