@@ -27,11 +27,11 @@ describe('ingestion benchmarks', () => {
             'my_id',
             '127.0.0.1',
             'http://localhost',
-            ({
+            {
                 event: 'default event',
                 timestamp: now.toISO(),
                 properties: { token: team.api_token },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,

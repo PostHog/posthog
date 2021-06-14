@@ -189,22 +189,7 @@ describe('UUID', () => {
             const uuid = new UUID('99aBcDeF-1234-4321-0000-dcba87654321')
             expect(uuid.array).toStrictEqual(
                 new Uint8Array([
-                    0x99,
-                    0xab,
-                    0xcd,
-                    0xef,
-                    0x12,
-                    0x34,
-                    0x43,
-                    0x21,
-                    0,
-                    0,
-                    0xdc,
-                    0xba,
-                    0x87,
-                    0x65,
-                    0x43,
-                    0x21,
+                    0x99, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x43, 0x21, 0, 0, 0xdc, 0xba, 0x87, 0x65, 0x43, 0x21,
                 ])
             )
         })
@@ -221,42 +206,12 @@ describe('UUID', () => {
             for (let i = 0; i < 10; i++) {
                 const uuid = new UUID(
                     new Uint8Array([
-                        0x99,
-                        0xab,
-                        0xcd,
-                        0xef,
-                        0x12,
-                        0x34,
-                        0x43,
-                        0x21,
-                        0,
-                        0,
-                        0xdc,
-                        0xba,
-                        0x87,
-                        0x65,
-                        0x43,
-                        0x21,
+                        0x99, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x43, 0x21, 0, 0, 0xdc, 0xba, 0x87, 0x65, 0x43, 0x21,
                     ])
                 )
                 expect(uuid.array).toStrictEqual(
                     new Uint8Array([
-                        0x99,
-                        0xab,
-                        0xcd,
-                        0xef,
-                        0x12,
-                        0x34,
-                        0x43,
-                        0x21,
-                        0,
-                        0,
-                        0xdc,
-                        0xba,
-                        0x87,
-                        0x65,
-                        0x43,
-                        0x21,
+                        0x99, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x43, 0x21, 0, 0, 0xdc, 0xba, 0x87, 0x65, 0x43, 0x21,
                     ])
                 )
             }

@@ -154,10 +154,10 @@ export const createProcessEventTests = (
             'person_1',
             '',
             '',
-            ({
+            {
                 event: 'user signed up',
                 properties: {},
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -210,7 +210,7 @@ export const createProcessEventTests = (
             '2',
             '127.0.0.1',
             '',
-            ({
+            {
                 event: '$autocapture',
                 properties: {
                     distinct_id: 2,
@@ -227,7 +227,7 @@ export const createProcessEventTests = (
                         { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
                     ],
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -256,7 +256,7 @@ export const createProcessEventTests = (
             '2',
             '127.0.0.1',
             '',
-            ({
+            {
                 event: '$autocapture',
                 properties: {
                     distinct_id: 2,
@@ -267,7 +267,7 @@ export const createProcessEventTests = (
                         { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
                     ],
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -408,10 +408,10 @@ export const createProcessEventTests = (
                 'asdfasdfasdf',
                 '',
                 '',
-                ({
+                {
                     event: '$pageview',
                     properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-                } as any) as PluginEvent,
+                } as any as PluginEvent,
                 1337,
                 now,
                 now,
@@ -427,10 +427,10 @@ export const createProcessEventTests = (
             'asdfasdfasdf',
             '',
             '',
-            ({
+            {
                 event: '$pageview',
                 properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -453,11 +453,11 @@ export const createProcessEventTests = (
             'movie played',
             '',
             '',
-            ({
+            {
                 event: '$pageview',
                 timestamp: tomorrow.toISO(),
                 properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             rightNow,
             tomorrowSentAt,
@@ -486,11 +486,11 @@ export const createProcessEventTests = (
             'movie played',
             '',
             '',
-            ({
+            {
                 event: '$pageview',
                 timestamp: tomorrow,
                 properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             rightNow,
             tomorrowSentAt,
@@ -514,11 +514,11 @@ export const createProcessEventTests = (
             'movie played',
             '',
             '',
-            ({
+            {
                 event: '$pageview',
                 timestamp: tomorrow.toISO(),
                 properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             rightNow,
             null,
@@ -537,10 +537,10 @@ export const createProcessEventTests = (
             'asdfasdfasdf',
             null,
             '',
-            ({
+            {
                 event: '$pageview',
                 properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -557,10 +557,10 @@ export const createProcessEventTests = (
             'asdfasdfasdf',
             '11.12.13.14',
             '',
-            ({
+            {
                 event: '$pageview',
                 properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -577,10 +577,10 @@ export const createProcessEventTests = (
             'asdfasdfasdf',
             '11.12.13.14',
             '',
-            ({
+            {
                 event: '$pageview',
                 properties: { $ip: '1.0.0.1', distinct_id: 'asdfasdfasdf', token: team.api_token },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -599,10 +599,10 @@ export const createProcessEventTests = (
             'asdfasdfasdf',
             '11.12.13.14',
             '',
-            ({
+            {
                 event: '$pageview',
                 properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -620,10 +620,10 @@ export const createProcessEventTests = (
             'new_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$create_alias',
                 properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -644,10 +644,10 @@ export const createProcessEventTests = (
             'old_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$create_alias',
                 properties: { distinct_id: 'old_distinct_id', token: team.api_token, alias: 'new_distinct_id' },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -668,10 +668,10 @@ export const createProcessEventTests = (
             'new_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$create_alias',
                 properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -692,10 +692,10 @@ export const createProcessEventTests = (
             'new_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$create_alias',
                 properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id_2' },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -715,10 +715,10 @@ export const createProcessEventTests = (
             'new_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$create_alias',
                 properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -741,10 +741,10 @@ export const createProcessEventTests = (
             'new_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$create_alias',
                 properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -765,7 +765,7 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({ offset: 150, event: '$autocapture', distinct_id: 'distinct_id' } as any) as PluginEvent,
+            { offset: 150, event: '$autocapture', distinct_id: 'distinct_id' } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -784,7 +784,7 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({ offset: 150, event: '$autocapture', distinct_id: 'distinct_id' } as any) as PluginEvent,
+            { offset: 150, event: '$autocapture', distinct_id: 'distinct_id' } as any as PluginEvent,
             team.id,
             now,
             null,
@@ -810,10 +810,10 @@ export const createProcessEventTests = (
             'new_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$create_alias',
                 properties: { distinct_id: 'new_distinct_id', token: team.api_token, alias: 'old_distinct_id' },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -836,7 +836,7 @@ export const createProcessEventTests = (
             'new_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$autocapture',
                 properties: {
                     distinct_id: 'new_distinct_id',
@@ -852,7 +852,7 @@ export const createProcessEventTests = (
                         },
                     ],
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -884,14 +884,14 @@ export const createProcessEventTests = (
             '2',
             '',
             '',
-            ({
+            {
                 event: '$autocapture',
                 properties: {
                     distinct_id: 1,
                     token: team.api_token,
                     $elements: [{ tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' }],
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -920,10 +920,10 @@ export const createProcessEventTests = (
             'some-id',
             '',
             '',
-            ({
+            {
                 event: '$snapshot',
                 properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -950,14 +950,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$identify',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $set: { a_prop: 'test-1', c_prop: 'test-1' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -978,14 +978,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$identify',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $set: { a_prop: 'test-2', b_prop: 'test-2b' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1003,14 +1003,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$identify',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $set_once: { a_prop: 'test-1', c_prop: 'test-1' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1031,14 +1031,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$identify',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $set_once: { a_prop: 'test-2', b_prop: 'test-2b' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1056,7 +1056,7 @@ export const createProcessEventTests = (
             'new_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$identify',
                 properties: {
                     $anon_distinct_id: 'anonymous_id',
@@ -1064,7 +1064,7 @@ export const createProcessEventTests = (
                     distinct_id: 'new_distinct_id',
                     $set: { a_prop: 'test' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1083,7 +1083,7 @@ export const createProcessEventTests = (
             'new_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$identify',
                 properties: {
                     $anon_distinct_id: 'anonymous_id',
@@ -1091,7 +1091,7 @@ export const createProcessEventTests = (
                     distinct_id: 'new_distinct_id',
                     $set: { a_prop: 'test' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1112,14 +1112,14 @@ export const createProcessEventTests = (
             'new_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$identify',
                 properties: {
                     $anon_distinct_id: 'anonymous_id',
                     token: team.api_token,
                     distinct_id: 'new_distinct_id',
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1139,14 +1139,14 @@ export const createProcessEventTests = (
             'new_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$identify',
                 properties: {
                     $anon_distinct_id: 'anonymous_id',
                     token: team.api_token,
                     distinct_id: 'new_distinct_id',
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1164,14 +1164,14 @@ export const createProcessEventTests = (
             'new_distinct_id',
             '',
             '',
-            ({
+            {
                 event: '$identify',
                 properties: {
                     $anon_distinct_id: 'anonymous_id_2',
                     token: team.api_token,
                     distinct_id: 'new_distinct_id',
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1205,14 +1205,14 @@ export const createProcessEventTests = (
             '2',
             '',
             '',
-            ({
+            {
                 event: '$identify',
                 properties: {
                     $anon_distinct_id: '1',
                     token: team.api_token,
                     distinct_id: '2',
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1237,7 +1237,7 @@ export const createProcessEventTests = (
             distinct_id,
             '',
             '',
-            ({ event: '$identify', properties: {} } as any) as PluginEvent,
+            { event: '$identify', properties: {} } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1256,7 +1256,7 @@ export const createProcessEventTests = (
             'xxx',
             '127.0.0.1',
             '',
-            ({ event: 'purchase', properties: { price: 299.99, name: 'AirPods Pro' } } as any) as PluginEvent,
+            { event: 'purchase', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1307,7 +1307,7 @@ export const createProcessEventTests = (
             'xxx',
             '',
             '',
-            ({ event: { 'event name': 'as object' }, properties: {} } as any) as PluginEvent,
+            { event: { 'event name': 'as object' }, properties: {} } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1322,7 +1322,7 @@ export const createProcessEventTests = (
             'xxx',
             '',
             '',
-            ({ event: ['event name', 'a list'], properties: {} } as any) as PluginEvent,
+            { event: ['event name', 'a list'], properties: {} } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1337,7 +1337,7 @@ export const createProcessEventTests = (
             'xxx',
             '',
             '',
-            ({ event: 'E'.repeat(300), properties: { price: 299.99, name: 'AirPods Pro' } } as any) as PluginEvent,
+            { event: 'E'.repeat(300), properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,
             DateTime.utc(),
             DateTime.utc(),
@@ -1354,7 +1354,7 @@ export const createProcessEventTests = (
                 'xxx',
                 '',
                 '',
-                ({ event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any) as PluginEvent,
+                { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
                 team.id,
                 DateTime.utc(),
                 DateTime.utc(),
@@ -1367,7 +1367,7 @@ export const createProcessEventTests = (
                 'xxx',
                 '',
                 '',
-                ({ event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any) as PluginEvent,
+                { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
                 team.id,
                 DateTime.utc(),
                 DateTime.utc(),
@@ -1383,14 +1383,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: 'some_event',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $set: { a_prop: 'test-1', c_prop: 'test-1' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1412,14 +1412,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: 'some_event',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $set: { a_prop: 'test-1', c_prop: 'test-1' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1443,14 +1443,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: 'some_event',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $set_once: { a_prop: 'test-1', c_prop: 'test-1' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1470,14 +1470,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: 'some_other_event',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $set_once: { a_prop: 'test-2', b_prop: 'test-2b' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1493,7 +1493,7 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: 'some_event',
                 $set: { key1: 'value1', key2: 'value2' },
                 $set_once: { key1_once: 'value1', key2_once: 'value2' },
@@ -1503,7 +1503,7 @@ export const createProcessEventTests = (
                     $set: { key2: 'value3', key3: 'value4' },
                     $set_once: { key2_once: 'value3', key3_once: 'value4' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1535,14 +1535,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: 'some_event',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $increment: { a: 100, b: 200, c: -100, d: 2 ** 64, non_numerical: '1' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1564,14 +1564,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: 'some_other_event',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $increment: { a: 247, b: -100, c: -568 },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1592,14 +1592,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: 'some_event',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $set: { hello: 'world' },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1610,14 +1610,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: 'some_other_event',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $increment: { hello: 10000 }, // try to increment a string
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1638,14 +1638,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: 'some_other_event',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $increment: { a: 1, b: 2, c: 3 },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,
@@ -1656,14 +1656,14 @@ export const createProcessEventTests = (
             'distinct_id',
             '',
             '',
-            ({
+            {
                 event: 'some_other_event',
                 properties: {
                     token: team.api_token,
                     distinct_id: 'distinct_id',
                     $increment: { a: 1.2, b: NaN, c: Infinity, d: 4 },
                 },
-            } as any) as PluginEvent,
+            } as any as PluginEvent,
             team.id,
             now,
             now,

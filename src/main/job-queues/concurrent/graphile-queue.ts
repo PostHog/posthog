@@ -70,7 +70,7 @@ export class GraphileQueue extends JobQueueBase {
                 this.consumerPool = await this.createPool()
                 this.runner = await run({
                     // graphile's types refer to a local node_modules version of Pool
-                    pgPool: (this.consumerPool as Pool) as any,
+                    pgPool: this.consumerPool as Pool as any,
                     schema: this.serverConfig.JOB_QUEUE_GRAPHILE_SCHEMA,
                     noPreparedStatements: !this.serverConfig.JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS,
                     concurrency: 1,
