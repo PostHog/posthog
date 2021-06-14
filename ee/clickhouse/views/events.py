@@ -47,7 +47,7 @@ class ClickhouseEventsViewSet(EventViewSet):
         self, filter: Filter, team: Team, request: Request, long_date_from: bool = False, limit: int = 100
     ) -> List:
         limit += 1
-        limit_sql = f"LIMIT %(limit)"
+        limit_sql = "LIMIT %(limit)s"
         conditions, condition_params = determine_event_conditions(
             team,
             {
@@ -86,7 +86,7 @@ class ClickhouseEventsViewSet(EventViewSet):
         if is_csv_request:
             limit = self.CSV_EXPORT_LIMIT
         elif self.request.GET.get("limit", None):
-            limit = int(self.request.GET.get("limit"))
+            limit = int(self.request.GET.get("limit"))  # type: ignore
         else:
             limit = 100
 
