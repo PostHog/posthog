@@ -4,7 +4,7 @@ import sqlparse
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.event_query import TrendsEventQuery
+from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
