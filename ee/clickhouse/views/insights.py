@@ -63,7 +63,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     @cached_function()
     def calculate_funnel(self, request: Request) -> Dict[str, Any]:
         team = self.team
-        filter = Filter(request=request, data={**request.data, "insight": INSIGHT_FUNNELS})
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
         return {"result": ClickhouseFunnel(team=team, filter=filter).run()}
 
     @cached_function()

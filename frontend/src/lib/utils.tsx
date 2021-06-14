@@ -261,7 +261,7 @@ export function isOperatorRegex(operator: string): boolean {
     return ['regex', 'not_regex'].includes(operator)
 }
 
-export function isValidRegex(value: string): boolean {
+export function isValidRegex(value: any): boolean {
     try {
         new RegExp(value)
         return true
@@ -903,4 +903,8 @@ export function lightenDarkenColor(hex: string, pct: number): string {
     b = output(b + amt)
 
     return `rgb(${[r, g, b].join(',')})`
+}
+
+export function toString(input?: any | null): string {
+    return input?.toString() || ''
 }

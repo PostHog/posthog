@@ -1,3 +1,5 @@
+import json
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
@@ -29,19 +31,38 @@ ON CONFLICT DO NOTHING
 
 class Group(object):
     def __init__(
-        self, properties: Optional[Dict[str, Any]] = None, action_id: Optional[int] = None, days: Optional[int] = None,
+        self,
+        properties: Optional[Dict[str, Any]] = None,
+        action_id: Optional[int] = None,
+        event_id: Optional[str] = None,
+        days: Optional[int] = None,
+        count: Optional[int] = None,
+        count_operator: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ):
-        if not properties and not action_id:
-            raise ValueError("Cohort group needs properties or action_id")
+        if not properties and not action_id and not event_id:
+            raise ValueError("Cohort group needs properties or action_id or event_id")
         self.properties = properties
         self.action_id = action_id
+        self.event_id = event_id
         self.days = days
+        self.count = count
+        self.count_operator = count_operator
+        self.start_date = start_date
+        self.end_date = end_date
+
+    def to_dict(self) -> Dict[str, Any]:
+        dup = self.__dict__.copy()
+        dup["start_date"] = self.start_date.isoformat() if self.start_date else self.start_date
+        dup["end_date"] = self.end_date.isoformat() if self.end_date else self.end_date
+        return dup
 
 
 class CohortManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
         if kwargs.get("groups"):
-            kwargs["groups"] = [Group(**group).__dict__ for group in kwargs["groups"]]
+            kwargs["groups"] = [Group(**group).to_dict() for group in kwargs["groups"]]
         cohort = super().create(*args, **kwargs)
         return cohort
 
