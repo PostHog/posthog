@@ -519,11 +519,7 @@ export class DB {
         }
     }
 
-    public async moveDistinctId(
-        person: Person,
-        personDistinctId: PersonDistinctId,
-        moveToPerson: Person
-    ): Promise<void> {
+    public async moveDistinctId(personDistinctId: PersonDistinctId, moveToPerson: Person): Promise<void> {
         await this.postgresQuery(
             `UPDATE posthog_persondistinctid SET person_id = $1 WHERE id = $2`,
             [moveToPerson.id, personDistinctId.id],
