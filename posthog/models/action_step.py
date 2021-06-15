@@ -25,9 +25,10 @@ class ActionStep(models.Model):
     url_matching: models.CharField = models.CharField(
         max_length=400, choices=URL_MATCHING, default=CONTAINS, null=True, blank=True,
     )
-    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     event: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     properties: models.JSONField = models.JSONField(default=list, null=True, blank=True)
+    # DEPRECATED, DISUSED
+    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
 
 @receiver(post_save, sender=ActionStep)
