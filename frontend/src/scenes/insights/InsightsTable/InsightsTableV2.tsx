@@ -28,7 +28,7 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
 }
 
 export function InsightsTableV2({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
-    const { indexedResults, visibilityMap, filters, numberOfSeries } = useValues(trendsLogic)
+    const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
@@ -111,29 +111,27 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
         })
     }
 
-    if (!(numberOfSeries === 1 && indexedResults[0].breakdown_value)) {
-        columns.push({
-            title: 'Event or Action',
-            render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
-                return (
-                    <SeriesToggleWrapper id={item.id}>
-                        <InsightLabel
-                            seriesColor={colorList[index]}
-                            action={item.action}
-                            fallbackName={item.label}
-                            hasMultipleSeries={indexedResults.length > 1}
-                            showCountedByTag={showCountedByTag}
-                            breakdownValue={item.breakdown_value?.toString()}
-                            hideBreakdown
-                            hideIcon
-                        />
-                    </SeriesToggleWrapper>
-                )
-            },
-            fixed: 'left',
-            width: 200,
-        })
-    }
+    columns.push({
+        title: 'Event or Action',
+        render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
+            return (
+                <SeriesToggleWrapper id={item.id}>
+                    <InsightLabel
+                        seriesColor={colorList[index]}
+                        action={item.action}
+                        fallbackName={item.label}
+                        hasMultipleSeries={indexedResults.length > 1}
+                        showCountedByTag={showCountedByTag}
+                        breakdownValue={item.breakdown_value?.toString()}
+                        hideBreakdown
+                        hideIcon
+                    />
+                </SeriesToggleWrapper>
+            )
+        },
+        fixed: 'left',
+        width: 200,
+    })
 
     if (indexedResults && indexedResults.length > 0) {
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
