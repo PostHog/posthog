@@ -67,8 +67,6 @@ export function ActionsPie({
                             labels={data[0].labels}
                             color={color}
                             data-attr="trend-pie-graph-d3"
-                            dashboardItemId={dashboardItemId}
-                            inSharedMode={inSharedMode}
                         />
                     ) : (
                         <LineGraph

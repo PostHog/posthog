@@ -1,17 +1,11 @@
-import React, { useState, useEffect /*useRef*/ } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import * as d3 from 'd3'
-
-// import { useActions, useValues } from 'kea'
 import /*formatLabel, compactNumber,*/ '~/lib/utils'
-// import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
-// import dayjs from 'dayjs'
-// import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-// import { InsightLabel } from 'lib/components/InsightLabel'
-// import { FEATURE_FLAGS } from 'lib/constants'
-// import { InsightTooltip } from '../InsightTooltip'
 import { TrendResult } from '~/types'
 import { PieArcDatum } from 'd3'
+
+import './PieChart.scss'
 
 export type Dataset = TrendResult & {
     borderColor: string[]
@@ -31,9 +25,6 @@ interface PieChartProps {
     // type: any //TODO
     // onClick: CallableFunction
     ['data-attr']: string
-    dashboardItemId?: number
-    inSharedMode?: boolean,
-    percentage?: boolean,
 }
 
 const CHART_DEFAULTS = {
@@ -66,13 +57,14 @@ function ArcPath({ d, backgroundColor, borderColor, borderWidth, hoverBorderWidt
         <path
             d={d}
             fill={backgroundColor || CHART_DEFAULTS.backgroundColor}
-            transform="translate(50,50)"
+            transform={transform}
             onMouseOver={() => setHover(true)}
             onMouseOut={() => setHover(false)}
             style={{
                 stroke,
                 strokeWidth: hover ? hoverStrokeWidth : strokeWidth,
                 strokeLinejoin: 'bevel',
+                transform: 'all 0.2s ease',
             }}
         />
     )
@@ -86,13 +78,11 @@ export function PieChart({
     // type,
     // onClick,
     ['data-attr']: dataAttr,
-    dashboardItemId,
-    inSharedMode,
-    percentage = false,
 }:
 PieChartProps): JSX.Element {
     const [focused, setFocused] = useState(false)
     const [arcs, setArcs] = useState<PieArc[]>([])
+    const containerRef = useRef<HTMLDivElement>(null)
     const chartData = inputDatasets[0] // Eventually, we'll support multiple pie series
 
     useEscapeKey(() => setFocused(false), [focused])
@@ -107,39 +97,35 @@ PieChartProps): JSX.Element {
         setArcs(_arcs)
     }
 
+    const viewBoxWidth = containerRef.current?.clientWidth || 800
+    const viewBoxHeight = containerRef.current?.clientHeight || 400
+    const innerRadius = 0, outerRadius = viewBoxHeight * 0.45
+    const center = { x: viewBoxWidth / 2, y: viewBoxHeight / 2 }
     return (
         <div
             className="graph-container"
             data-attr={dataAttr}
-            // onMouseMove={() => setEnabled(true)}
-            // onMouseLeave={() => setEnabled(false)}
+            ref={containerRef}
         >
-            <svg>
+            <svg viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`}>
                 {arcs
-                    .map((arc) =>
-                        d3.arc()({
-                            ...arc,
-                            innerRadius: 0,
-                            outerRadius: 50,
-                        })
-                    ).map((d, index) => (
+                    .map((arc, index) => (
                         <ArcPath
-                            d={d}
+                            d={d3.arc()({
+                                ...arc,
+                                innerRadius,
+                                outerRadius,
+                            })}
                             key={index}
                             backgroundColor={chartData.backgroundColor[index]}
                             borderColor={chartData.borderColor[index]}
                             borderWidth={chartData.borderWidth}
                             hoverBorderWidth={chartData.hoverBorderWidth}
-                            transform="translate(50,50)"
+                            transform={`translate(${center.x},${center.y})`}
                         />
-                    ))}
+                    ))
+                }
             </svg>
-            {/* <pre>
-                inputDatasets: {JSON.stringify(inputDatasets)}
-                labels: {JSON.stringify(labels)}
-                dashboardItemId: {JSON.stringify(dashboardItemId)}
-                inSharedMode: {JSON.stringify(inSharedMode)}
-            </pre> */}
         </div>
     )
 }
