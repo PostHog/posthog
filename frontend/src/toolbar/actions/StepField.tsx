@@ -10,10 +10,11 @@ interface StepFieldProps {
     item: 'href' | 'text' | 'selector' | 'url'
     step: ActionStepForm
     label: string | JSX.Element
+    caption?: string | JSX.Element
     field: { name: number; fieldKey: number; key: number }
 }
 
-export function StepField({ field, step, item, label }: StepFieldProps): JSX.Element {
+export function StepField({ field, step, item, label, caption }: StepFieldProps): JSX.Element {
     const selected = step && ((step as any)[`${item}_selected`] as boolean)
     const fieldStyle = selected ? {} : { opacity: 0.5 }
 
@@ -31,6 +32,7 @@ export function StepField({ field, step, item, label }: StepFieldProps): JSX.Ele
                 >
                     <Checkbox>{label}</Checkbox>
                 </Form.Item>
+                {caption && <div className="action-field-caption">{caption}</div>}
             </Form.Item>
             {item === 'url' ? (
                 <Form.Item
