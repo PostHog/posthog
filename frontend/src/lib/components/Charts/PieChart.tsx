@@ -43,9 +43,20 @@ interface ArcPathProps {
     borderWidth?: number
     hoverBorderWidth?: number
     transform: string
+    onMouseOver: (e: React.MouseEvent) => any
+    onMouseOut: (e: React.MouseEvent) => any
 }
 
-function ArcPath({ d, backgroundColor, borderColor, borderWidth, hoverBorderWidth, transform }: ArcPathProps): JSX.Element | null {
+function ArcPath({
+    d,
+    backgroundColor,
+    borderColor,
+    borderWidth,
+    hoverBorderWidth,
+    transform,
+    onMouseOver,
+    onMouseOut,
+}: ArcPathProps): JSX.Element | null {
     if (!d) {
         return null
     }
@@ -53,13 +64,20 @@ function ArcPath({ d, backgroundColor, borderColor, borderWidth, hoverBorderWidt
     const strokeWidth = borderWidth ?? CHART_DEFAULTS.borderWidth
     const hoverStrokeWidth = hoverBorderWidth ?? CHART_DEFAULTS.hoverBorderWidth
     const stroke = borderColor ?? backgroundColor ?? CHART_DEFAULTS.borderColor
+
     return (
         <path
             d={d}
             fill={backgroundColor || CHART_DEFAULTS.backgroundColor}
             transform={transform}
-            onMouseOver={() => setHover(true)}
-            onMouseOut={() => setHover(false)}
+            onMouseOver={(e) => {
+                setHover(true)
+                onMouseOver(e)
+            }}
+            onMouseOut={function (e) {
+                setHover(false)
+                onMouseOut(e)
+            }}
             style={{
                 stroke,
                 strokeWidth: hover ? hoverStrokeWidth : strokeWidth,
@@ -67,6 +85,15 @@ function ArcPath({ d, backgroundColor, borderColor, borderWidth, hoverBorderWidt
                 transform: 'all 0.2s ease',
             }}
         />
+    )
+}
+
+function SVGTooltip({ x, y, label }: { x: number; y: number; label: string }): JSX.Element {
+    // TODO: use foreignElement to inject custom tooltip
+    return (
+        <text textAnchor="middle" x={x} y={y} onMouseOver={(e) => e.stopPropagation()}>
+            {label}
+        </text>
     )
 }
 
@@ -78,10 +105,11 @@ export function PieChart({
     // type,
     // onClick,
     ['data-attr']: dataAttr,
-}:
-PieChartProps): JSX.Element {
+}: PieChartProps): JSX.Element {
     const [focused, setFocused] = useState(false)
     const [arcs, setArcs] = useState<PieArc[]>([])
+    const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+    const [tooltipPosition, setTooltipPosition] = useState<number[] | null>(null)
     const containerRef = useRef<HTMLDivElement>(null)
     const chartData = inputDatasets[0] // Eventually, we'll support multiple pie series
 
@@ -93,38 +121,51 @@ PieChartProps): JSX.Element {
 
     function buildChart(): void {
         const _arcs = d3.pie()(chartData.data)
-        console.log('arcs:', _arcs)
         setArcs(_arcs)
     }
 
+    // TODO: Try using https://developer.mozilla.org/en-US/docs/Web/API/ResizeObserver/observe
     const viewBoxWidth = containerRef.current?.clientWidth || 800
     const viewBoxHeight = containerRef.current?.clientHeight || 400
-    const innerRadius = 0, outerRadius = viewBoxHeight * 0.45
-    const center = { x: viewBoxWidth / 2, y: viewBoxHeight / 2 }
+    const innerRadius = 0,
+        outerRadius = viewBoxHeight * 0.45
+    const center = [viewBoxWidth / 2, viewBoxHeight / 2]
     return (
-        <div
-            className="graph-container"
-            data-attr={dataAttr}
-            ref={containerRef}
-        >
-            <svg viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`}>
-                {arcs
-                    .map((arc, index) => (
-                        <ArcPath
-                            d={d3.arc()({
-                                ...arc,
-                                innerRadius,
-                                outerRadius,
-                            })}
-                            key={index}
-                            backgroundColor={chartData.backgroundColor[index]}
-                            borderColor={chartData.borderColor[index]}
-                            borderWidth={chartData.borderWidth}
-                            hoverBorderWidth={chartData.hoverBorderWidth}
-                            transform={`translate(${center.x},${center.y})`}
-                        />
-                    ))
-                }
+        <div className="graph-container" data-attr={dataAttr} ref={containerRef}>
+            <svg viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`} style={{ width: '100%', height: '100%' }}>
+                {arcs.map((arc, index) => {
+                    const arcObject = {
+                        ...arc,
+                        innerRadius,
+                        outerRadius,
+                    }
+                    const centroidOffset = d3.arc().centroid(arcObject)
+                    const centroid = [center[0] + centroidOffset[0], center[1] + centroidOffset[1]]
+                    return (
+                        <>
+                            <ArcPath
+                                d={d3.arc()(arcObject)}
+                                key={index}
+                                backgroundColor={chartData.backgroundColor[index]}
+                                borderColor={chartData.borderColor[index]}
+                                borderWidth={chartData.borderWidth}
+                                hoverBorderWidth={chartData.hoverBorderWidth}
+                                transform={`translate(${center.join(',')})`}
+                                onMouseOver={() => {
+                                    setHoverIndex(index)
+                                    setTooltipPosition(centroid)
+                                }}
+                                onMouseOut={() => {
+                                    setHoverIndex(null)
+                                    setTooltipPosition(null)
+                                }}
+                            />
+                        </>
+                    )
+                })}
+                {hoverIndex !== null && tooltipPosition && (
+                    <SVGTooltip x={tooltipPosition[0]} y={tooltipPosition[1]} label={labels[hoverIndex]} />
+                )}
             </svg>
         </div>
     )
