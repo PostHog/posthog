@@ -344,8 +344,6 @@ def base64_decode(data):
 
 # Used by non-DRF endpoins from capture.py and decide.py (/decide, /batch, /capture, etc)
 def load_data_from_request(request):
-    print(request.GET.get("token", ""))
-    print(request.GET)
     data = None
     if request.method == "POST":
         if request.content_type in ["", "text/plain", "application/json"]:
