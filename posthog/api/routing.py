@@ -10,6 +10,8 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.utils import load_data_from_request
 
+ENDPOINTS_ALLOWING_TEAM_OVERRIDE = {"/api/feature_flag", "/api/feature_flag/"}
+
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
     """DefaultRouter with optional trailing slash and drf-extensions nesting."""
@@ -32,9 +34,10 @@ class StructuredViewSetMixin(NestedViewSetMixin):
 
     @property
     def team_id(self) -> int:
-        team_from_token = self._get_team_from_request()
-        if team_from_token:
-            return team_from_token.id
+        if self.request.path in ENDPOINTS_ALLOWING_TEAM_OVERRIDE:
+            team_from_token = self._get_team_from_request()
+            if team_from_token:
+                return team_from_token.id
 
         if self.legacy_team_compatibility:
             team = self.request.user.team
@@ -44,9 +47,10 @@ class StructuredViewSetMixin(NestedViewSetMixin):
 
     @property
     def team(self) -> Team:
-        team_from_token = self._get_team_from_request()
-        if team_from_token:
-            return team_from_token
+        if self.request.path in ENDPOINTS_ALLOWING_TEAM_OVERRIDE:
+            team_from_token = self._get_team_from_request()
+            if team_from_token:
+                return team_from_token
 
         if self.legacy_team_compatibility:
             team = self.request.user.team
