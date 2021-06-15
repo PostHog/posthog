@@ -7,6 +7,7 @@ import { TZLabel } from './TimezoneAware'
 export function createdAtColumn(): Record<string, any> {
     return {
         title: 'Created',
+        ellipsis: true,
         render: function RenderCreatedAt(_: any, item: Record<string, any>): JSX.Element | undefined | '' {
             return item.created_at && <TZLabel time={item.created_at} />
         },
@@ -19,6 +20,7 @@ export function createdByColumn(items: Record<string, any>[]): Record<string, an
     const { user } = useValues(userLogic)
     return {
         title: 'Created by',
+        width: 150,
         render: function Render(_: any, item: any) {
             return item.created_by ? item.created_by.first_name || item.created_by.email : '-'
         },

@@ -27,22 +27,38 @@ export function FeatureFlags(): JSX.Element {
             title: 'Key',
             dataIndex: 'key',
             className: 'ph-no-capture',
-            textWrap: 'word-break',
-            fixed: true,
+            fixed: 'left',
+            ellipsis: {
+                showTitle: false,
+            },
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
             render: function Render(_: string, featureFlag: FeatureFlagType) {
+                if (!featureFlag.active) {
+                    return (
+                        <Tooltip title="This feature flag is disabled.">
+                            <DisconnectOutlined style={{ marginRight: 4 }} />
+                        </Tooltip>
+                    )
+                }
+
                 return (
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                        {!featureFlag.active && (
-                            <Tooltip title="This feature flag is disabled.">
-                                <DisconnectOutlined style={{ marginRight: 4 }} />
-                            </Tooltip>
-                        )}
-                        <span style={{ marginRight: 4 }}>{featureFlag.key}</span>
-                        <div onClick={(e) => e.stopPropagation()}>
-                            <CopyToClipboardInline iconPosition="start" explicitValue={featureFlag.key} />
+                    <Tooltip title={featureFlag.key}>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <div
+                                style={{
+                                    marginRight: 4,
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                }}
+                            >
+                                {featureFlag.key}
+                            </div>
+                            <div onClick={(e) => e.stopPropagation()}>
+                                <CopyToClipboardInline iconPosition="start" explicitValue={featureFlag.key} />
+                            </div>
                         </div>
-                    </div>
+                    </Tooltip>
                 )
             },
         },
@@ -50,14 +66,18 @@ export function FeatureFlags(): JSX.Element {
             title: 'Description',
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
-                    <div style={{ wordWrap: 'break-word', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                        {featureFlag.name}
-                    </div>
+                    <Tooltip title={featureFlag.name}>
+                        <div style={{ wordWrap: 'break-word', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                            {featureFlag.name}
+                        </div>
+                    </Tooltip>
                 )
             },
             className: 'ph-no-capture',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.name).localeCompare(b.name),
-            ellipsis: true,
+            ellipsis: {
+                showTitle: false,
+            },
         },
         createdAtColumn(),
         createdByColumn(featureFlags),
@@ -75,6 +95,9 @@ export function FeatureFlags(): JSX.Element {
         },
         {
             title: 'Enabled',
+            width: 90,
+            fixed: 'right',
+            align: 'right',
             render: function RenderActive(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <Switch
@@ -89,6 +112,9 @@ export function FeatureFlags(): JSX.Element {
         },
         {
             title: 'Usage',
+            width: 100,
+            fixed: 'right',
+            align: 'right',
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <Link
@@ -108,6 +134,9 @@ export function FeatureFlags(): JSX.Element {
         },
         {
             title: 'Actions',
+            width: 100,
+            fixed: 'right',
+            align: 'right',
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <>
