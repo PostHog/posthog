@@ -777,7 +777,7 @@ export interface EventDefinition {
     id: string
     name: string
     description: string
-    tags: string[]
+    tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
     owner?: UserBasicType | null
@@ -789,7 +789,7 @@ export interface PropertyDefinition {
     id: string
     name: string
     description: string
-    tags: string[]
+    tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
     owner?: UserBasicType | null

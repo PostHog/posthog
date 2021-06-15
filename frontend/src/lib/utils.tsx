@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import { Button, Spin } from 'antd'
 import dayjs from 'dayjs'
 import { EventType, FilterType, ActionFilter } from '~/types'
-import { lightColors } from 'lib/colors'
+import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './logic/featureFlagLogic'
 import { open } from '@papercups-io/chat-widget'
@@ -715,7 +715,7 @@ export function colorForString(s: string): string {
     /*
     Returns a color name for a given string, where the color will always be the same for the same string.
     */
-    return lightColors[hashCodeForString(s) % lightColors.length]
+    return tagColors[hashCodeForString(s) % tagColors.length]
 }
 
 export function midEllipsis(input: string, maxLength: number): string {
