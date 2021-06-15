@@ -27,8 +27,8 @@ export function FeatureFlags(): JSX.Element {
             title: 'Key',
             dataIndex: 'key',
             className: 'ph-no-capture',
+            textWrap: 'word-break',
             fixed: true,
-            ellipsis: true,
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
@@ -48,10 +48,15 @@ export function FeatureFlags(): JSX.Element {
         },
         {
             title: 'Description',
-            dataIndex: 'name',
+            render: function Render(_: string, featureFlag: FeatureFlagType) {
+                return (
+                    <div style={{ wordWrap: 'break-word', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                        {featureFlag.name}
+                    </div>
+                )
+            },
             className: 'ph-no-capture',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.name).localeCompare(b.name),
-            width: '40%',
             ellipsis: true,
         },
         createdAtColumn(),
