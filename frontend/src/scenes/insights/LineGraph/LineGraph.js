@@ -396,7 +396,7 @@ export function LineGraph({
                 newUI && type !== 'horizontalBar'
                     ? {
                           crosshair: {
-                              snapping: {
+                              snap: {
                                   enabled: true, // Snap crosshair to data points
                               },
                               sync: {
