@@ -1334,6 +1334,16 @@
         "test",
         "bug"
       ]
+    },
+    {
+      "login": "dbinetti",
+      "name": "David Binetti",
+      "avatar_url": "https://avatars.githubusercontent.com/u/161722?v=4",
+      "profile": "https://www.dbinetti.com",
+      "contributions": [
+        "doc",
+        "ideas"
+      ]
     }
   ],
   "contributorsPerLine": 7,
