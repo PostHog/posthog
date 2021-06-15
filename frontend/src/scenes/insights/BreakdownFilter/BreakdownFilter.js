@@ -18,10 +18,12 @@ function PropertyFilter({ breakdown, onChange }) {
         <SelectGradientOverflow
             showSearch
             autoFocus
+            delayBeforeAutoOpen={150}
+            placement="bottomLeft"
             style={{ width: '100%' }}
             placeholder={'Break down by'}
             value={breakdown ? breakdown : undefined}
-            onChange={(_, item) => onChange(item.value.replace(/event_|person_/gi, ''), item.type)}
+            onChange={(_, item) => onChange(item.value, item.type)}
             filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
             data-attr="prop-breakdown-select"
         >
@@ -30,7 +32,7 @@ function PropertyFilter({ breakdown, onChange }) {
                     {Object.entries(eventProperties).map(([key, item], index) => (
                         <Select.Option
                             key={'event_' + key}
-                            value={'event_' + item.value}
+                            value={item.value}
                             type="event"
                             data-attr={'prop-breakdown-' + index}
                         >
@@ -44,7 +46,7 @@ function PropertyFilter({ breakdown, onChange }) {
                     {Object.entries(personProperties).map(([key, item], index) => (
                         <Select.Option
                             key={'person_' + key}
-                            value={'person_' + item.name}
+                            value={item.name}
                             type="person"
                             data-attr={'prop-filter-person-' + (eventProperties.length + index)}
                         >
@@ -62,6 +64,8 @@ function CohortFilter({ breakdown, onChange }) {
     return (
         <SelectGradientOverflow
             autoFocus
+            delayBeforeAutoOpen={150}
+            placement="bottomLeft"
             mode="multiple"
             style={{ width: '100%' }}
             placeholder={'Break down by'}
@@ -135,6 +139,7 @@ export function BreakdownFilter({ filters, onChange }) {
     return (
         <Popover
             visible={open}
+            destroyTooltipOnHide
             onVisibleChange={setOpen}
             content={
                 <Content
@@ -151,6 +156,7 @@ export function BreakdownFilter({ filters, onChange }) {
             }
             trigger={insight === ViewType.STICKINESS || insight === ViewType.LIFECYCLE ? 'none' : 'click'}
             placement="bottomLeft"
+            getPopupContainer={(trigger) => trigger.parentNode} // Prevent scrolling up on trigger
         >
             <Tooltip
                 title={

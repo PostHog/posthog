@@ -17,7 +17,7 @@ def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple
     params = {}
     if filter.date_from:
 
-        date_from = "and {table}timestamp >= '{}'".format(format_ch_timestamp(filter.date_from, filter), table=table,)
+        date_from = "AND {table}timestamp >= '{}'".format(format_ch_timestamp(filter.date_from, filter), table=table,)
         params.update({"date_from": format_ch_timestamp(filter.date_from, filter)})
     else:
         try:
@@ -25,12 +25,12 @@ def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple
         except IndexError:
             date_from = ""
         else:
-            date_from = "and {table}timestamp >= '{}'".format(format_ch_timestamp(earliest_date, filter), table=table,)
+            date_from = "AND {table}timestamp >= '{}'".format(format_ch_timestamp(earliest_date, filter), table=table,)
             params.update({"date_from": format_ch_timestamp(earliest_date, filter)})
 
     _date_to = filter.date_to
 
-    date_to = "and {table}timestamp <= '{}'".format(format_ch_timestamp(_date_to, filter, " 23:59:59"), table=table,)
+    date_to = "AND {table}timestamp <= '{}'".format(format_ch_timestamp(_date_to, filter, " 23:59:59"), table=table,)
     params.update({"date_to": format_ch_timestamp(_date_to, filter, " 23:59:59")})
 
     return date_from or "", date_to or "", params

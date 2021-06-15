@@ -7,6 +7,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import (
+    enumerate_time_range,
     get_active_user_params,
     parse_response,
     populate_entity_params,
@@ -61,7 +62,7 @@ class ClickhouseTrendsBreakdown:
         action_params: Dict = {}
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
-            action_query, action_params = format_action_filter(action)
+            action_query, action_params = format_action_filter(action, table_name="e")
 
         params = {
             **params,
@@ -122,8 +123,9 @@ class ClickhouseTrendsBreakdown:
                 aggregate_operation=aggregate_operation,
                 breakdown_value=breakdown_value,
             )
+            time_range = enumerate_time_range(filter, seconds_in_interval)
 
-            return content_sql, params, self._parse_single_aggregate_result(filter, entity)
+            return content_sql, params, self._parse_single_aggregate_result(filter, entity, {"days": time_range})
 
         else:
 
@@ -259,12 +261,14 @@ class ClickhouseTrendsBreakdown:
             None if filter.offset else NONE_BREAKDOWN_PROP_JOIN_SQL,
         )
 
-    def _parse_single_aggregate_result(self, filter: Filter, entity: Entity) -> Callable:
+    def _parse_single_aggregate_result(
+        self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]
+    ) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
             for idx, stats in enumerate(result):
-                additional_values = self._breakdown_result_descriptors(stats[1], filter, entity)
-                parsed_result = {"aggregated_value": stats[0], **additional_values}
+                result_descriptors = self._breakdown_result_descriptors(stats[1], filter, entity)
+                parsed_result = {"aggregated_value": stats[0], **result_descriptors, **additional_values}
                 parsed_results.append(parsed_result)
 
             return parsed_results
@@ -275,8 +279,8 @@ class ClickhouseTrendsBreakdown:
         def _parse(result: List) -> List:
             parsed_results = []
             for idx, stats in enumerate(result):
-                additional_values = self._breakdown_result_descriptors(stats[2], filter, entity)
-                parsed_result = parse_response(stats, filter, additional_values)
+                result_descriptors = self._breakdown_result_descriptors(stats[2], filter, entity)
+                parsed_result = parse_response(stats, filter, result_descriptors)
                 parsed_results.append(parsed_result)
 
             return sorted(parsed_results, key=lambda x: 0 if x.get("breakdown_value") != "all" else 1)

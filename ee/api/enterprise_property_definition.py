@@ -5,7 +5,7 @@ from posthog.api.shared import UserBasicSerializer
 
 
 class EnterprisePropertyDefinitionSerializer(serializers.ModelSerializer):
-    updated_by = UserBasicSerializer(read_only=False)
+    updated_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = EnterprisePropertyDefinition

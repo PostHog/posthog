@@ -1,12 +1,8 @@
 import {
     ACTION_TYPE,
-    AUTOCAPTURE,
-    CUSTOM_EVENT,
     EVENT_TYPE,
     OrganizationMembershipLevel,
     PluginsAccessLevel,
-    PAGEVIEW,
-    SCREEN,
     ShownAsValue,
     RETENTION_RECURRING,
     RETENTION_FIRST_TIME,
@@ -544,14 +540,21 @@ export type DisplayType =
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
-export type PathType = typeof PAGEVIEW | typeof AUTOCAPTURE | typeof SCREEN | typeof CUSTOM_EVENT
+export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+
+export enum PathType {
+    PageView = '$pageview',
+    AutoCapture = '$autocapture',
+    Screen = '$screen',
+    CustomEvent = 'custom_event',
+}
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
 export interface FilterType {
     insight?: InsightType
     display?: DisplayType
-    interval?: string
+    interval?: string // TODO: Move to IntervalType
     date_from?: string
     date_to?: string
     properties?: PropertyFilter[]
@@ -640,9 +643,11 @@ export interface TrendResult {
     count: number
     data: number[]
     days: string[]
+    dates?: string[]
     label: string
     labels: string[]
     breakdown_value?: string | number
+    aggregated_value: number
     status?: string
 }
 
@@ -770,22 +775,26 @@ export interface LicenseType {
 
 export interface EventDefinition {
     id: string
-    owner: UserBasicType | null
     name: string
     description: string
-    tags: string[]
+    tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
+    owner?: UserBasicType | null
+    updated_at?: string
+    updated_by?: UserBasicType | null
 }
 
 export interface PropertyDefinition {
     id: string
-    owner: UserBasicType | null
     name: string
     description: string
-    tags: string[]
+    tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
+    owner?: UserBasicType | null
+    updated_at?: string
+    updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
 }
 
@@ -826,4 +835,10 @@ export interface TiledIconModuleProps {
     header?: string
     subHeader?: string
     analyticsModuleKey?: string
+}
+
+export type EventOrPropType = EventDefinition & PropertyDefinition
+export interface AppContext {
+    current_user: UserType | null
+    preflight: PreflightStatus
 }

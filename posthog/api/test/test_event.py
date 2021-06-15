@@ -422,6 +422,34 @@ def factory_test_event_api(event_factory, person_factory, _):
             response = self.client.get(f"/api/event/im_a_string_not_an_integer",)
             self.assertIn(response.status_code, [status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST])
 
+        def test_limit(self):
+            person_factory(
+                properties={"email": "tim@posthog.com"},
+                team=self.team,
+                distinct_ids=["2", "some-random-uid"],
+                is_identified=True,
+            )
+
+            event_factory(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="2",
+                properties={"$ip": "8.8.8.8"},
+                elements=[Element(tag_name="button", text="something"), Element(tag_name="div")],
+            )
+            event_factory(
+                event="$pageview", team=self.team, distinct_id="some-random-uid", properties={"$ip": "8.8.8.8"}
+            )
+            event_factory(
+                event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"}
+            )
+
+            response = self.client.get("/api/event/?limit=1").json()
+            self.assertEqual(1, len(response["results"]))
+
+            response = self.client.get("/api/event/?limit=2").json()
+            self.assertEqual(2, len(response["results"]))
+
     return TestEvents
 
 

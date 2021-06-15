@@ -8,7 +8,7 @@ from posthog.models.action_step import ActionStep
 
 
 def format_action_filter(
-    action: Action, prepend: str = "action", use_loop: bool = False, filter_by_team=True
+    action: Action, prepend: str = "action", use_loop: bool = False, filter_by_team=True, table_name: str = ""
 ) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk} if filter_by_team else {}
@@ -24,14 +24,12 @@ def format_action_filter(
         if step.event == AUTOCAPTURE_EVENT:
             from ee.clickhouse.models.property import filter_element  # prevent circular import
 
-            el_conditions, element_params = filter_element(
-                model_to_dict(step), "{}_{}{}".format(action.pk, index, prepend)
-            )
+            el_conditions, element_params = filter_element(model_to_dict(step), f"{action.pk}_{index}{prepend}")
             params = {**params, **element_params}
             conditions += el_conditions
 
         # filter event conditions (ie URL)
-        event_conditions, event_params = filter_event(step, "{}_{}{}".format(action.pk, index, prepend), index)
+        event_conditions, event_params = filter_event(step, f"{action.pk}_{index}{prepend}", index, table_name)
         params = {**params, **event_params}
         conditions += event_conditions
 
@@ -41,7 +39,8 @@ def format_action_filter(
             prop_query, prop_params = parse_prop_clauses(
                 Filter(data={"properties": step.properties}).properties,
                 team_id=action.team.pk if filter_by_team else None,
-                prepend="action_props_{}_{}".format(action.pk, step.pk),
+                prepend=f"action_props_{action.pk}_{step.pk}",
+                table_name=table_name,
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
@@ -57,28 +56,33 @@ def format_action_filter(
     return formatted_query, params
 
 
-def filter_event(step: ActionStep, prepend: str = "event", index: int = 0) -> Tuple[List[str], Dict]:
+def filter_event(
+    step: ActionStep, prepend: str = "event", index: int = 0, table_name: str = ""
+) -> Tuple[List[str], Dict]:
     params = {"{}_{}".format(prepend, index): step.event}
     conditions = []
+
+    if table_name != "":
+        table_name += "."
 
     if step.url:
         if step.url_matching == ActionStep.EXACT:
             conditions.append(
-                "JSONExtractString(properties, '$current_url') = %({}_prop_val_{})s".format(prepend, index)
+                f"JSONExtractString({table_name}properties, '$current_url') = %({prepend}_prop_val_{index})s"
             )
-            params.update({"{}_prop_val_{}".format(prepend, index): step.url})
+            params.update({f"{prepend}_prop_val_{index}": step.url})
         elif step.url_matching == ActionStep.REGEX:
             conditions.append(
-                "match(JSONExtractString(properties, '$current_url'), %({}_prop_val_{})s)".format(prepend, index)
+                f"match(JSONExtractString({table_name}properties, '$current_url'), %({prepend}_prop_val_{index})s)"
             )
-            params.update({"{}_prop_val_{}".format(prepend, index): step.url})
+            params.update({f"{prepend}_prop_val_{index}": step.url})
         else:
             conditions.append(
-                "JSONExtractString(properties, '$current_url') LIKE %({}_prop_val_{})s".format(prepend, index)
+                f"JSONExtractString({table_name}properties, '$current_url') LIKE %({prepend}_prop_val_{index})s"
             )
-            params.update({"{}_prop_val_{}".format(prepend, index): "%" + step.url + "%"})
+            params.update({f"{prepend}_prop_val_{index}": f"%{step.url}%"})
 
-    conditions.append("event = %({}_{})s".format(prepend, index))
+    conditions.append(f"event = %({prepend}_{index})s")
 
     return conditions, params
 

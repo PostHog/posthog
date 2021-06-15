@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { PersonModal } from './PersonModal'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
@@ -10,10 +10,11 @@ import {
     ACTIONS_BAR_CHART_VALUE,
 } from 'lib/constants'
 
-import { ActionsPie, ActionsTable, ActionsLineGraph, ActionsBarValueGraph } from './viz'
+import { ActionsPie, ActionsLineGraph, ActionsBarValueGraph, ActionsTable } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 
 interface Props {
@@ -32,6 +33,34 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { saveCohortWithFilters, refreshCohort, loadMoreBreakdownValues } = useActions(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
+
+    const renderViz = (): JSX.Element | undefined => {
+        if (
+            !_filters.display ||
+            _filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
+            _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
+            _filters.display === ACTIONS_BAR_CHART
+        ) {
+            return <ActionsLineGraph view={view} />
+        }
+        if (_filters.display === ACTIONS_TABLE) {
+            if (view === ViewType.SESSIONS && _filters.session === 'dist') {
+                return <ActionsTable filters={_filters} view={view} />
+            }
+            return (
+                <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
+                    <InsightsTable isLegend={false} showTotalCount={view !== ViewType.SESSIONS} />
+                </BindLogic>
+            )
+        }
+        if (_filters.display === ACTIONS_PIE_CHART) {
+            return <ActionsPie filters={_filters} view={view} />
+        }
+        if (_filters.display === ACTIONS_BAR_CHART_VALUE) {
+            return <ActionsBarValueGraph filters={_filters} view={view} />
+        }
+    }
+
     return (
         <>
             {(_filters.actions || _filters.events || _filters.session) && (
@@ -41,15 +70,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                         position: 'relative',
                     }}
                 >
-                    {(!_filters.display ||
-                        _filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                        _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
-                        _filters.display === ACTIONS_BAR_CHART) && <ActionsLineGraph view={view} />}
-                    {_filters.display === ACTIONS_TABLE && <ActionsTable filters={_filters} view={view} />}
-                    {_filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={_filters} view={view} />}
-                    {_filters.display === ACTIONS_BAR_CHART_VALUE && (
-                        <ActionsBarValueGraph filters={_filters} view={view} />
-                    )}
+                    {renderViz()}
                 </div>
             )}
             {_filters.breakdown && !resultsLoading && (

@@ -4,9 +4,10 @@ import { kea, useActions, useValues } from 'kea'
 import { Tabs } from 'antd'
 import { ActionsTable } from 'scenes/actions/ActionsTable'
 import { EventsTable } from './EventsTable'
-import { EventsVolumeTable } from './EventsVolumeTable'
-import { PropertiesVolumeTable } from './PropertiesVolumeTable'
+import { EventsVolumeTable } from './definitions/EventsVolumeTable'
+import { PropertiesVolumeTable } from './definitions/PropertiesVolumeTable'
 import { eventsLogicType } from './EventsType'
+import { DefinitionDrawer } from './definitions/DefinitionDrawer'
 
 const eventsLogic = kea<eventsLogicType>({
     actions: {
@@ -52,6 +53,7 @@ export function ManageEvents(): JSX.Element {
                     <PropertiesVolumeTable />
                 </Tabs.TabPane>
             </Tabs>
+            <DefinitionDrawer />
         </div>
     )
 }

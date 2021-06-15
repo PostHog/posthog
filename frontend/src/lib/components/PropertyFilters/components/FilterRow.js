@@ -34,9 +34,6 @@ export const FilterRow = React.memo(function FilterRow({
         index,
         onComplete: () => setOpen(false),
         logic,
-        selectProps: {
-            delayBeforeAutoOpen: 150,
-        },
     }
 
     return (
@@ -70,7 +67,17 @@ export const FilterRow = React.memo(function FilterRow({
                         defaultVisible={false}
                         visible={open}
                         placement={popoverPlacement || 'bottomLeft'}
-                        content={<PropertyFilter {...propertyFilterCommonProps} variant="tabs" />}
+                        getPopupContainer={(trigger) => trigger.parentNode} // Prevent scrolling up on trigger
+                        content={
+                            <PropertyFilter
+                                {...propertyFilterCommonProps}
+                                variant="tabs"
+                                selectProps={{
+                                    delayBeforeAutoOpen: 150,
+                                    position: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
+                                }}
+                            />
+                        }
                     >
                         {key ? (
                             <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />

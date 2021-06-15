@@ -32,12 +32,12 @@ cffi==1.14.5
     # via cryptography
 chardet==3.0.4
     # via requests
-clickhouse-driver==0.2.0
+clickhouse-driver==0.2.1
     # via
     #   -r requirements.in
     #   aioch
     #   clickhouse-pool
-clickhouse-pool==0.4.3
+clickhouse-pool==0.5.3
     # via -r requirements.in
 cryptography==3.4.7
     # via
@@ -74,7 +74,7 @@ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
     # via -r requirements.in
 django-statsd==2.5.2
     # via -r requirements.in
-django==3.1.8
+django==3.1.12
     # via
     #   -r requirements.in
     #   django-axes
@@ -101,7 +101,7 @@ future==0.18.2
     # via lzstring
 grpcio==1.33.1
     # via -r requirements.in
-gunicorn==20.0.4
+gunicorn==20.1.0
     # via -r requirements.in
 idna==2.8
     # via
@@ -177,7 +177,7 @@ requests-oauthlib==1.3.0
     # via
     #   -r requirements.in
     #   social-auth-core
-requests==2.22.0
+requests==2.25.1
     # via
     #   -r requirements.in
     #   django-rest-hooks
@@ -217,7 +217,7 @@ tzlocal==2.1
     # via clickhouse-driver
 unicodecsv==0.14.1
     # via djangorestframework-csv
-urllib3==1.25.8
+urllib3==1.26.5
     # via
     #   requests
     #   sentry-sdk

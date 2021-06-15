@@ -20,7 +20,7 @@ import { InsightTitle } from '../InsightTitle'
 import { InsightActionBar } from '../InsightActionBar'
 
 export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
-    const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
+    const { filters, filtersLoading, numberOfSeries } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
@@ -54,7 +54,9 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                         }
                     />
                     {filtersLoading ? (
-                        <Skeleton active />
+                        <div data-test-filters-loading>
+                            <Skeleton active />
+                        </div>
                     ) : (
                         <ActionFilter
                             horizontalUI
@@ -62,7 +64,7 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                             setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                             typeKey={'trends_' + view}
                             buttonCopy="Add graph series"
-                            showLetters={isUsingFormulas}
+                            showLetters={numberOfSeries > 1}
                             singleFilter={filters.insight === ViewType.LIFECYCLE}
                             hideMathSelector={filters.insight === ViewType.LIFECYCLE}
                             customRowPrefix={
@@ -83,7 +85,9 @@ export function TrendTabHorizontal({ view, annotationsToCreate }: TrendTabProps)
                             <hr />
                             <h4 className="secondary">Lifecycle Toggles</h4>
                             {filtersLoading ? (
-                                <Skeleton active />
+                                <div data-test-filters-loading>
+                                    <Skeleton active />
+                                </div>
                             ) : (
                                 <div className="toggles">
                                     {lifecycles.map((lifecycle, idx) => (
