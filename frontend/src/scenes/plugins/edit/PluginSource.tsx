@@ -12,34 +12,36 @@ import SCAFFOLD_errors from '!raw-loader!@posthog/plugin-scaffold/dist/errors.d.
 // @ts-ignore
 import SCAFFOLD_types from '!raw-loader!@posthog/plugin-scaffold/dist/types.d.ts'
 
-const defaultSource = `// Learn more about plugins at: https://posthog.com/docs/plugins/overview
-import { Plugin } from '@posthog/plugin-scaffold'
+const defaultSource = `
+// Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
 
-type MyPluginType = Plugin<{
-  config: {
-    username: string
-  },
-  global: {},
-}>
-
-const MyPlugin: MyPluginType = {
-  setupPlugin: async (meta) => {
-    
-  },
-  onEvent: async (event, meta) => {
-    console.log(\`Event \${event.event} has been processed!\`)
-  },
+/* Runs on every event */
+function processEvent(event, { config }) {
+    // Some events (like $identify) don't have properties
+    if (event.properties) {
+        event.properties['hello'] = \`Hello \${config.name || 'world'}\`
+    }
+    // Return the event to ingest, return nothing to discard  
+    return event
 }
 
-export default MyPlugin
-`
+/* Runs once on plugin installation */
+function setupPlugin (meta) {
+
+}
+
+/* Runs once every full hour */
+// function runEveryHour(meta) {
+//     const weather = await (await fetch('https://weather.example.api/?city=New+York')).json()
+//     posthog.capture('weather', { degrees: weather.deg, fahrenheit: weather.us })
+}`
 
 const defaultConfig = [
     {
         markdown: 'Specify your config here',
     },
     {
-        key: 'username',
+        key: 'name',
         name: 'Person to greet',
         type: 'string',
         hint: 'Used to personalise the property `hello`',
@@ -101,8 +103,12 @@ export function PluginSource(): JSX.Element {
                 {editingSource ? (
                     <>
                         <p>
-                            <a href="https://posthog.com/docs/plugins/build" target="_blank">
+                            <a href="https://posthog.com/docs/plugins/build/overview" target="_blank">
                                 Read the documentation.
+                            </a>
+                            Happy with your plugin? You can also
+                            <a href="https://posthog.com/docs/plugins/build/tutorial#" target="_blank">
+                                submit it to the official plugin repository
                             </a>
                         </p>
                         <Form.Item label="Name" name="name" required rules={[requiredRule]}>
