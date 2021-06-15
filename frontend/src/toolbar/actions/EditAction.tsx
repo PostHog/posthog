@@ -140,7 +140,7 @@ export function EditAction(): JSX.Element {
                                                     step={step}
                                                     item="url"
                                                     label="Page URL"
-                                                    caption="URL of the page where the element should match (useful if you have non-unique elements in different pages)"
+                                                    caption="Elements will match only when triggered from the URL."
                                                 />
                                             </>
                                         ) : null}
