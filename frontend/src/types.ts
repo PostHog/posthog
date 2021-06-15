@@ -643,6 +643,7 @@ export interface TrendResult {
     count: number
     data: number[]
     days: string[]
+    dates?: string[]
     label: string
     labels: string[]
     breakdown_value?: string | number

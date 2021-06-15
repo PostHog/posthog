@@ -10,6 +10,8 @@ import {
     endWithPunctation,
     dateFilterToText,
     hexToRGBA,
+    average,
+    median,
 } from './utils'
 
 describe('capitalizeFirstLetter()', () => {
@@ -166,5 +168,22 @@ describe('hexToRGBA()', () => {
         expect(hexToRGBA('#ff0000', 0.3)).toEqual('rgba(255,0,0,0.3)')
         expect(hexToRGBA('#0000Cc', 0)).toEqual('rgba(0,0,204,0)')
         expect(hexToRGBA('#5375ff', 1)).toEqual('rgba(83,117,255,1)')
+    })
+})
+
+describe('average()', () => {
+    it('calculates average correctly', () => {
+        expect(average([9, 4, 1, 3, 5, 7])).toEqual(4.8)
+        expect(average([72, 35, 68, 66, 70, 9, 81])).toEqual(57.3) // Tests rounding too
+        expect(average([86.4, 46.321, 45.304, 34.1, 147])).toEqual(71.8) // Tests rounding too
+    })
+})
+
+describe('median()', () => {
+    it('returns middle number if array length is odd', () => {
+        expect(median([9, 4, 1, 3, 5, 7, 3, 6, 14])).toEqual(5)
+    })
+    it('returns avg of middle numbers if array length is even', () => {
+        expect(median([9, 4, 0, 5, 7, 3, 6, 14])).toEqual(5.5)
     })
 })
