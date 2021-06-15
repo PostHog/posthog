@@ -44,13 +44,14 @@ export function ActionsLineGraph({
                     dashboardItemId
                         ? null
                         : (point) => {
-                              const { dataset, day } = point
+                              const { dataset, day, crossDataset } = point
                               loadPeople(
                                   dataset.action || 'session',
                                   dataset.label,
                                   day,
                                   day,
-                                  dataset.breakdown_value || dataset.status
+                                  dataset.breakdown_value || dataset.status,
+                                  crossDataset
                               )
                           }
                 }

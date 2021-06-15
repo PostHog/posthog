@@ -40,6 +40,13 @@ export interface IndexedTrendResult extends TrendResult {
     id: number
 }
 
+interface DatasetType {
+    action: ActionFilter
+    day: string
+    label: string
+    breakdown_value?: string
+}
+
 interface TrendPeople {
     people: PersonType[]
     breakdown_value?: string
@@ -49,6 +56,7 @@ interface TrendPeople {
     label: string
     action: ActionFilter
     loadingMore?: boolean
+    crossDataset?: DatasetType // `crossDataset` contains the data set for all the points in the same x-axis point; allows switching between matching points
 }
 
 interface PeopleParamType {
@@ -156,7 +164,16 @@ function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: stri
 // - dashboardItemId
 // - filters
 export const trendsLogic = kea<
-    trendsLogicType<TrendResponse, IndexedTrendResult, TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter>
+    trendsLogicType<
+        TrendResponse,
+        IndexedTrendResult,
+        TrendResult,
+        FilterType,
+        ActionType,
+        TrendPeople,
+        PropertyFilter,
+        DatasetType
+    >
 >({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
@@ -207,20 +224,20 @@ export const trendsLogic = kea<
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
-
-        loadPeople: (action, label, date_from, date_to, breakdown_value) => ({
+        loadPeople: (action, label, date_from, date_to, breakdown_value, crossDataset?: DatasetType) => ({
             action,
             label,
             date_from,
             date_to,
             breakdown_value,
+            crossDataset,
         }),
         saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
         refreshCohort: true,
         setLoadingMorePeople: (status) => ({ status }),
         setShowingPeople: (isShowing) => ({ isShowing }),
-        setPeople: (people, count, action, label, day, breakdown_value, next) => ({
+        setPeople: (people, count, action, label, day, breakdown_value, next, crossDataset?: DatasetType) => ({
             people,
             count,
             action,
@@ -228,6 +245,7 @@ export const trendsLogic = kea<
             day,
             breakdown_value,
             next,
+            crossDataset,
         }),
         setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
         toggleVisibility: (index: number) => ({ index }),
@@ -415,7 +433,7 @@ export const trendsLogic = kea<
                 errorToast(undefined, "We couldn't create your cohort:")
             }
         },
-        loadPeople: async ({ label, action, date_from, date_to, breakdown_value }, breakpoint) => {
+        loadPeople: async ({ label, action, date_from, date_to, breakdown_value, crossDataset }, breakpoint) => {
             let people = []
             if (values.filters.insight === ViewType.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
@@ -447,12 +465,22 @@ export const trendsLogic = kea<
                 label,
                 date_from,
                 breakdown_value,
-                people.next
+                people.next,
+                crossDataset
             )
         },
         loadMorePeople: async ({}, breakpoint) => {
             if (values.people) {
-                const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
+                const {
+                    people: currPeople,
+                    count,
+                    action,
+                    label,
+                    day,
+                    breakdown_value,
+                    next,
+                    crossDataset,
+                } = values.people
                 actions.setLoadingMorePeople(true)
                 const people = await api.get(next)
                 actions.setLoadingMorePeople(false)
@@ -464,7 +492,8 @@ export const trendsLogic = kea<
                     label,
                     day,
                     breakdown_value,
-                    people.next
+                    people.next,
+                    crossDataset
                 )
             }
         },

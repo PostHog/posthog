@@ -10,8 +10,6 @@ import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { toParams } from 'lib/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { PersonModalV2 } from './PersonModalV2'
 
 interface Props {
     visible: boolean
@@ -19,12 +17,7 @@ interface Props {
     onSaveCohort: () => void
 }
 
-export function PersonModal(props: Props): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags[FEATURE_FLAGS.NEW_TOOLTIPS] ? <PersonModalV2 {...props} /> : <PersonModalV1 {...props} />
-}
-
-function PersonModalV1({ visible, view, onSaveCohort }: Props): JSX.Element {
+export function PersonModalV2({ visible, view, onSaveCohort }: Props): JSX.Element {
     const { people, filters, peopleModalURL, loadingMorePeople } = useValues(
         trendsLogic({ dashboardItemId: null, view })
     )
@@ -38,6 +31,7 @@ function PersonModalV1({ visible, view, onSaveCohort }: Props): JSX.Element {
             ? `"${people?.label}"`
             : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
     const closeModal = (): void => setShowingPeople(false)
+
     return (
         <Modal
             title={title}
