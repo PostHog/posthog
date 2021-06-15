@@ -7,6 +7,9 @@ import { getChartColors } from 'lib/colors'
 import { useValues, useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { ChartParams, TrendResultWithAggregate } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Dataset, PieChart } from 'lib/components/Charts/PieChart'
 
 export function ActionsPie({
     dashboardItemId,
@@ -16,6 +19,8 @@ export function ActionsPie({
     cachedResults,
     inSharedMode,
 }: ChartParams): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const d3DefaultChart = featureFlags[FEATURE_FLAGS.D3_PIECHARTS_DEFAULT]
     const [data, setData] = useState<Record<string, any>[] | null>(null)
     const [total, setTotal] = useState(0)
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
@@ -56,23 +61,34 @@ export function ActionsPie({
         data[0] && data[0].labels ? (
             <div className="actions-pie-component">
                 <div className="pie-chart">
-                    <LineGraph
-                        data-attr="trend-pie-graph"
-                        color={color}
-                        type="doughnut"
-                        datasets={data}
-                        labels={data[0].labels}
-                        inSharedMode={inSharedMode}
-                        dashboardItemId={dashboardItemId}
-                        onClick={(point) => {
-                            const { dataset } = point
-                            const action = dataset.actions[point.index]
-                            const label = dataset.labels[point.index]
-                            const date_from = dataset.days[0]
-                            const date_to = dataset.days[dataset.days.length - 1]
-                            loadPeople(action, label, date_from, date_to, null)
-                        }}
-                    />
+                    {d3DefaultChart ? (
+                        <PieChart
+                            datasets={data as Dataset[]}
+                            labels={data[0].labels}
+                            color={color}
+                            data-attr="trend-pie-graph-d3"
+                            dashboardItemId={dashboardItemId}
+                            inSharedMode={inSharedMode}
+                        />
+                    ) : (
+                        <LineGraph
+                            data-attr="trend-pie-graph"
+                            color={color}
+                            type="doughnut"
+                            datasets={data}
+                            labels={data[0].labels}
+                            inSharedMode={inSharedMode}
+                            dashboardItemId={dashboardItemId}
+                            onClick={(point) => {
+                                const { dataset } = point
+                                const action = dataset.actions[point.index]
+                                const label = dataset.labels[point.index]
+                                const date_from = dataset.days[0]
+                                const date_to = dataset.days[dataset.days.length - 1]
+                                loadPeople(action, label, date_from, date_to, null)
+                            }}
+                        />
+                    )}
                 </div>
                 <h1>
                     <span className="label">Total: </span>
