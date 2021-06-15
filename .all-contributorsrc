@@ -1324,6 +1324,16 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "neilkakkar",
+      "name": "Neil Kakkar",
+      "avatar_url": "https://avatars.githubusercontent.com/u/7115141?v=4",
+      "profile": "http://neilkakkar.com",
+      "contributions": [
+        "test",
+        "bug"
+      ]
     }
   ],
   "contributorsPerLine": 7,
