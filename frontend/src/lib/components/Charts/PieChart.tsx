@@ -26,14 +26,14 @@ type PieArc = PieArcDatum<number | { valueOf(): number }>
 
 interface PieChartProps {
     datasets: Dataset[]
-    // labels: string[] //TODO
+    labels: string[] //TODO
     color: string
     // type: any //TODO
     // onClick: CallableFunction
     ['data-attr']: string
-    // dashboardItemId?: number
-    // inSharedMode?: boolean,
-    // percentage?: boolean,
+    dashboardItemId?: number
+    inSharedMode?: boolean,
+    percentage?: boolean,
 }
 
 const CHART_DEFAULTS = {
@@ -45,17 +45,51 @@ const CHART_DEFAULTS = {
     hoverBorderWidth: 1,
 }
 
+interface ArcPathProps {
+    d: string | null
+    backgroundColor?: string
+    borderColor?: string
+    borderWidth?: number
+    hoverBorderWidth?: number
+    transform: string
+}
+
+function ArcPath({ d, backgroundColor, borderColor, borderWidth, hoverBorderWidth, transform }: ArcPathProps): JSX.Element | null {
+    if (!d) {
+        return null
+    }
+    const [hover, setHover] = useState(false)
+    const strokeWidth = borderWidth ?? CHART_DEFAULTS.borderWidth
+    const hoverStrokeWidth = hoverBorderWidth ?? CHART_DEFAULTS.hoverBorderWidth
+    const stroke = borderColor ?? backgroundColor ?? CHART_DEFAULTS.borderColor
+    return (
+        <path
+            d={d}
+            fill={backgroundColor || CHART_DEFAULTS.backgroundColor}
+            transform="translate(50,50)"
+            onMouseOver={() => setHover(true)}
+            onMouseOut={() => setHover(false)}
+            style={{
+                stroke,
+                strokeWidth: hover ? hoverStrokeWidth : strokeWidth,
+                strokeLinejoin: 'bevel',
+            }}
+        />
+    )
+}
+
 // const noop = () => {}
 export function PieChart({
     datasets: inputDatasets,
-    // labels,
+    labels,
     color,
     // type,
     // onClick,
     ['data-attr']: dataAttr,
-}: // dashboardItemId,
-// inSharedMode,
-// percentage = false,
+    dashboardItemId,
+    inSharedMode,
+    percentage = false,
+}:
 PieChartProps): JSX.Element {
     const [focused, setFocused] = useState(false)
     const [arcs, setArcs] = useState<PieArc[]>([])
@@ -88,19 +122,17 @@ PieChartProps): JSX.Element {
                             innerRadius: 0,
                             outerRadius: 50,
                         })
-                    )
-                    .map((d, index) =>
-                        d ? (
-                            <path
-                                d={d}
-                                fill={chartData.backgroundColor[index] || CHART_DEFAULTS.backgroundColor}
-                                stroke={chartData.borderColor[index] || CHART_DEFAULTS.borderColor}
-                                strokeWidth={chartData.borderWidth ?? CHART_DEFAULTS.borderWidth}
-                                strokeLinejoin="round"
-                                transform="translate(50,50)"
-                            />
-                        ) : null
-                    )}
+                    ).map((d, index) => (
+                        <ArcPath
+                            d={d}
+                            key={index}
+                            backgroundColor={chartData.backgroundColor[index]}
+                            borderColor={chartData.borderColor[index]}
+                            borderWidth={chartData.borderWidth}
+                            hoverBorderWidth={chartData.hoverBorderWidth}
+                            transform="translate(50,50)"
+                        />
+                    ))}
             </svg>
             {/* <pre>
                 inputDatasets: {JSON.stringify(inputDatasets)}
