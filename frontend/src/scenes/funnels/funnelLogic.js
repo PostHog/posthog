@@ -12,7 +12,6 @@ function wait(ms = 1000) {
         setTimeout(resolve, ms)
     })
 }
-
 const SECONDS_TO_POLL = 3 * 60
 
 async function pollFunnel(params = {}) {
@@ -45,11 +44,14 @@ const cleanFunnelParams = (filters) => {
         insight: ViewType.FUNNELS,
     }
 }
+
 const isStepsEmpty = (filters) => [...(filters.actions || []), ...(filters.events || [])].length === 0
+
 export const funnelLogic = kea({
     key: (props) => {
         return props.dashboardItemId || 'some_funnel'
     },
+
     actions: () => ({
         setSteps: (steps) => ({ steps }),
         clearFunnel: true,
@@ -63,6 +65,7 @@ export const funnelLogic = kea({
     connect: {
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
     },
+
     loaders: ({ props, values, actions }) => ({
         results: {
             loadResults: async (refresh = false, breakpoint) => {
@@ -70,6 +73,7 @@ export const funnelLogic = kea({
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return props.cachedResults
                 }
+
                 const { from_dashboard } = values.filters
                 const cleanedParams = cleanFunnelParams(values.filters)
                 const params = {
@@ -80,11 +84,14 @@ export const funnelLogic = kea({
                 }
 
                 let result
+
                 const queryId = uuid()
                 insightLogic.actions.startQuery(queryId)
+
                 const eventCount = params.events?.length
                 const actionCount = params.actions?.length
                 const interval = params.interval
+
                 try {
                     result = await pollFunnel(params)
                     eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
@@ -105,6 +112,7 @@ export const funnelLogic = kea({
             },
         },
     }),
+
     reducers: ({ props }) => ({
         filters: [
             props.filters || {},
@@ -176,6 +184,7 @@ export const funnelLogic = kea({
             },
         ],
     }),
+
     listeners: ({ actions, values, props }) => ({
         setSteps: async () => {
             if (values.stepsWithCount[0]?.people?.length > 0) {
@@ -248,6 +257,7 @@ export const funnelLogic = kea({
                     interval: values.filters.interval,
                     properties: values.filters.properties,
                 }
+
                 if (!objectsEqual(_filters, paramsToCheck)) {
                     actions.setFilters(cleanFunnelParams(searchParams), !isStepsEmpty(paramsToCheck))
                 }
