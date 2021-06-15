@@ -1,4 +1,4 @@
-import { Alert, Button, Input, Row, Tooltip } from 'antd'
+import { Button, Input, Tooltip } from 'antd'
 import { InfoCircleOutlined, WarningOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import Table, { ColumnsType } from 'antd/lib/table'
 import Fuse from 'fuse.js'
@@ -7,14 +7,14 @@ import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
 import React, { useState, useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
-import { ProfilePicture } from '~/layout/navigation/TopNavigation'
-import { EventDefinition, EventOrPropType, PropertyDefinition, UserBasicType } from '~/types'
+import { EventDefinition, EventOrPropType, PropertyDefinition } from '~/types'
 import './VolumeTable.scss'
-import { definitionDrawerLogic } from './definitionDrawerLogic'
+import { definitionDrawerLogic } from './definitions/definitionDrawerLogic'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { Owner } from './Owner'
+import { VolumeTableRecordDescription } from './definitions/VolumeTableRecordDescription'
 
 type EventTableType = 'event' | 'property'
 
@@ -34,40 +34,6 @@ const search = (sources: VolumeTableRecord[], searchQuery: string): VolumeTableR
     })
         .search(searchQuery)
         .map((result) => result.item)
-}
-export function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
-    return (
-        <>
-            {user?.uuid ? (
-                <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-                    <ProfilePicture name={user.first_name} email={user.email} small={true} />
-                    <span style={{ paddingLeft: 8 }}>{user.first_name}</span>
-                </div>
-            ) : (
-                <span className="text-muted" style={{ fontStyle: 'italic' }}>
-                    No Owner
-                </span>
-            )}
-        </>
-    )
-}
-export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
-    return (
-        <Alert
-            type="info"
-            showIcon
-            message={`${tab} is not enabled for your instance.`}
-            description={
-                <>
-                    You will still see the list of events and properties, but usage information will be unavailable. If
-                    you want to enable event usage please set the follow environment variable:{' '}
-                    <pre style={{ display: 'inline' }}>ASYNC_EVENT_PROPERTY_USAGE=1</pre>. Please note, enabling this
-                    environment variable <b>may increase load considerably in your infrastructure</b>, particularly if
-                    you have a large volume of events.
-                </>
-            }
-        />
-    )
 }
 
 export function VolumeTable({
@@ -104,7 +70,6 @@ export function VolumeTable({
                             ) : null}
                         </div>
                         {hasTaxonomyFeatures &&
-                            type === 'event' &&
                             (isPosthogEvent(record.eventOrProp.name) ? null : (
                                 <VolumeTableRecordDescription
                                     id={record.eventOrProp.id}
@@ -248,63 +213,6 @@ export function VolumeTable({
                         : { onClick: () => openDrawer(type, record.eventOrProp.id) }
                 }
             />
-        </>
-    )
-}
-
-export function VolumeTableRecordDescription({ id, description }: { id: string; description: string }): JSX.Element {
-    const { updateEventDescription } = useActions(eventDefinitionsModel)
-    const [newDescription, setDescription] = useState(description)
-    const [editing, setEditing] = useState(false)
-
-    return (
-        <>
-            <Row>
-                <Input.TextArea
-                    value={newDescription || ''}
-                    style={{ paddingLeft: 0 }}
-                    bordered={editing}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        setEditing(true)
-                    }}
-                    // onBlur={() => setEditing(false)}
-                    placeholder="Click to add description"
-                    onChange={(e) => setDescription(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            setEditing(false)
-                            updateEventDescription(id, newDescription)
-                        }
-                    }}
-                    autoSize
-                />
-            </Row>
-            {editing && (
-                <Row style={{ float: 'right', marginTop: 8 }}>
-                    <Button
-                        size="small"
-                        style={{ marginRight: 8 }}
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            setEditing(false)
-                            setDescription(description)
-                        }}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        type="primary"
-                        size="small"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            updateEventDescription(id, newDescription)
-                        }}
-                    >
-                        Save
-                    </Button>
-                </Row>
-            )}
         </>
     )
 }

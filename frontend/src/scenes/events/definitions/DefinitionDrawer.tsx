@@ -1,23 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { Drawer } from 'lib/components/Drawer'
-import React, { useState } from 'react'
+import React from 'react'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 import Title from 'antd/es/typography/Title'
-import './VolumeTable.scss'
-import { Alert, Button, Col, Collapse, Input, Row, Select, Table, Tooltip } from 'antd'
+import '../VolumeTable.scss'
+import { Alert, Button, Col, Collapse, Row, Tooltip } from 'antd'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
-import { Owner, UsageDisabledWarning } from './VolumeTable'
-import { humanFriendlyDetailedTime, Loading } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { LineGraph } from 'scenes/insights/LineGraph'
-import { LineGraphEmptyState } from 'scenes/insights/EmptyStates'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { PersonType, UserBasicType } from '~/types'
-import { TZLabel } from 'lib/components/TimezoneAware'
-import { Property } from 'lib/components/Property'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { useDebouncedCallback } from 'use-debounce/lib'
+import { EventPropertiesStats } from './EventPropertiesStats'
+import { DefinitionOwnerDropdown } from './DefinitionOwnerDropdown'
+import { DefinitionDescription } from './DefinitionDescription'
+import { EventsTableSnippet } from './EventsTableSnippet'
+import { UsageDisabledWarning } from '../UsageDisabledWarning'
 
 export function DefinitionDrawer(): JSX.Element {
     const { drawerState, definition, definitionLoading, type, eventDefinitionTags, saveAllLoading } = useValues(
@@ -53,7 +49,7 @@ export function DefinitionDrawer(): JSX.Element {
                     >
                         {preflight && !preflight?.is_event_property_usage_enabled ? (
                             <div style={{ marginTop: 8 }}>
-                                <UsageDisabledWarning tab="Events Stats" />
+                                <UsageDisabledWarning tab={type === 'event' ? 'Events Stats' : 'Property Stats'} />
                             </div>
                         ) : (
                             definition.volume_30_day === null && (
@@ -93,7 +89,7 @@ export function DefinitionDrawer(): JSX.Element {
                                             </Col>
                                         </Row>
                                         <Row>
-                                            <DefinitionOwner owner={definition.owner || null} />
+                                            <DefinitionOwnerDropdown owner={definition.owner || null} />
                                         </Row>
                                     </Col>
                                 </Row>
@@ -118,11 +114,13 @@ export function DefinitionDrawer(): JSX.Element {
                             </Panel>
                         </Collapse>
 
-                        <Collapse defaultActiveKey={['2']} expandIconPosition="right" ghost>
-                            <Panel header="Properties" key="2" className="l3">
-                                <EventPropertiesStats />
-                            </Panel>
-                        </Collapse>
+                        {type === 'event' && (
+                            <Collapse defaultActiveKey={['2']} expandIconPosition="right" ghost>
+                                <Panel header="Properties" key="2" className="l3">
+                                    <EventPropertiesStats />
+                                </Panel>
+                            </Collapse>
+                        )}
 
                         {preflight && preflight?.is_event_property_usage_enabled && (
                             <Collapse
@@ -163,9 +161,7 @@ export function DefinitionDrawer(): JSX.Element {
                                                 </h4>
                                                 <Tooltip
                                                     placement="right"
-                                                    title={`Number of queries in PostHog that included a filter on this ${
-                                                        type === 'event_definitions' ? 'event' : 'property'
-                                                    }`}
+                                                    title={`Number of queries in PostHog that included a filter on this ${type}`}
                                                 >
                                                     <InfoCircleOutlined className="info-indicator" />
                                                 </Tooltip>
@@ -193,218 +189,6 @@ export function DefinitionDrawer(): JSX.Element {
                     </Drawer>
                 </div>
             )}
-        </>
-    )
-}
-
-export function DefinitionDescription(): JSX.Element {
-    const { description } = useValues(definitionDrawerLogic)
-    const { setDescription } = useActions(definitionDrawerLogic)
-
-    return (
-        <>
-            <div style={{ flexDirection: 'column', minWidth: 300 }}>
-                <h4 className="l4">Description</h4>
-                <Input.TextArea
-                    style={{ minHeight: 108, marginBottom: 8 }}
-                    placeholder="Add description"
-                    value={description || ''}
-                    onChange={(e) => {
-                        setDescription(e.target.value)
-                    }}
-                />
-            </div>
-        </>
-    )
-}
-
-export function DefinitionOwner({ owner }: { owner: UserBasicType | null }): JSX.Element {
-    const { members } = useValues(membersLogic)
-    const { changeOwner } = useActions(definitionDrawerLogic)
-
-    return (
-        <div style={{ paddingTop: 16 }}>
-            <h4 className="l4">Owner</h4>
-            <Select
-                className="owner-select"
-                placeholder={<Owner user={owner} />}
-                style={{ minWidth: 200 }}
-                dropdownClassName="owner-option"
-                onChange={(val) => changeOwner(val)}
-            >
-                {members.map((member) => (
-                    <Select.Option key={member.user_id} value={member.user.id}>
-                        <Owner user={member.user} />
-                    </Select.Option>
-                ))}
-            </Select>
-        </div>
-    )
-}
-
-export function DefinitionInsight(): JSX.Element {
-    const { graphResults, visibilityMap } = useValues(definitionDrawerLogic)
-    const color = 'white'
-    const inSharedMode = false
-    return graphResults.length > 0 ? (
-        graphResults.filter((result) => result.count !== 0).length > 0 ? (
-            <LineGraph
-                data-attr="trend-line-graph"
-                type={'line'}
-                color={color}
-                datasets={graphResults}
-                visibilityMap={visibilityMap}
-                labels={(graphResults[0] && graphResults[0].labels) || []}
-                isInProgress={false}
-                dashboardItemId={null}
-                inSharedMode={inSharedMode}
-            />
-        ) : (
-            <LineGraphEmptyState color={color} isDashboard={false} />
-        )
-    ) : (
-        <Loading />
-    )
-}
-
-export function EventsTableSnippet(): JSX.Element {
-    const { eventsSnippet } = useValues(definitionDrawerLogic)
-    const columns = [
-        {
-            title: 'Person',
-            key: 'person',
-            render: function renderPerson({ person }: { person: PersonType }) {
-                return person ? <PersonHeader person={person} /> : { props: { colSpan: 0 } }
-            },
-        },
-        {
-            title: 'URL',
-            key: 'url',
-            eventProperties: ['$current_url', '$screen_name'],
-            span: 4,
-            render: function renderURL({ properties }: { properties: any }) {
-                return properties ? (
-                    <Property
-                        value={properties['$current_url'] ? properties['$current_url'] : properties['$screen_name']}
-                    />
-                ) : (
-                    { props: { colSpan: 0 } }
-                )
-            },
-            ellipsis: true,
-        },
-        {
-            title: 'Source',
-            key: 'source',
-            render: function renderSource({ properties }: { properties: any }) {
-                return properties ? <Property value={properties['$browser']} /> : { props: { colSpan: 0 } }
-            },
-        },
-        {
-            title: 'When',
-            key: 'when',
-            render: function renderWhen({ timestamp }: { timestamp: string }) {
-                return timestamp ? <TZLabel time={timestamp} showSeconds /> : { props: { colSpan: 0 } }
-            },
-            ellipsis: true,
-        },
-    ]
-    return (
-        <div style={{ fontWeight: 400, paddingTop: 15 }}>
-            <Table
-                dataSource={eventsSnippet}
-                columns={columns}
-                key={'default'}
-                rowKey={(row) => row.id}
-                size="small"
-                pagination={false}
-            />
-        </div>
-    )
-}
-
-export function EventPropertiesStats(): JSX.Element {
-    const { eventProperties, eventsSnippet, propertyDefinitionTags, definitionLoading } = useValues(
-        definitionDrawerLogic
-    )
-    const { saveNewPropertyTag, deletePropertyTag, setPropertyDescription } = useActions(definitionDrawerLogic)
-    const propertyExamples = eventsSnippet[0]?.properties
-    const tableColumns = [
-        {
-            title: 'Property',
-            key: 'property',
-            render: function renderProperty({ name }: { name: string }) {
-                return <span className="text-default">{name}</span>
-            },
-        },
-        {
-            title: 'Description',
-            key: 'description',
-            render: function renderDescription({ description, id }: { description: string; id: string }) {
-                const [newDescription, setNewDescription] = useState(description)
-                const debouncePropertyDescription = useDebouncedCallback((value) => {
-                    setPropertyDescription(value, id)
-                }, 1000)
-
-                return (
-                    <Input.TextArea
-                        placeholder="Add description"
-                        value={newDescription || ''}
-                        onChange={(e) => {
-                            setNewDescription(e.target.value)
-                            debouncePropertyDescription(e.target.value)
-                        }}
-                    />
-                )
-            },
-        },
-        {
-            title: 'Tags',
-            key: 'tags',
-            render: function renderTags({ id, tags }: { id: string; tags: string[] }) {
-                return (
-                    <ObjectTags
-                        id={id}
-                        tags={tags || []}
-                        onTagSave={(tag, currentTags, propertyId) => saveNewPropertyTag(tag, currentTags, propertyId)}
-                        onTagDelete={(tag, currentTags, propertyId) => deletePropertyTag(tag, currentTags, propertyId)}
-                        saving={definitionLoading}
-                        tagsAvailable={propertyDefinitionTags.filter((tag) => !tags?.includes(tag))}
-                    />
-                )
-            },
-        },
-        {
-            title: 'Example',
-            key: 'example',
-            render: function renderExample({ name }: { name: string }) {
-                return (
-                    <div style={{ backgroundColor: '#F0F0F0', padding: '4px, 15px', textAlign: 'center' }}>
-                        <span style={{ fontSize: 10, fontWeight: 400, fontFamily: 'monaco' }}>
-                            {propertyExamples[name]}
-                        </span>
-                    </div>
-                )
-            },
-        },
-    ]
-
-    return (
-        <>
-            <Row style={{ paddingBottom: 16 }}>
-                <span className="text-default text-muted">
-                    Top properties that are sent with this event. Please note that description and tags are shared
-                    across events. Posthog properties are <b>excluded</b> from this list.
-                </span>
-            </Row>
-            <Table
-                dataSource={eventProperties}
-                columns={tableColumns}
-                rowKey={(row) => row.id}
-                size="small"
-                tableLayout="fixed"
-                pagination={{ pageSize: 5, hideOnSinglePage: true }}
-            />
         </>
     )
 }

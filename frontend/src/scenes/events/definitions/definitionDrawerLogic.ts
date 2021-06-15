@@ -5,15 +5,25 @@ import { IndexedTrendResult } from 'scenes/trends/trendsLogic'
 import { EventDefinition, EventFormattedType, EventOrPropType, PropertyDefinition } from '~/types'
 import { errorToast, toParams, uniqueBy } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { valueType } from 'antd/lib/statistic/utils'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { SelectValue } from 'antd/lib/select'
 
-export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropType>>({
+export const definitionDrawerLogic = kea<
+    definitionDrawerLogicType<
+        EventOrPropType,
+        PropertyDefinition,
+        EventFormattedType,
+        IndexedTrendResult,
+        SelectValue,
+        EventDefinition
+    >
+>({
     actions: () => ({
         openDrawer: (type: string, id: string) => ({ type, id }),
-        setType: (type: string) => ({ type }),
+        setUrlType: (urlType: string) => ({ urlType }),
+        setDrawerType: (type: string) => ({ type }),
         setDefinition: (definition: EventOrPropType) => ({ definition }),
-        updateDefinition: (payload: Partial<EventOrPropType>, id?: string) => ({ payload, id }),
+        updateDefinition: (payload: Partial<EventOrPropType> | Record<string, any>, id?: string) => ({ payload, id }),
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
         saveNewPropertyTag: (tag: string, currentTags?: string[], propertyId?: string) => ({
@@ -27,7 +37,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
             propertyId,
         }),
         setDefinitionLoading: (loading: boolean) => ({ loading }),
-        changeOwner: (ownerId: valueType) => ({ ownerId }),
+        changeOwner: (ownerId: SelectValue) => ({ ownerId }),
         setDescription: (description: string) => ({ description }),
         setGraphResults: (results: any) => ({ results }),
         setPropertyDescription: (description: string, id: string) => ({ description, id }),
@@ -41,6 +51,8 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
             [] as EventFormattedType[],
             {
                 loadEventsSnippet: async (definition: EventOrPropType) => {
+                    // let properties
+                    // if (values.type === 'property') { properties = }
                     const eventsParams = toParams({
                         properties: {},
                         ...{ event: definition.name },
@@ -76,7 +88,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
                 setDefinitionUpdateList: (property: PropertyDefinition) => {
                     const ids = values.editedDefinitions.flatMap((def) => def.id)
                     if (ids.includes(property.id)) {
-                        return values.editedDefinitions.map((def) => (def === property.id ? property : def))
+                        return values.editedDefinitions.map((def) => (def.id === property.id ? property : def))
                     }
                     return [...values.editedDefinitions, property]
                 },
@@ -103,10 +115,16 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
                 setDescription: (_, { description }) => description,
             },
         ],
+        urlType: [
+            '',
+            {
+                setUrlType: (_, { urlType }) => urlType,
+            },
+        ],
         type: [
             '',
             {
-                setType: (_, { type }) => type,
+                setDrawerType: (_, { type }) => type,
             },
         ],
         definitionLoading: [
@@ -156,18 +174,19 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
     listeners: ({ actions, values }) => ({
         openDrawer: async ({ type, id }) => {
             const definitionType = type === 'event' ? 'event_definitions' : 'property_definitions'
-            actions.setType(definitionType)
+            actions.setUrlType(definitionType)
             const response = await api.get(`api/projects/@current/${definitionType}/${id}`)
             actions.setDefinition(response)
             actions.setDescription(response.description)
             actions.loadEventsSnippet(response)
+            actions.setDrawerType(type)
         },
         saveNewTag: ({ tag }) => {
             if (values.definition?.tags?.includes(tag)) {
                 errorToast('Oops! This tag is already set', 'This event already includes the proposed tag.')
                 return
             }
-            actions.setType('event_definitions')
+            actions.setUrlType('event_definitions')
             const currentTags = values.definition?.tags || []
             actions.updateDefinition({ tags: [...currentTags, tag] })
         },
@@ -184,12 +203,12 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
                 errorToast('Oops! This tag is already set', 'This event already includes the proposed tag.')
                 return
             }
-            actions.setType('property_definitions')
+            actions.setUrlType('property_definitions')
             actions.updateDefinition({ tags: [...(currentTags || []), tag] }, propertyId)
         },
         deletePropertyTag: async ({ tag, currentTags, propertyId }, breakpoint) => {
             await breakpoint(100)
-            actions.setType('property_definitions')
+            actions.setUrlType('property_definitions')
             const tags = currentTags?.filter((_tag: string) => _tag !== tag)
             actions.updateDefinition({ tags }, propertyId)
         },
@@ -207,8 +226,10 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
         },
         setPropertyDescription: ({ description, id }) => {
             const prop = values.eventProperties.find((p) => p.id === id)
-            prop.description = description
-            actions.setDefinitionUpdateList(prop)
+            if (prop) {
+                prop.description = description
+                actions.setDefinitionUpdateList(prop)
+            }
         },
         updateAllDescriptions: async () => {
             actions.setSaveAllLoading(true)
@@ -217,7 +238,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
                     description: def.description,
                 })
             })
-            actions.setType('event_definitions')
+            actions.setUrlType('event_definitions')
             if (values.description !== values.definition?.description) {
                 const eventDescription = { description: values.description }
                 actions.updateDefinition(eventDescription)
