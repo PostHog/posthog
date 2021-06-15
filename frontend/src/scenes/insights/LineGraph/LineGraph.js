@@ -154,6 +154,7 @@ export function LineGraph({
             fill: false,
             borderWidth: newUI ? 2 : 1,
             pointRadius: newUI ? 0 : undefined,
+            pointHoverBorderWidth: newUI ? 2 : undefined,
             pointHitRadius: 8,
             ...dataset,
         }
@@ -416,8 +417,8 @@ export function LineGraph({
                       },
             hover: {
                 mode: 'nearest',
-                axis: newUI ? 'x' : 'xy',
-                intersect: newUI ? false : true,
+                axis: 'xy',
+                intersect: !newUI,
                 onHover(evt) {
                     if (onClick) {
                         const point = this.getElementAtEvent(evt)
