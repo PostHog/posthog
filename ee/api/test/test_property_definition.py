@@ -77,6 +77,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
+        names = ["is_first_movie", "app_rating", "plan", "purchase", "purchase_value"]
+        EnterprisePropertyDefinition.objects.bulk_create([EnterprisePropertyDefinition(team=self.team, name=name) for name in names])
         response = self.client.get("/api/projects/@current/property_definitions/?properties=plan,purchase,app_rating")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
