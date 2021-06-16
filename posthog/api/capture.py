@@ -85,28 +85,25 @@ def _clean_token(token) -> Tuple[Optional[str], bool]:
     return token, is_test_environment
 
 
-def _get_token(data, request) -> Optional[str]:
+def get_token(data, request) -> Tuple[Optional[str], bool]:
+    token = None
     if request.POST.get("api_key"):
-        return request.POST["api_key"]
-    if request.POST.get("token"):
-        return request.POST["token"]
-    if data:
+        token = request.POST["api_key"]
+    elif request.POST.get("token"):
+        token = request.POST["token"]
+    elif data:
         if isinstance(data, list):
             data = data[0]  # Mixpanel Swift SDK
         if isinstance(data, dict):
             if data.get("$token"):
-                return data["$token"]  # JS identify call
-            if data.get("token"):
-                return data["token"]  # JS reloadFeatures call
-            if data.get("api_key"):
-                return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
-            if data.get("properties") and data["properties"].get("token"):
-                return data["properties"]["token"]  # JS capture call
-    return None
+                token = data["$token"]  # JS identify call
+            elif data.get("token"):
+                token = data["token"]  # JS reloadFeatures call
+            elif data.get("api_key"):
+                token = data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
+            elif data.get("properties") and data["properties"].get("token"):
+                token = data["properties"]["token"]  # JS capture call
 
-
-def get_token(data, request) -> Tuple[Optional[str], bool]:
-    token = _get_token(data, request)
     if token:
         return _clean_token(token)
     return None, False
