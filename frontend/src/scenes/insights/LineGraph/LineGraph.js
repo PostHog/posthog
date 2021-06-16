@@ -144,13 +144,16 @@ export function LineGraph({
         const mainColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index % colorList.length]
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 
-        const BACKGROUND_CHARTS = ['bar', 'horizontalBar', 'doughnut']
+        // `horizontalBar` colors are set in `ActionsBarValueGraph.tsx` and overriden in spread of `dataset` below
+        const BACKGROUND_BASED_CHARTS = ['bar', 'doughnut']
 
         return {
             borderColor: mainColor,
             hoverBorderColor: type === 'bar' || type === 'doughnut' ? lightenDarkenColor(mainColor, -20) : hoverColor,
-            hoverBackgroundColor: BACKGROUND_CHARTS.includes(type) ? lightenDarkenColor(mainColor, -20) : undefined,
-            backgroundColor: BACKGROUND_CHARTS.includes(type) ? mainColor : undefined,
+            hoverBackgroundColor: BACKGROUND_BASED_CHARTS.includes(type)
+                ? lightenDarkenColor(mainColor, -20)
+                : undefined,
+            backgroundColor: BACKGROUND_BASED_CHARTS.includes(type) ? mainColor : undefined,
             fill: false,
             borderWidth: newUI ? 2 : 1,
             pointRadius: newUI ? 0 : undefined,
