@@ -53,7 +53,7 @@ Join [our PostHog Users Slack community](https://posthog.com/slack) if you need 
 
 ## Event Autocapture
 
-<img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/action-toolbar.gif" width="100%">
+<img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/action-toolbar.gif" width="100%" alt='autocapture'>
 
 <br /><br />
 
