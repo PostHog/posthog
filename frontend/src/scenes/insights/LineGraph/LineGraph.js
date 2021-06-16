@@ -259,7 +259,7 @@ export function LineGraph({
                         numberOfSeries = new Set(data.datasets.flatMap(({ [actionObjKey]: { order } }) => order)).size
                     }
 
-                    // This could either be a color or an array of colors
+                    // This could either be a color or an array of colors (`horizontalBar`)
                     const colorSet = entityData.backgroundColor || entityData.borderColor
 
                     return (
@@ -270,7 +270,11 @@ export function LineGraph({
                             fallbackName={label}
                             showCountedByTag={showCountedByTag}
                             hasMultipleSeries={numberOfSeries > 1}
-                            breakdownValue={entityData.breakdown_value}
+                            breakdownValue={
+                                entityData.breakdownValues // Used in `horizontalBar`
+                                    ? entityData.breakdownValues[tooltipItem.index]
+                                    : entityData.breakdown_value
+                            }
                             seriesStatus={entityData.status}
                         />
                     )
