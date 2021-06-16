@@ -6,6 +6,7 @@ import { SaveOutlined, ClearOutlined } from '@ant-design/icons'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 interface Props {
     filters: FilterType
@@ -17,6 +18,9 @@ interface Props {
 export function InsightActionBar({ filters, annotations, insight, onReset }: Props): JSX.Element {
     const { push } = useActions(router)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
+    const screens = useBreakpoint()
+    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
+
     return (
         <div className="insights-tab-actions">
             <Popconfirm
@@ -29,14 +33,14 @@ export function InsightActionBar({ filters, annotations, insight, onReset }: Pro
             >
                 <Tooltip placement="bottom" title="Reset all filters">
                     <Button type="link" icon={<ClearOutlined />} className="btn-reset">
-                        Reset
+                        {isSmallScreen ? null : 'Reset'}
                     </Button>
                 </Tooltip>
             </Popconfirm>
             <SaveToDashboard
                 displayComponent={
                     <Button icon={<SaveOutlined />} className="btn-save">
-                        Save
+                        {isSmallScreen ? null : 'Save'}
                     </Button>
                 }
                 tooltipOptions={{

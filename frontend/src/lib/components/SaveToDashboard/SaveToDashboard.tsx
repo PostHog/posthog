@@ -70,7 +70,7 @@ export function SaveToDashboard({ item, displayComponent, tooltipOptions }: Prop
                 />
             )}
             {displayComponent ? (
-                <span onClick={showModal} onMouseOver={showTooltip} onMouseOut={hideTooltip}>
+                <span onClick={showModal} onMouseEnter={showTooltip} onMouseLeave={hideTooltip}>
                     {displayComponent}
                 </span>
             ) : (
@@ -78,8 +78,8 @@ export function SaveToDashboard({ item, displayComponent, tooltipOptions }: Prop
                     onClick={showModal}
                     type="primary"
                     data-attr="save-to-dashboard-button"
-                    onMouseOver={showTooltip}
-                    onMouseOut={hideTooltip}
+                    onMouseEnter={showTooltip}
+                    onMouseLeave={hideTooltip}
                 >
                     {fromItem ? 'Update Dashboard' : 'Add to dashboard'}
                 </Button>
