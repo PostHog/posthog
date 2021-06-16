@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { useActions, useValues } from 'kea'
-import Chart from 'chart.js'
+import Chart from '@posthog/chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
 import { formatLabel, compactNumber, lightenDarkenColor } from '~/lib/utils'
@@ -13,7 +13,6 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import dayjs from 'dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import './LineGraph.scss'
-import 'chartjs-plugin-crosshair'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { InsightTooltip } from '../InsightTooltip'
@@ -426,7 +425,7 @@ export function LineGraph({
                           crosshair: false,
                       },
             hover: {
-                mode: 'nearest',
+                mode: newUI ? 'nearestX' : 'nearest',
                 axis: 'xy',
                 intersect: !newUI,
                 onHover(evt) {
