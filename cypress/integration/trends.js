@@ -56,8 +56,6 @@ describe('Trends', () => {
         cy.get('li.ant-list-item').contains('Watched Movie').click()
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=property-filter-0]').contains('Add filter').click()
-        cy.get('.ant-select-selector').contains('equals').click()
-        cy.get('.ant-select-item-option-content').contains("doesn't equal").click()
         cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('.rc-virtual-list').trigger('wheel', {
             deltaX: 0,
@@ -66,6 +64,8 @@ describe('Trends', () => {
         cy.get('.ant-select-item-option-content').contains('Continent Code').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
+        cy.get('.ant-select-selector').contains('equals').click()
+        cy.get('.ant-select-item-option-content').contains("doesn't equal").click()
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
     })
 
