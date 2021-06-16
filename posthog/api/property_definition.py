@@ -43,13 +43,13 @@ class PropertyDefinitionViewSet(
             except ImportError:
                 pass
             else:
-                team_id = self.request.user.team.id
                 properties_to_filter = self.request.GET.get("properties", None)
-                name_filter = ""
-                names = ()
                 if properties_to_filter:
                     names = tuple(properties_to_filter.split(","))
                     name_filter = f"AND name IN %(names)s"
+                else:
+                    name_filter = ""
+                    names = ()
                 ee_property_definitions = EnterprisePropertyDefinition.objects.raw(
                     f"""
                     SELECT *
@@ -58,7 +58,7 @@ class PropertyDefinitionViewSet(
                     WHERE team_id = %(team_id)s {name_filter}
                     ORDER BY name
                     """,
-                    params={"team_id": team_id, "names": names},
+                    params={"team_id": self.request.user.team.id, "names": names},  # type: ignore
                 )
                 return ee_property_definitions
         return self.filter_queryset_by_parents_lookups(PropertyDefinition.objects.all()).order_by(self.ordering)

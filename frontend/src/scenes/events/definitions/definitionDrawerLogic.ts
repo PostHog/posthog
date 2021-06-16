@@ -21,7 +21,7 @@ export const definitionDrawerLogic = kea<
     actions: () => ({
         openDrawer: (type: string, id: string) => ({ type, id }),
         setDrawerType: (type: string) => ({ type }),
-        setDescription: (description: string | undefined) => ({ description }),
+        setDescription: (description: string) => ({ description }),
         setNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
         changeOwner: (owner: UserBasicType) => ({ owner }),
@@ -29,11 +29,11 @@ export const definitionDrawerLogic = kea<
         setNewEventPropertyTag: (tag: string, currentTags?: string[], id?: string) => ({ tag, currentTags, id }),
         deleteEventPropertyTag: (tag: string, currentTags?: string[], id?: string) => ({ tag, currentTags, id }),
         setEventPropertyDescription: (description: string, id: string) => ({ description, id }),
-        setEventPropertyDefinition: (propertyDefinition: Partial<PropertyDefinition>, id: string | undefined) => ({
+        setEventPropertyDefinition: (propertyDefinition: Partial<PropertyDefinition>, id?: string) => ({
             propertyDefinition,
             id,
         }),
-        setEventPropertyDefinitionUpdateList: (id: string | undefined) => ({ id }),
+        setEventPropertyDefinitionUpdateList: (id?: string) => ({ id }),
         closeDrawer: true,
         setTagLoading: (loading: boolean) => ({ loading }),
         saveAll: true,
@@ -110,7 +110,7 @@ export const definitionDrawerLogic = kea<
             null as EventOrPropType | null,
             {
                 setDefinition: (state, { definition }) => {
-                    return { ...state, ...definition }
+                    return { ...state, ...definition } as EventOrPropType
                 },
             },
         ],
@@ -195,7 +195,7 @@ export const definitionDrawerLogic = kea<
         },
         loadDefinitionSuccess: ({ definition }) => {
             actions.loadEventsSnippet(definition)
-            actions.setDescription(definition?.description)
+            if (definition?.description) { actions.setDescription(definition.description) }
         },
         loadEventsSnippetSuccess: ({ eventsSnippet }) => {
             const propertyNames = Object.keys(eventsSnippet[0].properties).filter((key) => !keyMapping.event[key])
