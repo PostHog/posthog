@@ -93,14 +93,6 @@ export function DefinitionDrawer(): JSX.Element {
                                 </Row>
                                 <Row className="detail-status">
                                     <div>
-                                        <h4 className="l4">First seen</h4>
-                                        <span>-</span>
-                                    </div>
-                                    <div>
-                                        <h4 className="l4">Last seen</h4>
-                                        <span>-</span>
-                                    </div>
-                                    <div>
                                         <h4 className="l4">Last modified</h4>
                                         <span>{humanFriendlyDetailedTime(definition.updated_at || null)}</span>
                                     </div>

@@ -77,11 +77,13 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        names = ["is_first_movie", "app_rating", "plan", "purchase", "purchase_value"]
-        EnterprisePropertyDefinition.objects.bulk_create([EnterprisePropertyDefinition(team=self.team, name=name) for name in names])
-        response = self.client.get("/api/projects/@current/property_definitions/?properties=plan,purchase,app_rating")
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="plan")
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="purchase")
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="app_rating")
+
+        response = self.client.get("/api/projects/@current/property_definitions/?properties=plan,app_rating")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(response.json()["count"], 3)
+        self.assertEqual(response.json()["count"], 2)
         for item in response.json()["results"]:
-            self.assertIn(item["name"], ["plan", "purchase", "app_rating"])
+            self.assertIn(item["name"], ["plan", "app_rating"])
