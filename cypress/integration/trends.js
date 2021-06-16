@@ -59,7 +59,7 @@ describe('Trends', () => {
         cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('.rc-virtual-list').trigger('wheel', {
             deltaX: 0,
-            deltaY: 200,
+            deltaY: 2000,
         })
         cy.get('.ant-select-item-option-content').contains('is_first_movie').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
