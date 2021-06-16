@@ -195,7 +195,9 @@ export const definitionDrawerLogic = kea<
         },
         loadDefinitionSuccess: ({ definition }) => {
             actions.loadEventsSnippet(definition)
-            if (definition?.description) { actions.setDescription(definition.description) }
+            if (definition?.description) {
+                actions.setDescription(definition.description)
+            }
         },
         loadEventsSnippetSuccess: ({ eventsSnippet }) => {
             const propertyNames = Object.keys(eventsSnippet[0].properties).filter((key) => !keyMapping.event[key])
