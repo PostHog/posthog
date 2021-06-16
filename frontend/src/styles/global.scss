@@ -508,6 +508,7 @@ code.code {
         background: $danger;
     }
     &.tricolor {
+        cursor: pointer;
         div:nth-child(1) {
             background: $brand_blue;
         }
@@ -517,10 +518,7 @@ code.code {
         div:nth-child(3) {
             background: $brand_yellow;
         }
-    }
-    &.click-close {
-        cursor: pointer;
-        code {
+        span {
             cursor: text;
         }
     }

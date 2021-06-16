@@ -101,7 +101,7 @@ export function PluginSource(): JSX.Element {
                 {editingSource ? (
                     <>
                         <p>
-                            <a href="https://posthog.com/docs/plugins/overview" target="_blank">
+                            <a href="https://posthog.com/docs/plugins/build" target="_blank">
                                 Read the documentation.
                             </a>
                         </p>

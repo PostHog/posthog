@@ -69,7 +69,7 @@ export function PluginDrawer(): JSX.Element {
         } else {
             form.resetFields()
         }
-    }, [editingPlugin?.id])
+    }, [editingPlugin?.id, editingPlugin?.config_schema])
 
     const isValidChoiceConfig = (fieldConfig: PluginConfigChoice): boolean => {
         return (
