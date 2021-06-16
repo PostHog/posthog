@@ -25,6 +25,7 @@ interface FunnelPayload {
 
 export function SaveToDashboard({ item, displayComponent, tooltipOptions }: Props): JSX.Element {
     const [openModal, setOpenModal] = useState<boolean>(false)
+    const [openTooltip, setOpenTooltip] = useState<boolean>(false)
     const [{ fromItem, fromItemName, fromDashboard }] = useState(router.values.hashParams)
 
     let _name: string = ''
@@ -38,11 +39,28 @@ export function SaveToDashboard({ item, displayComponent, tooltipOptions }: Prop
         _name = item.entity.name
     }
 
+    function showTooltip(): void {
+        setOpenTooltip(true)
+    }
+
+    function hideTooltip(): void {
+        setOpenTooltip(false)
+    }
+
+    function showModal(): void {
+        setOpenModal(true)
+        hideTooltip()
+    }
+
+    function hideModal(): void {
+        setOpenModal(false)
+    }
+
     const innerContent = (
         <span className="save-to-dashboard">
             {openModal && (
                 <SaveToDashboardModal
-                    closeModal={() => setOpenModal(false)}
+                    closeModal={hideModal}
                     name={_name}
                     filters={_filters}
                     fromItem={fromItem}
@@ -52,14 +70,28 @@ export function SaveToDashboard({ item, displayComponent, tooltipOptions }: Prop
                 />
             )}
             {displayComponent ? (
-                <span onClick={() => setOpenModal(true)}>{displayComponent}</span>
+                <span onClick={showModal} onMouseOver={showTooltip} onMouseOut={hideTooltip}>
+                    {displayComponent}
+                </span>
             ) : (
-                <Button onClick={() => setOpenModal(true)} type="primary" data-attr="save-to-dashboard-button">
+                <Button
+                    onClick={showModal}
+                    type="primary"
+                    data-attr="save-to-dashboard-button"
+                    onMouseOver={showTooltip}
+                    onMouseOut={hideTooltip}
+                >
                     {fromItem ? 'Update Dashboard' : 'Add to dashboard'}
                 </Button>
             )}
         </span>
     )
 
-    return tooltipOptions ? <Tooltip {...tooltipOptions}>{innerContent}</Tooltip> : innerContent
+    return tooltipOptions ? (
+        <Tooltip {...tooltipOptions} visible={openTooltip}>
+            {innerContent}
+        </Tooltip>
+    ) : (
+        innerContent
+    )
 }
