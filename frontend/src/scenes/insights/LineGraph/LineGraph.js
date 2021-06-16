@@ -315,7 +315,6 @@ export function LineGraph({
                         .map((component, idx) => ({
                             id: idx,
                             component,
-                            ...tooltipModel.labelColors[idx],
                         }))
 
                     ReactDOM.render(

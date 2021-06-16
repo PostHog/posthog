@@ -7,8 +7,6 @@ import './InsightTooltip.scss'
 interface BodyLine {
     id: string
     component: JSX.Element
-    borderColor: string
-    backgroundColor: string | false
 }
 
 interface InsightTooltipProps {
@@ -34,8 +32,8 @@ export function InsightTooltip({
                 <header>{referenceDate ? <DateDisplay interval={interval} date={referenceDate} /> : altTitle}</header>
             )}
             <ul>
-                {bodyLines.map((line, i) => {
-                    return <li key={i}>{line.component}</li>
+                {bodyLines.map((line) => {
+                    return <li key={line.id}>{line.component}</li>
                 })}
             </ul>
 
