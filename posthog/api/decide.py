@@ -9,7 +9,7 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.api.utils import clean_token, get_token
+from posthog.api.utils import get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
@@ -89,8 +89,8 @@ def get_decide(request: HttpRequest):
                 request,
                 generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
             )
-        token = get_token(data, request)
-        token, _ = clean_token(token)
+
+        token, _ = get_token(data, request)
         team = Team.objects.get_team_from_token(token)
         if team is None and token:
             project_id = _get_project_id(data, request)
@@ -124,5 +124,7 @@ def get_decide(request: HttpRequest):
             response["featureFlags"] = get_active_feature_flags(team, data["distinct_id"])
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
-    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide",})
+    statsd.incr(
+        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide",},
+    )
     return cors_response(request, JsonResponse(response))

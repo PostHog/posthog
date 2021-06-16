@@ -12,7 +12,7 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.api.utils import clean_token, get_token
+from posthog.api.utils import get_token
 from posthog.celery import app as celery_app
 from posthog.constants import ENVIRONMENT_TEST
 from posthog.ee import is_clickhouse_enabled
@@ -134,7 +134,7 @@ def get_event(request):
 
     sent_at = _get_sent_at(data, request)
 
-    token = get_token(data, request)
+    token, is_test_environment = get_token(data, request)
 
     if not token:
         return cors_response(
@@ -147,9 +147,6 @@ def get_event(request):
                 status_code=status.HTTP_401_UNAUTHORIZED,
             ),
         )
-
-    token, is_test_environment = clean_token(token)
-    assert token is not None
 
     team = Team.objects.get_team_from_token(token)
 
@@ -254,7 +251,9 @@ def get_event(request):
         capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk)
 
     timer.stop()
-    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",})
+    statsd.incr(
+        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
+    )
     return cors_response(request, JsonResponse({"status": 1}))
 
 
