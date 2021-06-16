@@ -1612,6 +1612,14 @@
     theme-ui "^0.3.1"
     tinycolor2 "^1.4.1"
 
+"@posthog/chart.js@^2.9.4":
+  version "2.9.4"
+  resolved "https://registry.yarnpkg.com/@posthog/chart.js/-/chart.js-2.9.4.tgz#4b019092cf868d1db6be5f162acbe6d2698681d8"
+  integrity sha512-EOfM9A7842sgrnR+kVAO3i3qozxi9NHI2J2XKnISKvDnkZ6ydDA9EJ8QQ5y7v7oGoY1NKpjKE2CdulcIi1LC/g==
+  dependencies:
+    chartjs-color "^2.1.0"
+    moment "^2.10.2"
+
 "@posthog/plugin-scaffold@0.10.0":
   version "0.10.0"
   resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.10.0.tgz#e80f57c5d3833753632607bed3ca71ebf272b12b"
