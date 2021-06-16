@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 from rest_framework import request
 
@@ -30,3 +30,34 @@ def format_next_url(request: request.Request, offset: int, page_size: int):
             "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + page_size)
         )
     return next_url
+
+
+# Support test_[apiKey] for users with multiple environments
+def clean_token(token):
+    is_test_environment = token.startswith("test_")
+    token = token[5:] if is_test_environment else token
+    return token, is_test_environment
+
+
+def get_token(data, request) -> Tuple[Optional[str], bool]:
+    token = None
+    if request.POST.get("api_key"):
+        token = request.POST["api_key"]
+    elif request.POST.get("token"):
+        token = request.POST["token"]
+    elif data:
+        if isinstance(data, list):
+            data = data[0]  # Mixpanel Swift SDK
+        if isinstance(data, dict):
+            if data.get("$token"):
+                token = data["$token"]  # JS identify call
+            elif data.get("token"):
+                token = data["token"]  # JS reloadFeatures call
+            elif data.get("api_key"):
+                token = data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
+            elif data.get("properties") and data["properties"].get("token"):
+                token = data["properties"]["token"]  # JS capture call
+
+    if token:
+        return clean_token(token)
+    return None, False

@@ -1,7 +1,7 @@
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from dateutil import parser
 from django.conf import settings
@@ -12,6 +12,7 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from posthog.api.utils import get_token
 from posthog.celery import app as celery_app
 from posthog.constants import ENVIRONMENT_TEST
 from posthog.ee import is_clickhouse_enabled
@@ -76,37 +77,6 @@ def _get_sent_at(data, request) -> Optional[datetime]:
         return _datetime_from_seconds_or_millis(sent_at)
 
     return parser.isoparse(sent_at)
-
-
-# Support test_[apiKey] for users with multiple environments
-def _clean_token(token) -> Tuple[Optional[str], bool]:
-    is_test_environment = token.startswith("test_")
-    token = token[5:] if is_test_environment else token
-    return token, is_test_environment
-
-
-def get_token(data, request) -> Tuple[Optional[str], bool]:
-    token = None
-    if request.POST.get("api_key"):
-        token = request.POST["api_key"]
-    elif request.POST.get("token"):
-        token = request.POST["token"]
-    elif data:
-        if isinstance(data, list):
-            data = data[0]  # Mixpanel Swift SDK
-        if isinstance(data, dict):
-            if data.get("$token"):
-                token = data["$token"]  # JS identify call
-            elif data.get("token"):
-                token = data["token"]  # JS reloadFeatures call
-            elif data.get("api_key"):
-                token = data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
-            elif data.get("properties") and data["properties"].get("token"):
-                token = data["properties"]["token"]  # JS capture call
-
-    if token:
-        return _clean_token(token)
-    return None, False
 
 
 def _get_project_id(data, request) -> Optional[int]:
