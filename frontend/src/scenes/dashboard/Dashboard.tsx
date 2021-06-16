@@ -41,18 +41,21 @@ function DashboardView(): JSX.Element {
     const { setDashboardMode, addGraph, setDates, loadDashboardItems } = useActions(dashboardLogic)
 
     function auto_refresh(): number {
+        //autorefresh function #1687
         if (!!interval == false) {
+            //if autorefresh is disabled
             loadDashboardItems({ refresh: true })
-            interval = 5
+            interval = 5 //initialize internal so that the toggle button instantly open when press it
             interval = window.setInterval(function () {
                 loadDashboardItems({ refresh: true })
-            }, 5000) //change time!!!
+            }, 3000) //starts autorefresh
         } else {
-            clearInterval(interval)
+            //if autorefresh is enabled
+            clearInterval(interval) //stops autorefresh
             loadDashboardItems({ refresh: true })
-            interval = 0
+            interval = 0 //makes internal false
         }
-        return 0
+        return 0 // return something because when commiting tests failed because auto_refresh function didn't returned something
     }
 
     useKeyboardHotkeys(
@@ -121,20 +124,21 @@ function DashboardView(): JSX.Element {
                                     Refresh
                                 </Button>
                             )}
-                            {dashboardMode !== DashboardMode.Public && (
+                            {dashboardMode !== DashboardMode.Public && ( //autorefresh toggle button #1687
                                 <Tooltip
                                     title={
                                         !!interval
                                             ? 'Stop Auto-Refreshing.'
-                                            : 'Auto-refresh dashbpards every 2 minutes.'
+                                            : 'Auto-refresh dashboards every 2 minutes.'
                                     }
+                                    placement={'bottomLeft'}
                                 >
                                     <Row style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
                                         <Switch
                                             onChange={() => {
                                                 auto_refresh()
                                             }}
-                                            checked={!!interval}
+                                            checked={!!interval} //checks if interval is still alive
                                             size="small"
                                         />
                                         <label
