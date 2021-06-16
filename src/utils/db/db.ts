@@ -330,7 +330,10 @@ export class DB {
                         {
                             value: Buffer.from(
                                 JSON.stringify({
-                                    created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
+                                    created_at: castTimestampOrNow(
+                                        createdAt,
+                                        TimestampFormat.ClickHouseSecondPrecision
+                                    ),
                                     properties: JSON.stringify(properties),
                                     team_id: teamId,
                                     is_identified: isIdentified,
@@ -441,7 +444,10 @@ export class DB {
                         {
                             value: Buffer.from(
                                 JSON.stringify({
-                                    created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouse),
+                                    created_at: castTimestampOrNow(
+                                        person.created_at,
+                                        TimestampFormat.ClickHouseSecondPrecision
+                                    ),
                                     properties: JSON.stringify(person.properties),
                                     team_id: person.team_id,
                                     is_identified: person.is_identified,

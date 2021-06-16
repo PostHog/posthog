@@ -311,14 +311,15 @@ export function castTimestampOrNow(
         timestamp = DateTime.fromISO(timestamp)
     }
     timestamp = timestamp.toUTC()
-    if (timestampFormat === TimestampFormat.ClickHouseSecondPrecision) {
-        return timestamp.toFormat('yyyy-MM-dd HH:mm:ss')
-    } else if (timestampFormat === TimestampFormat.ClickHouse) {
-        return timestamp.toFormat('yyyy-MM-dd HH:mm:ss.u')
-    } else if (timestampFormat === TimestampFormat.ISO) {
-        return timestamp.toUTC().toISO()
-    } else {
-        throw new Error(`Unrecognized timestamp format ${timestampFormat}!`)
+    switch (timestampFormat) {
+        case TimestampFormat.ClickHouseSecondPrecision:
+            return timestamp.toFormat('yyyy-MM-dd HH:mm:ss')
+        case TimestampFormat.ClickHouse:
+            return timestamp.toFormat('yyyy-MM-dd HH:mm:ss.u')
+        case TimestampFormat.ISO:
+            return timestamp.toUTC().toISO()
+        default:
+            throw new Error(`Unrecognized timestamp format ${timestampFormat}!`)
     }
 }
 
