@@ -56,6 +56,8 @@ describe('Trends', () => {
         cy.get('li.ant-list-item').contains('Watched Movie').click()
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=property-filter-0]').contains('Add filter').click()
+        cy.get('.ant-select-selector').contains('equals').click()
+        cy.get('.ant-select-item-option-content').contains("doesn't equal").click()
         cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('.rc-virtual-list').trigger('wheel', {
             deltaX: 0,
