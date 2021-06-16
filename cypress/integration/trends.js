@@ -59,9 +59,9 @@ describe('Trends', () => {
         cy.get('[data-attr=property-filter-dropdown]').click()
         cy.get('.rc-virtual-list').trigger('wheel', {
             deltaX: 0,
-            deltaY: 2000,
+            deltaY: 200,
         })
-        cy.get('.ant-select-item-option-content').contains('is_first_movie').click({ force: true })
+        cy.get('.ant-select-item-option-content').contains('Continent Code').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
