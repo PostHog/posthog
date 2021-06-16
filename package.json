@@ -23,8 +23,8 @@
         "start-https": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack serve --https",
         "start-docker": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack serve --host 0.0.0.0",
         "build": "echo \"Building Webpack\" && NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts",
-        "prettier": "prettier --write \"./frontend/src/**/*.{js,ts,tsx,json,yml,css,scss}\"",
-        "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yml,css,scss}\"",
+        "prettier": "prettier --write \"./frontend/src/**/*.{js,ts,tsx,json,yaml,yml,css,scss}\"",
+        "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yaml,yml,css,scss}\"",
         "typescript:check": "tsc",
         "typescript:clean": "tsc --build --clean",
         "eslint": "eslint frontend/src",
@@ -153,7 +153,7 @@
         }
     },
     "lint-staged": {
-        "*.{js,ts,tsx,json,yml,css,scss}": "prettier --write",
+        "*.{js,ts,tsx,json,yaml,yml,css,scss}": "prettier --write",
         "*.{js,ts,tsx}": "eslint --fix",
         "*.{py,pyi}": [
             "flake8 --select=E9,F63,F7,F82,W605",
