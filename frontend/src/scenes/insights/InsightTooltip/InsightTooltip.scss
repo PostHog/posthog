@@ -10,6 +10,7 @@
     max-width: 480px;
     overflow-x: hidden;
     z-index: $z_graph_tooltip;
+    transition: all 0.4s;
 
     header {
         padding: 0 8px;
