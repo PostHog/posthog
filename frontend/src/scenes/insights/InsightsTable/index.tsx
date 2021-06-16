@@ -4,11 +4,18 @@ import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
-import { MATHS } from 'lib/constants'
+import { FEATURE_FLAGS, MATHS } from 'lib/constants'
 import { cohortsModel } from '~/models/cohortsModel'
 import { CohortType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { maybeAddCommasToInteger } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { InsightsTableV2 } from './InsightsTableV2'
+
+export function InsightsTable(props: InsightsTableProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.NEW_TOOLTIPS] ? <InsightsTableV2 {...props} /> : <InsightsTableV1 {...props} />
+}
 
 function formatLabel(item: IndexedTrendResult): string {
     const name = item.action?.name || item.label
@@ -34,7 +41,7 @@ interface InsightsTableProps {
     showTotalCount?: boolean
 }
 
-export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
+function InsightsTableV1({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
     const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)

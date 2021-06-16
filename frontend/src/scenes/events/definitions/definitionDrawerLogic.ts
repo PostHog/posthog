@@ -99,11 +99,12 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
     selectors: () => ({
         eventDefinitionTags: [
             () => [eventDefinitionsModel.selectors.eventDefinitions],
-            (definitions: EventDefinition[]): string[] =>
-                uniqueBy(
-                    definitions.flatMap(({ tags }) => tags),
-                    (item) => item
-                ).sort(),
+            (definitions: EventDefinition[]): string[] => {
+                const allTags = definitions
+                    .flatMap(({ tags }) => tags)
+                    .filter((a) => typeof a !== 'undefined') as string[]
+                return uniqueBy(allTags, (item) => item).sort()
+            },
         ],
     }),
     listeners: ({ actions, values }) => ({
@@ -116,7 +117,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
             actions.loadEventsSnippet(response)
         },
         saveNewTag: ({ tag }) => {
-            if (values.definition?.tags.includes(tag)) {
+            if (values.definition?.tags?.includes(tag)) {
                 errorToast('Oops! This tag is already set', 'This event already includes the proposed tag.')
                 return
             }
@@ -125,7 +126,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
         },
         deleteTag: async ({ tag }, breakpoint) => {
             await breakpoint(100)
-            const tags = values.definition?.tags.filter((_tag: string) => _tag !== tag)
+            const tags = values.definition?.tags?.filter((_tag: string) => _tag !== tag) || []
             actions.updateDefinition({ tags })
         },
         changeOwner: ({ ownerId }) => {

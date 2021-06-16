@@ -540,6 +540,7 @@ export type DisplayType =
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
+export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 export enum PathType {
     PageView = '$pageview',
@@ -553,7 +554,7 @@ export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_
 export interface FilterType {
     insight?: InsightType
     display?: DisplayType
-    interval?: string
+    interval?: string // TODO: Move to IntervalType
     date_from?: string
     date_to?: string
     properties?: PropertyFilter[]
@@ -642,6 +643,7 @@ export interface TrendResult {
     count: number
     data: number[]
     days: string[]
+    dates?: string[]
     label: string
     labels: string[]
     breakdown_value?: string | number
@@ -775,7 +777,7 @@ export interface EventDefinition {
     id: string
     name: string
     description: string
-    tags: string[]
+    tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
     owner?: UserBasicType | null
@@ -787,7 +789,7 @@ export interface PropertyDefinition {
     id: string
     name: string
     description: string
-    tags: string[]
+    tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
     owner?: UserBasicType | null

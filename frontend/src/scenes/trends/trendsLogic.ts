@@ -367,6 +367,10 @@ export const trendsLogic = kea<
                 })}`,
             }),
         ],
+        numberOfSeries: [
+            (selectors) => [selectors.filters],
+            (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({

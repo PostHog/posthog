@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
-import { formatLabel, maybeAddCommasToInteger } from '~/lib/utils'
+import { formatLabel, compactNumber, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
@@ -38,6 +38,7 @@ export function LineGraph({
     dashboardItemId,
     inSharedMode,
     percentage = false,
+    interval = undefined,
     totalValue,
 }) {
     const chartRef = useRef()
@@ -61,7 +62,7 @@ export function LineGraph({
         ? useValues(annotationsLogic({ pageKey: dashboardItemId || null }))
         : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
-    const [interval, setInterval] = useState(0)
+    const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
     const [annotationInRange, setInRange] = useState(false)
     const size = useWindowSize()
@@ -131,25 +132,25 @@ export function LineGraph({
         const boundaryRightExtent = myLineChart.current.scales['x-axis-0'].right
         const boundaryTicks = myLineChart.current.scales['x-axis-0'].ticks.length
         const boundaryDelta = boundaryRightExtent - boundaryLeftExtent
-        const boundaryInterval = boundaryDelta / (boundaryTicks - 1)
+        const _boundaryInterval = boundaryDelta / (boundaryTicks - 1)
         const boundaryTopExtent = myLineChart.current.scales['x-axis-0'].top + 8
         setLeftExtent(boundaryLeftExtent)
-        setInterval(boundaryInterval)
+        setBoundaryInterval(_boundaryInterval)
         setTopExtent(boundaryTopExtent)
     }
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
-        const borderColor = dataset?.status
-            ? getBarColorFromStatus(dataset.status)
-            : colorList[index % colorList.length]
-        const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : undefined
+        const mainColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index % colorList.length]
+        const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
+
+        const BACKGROUND_CHARTS = ['bar', 'horizontalBar', 'doughnut']
 
         return {
-            borderColor,
-            hoverBorderColor: hoverColor,
-            hoverBackgroundColor: hoverColor,
-            backgroundColor: (type === 'bar' || type === 'doughnut') && borderColor,
+            borderColor: mainColor,
+            hoverBorderColor: type === 'bar' || type === 'doughnut' ? lightenDarkenColor(mainColor, -20) : hoverColor,
+            hoverBackgroundColor: BACKGROUND_CHARTS.includes(type) ? lightenDarkenColor(mainColor, -20) : undefined,
+            backgroundColor: BACKGROUND_CHARTS.includes(type) ? mainColor : undefined,
             fill: false,
             borderWidth: newUI ? 2 : 1,
             pointRadius: newUI ? 0 : undefined,
@@ -221,8 +222,11 @@ export function LineGraph({
         const newUITooltipOptions = {
             enabled: false, // disable builtin tooltip (use custom markup)
             mode: 'nearest',
-            axis: 'x',
+            // If bar, we want to only show the tooltip for what we're hovering over
+            // to avoid confusion
+            axis: type === 'horizontalBar' ? 'y' : 'x',
             intersect: false,
+            itemSort: (a, b) => b.yLabel - a.yLabel,
             callbacks: {
                 label: function labelElement(tooltipItem, data) {
                     const entityData = data.datasets[tooltipItem.datasetIndex]
@@ -235,21 +239,35 @@ export function LineGraph({
 
                     let value = tooltipItem.yLabel.toLocaleString()
                     const actionObjKey = type === 'horizontalBar' ? 'actions' : 'action'
+
                     if (type === 'horizontalBar') {
                         const perc = Math.round((tooltipItem.xLabel / totalValue) * 100, 2)
                         value = `${tooltipItem.xLabel.toLocaleString()} (${perc}%)`
                     }
 
-                    const showCountedByTag = !!data.datasets.find(
-                        ({ [actionObjKey]: { math } }) => math && math !== 'total'
-                    )
+                    let showCountedByTag = false
+                    let numberOfSeries = 1
+                    if (data.datasets.find((item) => item[actionObjKey])) {
+                        // The above statement will always be true except in Sessions tab
+                        showCountedByTag = !!data.datasets.find(
+                            ({ [actionObjKey]: { math } }) => math && math !== 'total'
+                        )
+                        numberOfSeries = new Set(data.datasets.flatMap(({ [actionObjKey]: { order } }) => order)).size
+                    }
+
+                    // This could either be a color or an array of colors
+                    const colorSet = entityData.backgroundColor || entityData.borderColor
 
                     return (
                         <InsightLabel
-                            propertyValue={label}
                             action={action}
+                            seriesColor={type === 'horizontalBar' ? colorSet[tooltipItem.index] : colorSet}
                             value={value}
+                            fallbackName={label}
                             showCountedByTag={showCountedByTag}
+                            hasMultipleSeries={numberOfSeries > 1}
+                            breakdownValue={entityData.breakdown_value}
+                            seriesStatus={entityData.status}
                         />
                     )
                 },
@@ -267,6 +285,7 @@ export function LineGraph({
                     tooltipEl.style.opacity = 0
                     return
                 }
+
                 // Set caret position
                 // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
                 tooltipEl.classList.remove('above', 'below', 'no-transform')
@@ -275,15 +294,20 @@ export function LineGraph({
                 const chartClientLeft = bounds.left + window.pageXOffset
                 const chartClientTop = bounds.top + window.pageYOffset
                 const tooltipCaretOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltipModel.caretX - 50)
-                const maxXPosition = bounds.right - 150 // ensure the tooltip doesn't exceed the bounds of the window
                 tooltipEl.style.opacity = 1
                 tooltipEl.style.position = 'absolute'
-                tooltipEl.style.left = Math.min(tooltipCaretOffsetLeft, maxXPosition) + 'px'
+                tooltipEl.style.left = Math.min(tooltipCaretOffsetLeft, bounds.right - 250) + 'px' // guess typical width for initial render
                 tooltipEl.style.top = chartClientTop + 'px'
                 tooltipEl.style.padding = tooltipModel.padding + 'px'
                 tooltipEl.style.pointerEvents = 'none'
+
                 if (tooltipModel.body) {
-                    const titleLines = tooltipModel.title || []
+                    const referenceDataPoint = tooltipModel.dataPoints[0] // Use this point as reference to get the date
+                    const comparing = datasets[referenceDataPoint.datasetIndex].compare
+                    const altTitle = tooltipModel.title && comparing ? tooltipModel.title[0] : ''
+                    const referenceDate = !comparing
+                        ? datasets[referenceDataPoint.datasetIndex].days[referenceDataPoint.index]
+                        : undefined
                     const bodyLines = tooltipModel.body
                         .flatMap(({ lines }) => lines)
                         .map((component, idx) => ({
@@ -291,15 +315,23 @@ export function LineGraph({
                             component,
                             ...tooltipModel.labelColors[idx],
                         }))
+
                     ReactDOM.render(
                         <InsightTooltip
-                            titleLines={titleLines}
+                            altTitle={altTitle}
+                            referenceDate={referenceDate}
+                            interval={interval}
                             bodyLines={bodyLines}
                             inspectUsersLabel={inspectUsersLabel}
+                            chartType={type}
                         />,
                         tooltipEl
                     )
                 }
+
+                // get real width to make sure tooltip doesn't exceed window boundaries
+                const maxXPosition = bounds.right - tooltipEl.clientWidth
+                tooltipEl.style.left = Math.min(tooltipCaretOffsetLeft, maxXPosition) + 'px'
             },
         }
 
@@ -357,27 +389,28 @@ export function LineGraph({
             maintainAspectRatio: false,
             scaleShowHorizontalLines: false,
             tooltips: tooltipOptions,
-            plugins: newUI
-                ? {
-                      crosshair: {
-                          snapping: {
-                              enabled: true, // Snap crosshair to data points
+            plugins:
+                newUI && type !== 'horizontalBar'
+                    ? {
+                          crosshair: {
+                              snapping: {
+                                  enabled: true, // Snap crosshair to data points
+                              },
+                              sync: {
+                                  enabled: false, // Sync crosshairs across multiple Chartjs instances
+                              },
+                              zoom: {
+                                  enabled: false, // Allow drag to zoom
+                              },
+                              line: {
+                                  color: colors.crosshair,
+                                  width: 1,
+                              },
                           },
-                          sync: {
-                              enabled: false, // Sync crosshairs across multiple Chartjs instances
-                          },
-                          zoom: {
-                              enabled: false, // Allow drag to zoom
-                          },
-                          line: {
-                              color: colors.crosshair,
-                              width: 1,
-                          },
+                      }
+                    : {
+                          crosshair: false,
                       },
-                  }
-                : {
-                      crosshair: false,
-                  },
             hover: {
                 mode: 'nearest',
                 axis: newUI ? 'x' : 'xy',
@@ -428,7 +461,7 @@ export function LineGraph({
                         ticks: {
                             fontColor: colors.axisLabel,
                             callback: (value) => {
-                                return maybeAddCommasToInteger(value)
+                                return compactNumber(value)
                             },
                         },
                     },
@@ -459,7 +492,7 @@ export function LineGraph({
                             : {
                                   ...tickOptions,
                                   callback: (value) => {
-                                      return maybeAddCommasToInteger(value)
+                                      return compactNumber(value)
                                   },
                               },
                     },
@@ -473,7 +506,7 @@ export function LineGraph({
                         ticks: {
                             ...tickOptions,
                             callback: (value) => {
-                                return maybeAddCommasToInteger(value)
+                                return compactNumber(value)
                             },
                         },
                     },
@@ -547,7 +580,7 @@ export function LineGraph({
                     labeledDays={datasets[0].labels}
                     dates={datasets[0].days}
                     leftExtent={leftExtent}
-                    interval={interval}
+                    interval={boundaryInterval}
                     topExtent={topExtent}
                     dashboardItemId={dashboardItemId}
                     currentDateMarker={

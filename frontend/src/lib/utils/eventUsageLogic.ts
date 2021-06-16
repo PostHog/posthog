@@ -123,6 +123,7 @@ export const eventUsageLogic = kea<
         reportSavedInsightToDashboard: true,
         reportInsightsTabReset: true,
         reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
+        reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -430,8 +431,11 @@ export const eventUsageLogic = kea<
         reportInsightsTabReset: async () => {
             posthog.capture('insights tab reset')
         },
-        reportInsightsControlsCollapseToggle: async ({ collapsed }) => {
-            posthog.capture('insight controls collapse toggled', { collapsed })
+        reportInsightsControlsCollapseToggle: async (payload) => {
+            posthog.capture('insight controls collapse toggled', payload)
+        },
+        reportInsightsTableCalcToggled: async (payload) => {
+            posthog.capture('insights table calc toggled', payload)
         },
     },
 })

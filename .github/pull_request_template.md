@@ -11,3 +11,4 @@
 - [ ] Cypress end-to-end tests
 - [ ] Migrations are safe to run at scale (e.g. PostHog Cloud) – present proof if not obvious
 - [ ] Frontend/CSS is usable at 320px (iPhone SE) and decent at 360px (most phones)
+- [ ] Breaking changes are backwards-compatible. Ensure old/new frontend requests work with new/old backends, and vice versa.
