@@ -48,7 +48,7 @@ function DashboardView(): JSX.Element {
             interval = 5 //initialize internal so that the toggle button instantly open when press it
             interval = window.setInterval(function () {
                 loadDashboardItems({ refresh: true })
-            }, 3000) //starts autorefresh
+            }, 120000) //starts autorefresh
         } else {
             //if autorefresh is enabled
             clearInterval(interval) //stops autorefresh
