@@ -228,8 +228,8 @@ export function LineGraph({
             mode: 'nearest',
             // If bar, we want to only show the tooltip for what we're hovering over
             // to avoid confusion
-            axis: type === 'horizontalBar' ? 'y' : 'x',
-            intersect: false,
+            axis: type === 'horizontalBar' ? 'xy' : 'x',
+            intersect: type === 'horizontalBar',
             itemSort: (a, b) => b.yLabel - a.yLabel,
             callbacks: {
                 label: function labelElement(tooltipItem, data) {
@@ -296,13 +296,9 @@ export function LineGraph({
                 tooltipEl.classList.add(tooltipModel.yAlign || 'no-transform')
                 const bounds = chartRef.current.getBoundingClientRect()
                 const chartClientLeft = bounds.left + window.pageXOffset
-                const chartClientTop = bounds.top + window.pageYOffset
-                const tooltipCaretOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltipModel.caretX + 8)
 
                 tooltipEl.style.opacity = 1
                 tooltipEl.style.position = 'absolute'
-                tooltipEl.style.left = tooltipCaretOffsetLeft + 'px'
-                tooltipEl.style.top = chartClientTop + 'px'
                 tooltipEl.style.padding = tooltipModel.padding + 'px'
                 tooltipEl.style.pointerEvents = 'none'
 
@@ -333,11 +329,19 @@ export function LineGraph({
                     )
                 }
 
-                // If tooltip is too large (or close to the edge), show it to the left of the data point instead
+                const horizontalBarTopOffset =
+                    type === 'horizontalBar' ? tooltipModel.caretY - tooltipEl.clientHeight / 2 : 0
+                const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
+
+                const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltipModel.caretX + 8)
                 const maxXPosition = bounds.right - tooltipEl.clientWidth
-                if (tooltipCaretOffsetLeft > maxXPosition) {
-                    tooltipEl.style.left = `${chartClientLeft + tooltipModel.caretX - tooltipEl.clientWidth - 8}px`
-                }
+                const tooltipClientLeft =
+                    defaultOffsetLeft > maxXPosition
+                        ? chartClientLeft + tooltipModel.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
+                        : defaultOffsetLeft
+
+                tooltipEl.style.top = tooltipClientTop + 'px'
+                tooltipEl.style.left = tooltipClientLeft + 'px'
             },
         }
 

@@ -36,7 +36,6 @@ export function InsightTooltip({
                     return <li key={line.id}>{line.component}</li>
                 })}
             </ul>
-
             {inspectUsersLabel && (
                 <footer>
                     <IconHandClick /> Click to inspect users
