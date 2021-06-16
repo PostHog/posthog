@@ -77,7 +77,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
-        response = self.client.get("/api/projects/@current/property_definitions/properties=plan,purchase,app_rating")
+        response = self.client.get("/api/projects/@current/property_definitions/?properties=plan,purchase,app_rating")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(response.json()["count"], 3)
