@@ -104,7 +104,7 @@ export function ObjectTags({
                         >
                             {newTag ? (
                                 <Select.Option
-                                    key={newTag + id}
+                                    key={`${newTag}_${id}`}
                                     value={newTag}
                                     className="ph-no-capture"
                                     data-attr="new-tag-option"

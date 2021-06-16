@@ -6,10 +6,12 @@ import { useDebouncedCallback } from 'use-debounce/lib'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 
 export function EventPropertiesStats(): JSX.Element {
-    const { eventProperties, eventsSnippet, propertyDefinitionTags, definitionLoading } = useValues(
+    const { eventPropertiesDefinitions, eventsSnippet, eventPropertiesDefinitionTags, tagLoading } = useValues(
         definitionDrawerLogic
     )
-    const { saveNewPropertyTag, deletePropertyTag, setPropertyDescription } = useActions(definitionDrawerLogic)
+    const { setNewEventPropertyTag, deleteEventPropertyTag, setEventPropertyDescription } = useActions(
+        definitionDrawerLogic
+    )
     const propertyExamples = eventsSnippet[0]?.properties
     const tableColumns = [
         {
@@ -25,8 +27,8 @@ export function EventPropertiesStats(): JSX.Element {
             render: function renderDescription({ description, id }: { description: string; id: string }) {
                 const [newDescription, setNewDescription] = useState(description)
                 const debouncePropertyDescription = useDebouncedCallback((value) => {
-                    setPropertyDescription(value, id)
-                }, 1000)
+                    setEventPropertyDescription(value, id)
+                }, 300)
 
                 return (
                     <Input.TextArea
@@ -48,10 +50,14 @@ export function EventPropertiesStats(): JSX.Element {
                     <ObjectTags
                         id={id}
                         tags={tags || []}
-                        onTagSave={(tag, currentTags, propertyId) => saveNewPropertyTag(tag, currentTags, propertyId)}
-                        onTagDelete={(tag, currentTags, propertyId) => deletePropertyTag(tag, currentTags, propertyId)}
-                        saving={definitionLoading}
-                        tagsAvailable={propertyDefinitionTags.filter((tag) => !tags?.includes(tag))}
+                        onTagSave={(tag, currentTags, propertyId) =>
+                            setNewEventPropertyTag(tag, currentTags, propertyId)
+                        }
+                        onTagDelete={(tag, currentTags, propertyId) =>
+                            deleteEventPropertyTag(tag, currentTags, propertyId)
+                        }
+                        saving={tagLoading}
+                        tagsAvailable={eventPropertiesDefinitionTags?.filter((tag) => !tags?.includes(tag))}
                     />
                 )
             },
@@ -80,7 +86,7 @@ export function EventPropertiesStats(): JSX.Element {
                 </span>
             </Row>
             <Table
-                dataSource={eventProperties}
+                dataSource={eventPropertiesDefinitions}
                 columns={tableColumns}
                 rowKey={(row) => row.id}
                 size="small"

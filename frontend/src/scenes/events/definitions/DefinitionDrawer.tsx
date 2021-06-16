@@ -16,12 +16,13 @@ import { EventsTableSnippet } from './EventsTableSnippet'
 import { UsageDisabledWarning } from '../UsageDisabledWarning'
 
 export function DefinitionDrawer(): JSX.Element {
-    const { drawerState, definition, definitionLoading, type, eventDefinitionTags, saveAllLoading } = useValues(
+    const { drawerState, definition, tagLoading, type, eventDefinitionTags, propertyDefinitionTags } = useValues(
         definitionDrawerLogic
     )
-    const { closeDrawer, saveNewTag, deleteTag, updateAllDescriptions } = useActions(definitionDrawerLogic)
+    const { closeDrawer, setNewTag, deleteTag, saveAll } = useActions(definitionDrawerLogic)
     const { preflight } = useValues(preflightLogic)
     const { Panel } = Collapse
+    const definitionTags = type === 'event' ? eventDefinitionTags : propertyDefinitionTags
 
     return (
         <>
@@ -37,12 +38,7 @@ export function DefinitionDrawer(): JSX.Element {
                         bodyStyle={{ padding: 14, paddingTop: 0 }}
                         className="definition-drawer"
                         footer={
-                            <Button
-                                style={{ float: 'right' }}
-                                type="primary"
-                                loading={saveAllLoading}
-                                onClick={updateAllDescriptions}
-                            >
+                            <Button style={{ float: 'right' }} type="primary" onClick={saveAll}>
                                 Save
                             </Button>
                         }
@@ -79,10 +75,10 @@ export function DefinitionDrawer(): JSX.Element {
                                                 <h4 className="l4">Tags</h4>
                                                 <ObjectTags
                                                     tags={definition.tags || []}
-                                                    onTagSave={saveNewTag}
+                                                    onTagSave={setNewTag}
                                                     onTagDelete={deleteTag}
-                                                    saving={definitionLoading}
-                                                    tagsAvailable={eventDefinitionTags.filter(
+                                                    saving={tagLoading}
+                                                    tagsAvailable={definitionTags?.filter(
                                                         (tag) => !definition.tags?.includes(tag)
                                                     )}
                                                 />

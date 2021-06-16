@@ -18,7 +18,7 @@ export function DefinitionOwnerDropdown({ owner }: { owner: UserBasicType | null
                 placeholder={<Owner user={owner} />}
                 style={{ minWidth: 200 }}
                 dropdownClassName="owner-option"
-                onChange={(val) => changeOwner(val)}
+                onChange={(val) => changeOwner(members.find((mem) => mem.user.id === val))}
             >
                 {members.map((member) => (
                     <Select.Option key={member.user_id} value={member.user.id}>

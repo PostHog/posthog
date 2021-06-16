@@ -50,15 +50,19 @@ export function EventsTableSnippet(): JSX.Element {
         },
     ]
     return (
-        <div style={{ fontWeight: 400, paddingTop: 15 }}>
-            <Table
-                dataSource={eventsSnippet}
-                columns={columns}
-                key={'default'}
-                rowKey={(row) => row.event.id}
-                size="small"
-                pagination={false}
-            />
-        </div>
+        <>
+            {eventsSnippet && (
+                <div style={{ fontWeight: 400, paddingTop: 15 }}>
+                    <Table
+                        dataSource={eventsSnippet}
+                        columns={columns}
+                        key={'default'}
+                        rowKey={(row) => row.id}
+                        size="small"
+                        pagination={false}
+                    />
+                </div>
+            )}
+        </>
     )
 }
