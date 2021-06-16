@@ -208,7 +208,7 @@ export function VolumeTable({
                 style={{ marginBottom: '4rem' }}
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 onRow={(record) =>
-                    isPosthogEvent(record.eventOrProp.name)
+                    isPosthogEvent(record.eventOrProp.name) || !hasTaxonomyFeatures
                         ? {}
                         : { onClick: () => openDrawer(type, record.eventOrProp.id) }
                 }

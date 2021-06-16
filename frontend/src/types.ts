@@ -11,7 +11,6 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { Dayjs } from 'dayjs'
-import { SelectValue } from 'antd/lib/select'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -780,7 +779,7 @@ export interface EventDefinition {
     tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
-    owner?: UserBasicType | null | SelectValue
+    owner?: UserBasicType | null
     updated_at?: string
     updated_by?: UserBasicType | null
 }

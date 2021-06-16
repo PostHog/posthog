@@ -2,11 +2,10 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { definitionDrawerLogicType } from './definitionDrawerLogicType'
 import { IndexedTrendResult } from 'scenes/trends/trendsLogic'
-import { EventDefinition, EventOrPropType, EventType, PropertyDefinition } from '~/types'
+import { EventDefinition, EventOrPropType, EventType, PropertyDefinition, UserBasicType } from '~/types'
 import { errorToast, toParams, uniqueBy } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { SelectValue } from 'antd/lib/select'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export const definitionDrawerLogic = kea<
@@ -15,7 +14,7 @@ export const definitionDrawerLogic = kea<
         EventDefinition,
         PropertyDefinition,
         EventType,
-        SelectValue,
+        UserBasicType,
         IndexedTrendResult
     >
 >({
@@ -25,7 +24,7 @@ export const definitionDrawerLogic = kea<
         setDescription: (description: string | undefined) => ({ description }),
         setNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
-        changeOwner: (owner: SelectValue) => ({ owner }),
+        changeOwner: (owner: UserBasicType) => ({ owner }),
         setDefinition: (definition: Partial<EventOrPropType>) => ({ definition }),
         setNewEventPropertyTag: (tag: string, currentTags?: string[], id?: string) => ({ tag, currentTags, id }),
         deleteEventPropertyTag: (tag: string, currentTags?: string[], id?: string) => ({ tag, currentTags, id }),
