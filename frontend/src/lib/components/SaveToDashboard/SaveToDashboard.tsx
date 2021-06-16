@@ -1,11 +1,12 @@
 import React, { useState } from 'react'
-import { Button } from 'antd'
+import { Button, Tooltip, TooltipProps } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
 import { router } from 'kea-router'
 
 interface Props {
     item: DashboardItemAttributes
     displayComponent?: JSX.Element // Show custom component instead of default `Add to dashboard` button
+    tooltipOptions?: TooltipProps // Wrap button component in a tooltip with specified props
 }
 
 interface DashboardItemAttributes {
@@ -22,7 +23,7 @@ interface FunnelPayload {
     name: string
 }
 
-export function SaveToDashboard({ item, displayComponent }: Props): JSX.Element {
+export function SaveToDashboard({ item, displayComponent, tooltipOptions }: Props): JSX.Element {
     const [openModal, setOpenModal] = useState<boolean>(false)
     const [{ fromItem, fromItemName, fromDashboard }] = useState(router.values.hashParams)
 
@@ -37,7 +38,7 @@ export function SaveToDashboard({ item, displayComponent }: Props): JSX.Element 
         _name = item.entity.name
     }
 
-    return (
+    const innerContent = (
         <span className="save-to-dashboard">
             {openModal && (
                 <SaveToDashboardModal
@@ -59,4 +60,6 @@ export function SaveToDashboard({ item, displayComponent }: Props): JSX.Element 
             )}
         </span>
     )
+
+    return tooltipOptions ? <Tooltip {...tooltipOptions}>{innerContent}</Tooltip> : innerContent
 }

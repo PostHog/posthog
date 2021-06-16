@@ -1,4 +1,4 @@
-import { Button, Popconfirm } from 'antd'
+import { Button, Popconfirm, Tooltip } from 'antd'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import React from 'react'
 import { FilterType, InsightType } from '~/types'
@@ -27,16 +27,22 @@ export function InsightActionBar({ filters, annotations, insight, onReset }: Pro
                     reportInsightsTabReset()
                 }}
             >
-                <Button type="link" icon={<ClearOutlined />} className="btn-reset">
-                    Reset all
-                </Button>
+                <Tooltip placement="bottom" title="Reset all filters">
+                    <Button type="link" icon={<ClearOutlined />} className="btn-reset">
+                        Reset
+                    </Button>
+                </Tooltip>
             </Popconfirm>
             <SaveToDashboard
                 displayComponent={
                     <Button icon={<SaveOutlined />} className="btn-save">
-                        Save to dashboard
+                        Save
                     </Button>
                 }
+                tooltipOptions={{
+                    placement: 'bottom',
+                    title: 'Save to dashboard',
+                }}
                 item={{
                     entity: {
                         filters,
