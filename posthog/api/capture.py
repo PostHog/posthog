@@ -1,7 +1,7 @@
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from dateutil import parser
 from django.conf import settings
@@ -78,6 +78,13 @@ def _get_sent_at(data, request) -> Optional[datetime]:
     return parser.isoparse(sent_at)
 
 
+# Support test_[apiKey] for users with multiple environments
+def _clean_token(token) -> Tuple[Optional[str], bool]:
+    is_test_environment = token.startswith("test_")
+    token = token[5:] if is_test_environment else token
+    return token, is_test_environment
+
+
 def _get_token(data, request) -> Optional[str]:
     if request.POST.get("api_key"):
         return request.POST["api_key"]
@@ -98,11 +105,11 @@ def _get_token(data, request) -> Optional[str]:
     return None
 
 
-# Support test_[apiKey] for users with multiple environments
-def _clean_token(token):
-    is_test_environment = token.startswith("test_")
-    token = token[5:] if is_test_environment else token
-    return token, is_test_environment
+def get_token(data, request) -> Tuple[Optional[str], bool]:
+    token = _get_token(data, request)
+    if token:
+        return _clean_token(token)
+    return None, False
 
 
 def _get_project_id(data, request) -> Optional[int]:
@@ -146,7 +153,8 @@ def get_event(request):
     except RequestParsingError as error:
         capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
         return cors_response(
-            request, generate_exception_response("capture", f"Malformed request data: {error}", code="invalid_payload"),
+            request,
+            generate_exception_response("capture", f"Malformed request data: {error}", code="invalid_payload"),
         )
     if not data:
         return cors_response(
@@ -160,7 +168,7 @@ def get_event(request):
 
     sent_at = _get_sent_at(data, request)
 
-    token = _get_token(data, request)
+    token, is_test_environment = get_token(data, request)
 
     if not token:
         return cors_response(
@@ -173,9 +181,6 @@ def get_event(request):
                 status_code=status.HTTP_401_UNAUTHORIZED,
             ),
         )
-
-    token, is_test_environment = _clean_token(token)
-    assert token is not None
 
     team = Team.objects.get_team_from_token(token)
 
@@ -280,7 +285,12 @@ def get_event(request):
         capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk)
 
     timer.stop()
-    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",})
+    statsd.incr(
+        f"posthog_cloud_raw_endpoint_success",
+        tags={
+            "endpoint": "capture",
+        },
+    )
     return cors_response(request, JsonResponse({"status": 1}))
 
 
@@ -304,5 +314,13 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id):
         celery_app.send_task(
             name=task_name,
             queue=celery_queue,
-            args=[distinct_id, ip, site_url, event, team_id, now.isoformat(), sent_at,],
+            args=[
+                distinct_id,
+                ip,
+                site_url,
+                event,
+                team_id,
+                now.isoformat(),
+                sent_at,
+            ],
         )
