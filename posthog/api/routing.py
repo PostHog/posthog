@@ -5,7 +5,7 @@ from rest_framework_extensions.mixins import NestedViewSetMixin
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
-from posthog.api.utils import clean_token, get_token
+from posthog.api.utils import get_token
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.utils import load_data_from_request
@@ -121,10 +121,9 @@ class StructuredViewSetMixin(NestedViewSetMixin):
 
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None
-        token = get_token(None, self.request)
+        token, _ = get_token(None, self.request)
 
         if token:
-            token, _ = clean_token(token)
             team = Team.objects.get_team_from_token(token)
             if team:
                 team_found = team
