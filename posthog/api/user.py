@@ -173,14 +173,15 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
         if lookup_value == "@me":
             return self.request.user
         raise serializers.ValidationError(
-            "Currently this endpoint only supports retrieving `@me` instance.", code="invalid_parameter",
+            "Currently this endpoint only supports retrieving `@me` instance.",
+            code="invalid_parameter",
         )
 
 
 @authenticate_secondarily
 def user(request):
     """
-    DEPRECATED: This endpoint (/api/user/) has been deprecated in favor of /api/v2/user/
+    DEPRECATED: This endpoint (/api/user/) has been deprecated in favor of /api/users/@me/
     and will be removed soon.
     """
     organization: Optional[Organization] = request.user.organization
@@ -198,10 +199,12 @@ def user(request):
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
             team.session_recording_opt_in = data["team"].get("session_recording_opt_in", team.session_recording_opt_in)
             team.session_recording_retention_period_days = data["team"].get(
-                "session_recording_retention_period_days", team.session_recording_retention_period_days,
+                "session_recording_retention_period_days",
+                team.session_recording_retention_period_days,
             )
             team.completed_snippet_onboarding = data["team"].get(
-                "completed_snippet_onboarding", team.completed_snippet_onboarding,
+                "completed_snippet_onboarding",
+                team.completed_snippet_onboarding,
             )
             team.test_account_filters = data["team"].get("test_account_filters", team.test_account_filters)
             team.timezone = data["team"].get("timezone", team.timezone)
@@ -238,7 +241,7 @@ def user(request):
 
     return JsonResponse(
         {
-            "deprecation": "Endpoint has been deprecated. Please use `/api/v2/user/`.",
+            "deprecation": "Endpoint has been deprecated. Please use `/api/users/@me/`.",
             "id": user.pk,
             "distinct_id": user.distinct_id,
             "name": user.first_name,
@@ -334,7 +337,7 @@ def redirect_to_site(request):
 @authenticate_secondarily
 def change_password(request):
     """
-    DEPRECATED: This endpoint has been deprecated in favor of /api/v2/user/ 
+    DEPRECATED: This endpoint has been deprecated in favor of /api/v2/user/
     and will be removed in PostHog V2.
     """
     try:
