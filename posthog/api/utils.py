@@ -30,3 +30,35 @@ def format_next_url(request: request.Request, offset: int, page_size: int):
             "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + page_size)
         )
     return next_url
+
+
+def get_token(data, request) -> Optional[str]:
+    if request.method == "GET":
+        if request.GET.get("token"):
+            return request.GET.get("token")  # token passed as query param
+        if request.GET.get("api_key"):
+            return request.GET.get("api_key")  # api_key passed as query param
+    if request.POST.get("api_key"):
+        return request.POST["api_key"]
+    if request.POST.get("token"):
+        return request.POST["token"]
+    if data:
+        if isinstance(data, list):
+            data = data[0]  # Mixpanel Swift SDK
+        if isinstance(data, dict):
+            if data.get("$token"):
+                return data["$token"]  # JS identify call
+            if data.get("token"):
+                return data["token"]  # JS reloadFeatures call
+            if data.get("api_key"):
+                return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
+            if data.get("properties") and data["properties"].get("token"):
+                return data["properties"]["token"]  # JS capture call
+    return None
+
+
+# Support test_[apiKey] for users with multiple environments
+def clean_token(token):
+    is_test_environment = token.startswith("test_")
+    token = token[5:] if is_test_environment else token
+    return token, is_test_environment

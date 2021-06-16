@@ -9,12 +9,13 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from posthog.api.utils import clean_token, get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.utils import cors_response, load_data_from_request
 
-from .capture import _clean_token, _get_project_id, _get_token
+from .capture import _get_project_id
 
 
 def on_permitted_domain(team: Team, request: HttpRequest) -> bool:
@@ -88,8 +89,8 @@ def get_decide(request: HttpRequest):
                 request,
                 generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
             )
-        token = _get_token(data, request)
-        token, is_test_environment = _clean_token(token)
+        token = get_token(data, request)
+        token, _ = clean_token(token)
         team = Team.objects.get_team_from_token(token)
         if team is None and token:
             project_id = _get_project_id(data, request)

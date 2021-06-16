@@ -5,8 +5,10 @@ from rest_framework_extensions.mixins import NestedViewSetMixin
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
+from posthog.api.utils import clean_token, get_token
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.utils import load_data_from_request
 
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
@@ -30,6 +32,10 @@ class StructuredViewSetMixin(NestedViewSetMixin):
 
     @property
     def team_id(self) -> int:
+        team_from_token = self._get_team_from_request()
+        if team_from_token:
+            return team_from_token.id
+
         if self.legacy_team_compatibility:
             team = self.request.user.team
             assert team is not None
@@ -38,6 +44,10 @@ class StructuredViewSetMixin(NestedViewSetMixin):
 
     @property
     def team(self) -> Team:
+        team_from_token = self._get_team_from_request()
+        if team_from_token:
+            return team_from_token
+
         if self.legacy_team_compatibility:
             team = self.request.user.team
             assert team is not None
@@ -108,3 +118,17 @@ class StructuredViewSetMixin(NestedViewSetMixin):
 
     def get_serializer_context(self) -> Dict[str, Any]:
         return {**super().get_serializer_context(), **self.get_parents_query_dict()}
+
+    def _get_team_from_request(self) -> Optional["Team"]:
+        team_found = None
+        token = get_token(None, self.request)
+
+        if token:
+            token, _ = clean_token(token)
+            team = Team.objects.get_team_from_token(token)
+            if team:
+                team_found = team
+            else:
+                raise AuthenticationFailed()
+
+        return team_found
