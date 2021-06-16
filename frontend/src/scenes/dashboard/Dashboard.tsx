@@ -7,7 +7,7 @@ import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CalendarOutlined, ReloadOutlined, EllipsisOutlined, DeleteOutlined } from '@ant-design/icons'
+import { CalendarOutlined, ReloadOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
 import { DashboardMode } from '../../types'
@@ -15,7 +15,7 @@ import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
-import { Button, Dropdown, Menu } from 'antd'
+import { Button, Row, Switch, Tooltip } from 'antd'
 
 interface Props {
     id: string
@@ -31,6 +31,8 @@ export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
     )
 }
 
+let interval: number
+
 function DashboardView(): JSX.Element {
     const { dashboard, itemsLoading, items, filters: dashboardFilters, dashboardMode, lastRefreshed } = useValues(
         dashboardLogic
@@ -38,41 +40,20 @@ function DashboardView(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setDashboardMode, addGraph, setDates, loadDashboardItems } = useActions(dashboardLogic)
 
-    const dashboardIntervals = {
-        two: '2',
-        five: '5',
-        ten: '10',
-        twenty: '20',
-        thirty: '30',
+    function auto_refresh(): number {
+        if (!!interval == false) {
+            loadDashboardItems({ refresh: true })
+            interval = 5
+            interval = window.setInterval(function () {
+                loadDashboardItems({ refresh: true })
+            }, 5000) //change time!!!
+        } else {
+            clearInterval(interval)
+            loadDashboardItems({ refresh: true })
+            interval = 0
+        }
+        return 0
     }
-
-    // const auto_refresh = (interval: number) => {
-    //     var time
-    //     var loop
-    //     if (interval === 2) {
-    //         time = 120000
-    //     }
-    //     if (interval === 5) {
-    //         time = 300000
-    //     }
-    //     if (interval === 10) {
-    //         time = 600000
-    //     }
-    //     if (interval === 20) {
-    //         time = 1200000
-    //     }
-    //     if (interval === 30) {
-    //         time = 1800000
-    //     }
-
-    //     loop = timer(interval)
-    // }
-
-    // const timer = (time: number) => {// auto refresh dashboards #1687
-    //     loadDashboardItems({ refresh: true })
-    //         var loop
-    //         return loop = setInterval(function () {loadDashboardItems({ refresh: true })},time)
-    // }
 
     useKeyboardHotkeys(
         dashboardMode === DashboardMode.Public || dashboardMode === DashboardMode.Internal
@@ -141,38 +122,30 @@ function DashboardView(): JSX.Element {
                                 </Button>
                             )}
                             {dashboardMode !== DashboardMode.Public && (
-                                <Dropdown
-                                    placement="bottomRight"
-                                    trigger={['click']}
-                                    overlay={
-                                        <Menu data-attr={'auto-refresh-interval-item-'} key="intervals">
-                                            {Object.entries(dashboardIntervals).map(([itemClassName, itemInterval]) => (
-                                                <Menu.Item
-                                                    key={itemClassName}
-                                                    //data-attr={'dashboard-item-' + index + '-dropdown-view'}
-                                                    icon={<ReloadOutlined />}
-                                                    title="Set Interval"
-                                                    //onClick={() => auto_refresh(+itemInterval)}
-                                                >
-                                                    Every {itemInterval} minutes
-                                                </Menu.Item>
-                                            ))}
-                                            <Menu.Divider />
-                                            <Menu.Item
-                                                //data-attr={'dashboard-item-' + index + '-dropdown-rename'}
-                                                icon={<DeleteOutlined />}
-                                                //onClick={() => clearInterval(loop)}
-                                                className="text-danger"
-                                            >
-                                                Stop Auto Refresh
-                                            </Menu.Item>
-                                        </Menu>
+                                <Tooltip
+                                    title={
+                                        !!interval
+                                            ? 'Stop Auto-Refreshing.'
+                                            : 'Auto-refresh dashbpards every 2 minutes.'
                                     }
                                 >
-                                    <Button type="link" icon={<EllipsisOutlined />}>
-                                        Auto-Refresh
-                                    </Button>
-                                </Dropdown>
+                                    <Row style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
+                                        <Switch
+                                            onChange={() => {
+                                                auto_refresh()
+                                            }}
+                                            checked={!!interval}
+                                            size="small"
+                                        />
+                                        <label
+                                            style={{
+                                                marginLeft: 10,
+                                            }}
+                                        >
+                                            Auto-Refresh
+                                        </label>
+                                    </Row>
+                                </Tooltip>
                             )}
                         </div>
 
