@@ -15,9 +15,6 @@ describe('Person Visualization Check', () => {
     it('Events table loads', () => {
         cy.get('.events').should('exist')
     })
-
-    // Add when feature flag for session recording is off
-    // it('Sessions table loads', () => {})
 })
 
 describe('Person Show All Distinct Checks', () => {

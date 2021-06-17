@@ -9,10 +9,12 @@ import { SeriesLetter } from '../SeriesLetter'
 
 // InsightsLabel pretty prints the action (or event) returned from /insights
 interface InsightsLabelProps {
-    seriesColor: string
+    seriesColor?: string
     action?: ActionFilter
     value?: string
     breakdownValue?: string
+    hideBreakdown?: boolean // Whether to hide the breakdown detail in the label
+    hideIcon?: boolean // Whether to hide the icon that showcases the color of the series
     seriesStatus?: string // Used by lifecycle chart to display the series name
     fallbackName?: string // Name to display for the series if it can be determined from `action`
     hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
@@ -43,10 +45,12 @@ function MathTag({ math, mathProperty }: Record<string, string | undefined>): JS
 }
 
 export function InsightLabel({
-    seriesColor,
+    seriesColor = '#000000',
     action,
     value,
     breakdownValue,
+    hideBreakdown,
+    hideIcon,
     seriesStatus,
     fallbackName,
     hasMultipleSeries,
@@ -58,7 +62,7 @@ export function InsightLabel({
     return (
         <Row className="insights-label" wrap={false}>
             <Col style={{ display: 'flex', alignItems: 'center' }} flex="auto">
-                {!(hasMultipleSeries && !breakdownValue) && (
+                {!(hasMultipleSeries && !breakdownValue) && !hideIcon && (
                     <div
                         className="color-icon"
                         style={{
@@ -75,13 +79,13 @@ export function InsightLabel({
                     />
                 )}
                 <div className="protect-width">
-                    {showEventName && <PropertyKeyInfo disableIcon value={eventName} />}
+                    {showEventName && <PropertyKeyInfo disableIcon disablePopover value={eventName} />}
 
                     {hasMultipleSeries && ((action?.math && action.math !== 'total') || showCountedByTag) && (
                         <MathTag math={action?.math} mathProperty={action?.math_property} />
                     )}
 
-                    {breakdownValue && (
+                    {breakdownValue && !hideBreakdown && (
                         <>
                             {hasMultipleSeries && <span style={{ padding: '0 2px' }}>-</span>}
                             {breakdownValue === 'total' ? <i>Total</i> : breakdownValue}

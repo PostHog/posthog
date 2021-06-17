@@ -107,9 +107,23 @@
         }
     }
 
+    .insight-title-container {
+        display: flex;
+        align-items: center;
+
+        .insight-title-text {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    }
+
     .insights-tab-actions {
         margin-left: auto;
         padding: 0 1rem;
+        display: flex;
+        flex-wrap: nowrap;
+
         .btn-reset {
             color: rgba($danger, 0.8);
         }
