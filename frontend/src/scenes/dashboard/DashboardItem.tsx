@@ -24,6 +24,7 @@ import {
     DeliveredProcedureOutlined,
     BarChartOutlined,
     SaveOutlined,
+    ReloadOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
@@ -38,6 +39,7 @@ import { DashboardItemType, DashboardMode, DashboardType, DisplayType } from '~/
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 dayjs.extend(relativeTime)
 
@@ -228,6 +230,8 @@ export function DashboardItem({
         preventLoading,
     }
 
+    const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
+    const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
     const { results, resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
     const previousLoading = usePrevious(resultsLoading)
 
@@ -308,6 +312,22 @@ export function DashboardItem({
                                         />
                                     </Tooltip>
                                 ))}
+                            <Tooltip
+                                title={
+                                    <i>
+                                        Last updated:{' '}
+                                        {item.last_refresh ? dayjs(item.last_refresh).fromNow() : 'recently'}
+                                    </i>
+                                }
+                            >
+                                <ReloadOutlined
+                                    style={{ cursor: 'pointer', marginTop: -3 }}
+                                    onClick={() => {
+                                        loadResults(true)
+                                        reportDashboardItemRefreshed(item)
+                                    }}
+                                />
+                            </Tooltip>
                             {dashboardMode !== DashboardMode.Internal && (
                                 <Dropdown
                                     placement="bottomRight"
