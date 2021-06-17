@@ -25,9 +25,10 @@ export class ActionStep extends Component {
 
         return (
             <div className="mb">
-                <label>
+                <label style={{ fontWeight: 'bold' }}>
                     {props.label} {props.extra_options}
                 </label>
+                {props.caption && <div className="action-step-caption">{props.caption}</div>}
                 {props.item === 'selector' ? (
                     <Input.TextArea allowClear onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
@@ -101,17 +102,32 @@ export class ActionStep extends Component {
                 </span>
                 <this.Option
                     item="href"
-                    label="Link href equals"
+                    label="Link target equals"
+                    caption={
+                        <>
+                            If your element is a link, the location that the link opens (<code>href</code> tag)
+                        </>
+                    }
                     selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') + '"]'}
                 />
                 <AndC />
-                <this.Option item="text" label="Text equals" />
+                <this.Option item="text" label="Text equals" caption="Text content inside your element" />
                 <AndC />
-                <this.Option item="selector" label="HTML selector matches" selector={step.selector} />
+                <this.Option
+                    item="selector"
+                    label="HTML selector matches"
+                    selector={step.selector}
+                    caption="CSS selector that ideally uniquely identifies your element"
+                />
                 <div style={{ marginBottom: 18 }}>
                     <AndC />
                 </div>
-                <this.Option item="url" extra_options={<this.URLMatching step={step} />} label="URL" />
+                <this.Option
+                    item="url"
+                    extra_options={<this.URLMatching step={step} />}
+                    label="Page URL"
+                    caption="Elements will match only when triggered from the URL (particularly useful if you have non-unique elements in different pages)."
+                />
                 {step?.url_matching && step.url_matching in URL_MATCHING_HINTS && (
                     <small style={{ display: 'block', marginTop: -12 }}>{URL_MATCHING_HINTS[step.url_matching]}</small>
                 )}
@@ -128,7 +144,6 @@ export class ActionStep extends Component {
                 onChange={handleURLMatchChange}
                 value={step.url_matching || 'contains'}
                 size="small"
-                style={{ paddingBottom: 16 }}
             >
                 <Radio.Button value="contains">contains</Radio.Button>
                 <Radio.Button value="regex">matches regex</Radio.Button>
