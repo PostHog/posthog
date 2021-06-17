@@ -51,8 +51,8 @@ export const definitionDrawerLogic = kea<
                 saveDefinition: async ({ definition, type }) => {
                     if (type === 'event') {
                         definition.owner = definition.owner.user?.id || null
-                        definition.description = values.description
                     }
+                    definition.description = values.description
                     const updatedDefinition = await api.update(
                         `api/projects/@current/${type}_definitions/${definition.id}`,
                         definition
@@ -135,9 +135,8 @@ export const definitionDrawerLogic = kea<
             [] as PropertyDefinition[],
             {
                 setEventPropertyDefinition: (state, { propertyDefinition, id }) => {
-                    const newDefinitions = state.map((p) =>
-                        p.id === id ? Object.assign({}, { ...p, ...propertyDefinition }) : p
-                    )
+                    const newDefinitions = state.map((p) => (p.id === id ? { ...p, ...propertyDefinition } : p))
+                    debugger
                     return newDefinitions
                 },
             },
@@ -172,21 +171,21 @@ export const definitionDrawerLogic = kea<
     selectors: () => ({
         eventDefinitionTags: [
             () => [eventDefinitionsModel.selectors.eventDefinitions],
-            (definitions: EventDefinition[]): string[] => {
+            (definitions): string[] => {
                 const allTags = definitions.flatMap(({ tags }) => tags).filter((a) => !!a) as string[]
                 return uniqueBy(allTags, (item) => item).sort()
             },
         ],
         eventPropertiesDefinitionTags: [
             (selectors) => [selectors.eventPropertiesDefinitions],
-            (properties: PropertyDefinition[]): string[] => {
+            (properties): string[] => {
                 const allTags = properties.flatMap(({ tags }) => tags).filter((a) => !!a) as string[]
                 return uniqueBy(allTags, (item) => item).sort()
             },
         ],
         propertyDefinitionTags: [
             () => [propertyDefinitionsModel.selectors.propertyDefinitions],
-            (definitions: EventOrPropType[]): string[] => {
+            (definitions): string[] => {
                 const allTags = definitions.flatMap(({ tags }) => tags).filter((a) => !!a) as string[]
                 return uniqueBy(allTags, (item) => item).sort()
             },

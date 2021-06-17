@@ -92,35 +92,7 @@ export function DefinitionDrawer(): JSX.Element {
                                     </Col>
                                 </Row>
                                 <Row className="detail-status">
-                                    <div>
-                                        <h4 className="l4">Last modified</h4>
-                                        <span>{humanFriendlyDetailedTime(definition.updated_at || null)}</span>
-                                    </div>
-                                    <div>
-                                        <h4 className="l4">Last modified by</h4>
-                                        <span>{definition.updated_by?.first_name || '-'}</span>
-                                    </div>
-                                </Row>
-                            </Panel>
-                        </Collapse>
-
-                        {type === 'event' && (
-                            <Collapse defaultActiveKey={['2']} expandIconPosition="right" ghost>
-                                <Panel header="Properties" key="2" className="l3">
-                                    <EventPropertiesStats />
-                                </Panel>
-                            </Collapse>
-                        )}
-
-                        {preflight && preflight?.is_event_property_usage_enabled && (
-                            <Collapse
-                                defaultActiveKey={['3']}
-                                expandIconPosition="right"
-                                ghost
-                                style={{ borderBottom: '1px solid #D9D9D9' }}
-                            >
-                                <Panel header="Usage" key="3" className="l3">
-                                    <Row className="panel-wrapper">
+                                    {type === 'event' && (
                                         <div style={{ paddingRight: 32, textAlign: 'center' }}>
                                             <div
                                                 style={{
@@ -142,23 +114,37 @@ export function DefinitionDrawer(): JSX.Element {
                                             </div>
                                             <span>{definition.volume_30_day || '-'}</span>
                                         </div>
-                                        <div style={{ textAlign: 'center' }}>
-                                            <div
-                                                style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}
+                                    )}
+                                    <div style={{ textAlign: 'center' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
+                                            <h4 className="l4" style={{ marginBottom: 0 }}>
+                                                Query Usage (30 days)
+                                            </h4>
+                                            <Tooltip
+                                                placement="right"
+                                                title={`Number of queries in PostHog that included a filter on this ${type}`}
                                             >
-                                                <h4 className="l4" style={{ marginBottom: 0 }}>
-                                                    Query Usage (30 days)
-                                                </h4>
-                                                <Tooltip
-                                                    placement="right"
-                                                    title={`Number of queries in PostHog that included a filter on this ${type}`}
-                                                >
-                                                    <InfoCircleOutlined className="info-indicator" />
-                                                </Tooltip>
-                                            </div>
-                                            <span>{definition.query_usage_30_day || '-'}</span>
+                                                <InfoCircleOutlined className="info-indicator" />
+                                            </Tooltip>
                                         </div>
-                                    </Row>
+                                        <span>{definition.query_usage_30_day || '-'}</span>
+                                    </div>
+                                    <div>
+                                        <h4 className="l4">Last modified</h4>
+                                        <span>{humanFriendlyDetailedTime(definition.updated_at || null)}</span>
+                                    </div>
+                                    <div>
+                                        <h4 className="l4">Last modified by</h4>
+                                        <span>{definition.updated_by?.first_name || '-'}</span>
+                                    </div>
+                                </Row>
+                            </Panel>
+                        </Collapse>
+
+                        {type === 'event' && (
+                            <Collapse defaultActiveKey={['2']} expandIconPosition="right" ghost>
+                                <Panel header="Properties" key="2" className="l3">
+                                    <EventPropertiesStats />
                                 </Panel>
                             </Collapse>
                         )}

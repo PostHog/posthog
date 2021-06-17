@@ -151,7 +151,7 @@ export function VolumeTable({
                     ? (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1)
                     : (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1),
         },
-        type === 'event' && hasTaxonomyFeatures
+        hasTaxonomyFeatures
             ? {
                   render: function Render(_, item) {
                       return (
@@ -206,8 +206,8 @@ export function VolumeTable({
                 columns={columns}
                 rowKey={(item) => item.eventOrProp.name}
                 size="small"
-                style={{ marginBottom: '4rem' }}
-                pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                style={{ marginBottom: '4rem', cursor: 'pointer' }}
+                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(record) =>
                     isPosthogEvent(record.eventOrProp.name) || !hasTaxonomyFeatures
                         ? {}

@@ -5,7 +5,7 @@ import { definitionDrawerLogic } from './definitionDrawerLogic'
 
 export function DefinitionDescription(): JSX.Element {
     const { description } = useValues(definitionDrawerLogic)
-    const { setDescription } = useActions(definitionDrawerLogic)
+    const { setDescription, saveAll } = useActions(definitionDrawerLogic)
 
     return (
         <>
@@ -17,6 +17,11 @@ export function DefinitionDescription(): JSX.Element {
                     value={description || ''}
                     onChange={(e) => {
                         setDescription(e.target.value)
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            saveAll()
+                        }
                     }}
                 />
             </div>

@@ -3,13 +3,14 @@ import { useValues, useActions } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import React, { useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce/lib'
+import { PropertyDefinition } from '~/types'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 
 export function EventPropertiesStats(): JSX.Element {
     const { eventPropertiesDefinitions, eventsSnippet, eventPropertiesDefinitionTags, tagLoading } = useValues(
         definitionDrawerLogic
     )
-    const { setNewEventPropertyTag, deleteEventPropertyTag, setEventPropertyDescription } = useActions(
+    const { setNewEventPropertyTag, deleteEventPropertyTag, setEventPropertyDescription, saveAll } = useActions(
         definitionDrawerLogic
     )
     const propertyExamples = eventsSnippet[0]?.properties
@@ -17,18 +18,18 @@ export function EventPropertiesStats(): JSX.Element {
         {
             title: 'Property',
             key: 'property',
-            render: function renderProperty({ name }: { name: string }) {
+            render: function renderProperty({ name }: PropertyDefinition) {
                 return <span className="text-default">{name}</span>
             },
         },
         {
             title: 'Description',
             key: 'description',
-            render: function renderDescription({ description, id }: { description: string; id: string }) {
+            render: function renderDescription({ description, id }: PropertyDefinition) {
                 const [newDescription, setNewDescription] = useState(description)
                 const debouncePropertyDescription = useDebouncedCallback((value) => {
                     setEventPropertyDescription(value, id)
-                }, 300)
+                }, 200)
 
                 return (
                     <Input.TextArea
@@ -38,6 +39,11 @@ export function EventPropertiesStats(): JSX.Element {
                             setNewDescription(e.target.value)
                             debouncePropertyDescription(e.target.value)
                         }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                saveAll()
+                            }
+                        }}
                     />
                 )
             },
@@ -45,7 +51,7 @@ export function EventPropertiesStats(): JSX.Element {
         {
             title: 'Tags',
             key: 'tags',
-            render: function renderTags({ id, tags }: { id: string; tags: string[] }) {
+            render: function renderTags({ id, tags }: PropertyDefinition) {
                 return (
                     <ObjectTags
                         id={id}
@@ -65,7 +71,7 @@ export function EventPropertiesStats(): JSX.Element {
         {
             title: 'Example',
             key: 'example',
-            render: function renderExample({ name }: { name: string }) {
+            render: function renderExample({ name }: PropertyDefinition) {
                 return (
                     <div style={{ backgroundColor: '#F0F0F0', padding: '4px, 15px', textAlign: 'center' }}>
                         <span style={{ fontSize: 10, fontWeight: 400, fontFamily: 'monaco' }}>
