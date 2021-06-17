@@ -103,18 +103,20 @@ export function PluginSource(): JSX.Element {
                 {editingSource ? (
                     <>
                         <p>
-                            Feeling lost?{' '}
+                            Read our{' '}
                             <a href="https://posthog.com/docs/plugins/build/overview" target="_blank">
-                                Read the documentation.
-                            </a>
+                                plugin building overview in PostHog Docs
+                            </a>{' '}
+                            for a good grasp of possibilities.
                             <br />
-                            Happy with your plugin?{' '}
+                            Once satisfied with your plugin, feel free to{' '}
                             <a
                                 href="https://posthog.com/docs/plugins/build/tutorial#submitting-your-plugin"
                                 target="_blank"
                             >
-                                Submit it to the official plugin repository.
+                                submit it to the official Plugin Library
                             </a>
+                            .
                         </p>
                         <Form.Item label="Name" name="name" required rules={[requiredRule]}>
                             <Input />
