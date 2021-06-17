@@ -65,6 +65,16 @@ export const keyMapping: KeyMappingInterface = {
             description: "The width of the user's screen in pixels.",
             examples: ['1440', '1920'],
         },
+        $viewport_height: {
+            label: 'Viewport Height',
+            description: "The height of the user's browser window in pixels.",
+            examples: ['2094', '1031'],
+        },
+        $viewport_width: {
+            label: 'Viewport Width',
+            description: "The width of the user's browser window in pixels.",
+            examples: ['1439', '1915'],
+        },
         $lib: {
             label: 'Library',
             description: 'What library was used to send the event.',
