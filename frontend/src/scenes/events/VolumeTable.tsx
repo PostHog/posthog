@@ -48,9 +48,9 @@ export function VolumeTable({
     const { user } = useValues(userLogic)
     const { openDrawer } = useActions(definitionDrawerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const hasTaxonomyFeatures =
-        featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
-        user?.organization?.available_features?.includes('ingestion_taxonomy')
+    const hasTaxonomyFeatures = true
+        // featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
+        // user?.organization?.available_features?.includes('ingestion_taxonomy')
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {
