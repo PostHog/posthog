@@ -117,7 +117,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                             .reduce(function (result, key) {
                                 const value = values.listFilters[key]
                                 if (value !== undefined && value !== null) {
-                                    result.push(`${key}=${value}`)
+                                    result.push(`${key}=${encodeURIComponent(value)}`)
                                 }
                                 return result
                             }, [] as string[])
