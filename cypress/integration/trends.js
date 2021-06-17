@@ -57,9 +57,15 @@ describe('Trends', () => {
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=property-filter-0]').contains('Add filter').click()
         cy.get('[data-attr=property-filter-dropdown]').click()
-        cy.get('.ant-select-item-option-content').contains('is_first_movie').click({ force: true })
+        cy.get('.rc-virtual-list').trigger('wheel', {
+            deltaX: 0,
+            deltaY: 200,
+        })
+        cy.get('.ant-select-item-option-content').contains('Continent Code').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
+        cy.get('.ant-select-selector').contains('equals').click()
+        cy.get('.ant-select-item-option-content').contains("doesn't equal").click()
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
     })
 
