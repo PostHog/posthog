@@ -184,6 +184,19 @@ class TestDecide(BaseTest):
             },
         )
 
+    def test_missing_token(self):
+        key = PersonalAPIKey(label="X", user=self.user)
+        key.save()
+        Person.objects.create(team=self.team, distinct_ids=["example_id"])
+        FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
+        )
+        response = self._post_decide({"distinct_id": "example_id", "api_key": None, "project_id": self.team.id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(response_json["featureFlags"], [])
+        self.assertFalse(response_json["sessionRecording"])
+
     def test_invalid_payload_on_decide_endpoint(self):
 
         invalid_payloads = [base64.b64encode("1-1".encode("utf-8")).decode("utf-8"), "1==1", "{distinct_id-1}"]
