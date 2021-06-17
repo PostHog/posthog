@@ -152,13 +152,13 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             function = "jsonb_object_keys"
 
         people = self.get_queryset()
-        people = (
+        properties = (
             people.annotate(keys=JsonKeys("properties"))
             .values("keys")
             .annotate(count=Count("id"))
             .order_by("-count", "keys")
         )
-        return [{"name": event["keys"], "count": event["count"]} for event in people]
+        return [{"name": property["keys"], "count": property["count"]} for property in properties]
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
