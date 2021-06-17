@@ -143,11 +143,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs) -> response.Response:
-        result = self.get_properties(request)
-
-        return response.Response(result)
-
-    def get_properties(self, request) -> List[Dict[str, Any]]:
         class JsonKeys(Func):
             function = "jsonb_object_keys"
 
@@ -158,7 +153,9 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             .annotate(count=Count("id"))
             .order_by("-count", "keys")
         )
-        return [{"name": property["keys"], "count": property["count"]} for property in properties]
+        result = [{"name": property["keys"], "count": property["count"]} for property in properties]
+
+        return response.Response(result)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
