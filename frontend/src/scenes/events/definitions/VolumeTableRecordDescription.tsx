@@ -3,8 +3,16 @@ import { useActions } from 'kea'
 import React, { useState } from 'react'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
-export function VolumeTableRecordDescription({ id, description }: { id: string; description: string }): JSX.Element {
-    const { updateEventDescription } = useActions(eventDefinitionsModel)
+export function VolumeTableRecordDescription({
+    id,
+    description,
+    type,
+}: {
+    id: string
+    description: string
+    type: string
+}): JSX.Element {
+    const { updateDescription } = useActions(eventDefinitionsModel)
     const [newDescription, setDescription] = useState(description)
     const [editing, setEditing] = useState(false)
 
@@ -19,13 +27,12 @@ export function VolumeTableRecordDescription({ id, description }: { id: string; 
                         e.stopPropagation()
                         setEditing(true)
                     }}
-                    // onBlur={() => setEditing(false)}
                     placeholder="Click to add description"
                     onChange={(e) => setDescription(e.target.value)}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                             setEditing(false)
-                            updateEventDescription(id, newDescription)
+                            updateDescription(id, newDescription, type)
                         }
                     }}
                     autoSize
@@ -49,7 +56,7 @@ export function VolumeTableRecordDescription({ id, description }: { id: string; 
                         size="small"
                         onClick={(e) => {
                             e.stopPropagation()
-                            updateEventDescription(id, newDescription)
+                            updateDescription(id, newDescription, type)
                         }}
                     >
                         Save

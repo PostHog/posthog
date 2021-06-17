@@ -74,6 +74,7 @@ export function VolumeTable({
                                 <VolumeTableRecordDescription
                                     id={record.eventOrProp.id}
                                     description={record.eventOrProp.description}
+                                    type={type}
                                 />
                             ))}
                         {record.warnings?.map((warning) => (

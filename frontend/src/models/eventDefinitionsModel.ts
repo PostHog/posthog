@@ -3,6 +3,7 @@ import api from 'lib/api'
 import { posthogEvents } from 'lib/utils'
 import { EventDefinition, SelectOption } from '~/types'
 import { eventDefinitionsModelType } from './eventDefinitionsModelType'
+import { propertyDefinitionsModel } from './propertyDefinitionsModel'
 
 interface EventDefinitionStorage {
     count: number
@@ -19,7 +20,7 @@ export const eventDefinitionsModel = kea<
     eventDefinitionsModelType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface>
 >({
     actions: () => ({
-        updateEventDescription: (id: string, description: string | null) => ({ id, description }),
+        updateDescription: (id: string, description: string | null, type: string) => ({ id, description, type }),
         setEventDefinitions: (event) => ({ event }),
     }),
     loaders: ({ values }) => ({
@@ -57,9 +58,13 @@ export const eventDefinitionsModel = kea<
                 actions.loadEventDefinitions()
             }
         },
-        updateEventDescription: async ({ id, description }) => {
-            const response = await api.update(`api/projects/@current/event_definitions/${id}`, { description })
-            actions.setEventDefinitions(response)
+        updateDescription: async ({ id, description, type }) => {
+            const response = await api.update(`api/projects/@current/${type}_definitions/${id}`, { description })
+            if (type === 'event') {
+                actions.setEventDefinitions(response)
+            } else {
+                propertyDefinitionsModel.actions.setPropertyDefinitions(response)
+            }
         },
     }),
     events: ({ actions }) => ({

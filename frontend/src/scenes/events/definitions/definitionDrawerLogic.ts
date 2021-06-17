@@ -53,14 +53,12 @@ export const definitionDrawerLogic = kea<
                         definition.owner = definition.owner.user?.id || null
                         definition.description = values.description
                     }
-                    const saved = await api.update(
+                    const updatedDefinition = await api.update(
                         `api/projects/@current/${type}_definitions/${definition.id}`,
                         definition
                     )
-                    if (type === 'event') {
-                        eventDefinitionsModel.actions.setEventDefinitions(saved)
-                    }
-                    return saved
+                    actions.saveDefinitionSuccess(updatedDefinition)
+                    return updatedDefinition
                 },
             },
         ],
@@ -68,14 +66,21 @@ export const definitionDrawerLogic = kea<
             [] as EventType[],
             {
                 loadEventsSnippet: async (definition: EventOrPropType | null) => {
+                    const properties =
+                        values.type === 'property'
+                            ? [{ key: definition?.name, value: 'is_set', operator: 'is_set', type: 'event' }]
+                            : {}
+                    const event = values.type === 'event' ? definition?.name : null
                     const eventsParams = toParams({
-                        properties: {},
-                        ...{ event: definition?.name },
+                        properties: properties,
+                        ...{ event },
                         orderBy: ['-timestamp'],
                         limit: 5,
                     })
                     const events = await api.get(`api/event/?${eventsParams}`)
-                    actions.loadEventsSnippetSuccess(events.results)
+                    if (values.type === 'property') {
+                        actions.loadEventsSnippetSuccess(events.results)
+                    }
                     return events.results
                 },
             },
@@ -130,10 +135,9 @@ export const definitionDrawerLogic = kea<
             [] as PropertyDefinition[],
             {
                 setEventPropertyDefinition: (state, { propertyDefinition, id }) => {
-                    const newDefinitions = [] as PropertyDefinition[]
-                    state.forEach((propertyDef) => newDefinitions.push(Object.assign({}, propertyDef)))
-                    const propertyToChange = newDefinitions.findIndex((def) => def.id === id)
-                    newDefinitions[propertyToChange] = { ...newDefinitions[propertyToChange], ...propertyDefinition }
+                    const newDefinitions = state.map((p) =>
+                        p.id === id ? Object.assign({}, { ...p, ...propertyDefinition }) : p
+                    )
                     return newDefinitions
                 },
             },
@@ -195,13 +199,18 @@ export const definitionDrawerLogic = kea<
         },
         loadDefinitionSuccess: ({ definition }) => {
             actions.loadEventsSnippet(definition)
-            if (definition?.description) {
-                actions.setDescription(definition.description)
-            }
+            actions.setDescription(definition?.description || '')
         },
         loadEventsSnippetSuccess: ({ eventsSnippet }) => {
             const propertyNames = Object.keys(eventsSnippet[0].properties).filter((key) => !keyMapping.event[key])
             actions.loadEventPropertiesDefinitions(propertyNames)
+        },
+        saveDefinitionSuccess: ({ definition }) => {
+            if (values.type === 'event') {
+                eventDefinitionsModel.actions.setEventDefinitions(definition)
+            } else {
+                propertyDefinitionsModel.actions.setPropertyDefinitions(definition)
+            }
         },
         setNewTag: async ({ tag }, breakpoint) => {
             actions.setTagLoading(true)
