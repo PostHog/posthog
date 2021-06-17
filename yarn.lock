@@ -1612,10 +1612,10 @@
     theme-ui "^0.3.1"
     tinycolor2 "^1.4.1"
 
-"@posthog/chart.js@^2.9.4":
-  version "2.9.4"
-  resolved "https://registry.yarnpkg.com/@posthog/chart.js/-/chart.js-2.9.4.tgz#4b019092cf868d1db6be5f162acbe6d2698681d8"
-  integrity sha512-EOfM9A7842sgrnR+kVAO3i3qozxi9NHI2J2XKnISKvDnkZ6ydDA9EJ8QQ5y7v7oGoY1NKpjKE2CdulcIi1LC/g==
+"@posthog/chart.js@^2.9.6":
+  version "2.9.6"
+  resolved "https://registry.yarnpkg.com/@posthog/chart.js/-/chart.js-2.9.6.tgz#48bfd305b7d06693bf74561f05076d5d56f41a25"
+  integrity sha512-2ZH/7ic3rufp3pgMzwkadj6Y0mDSEMs8C//XoE7sxK9qUrDbPklQfB+T4E+FLmUFr7QX0wgWXvHvAozH323a0w==
   dependencies:
     chartjs-color "^2.1.0"
     moment "^2.10.2"
