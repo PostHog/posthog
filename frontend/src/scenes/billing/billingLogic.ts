@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { billingLogicType } from './billingLogicType'
-import { PlanInterface, UserType, BillingType, PreflightStatus } from '~/types'
+import { PlanInterface, BillingType } from '~/types'
 import { sceneLogic, Scene } from 'scenes/sceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import posthog from 'posthog-js'
@@ -14,7 +14,7 @@ export enum BillingAlertType {
     UsageNearLimit = 'usage_near_limit',
 }
 
-export const billingLogic = kea<billingLogicType<PlanInterface, UserType, BillingType, PreflightStatus, Scene>>({
+export const billingLogic = kea<billingLogicType<BillingAlertType>>({
     actions: {
         registerInstrumentationProps: true,
     },

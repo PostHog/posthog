@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 const defaultValue = 'https://'
 
-export const appUrlsLogic = kea<appUrlsLogicType<TrendResult>>({
+export const appUrlsLogic = kea<appUrlsLogicType>({
     connect: {
         values: [teamLogic, ['currentTeam']],
     },

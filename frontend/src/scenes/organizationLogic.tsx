@@ -10,7 +10,7 @@ interface OrganizationUpdatePayload {
     personalization?: PersonalizationData
 }
 
-export const organizationLogic = kea<organizationLogicType<OrganizationType, PersonalizationData>>({
+export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePayload>>({
     actions: {
         deleteOrganization: (organization: OrganizationType) => ({ organization }),
         deleteOrganizationSuccess: true,

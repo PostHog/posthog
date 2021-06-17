@@ -12,7 +12,7 @@ interface UpdateUserPayload {
     successCallback?: () => void
 }
 
-export const userLogic = kea<userLogicType<UserType, UpdateUserPayload>>({
+export const userLogic = kea<userLogicType<UpdateUserPayload>>({
     actions: () => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
