@@ -36,7 +36,7 @@ export const searchItems = (sources: SelectedItem[], search: string): SelectedIt
         .map((result) => result.item)
 }
 
-export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem>>({
+export const selectBoxLogic = kea<selectBoxLogicType>({
     props: {} as {
         items: SelectBoxItem[]
         updateFilter: (type: any, id: string | number, name: string) => void
@@ -52,19 +52,19 @@ export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem
         selectedItem: [
             null as SelectedItem | null,
             {
-                setSelectedItem: (_, { item }: { item: SelectedItem | null }) => item,
+                setSelectedItem: (_, { item }) => item,
             },
         ],
         blockMouseOver: [
             false,
             {
-                setBlockMouseOver: (_, { block }: { block: boolean }) => block,
+                setBlockMouseOver: (_, { block }) => block,
             },
         ],
         search: [
             '',
             {
-                setSearch: (_, { search }: { search: string }) => search,
+                setSearch: (_, { search }) => search,
             },
         ],
     },
@@ -115,7 +115,14 @@ export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem
                 setTimeout(() => actions.setBlockMouseOver(false), 200)
             }
         },
-        onKeyDown: async ({ e }: { e: React.KeyboardEvent }, breakpoint) => {
+        onKeyDown: async (
+            {
+                e,
+            }: {
+                e: React.KeyboardEvent
+            },
+            breakpoint
+        ) => {
             await breakpoint(100) // debounce for 100ms
             let allSources = props.items.map((item) => item.dataSource).flat()
             allSources = !values.search ? allSources : searchItems(allSources, values.search)

@@ -129,7 +129,7 @@ export function SelectUnit({
     items,
     disablePopover = false,
 }: {
-    dropdownLogic: selectBoxLogicType<SelectedItem, SelectBoxItem> & BuiltLogic
+    dropdownLogic: selectBoxLogicType & BuiltLogic
     items: Record<string, SelectBoxItem>
     disablePopover?: boolean // Disable PropertyKeyInfo popover
 }): JSX.Element {

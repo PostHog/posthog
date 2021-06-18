@@ -49,15 +49,7 @@ export function defaultFilters(filters: Record<string, any>): Record<string, any
     }
 }
 
-export const retentionTableLogic = kea<
-    retentionTableLogicType<
-        RetentionTablePayload,
-        RetentionTrendPayload,
-        RetentionTablePeoplePayload,
-        RetentionTrendPeoplePayload,
-        ActionType
-    >
->({
+export const retentionTableLogic = kea<retentionTableLogicType>({
     key: (props) => {
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
