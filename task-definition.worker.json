@@ -110,7 +110,7 @@
                 },
                 {
                     "name": "PLUGIN_SERVER_ACTION_MATCHING",
-                    "value": "1"
+                    "value": "0"
                 }
             ],
             "secrets": [
