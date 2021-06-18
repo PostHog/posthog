@@ -14,7 +14,7 @@ describe('TeamManager()', () => {
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
         await resetTestDatabase()
-        teamManager = new TeamManager(hub.db)
+        teamManager = hub.teamManager
     })
     afterEach(async () => {
         await closeHub()

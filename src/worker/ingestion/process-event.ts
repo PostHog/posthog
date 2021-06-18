@@ -56,7 +56,7 @@ export class EventsProcessor {
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.celery = new Client(pluginsServer.db, pluginsServer.CELERY_DEFAULT_QUEUE)
-        this.teamManager = new TeamManager(pluginsServer.db)
+        this.teamManager = pluginsServer.teamManager
         this.personManager = new PersonManager(pluginsServer)
     }
 
@@ -498,24 +498,6 @@ export class EventsProcessor {
                     },
                 ],
             })
-            if (await this.teamManager.shouldSendWebhooks(teamId)) {
-                this.pluginsServer.statsd?.increment(`hooks.send_task`)
-                this.celery.sendTask(
-                    'ee.tasks.webhooks_ee.post_event_to_webhook_ee',
-                    [
-                        {
-                            event,
-                            properties,
-                            distinct_id: distinctId,
-                            timestamp,
-                            elements_chain: elementsChain,
-                        },
-                        teamId,
-                        siteUrl,
-                    ],
-                    {}
-                )
-            }
         } else {
             let elementsHash = ''
             if (elements && elements.length > 0) {
@@ -538,10 +520,6 @@ export class EventsProcessor {
                 'createEventInsert'
             )
             eventId = event.id
-            if (await this.teamManager.shouldSendWebhooks(teamId)) {
-                this.pluginsServer.statsd?.increment(`hooks.send_task`)
-                this.celery.sendTask('posthog.tasks.webhooks.post_event_to_webhook', [event.id, siteUrl], {})
-            }
         }
 
         return [eventPayload, eventId, elements]

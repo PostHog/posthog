@@ -275,14 +275,6 @@ describe('createTaskRunner()', () => {
         expect(ingestEvent).toHaveBeenCalledWith(hub, 'someEvent')
     })
 
-    it('handles `ingestEvent` task', async () => {
-        mocked(ingestEvent).mockReturnValue('ingestEvent response' as any)
-
-        expect(await taskRunner({ task: 'ingestEvent', args: { event: 'someEvent' } })).toEqual('ingestEvent response')
-
-        expect(ingestEvent).toHaveBeenCalledWith(hub, 'someEvent')
-    })
-
     it('handles `runEvery` tasks', async () => {
         mocked(runPluginTask).mockImplementation((server, task, taskType, pluginId) =>
             Promise.resolve(`${task} for ${pluginId}`)

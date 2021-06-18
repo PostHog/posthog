@@ -11,6 +11,7 @@ import {
     groupBy,
     sanitizeSqlIdentifier,
     setLogLevel,
+    stringify,
     UUID,
     UUIDT,
 } from '../src/utils/utils'
@@ -347,5 +348,26 @@ describe('groupBy', () => {
         expect(() => groupBy(objects, 'i', true)).toThrowError(
             'Key "i" has more than one matching value, which is not allowed in flat groupBy!'
         )
+    })
+})
+
+describe('stringify', () => {
+    it('leaves strings unaffected', () => {
+        expect(stringify('test!')).toStrictEqual('test!')
+    })
+
+    it('transforms numbers into strings', () => {
+        expect(stringify(3)).toStrictEqual('3')
+        expect(stringify(21.37)).toStrictEqual('21.37')
+    })
+
+    it('transforms nullish values into strings', () => {
+        expect(stringify(null)).toStrictEqual('null')
+        expect(stringify(undefined)).toStrictEqual('undefined')
+    })
+
+    it('transforms object values into strings', () => {
+        expect(stringify({})).toStrictEqual('{}')
+        expect(stringify([])).toStrictEqual('[]')
     })
 })

@@ -26,8 +26,9 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
         if (hub.PLUGIN_SERVER_ACTION_MATCHING >= 1 && result) {
             const person = await hub.db.fetchPerson(team_id, distinctId)
             const actionMatches = await hub.actionMatcher.match(event, person, result.elements)
+            await hub.hookCannon.findAndFireHooks(event, person, site_url, actionMatches)
             if (hub.PLUGIN_SERVER_ACTION_MATCHING >= 2 && actionMatches.length && result.eventId !== undefined) {
-                await hub.db.registerEventActionOccurrences(result.eventId, actionMatches)
+                await hub.db.registerActionMatch(result.eventId, actionMatches)
             }
         }
         // We don't want to return the inserted DB entry that `processEvent` returns.

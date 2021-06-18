@@ -10,7 +10,7 @@ import { Readable } from 'stream'
 import * as tar from 'tar-stream'
 import * as zlib from 'zlib'
 
-import { Element, LogLevel, Plugin, PluginConfigId, PluginsServerConfig, TimestampFormat } from '../types'
+import { LogLevel, Plugin, PluginConfigId, PluginsServerConfig, TimestampFormat } from '../types'
 import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
@@ -620,4 +620,16 @@ export function clamp(value: number, min: number, max: number): number {
 export function stringClamp(value: string, def: number, min: number, max: number): number {
     const nanToNull = (nr: number): null | number => (isNaN(nr) ? null : nr)
     return clamp(nanToNull(parseInt(value)) ?? def, min, max)
+}
+
+// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
+export function stringify(value: any): string {
+    switch (typeof value) {
+        case 'string':
+            return value
+        case 'undefined':
+            return 'undefined'
+        default:
+            return JSON.stringify(value)
+    }
 }
