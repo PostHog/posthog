@@ -15,10 +15,9 @@ import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
 import { appLogicType } from './AppType'
-import { PreflightStatus } from '~/types'
 import { models } from '~/models'
 
-export const appLogic = kea<appLogicType<PreflightStatus>>({
+export const appLogic = kea<appLogicType>({
     actions: {
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
@@ -30,10 +29,10 @@ export const appLogic = kea<appLogicType<PreflightStatus>>({
     selectors: {
         showApp: [
             (s) => [
-                userLogic.selectors.userLoading, // not loading the user anymore (may be logged out)
-                userLogic.selectors.user, // if we have the user, skip loading check
-                featureFlagLogic.selectors.receivedFeatureFlags, // received feature flags
-                s.featureFlagsTimedOut, // waited for 3 sec to load feature flags, that's enough
+                userLogic.selectors.userLoading,
+                userLogic.selectors.user,
+                featureFlagLogic.selectors.receivedFeatureFlags,
+                s.featureFlagsTimedOut,
                 preflightLogic.selectors.preflightLoading,
                 preflightLogic.selectors.preflight,
             ],

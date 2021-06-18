@@ -15,16 +15,7 @@ import {
 import { ViewType, insightLogic, defaultFilterTestAccounts, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
-import {
-    ActionFilter,
-    ActionType,
-    FilterType,
-    PersonType,
-    PropertyFilter,
-    TrendResult,
-    EntityTypes,
-    PathType,
-} from '~/types'
+import { ActionFilter, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes, PathType } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -155,9 +146,7 @@ function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: stri
 // props:
 // - dashboardItemId
 // - filters
-export const trendsLogic = kea<
-    trendsLogicType<TrendResponse, IndexedTrendResult, TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter>
->({
+export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, TrendResponse>>({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
@@ -295,11 +284,25 @@ export const trendsLogic = kea<
         visibilityMap: [
             {} as Record<number, any>,
             {
-                setVisibilityById: (state: Record<number, any>, { entry }: { entry: Record<number, any> }) => ({
+                setVisibilityById: (
+                    state: Record<number, any>,
+                    {
+                        entry,
+                    }: {
+                        entry: Record<number, any>
+                    }
+                ) => ({
                     ...state,
                     ...entry,
                 }),
-                toggleVisibility: (state: Record<number, any>, { index }: { index: number }) => ({
+                toggleVisibility: (
+                    state: Record<number, any>,
+                    {
+                        index,
+                    }: {
+                        index: number
+                    }
+                ) => ({
                     ...state,
                     [`${index}`]: !state[index],
                 }),
@@ -318,7 +321,7 @@ export const trendsLogic = kea<
             () => [eventDefinitionsModel.selectors.loaded, propertyDefinitionsModel.selectors.loaded],
             (eventsLoaded, propertiesLoaded): boolean => !eventsLoaded || !propertiesLoaded,
         ],
-        results: [(selectors) => [selectors._results], (response) => response.result],
+        results: [(selectors) => [selectors._results], (response) => response.result as TrendResponse],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
         loadMoreBreakdownUrl: [(selectors) => [selectors._results], (response) => response.next],
         sessionsPageParams: [

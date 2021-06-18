@@ -2399,10 +2399,10 @@
   resolved "https://registry.yarnpkg.com/@webpack-cli/serve/-/serve-1.3.0.tgz#2730c770f5f1f132767c63dcaaa4ec28f8c56a6c"
   integrity sha512-k2p2VrONcYVX1wRRrf0f3X2VGltLWcv+JzXRBDmvCxGlCeESx4OXw91TsWeKOkp784uNoVQo313vxJFHXPPwfw==
 
-"@wessberg/ts-clone-node@0.3.18":
-  version "0.3.18"
-  resolved "https://registry.yarnpkg.com/@wessberg/ts-clone-node/-/ts-clone-node-0.3.18.tgz#e1c552c3ed0d5bfb920ca8d406639da4b250ad4b"
-  integrity sha512-m/QAPt9K7w5+zmiDJbKxFeIzr6hMuo8euLwYxhj7ipRsyLB2AeAu2/6AF21s45hDXdWsaFwSed3F9R6STMrECg==
+"@wessberg/ts-clone-node@0.3.19":
+  version "0.3.19"
+  resolved "https://registry.yarnpkg.com/@wessberg/ts-clone-node/-/ts-clone-node-0.3.19.tgz#823ed1fa74e4daa310226332322bfca97e264fe3"
+  integrity sha512-BnJcU0ZwHxa5runiEkHzMZ6/ydxz+YYqBHOGQtf3eoxSZu2iWMPPaUfCum0O1/Ey5dqrrptUh+HmyMTzHPfdPA==
 
 "@xobotyi/scrollbar-width@1.9.5":
   version "1.9.5"
@@ -7537,14 +7537,14 @@ kea-router@^0.5.2:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^0.7.2:
-  version "0.7.2"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.7.2.tgz#859b3ffefafef0c8cf6aa3a9fb5931787b55f90f"
-  integrity sha512-PXlLRWpIKQcIaFx7RrrAIJBdh1/qA5u+8Romo55607JZuX1N68A94sqO+fp/0ZIVkxwRRi77ham0rvsrhdRipA==
+kea-typegen@^0.8.0-beta.1:
+  version "0.8.0-beta.1"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.8.0-beta.1.tgz#c5bd0ba38a0eddafbacb39d5f07adeda93a3fe1d"
+  integrity sha512-bos47UwmiYv3lB02W2DaBrKZfyX+8/Azu0ry8MpWTLCL4iPEUNQ6NlVWjwzkRqTmaxMxfIl/0FGtw2Pe1fQKeg==
   dependencies:
-    "@wessberg/ts-clone-node" "0.3.18"
+    "@wessberg/ts-clone-node" "0.3.19"
     diff "^5.0.0"
-    prettier "^2.2.1"
+    prettier "^2.3.1"
     yargs "^16.2.0"
 
 kea-window-values@^0.0.1:
@@ -9292,10 +9292,10 @@ prettier@^2.1.1:
   resolved "https://registry.yarnpkg.com/prettier/-/prettier-2.1.2.tgz#3050700dae2e4c8b67c4c3f666cdb8af405e1ce5"
   integrity sha512-16c7K+x4qVlJg9rEbXl7HEGmQyZlG4R9AgP+oHKRMsMsuk8s+ATStlf1NpDqyBI1HpVyfjLOeMhH2LvuNvV5Vg==
 
-prettier@^2.2.1:
-  version "2.2.1"
-  resolved "https://registry.yarnpkg.com/prettier/-/prettier-2.2.1.tgz#795a1a78dd52f073da0cd42b21f9c91381923ff5"
-  integrity sha512-PqyhM2yCjg/oKkFPtTGUojv7gnZAoG80ttl45O6x2Ug/rMJw4wcc9k6aaf2hibP7BGVCCM33gZoGjyvt9mm16Q==
+prettier@^2.3.1:
+  version "2.3.1"
+  resolved "https://registry.yarnpkg.com/prettier/-/prettier-2.3.1.tgz#76903c3f8c4449bc9ac597acefa24dc5ad4cbea6"
+  integrity sha512-p+vNbgpLjif/+D+DwAZAbndtRrR0md0MwfmOVN9N+2RgyACMT+7tfaRnT+WDPkqnuVwleyuBIG2XBxKDme3hPA==
 
 pretty-error@^2.1.1:
   version "2.1.2"
