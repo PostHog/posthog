@@ -103,7 +103,9 @@ export const appUrlsLogic = kea<appUrlsLogicType>({
         removeUrl: sharedListeners.saveAppUrls,
         updateUrl: sharedListeners.saveAppUrls,
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: async ({ currentTeam }) => {
-            actions.setAppUrls(currentTeam.app_urls)
+            if (currentTeam) {
+                actions.setAppUrls(currentTeam.app_urls)
+            }
         },
     }),
 
