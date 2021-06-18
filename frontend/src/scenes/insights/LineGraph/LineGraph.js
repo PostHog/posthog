@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { useActions, useValues } from 'kea'
-import Chart from 'chart.js'
+import Chart from '@posthog/chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
 import { formatLabel, compactNumber, lightenDarkenColor } from '~/lib/utils'
@@ -13,7 +13,6 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import dayjs from 'dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import './LineGraph.scss'
-import 'chartjs-plugin-crosshair'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { InsightTooltip } from '../InsightTooltip'
@@ -144,16 +143,20 @@ export function LineGraph({
         const mainColor = dataset?.status ? getBarColorFromStatus(dataset.status) : colorList[index % colorList.length]
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
 
-        const BACKGROUND_CHARTS = ['bar', 'horizontalBar', 'doughnut']
+        // `horizontalBar` colors are set in `ActionsBarValueGraph.tsx` and overriden in spread of `dataset` below
+        const BACKGROUND_BASED_CHARTS = ['bar', 'doughnut']
 
         return {
             borderColor: mainColor,
             hoverBorderColor: type === 'bar' || type === 'doughnut' ? lightenDarkenColor(mainColor, -20) : hoverColor,
-            hoverBackgroundColor: BACKGROUND_CHARTS.includes(type) ? lightenDarkenColor(mainColor, -20) : undefined,
-            backgroundColor: BACKGROUND_CHARTS.includes(type) ? mainColor : undefined,
+            hoverBackgroundColor: BACKGROUND_BASED_CHARTS.includes(type)
+                ? lightenDarkenColor(mainColor, -20)
+                : undefined,
+            backgroundColor: BACKGROUND_BASED_CHARTS.includes(type) ? mainColor : undefined,
             fill: false,
             borderWidth: newUI ? 2 : 1,
             pointRadius: newUI ? 0 : undefined,
+            pointHoverBorderWidth: newUI ? 2 : undefined,
             pointHitRadius: 8,
             ...dataset,
         }
@@ -224,8 +227,8 @@ export function LineGraph({
             mode: 'nearest',
             // If bar, we want to only show the tooltip for what we're hovering over
             // to avoid confusion
-            axis: type === 'horizontalBar' ? 'y' : 'x',
-            intersect: false,
+            axis: type === 'horizontalBar' ? 'xy' : 'x',
+            intersect: type === 'horizontalBar',
             itemSort: (a, b) => b.yLabel - a.yLabel,
             callbacks: {
                 label: function labelElement(tooltipItem, data) {
@@ -255,7 +258,7 @@ export function LineGraph({
                         numberOfSeries = new Set(data.datasets.flatMap(({ [actionObjKey]: { order } }) => order)).size
                     }
 
-                    // This could either be a color or an array of colors
+                    // This could either be a color or an array of colors (`horizontalBar`)
                     const colorSet = entityData.backgroundColor || entityData.borderColor
 
                     return (
@@ -266,7 +269,11 @@ export function LineGraph({
                             fallbackName={label}
                             showCountedByTag={showCountedByTag}
                             hasMultipleSeries={numberOfSeries > 1}
-                            breakdownValue={entityData.breakdown_value}
+                            breakdownValue={
+                                entityData.breakdownValues // Used in `horizontalBar`
+                                    ? entityData.breakdownValues[tooltipItem.index]
+                                    : entityData.breakdown_value
+                            }
                             seriesStatus={entityData.status}
                         />
                     )
@@ -292,12 +299,9 @@ export function LineGraph({
                 tooltipEl.classList.add(tooltipModel.yAlign || 'no-transform')
                 const bounds = chartRef.current.getBoundingClientRect()
                 const chartClientLeft = bounds.left + window.pageXOffset
-                const chartClientTop = bounds.top + window.pageYOffset
-                const tooltipCaretOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltipModel.caretX - 50)
+
                 tooltipEl.style.opacity = 1
                 tooltipEl.style.position = 'absolute'
-                tooltipEl.style.left = Math.min(tooltipCaretOffsetLeft, bounds.right - 250) + 'px' // guess typical width for initial render
-                tooltipEl.style.top = chartClientTop + 'px'
                 tooltipEl.style.padding = tooltipModel.padding + 'px'
                 tooltipEl.style.pointerEvents = 'none'
 
@@ -313,7 +317,6 @@ export function LineGraph({
                         .map((component, idx) => ({
                             id: idx,
                             component,
-                            ...tooltipModel.labelColors[idx],
                         }))
 
                     ReactDOM.render(
@@ -329,9 +332,19 @@ export function LineGraph({
                     )
                 }
 
-                // get real width to make sure tooltip doesn't exceed window boundaries
+                const horizontalBarTopOffset =
+                    type === 'horizontalBar' ? tooltipModel.caretY - tooltipEl.clientHeight / 2 : 0
+                const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
+
+                const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltipModel.caretX + 8)
                 const maxXPosition = bounds.right - tooltipEl.clientWidth
-                tooltipEl.style.left = Math.min(tooltipCaretOffsetLeft, maxXPosition) + 'px'
+                const tooltipClientLeft =
+                    defaultOffsetLeft > maxXPosition
+                        ? chartClientLeft + tooltipModel.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
+                        : defaultOffsetLeft
+
+                tooltipEl.style.top = tooltipClientTop + 'px'
+                tooltipEl.style.left = tooltipClientLeft + 'px'
             },
         }
 
@@ -393,7 +406,7 @@ export function LineGraph({
                 newUI && type !== 'horizontalBar'
                     ? {
                           crosshair: {
-                              snapping: {
+                              snap: {
                                   enabled: true, // Snap crosshair to data points
                               },
                               sync: {
@@ -412,9 +425,9 @@ export function LineGraph({
                           crosshair: false,
                       },
             hover: {
-                mode: 'nearest',
-                axis: newUI ? 'x' : 'xy',
-                intersect: newUI ? false : true,
+                mode: newUI ? 'nearestX' : 'nearest',
+                axis: 'xy',
+                intersect: !newUI,
                 onHover(evt) {
                     if (onClick) {
                         const point = this.getElementAtEvent(evt)
