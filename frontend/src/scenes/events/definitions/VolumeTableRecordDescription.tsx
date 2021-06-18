@@ -56,6 +56,8 @@ export function VolumeTableRecordDescription({
                         size="small"
                         onClick={(e) => {
                             e.stopPropagation()
+                            setDescription(newDescription)
+                            setEditing(false)
                             updateDescription(id, newDescription, type)
                         }}
                     >

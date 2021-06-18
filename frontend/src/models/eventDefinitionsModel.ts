@@ -41,16 +41,33 @@ export const eventDefinitionsModel = kea<
                         next: eventStorage.next,
                     }
                 },
-                setEventDefinitions: ({ event }) => {
-                    const updatedDefinitions = values.eventDefinitions.map((e) => (event.id === e.id ? event : e))
-                    return {
-                        count: values.eventStorage.count,
-                        results: updatedDefinitions,
-                        next: values.eventStorage.next,
-                    }
-                },
+                // setEventDefinitions: (event) => {
+                //     const updatedDefinitions = values.eventStorage.results.map((e) => (event.id === e.id ? event : e))
+                //     return {
+                //         count: values.eventStorage.count,
+                //         results: updatedDefinitions,
+                //         next: values.eventStorage.next,
+                //     }
+                // },
             },
         ],
+    }),
+    reducers: () => ({
+        eventStorage: [
+            { results: [], next: null, count: 0 } as EventDefinitionStorage,
+            {
+                setEventDefinitions: (state, { event }) => {
+                    const updatedDefinitions = state.results.map((p) =>
+                        event.id === p.id ? {...event} : {...p}
+                    )
+                    return {
+                        count: state.count,
+                        results: updatedDefinitions,
+                        next: state.next,
+                    }
+                },
+            }
+        ]
     }),
     listeners: ({ actions }) => ({
         loadEventDefinitionsSuccess: ({ eventStorage }) => {
