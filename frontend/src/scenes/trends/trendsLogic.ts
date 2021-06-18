@@ -321,7 +321,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             () => [eventDefinitionsModel.selectors.loaded, propertyDefinitionsModel.selectors.loaded],
             (eventsLoaded, propertiesLoaded): boolean => !eventsLoaded || !propertiesLoaded,
         ],
-        results: [(selectors) => [selectors._results], (response) => response.result as TrendResponse],
+        results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
         loadMoreBreakdownUrl: [(selectors) => [selectors._results], (response) => response.next],
         sessionsPageParams: [
