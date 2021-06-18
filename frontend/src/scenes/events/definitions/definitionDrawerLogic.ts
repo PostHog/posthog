@@ -161,7 +161,7 @@ export const definitionDrawerLogic = kea<
         visibilityMap: [
             {} as Record<number, any>,
             {
-                setVisibilityById: (state: Record<number, any>, { entry }: { entry: Record<number, any> }) => ({
+                setVisibilityById: (state: Record<number, any>, { entry }) => ({
                     ...state,
                     ...entry,
                 }),

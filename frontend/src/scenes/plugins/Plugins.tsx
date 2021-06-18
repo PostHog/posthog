@@ -42,8 +42,17 @@ export function Plugins({ user }: { user: UserType }): JSX.Element | null {
                 }
                 caption={
                     <>
-                        Plugins enable you to extend PostHog's core data processing functionality. You can also{' '}
-                        <a href="https://posthog.com/docs/plugins/build">build your own.</a>
+                        Plugins enable you to extend PostHog's core data processing functionality.
+                        <br />
+                        Make use of verified plugins from the{' '}
+                        <a href="https://posthog.com/plugins" target="_blank">
+                            Plugin Library
+                        </a>{' '}
+                        – or{' '}
+                        <a href="https://posthog.com/docs/plugins/build" target="_blank">
+                            build your own
+                        </a>
+                        .
                     </>
                 }
             />

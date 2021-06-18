@@ -21,9 +21,7 @@ interface AcceptInvitePayloadInterface {
     email_opt_in: boolean
 }
 
-export const inviteSignupLogic = kea<
-    inviteSignupLogicType<PrevalidatedInvite, ErrorInterface, AcceptInvitePayloadInterface>
->({
+export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadInterface, ErrorCodes, ErrorInterface>>({
     actions: {
         setError: (payload: ErrorInterface) => ({ payload }),
     },
@@ -83,8 +81,18 @@ export const inviteSignupLogic = kea<
     }),
     urlToAction: ({ actions }) => ({
         '/signup/*': (
-            { _: id }: { _: string },
-            { error_code, error_detail }: { error_code?: string; error_detail?: string }
+            {
+                _: id,
+            }: {
+                _: string
+            },
+            {
+                error_code,
+                error_detail,
+            }: {
+                error_code?: string
+                error_detail?: string
+            }
         ) => {
             if (error_code) {
                 if ((Object.values(ErrorCodes) as string[]).includes(error_code)) {

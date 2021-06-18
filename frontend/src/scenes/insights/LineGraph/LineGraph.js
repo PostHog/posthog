@@ -148,7 +148,7 @@ export function LineGraph({
 
         return {
             borderColor: mainColor,
-            hoverBorderColor: type === 'bar' || type === 'doughnut' ? lightenDarkenColor(mainColor, -20) : hoverColor,
+            hoverBorderColor: BACKGROUND_BASED_CHARTS.includes(type) ? lightenDarkenColor(mainColor, -20) : hoverColor,
             hoverBackgroundColor: BACKGROUND_BASED_CHARTS.includes(type)
                 ? lightenDarkenColor(mainColor, -20)
                 : undefined,

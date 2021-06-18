@@ -16,7 +16,7 @@ interface InviteRowState {
 
 const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid: true }
 
-export const bulkInviteLogic = kea<bulkInviteLogicType<OrganizationInviteType, InviteRowState>>({
+export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
     actions: {
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),
         deleteInviteAtIndex: (index: number) => ({ index }),

@@ -19,7 +19,7 @@ const NEW_FLAG = {
     rollout_percentage: null,
 }
 
-export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagType>>({
+export const featureFlagLogic = kea<featureFlagLogicType>({
     actions: {
         setFeatureFlagId: (id) => ({ id }),
         addMatchGroup: true,

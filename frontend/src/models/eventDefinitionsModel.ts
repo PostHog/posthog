@@ -16,9 +16,7 @@ interface EventsGroupedInterface {
     options: SelectOption[]
 }
 
-export const eventDefinitionsModel = kea<
-    eventDefinitionsModelType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface>
->({
+export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefinitionStorage, EventsGroupedInterface>>({
     actions: () => ({
         updateDescription: (id: string, description: string | null, type: string) => ({ id, description, type }),
         setEventDefinitions: (event) => ({ event }),
@@ -57,17 +55,15 @@ export const eventDefinitionsModel = kea<
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
             {
                 setEventDefinitions: (state, { event }) => {
-                    const updatedDefinitions = state.results.map((p) =>
-                        event.id === p.id ? {...event} : {...p}
-                    )
+                    const updatedDefinitions = state.results.map((p) => (event.id === p.id ? { ...event } : { ...p }))
                     return {
                         count: state.count,
                         results: updatedDefinitions,
                         next: state.next,
                     }
                 },
-            }
-        ]
+            },
+        ],
     }),
     listeners: ({ actions }) => ({
         loadEventDefinitionsSuccess: ({ eventStorage }) => {
