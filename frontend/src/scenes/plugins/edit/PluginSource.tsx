@@ -12,29 +12,30 @@ import SCAFFOLD_errors from '!raw-loader!@posthog/plugin-scaffold/dist/errors.d.
 // @ts-ignore
 import SCAFFOLD_types from '!raw-loader!@posthog/plugin-scaffold/dist/types.d.ts'
 
-const defaultSource = `
-// Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
+const defaultSource = `// Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
 
-/* Runs on every event */
+// Processes each event, optionally transforming it
 export function processEvent(event, { config }) {
-    // Some events (like $identify) don't have properties
+    // Some events (such as $identify) don't have properties
     if (event.properties) {
         event.properties['hello'] = \`Hello \${config.name}\`
     }
-    // Return the event to ingest, return nothing to discard  
+    // Return the event to be ingested, or return null to discard
     return event
 }
 
-/* Runs once on plugin installation */
+// Runs when the plugin is loaded, allows for preparing it as needed
 export function setupPlugin (meta) {
-
+    console.log(\`The date is \${new Date().toDateString()}\`)
 }
 
-/* Runs once every full hour */
-// function runEveryHour(meta) {
-//     const weather = await (await fetch('https://weather.example.api/?city=New+York')).json()
-//     posthog.capture('weather', { degrees: weather.deg, fahrenheit: weather.us })
-// }`
+// Runs every hour on the hour
+async function runEveryHour(meta) {
+    const response = await fetch('https://palabras-aleatorias-public-api.herokuapp.com/random')
+    const data = await response.json()
+    const randomSpanishWord = data.body.Word
+    console.log(\`¡\${randomSpanishWord.toUpperCase()}!\`)
+}`
 
 const defaultConfig = [
     {
@@ -102,18 +103,20 @@ export function PluginSource(): JSX.Element {
                 {editingSource ? (
                     <>
                         <p>
-                            Feeling lost?{' '}
+                            Read our{' '}
                             <a href="https://posthog.com/docs/plugins/build/overview" target="_blank">
-                                Read the documentation.
-                            </a>
+                                plugin building overview in PostHog Docs
+                            </a>{' '}
+                            for a good grasp of possibilities.
                             <br />
-                            Happy with your plugin?{' '}
+                            Once satisfied with your plugin, feel free to{' '}
                             <a
                                 href="https://posthog.com/docs/plugins/build/tutorial#submitting-your-plugin"
                                 target="_blank"
                             >
-                                Submit it to the official plugin repository.
+                                submit it to the official Plugin Library
                             </a>
+                            .
                         </p>
                         <Form.Item label="Name" name="name" required rules={[requiredRule]}>
                             <Input />
