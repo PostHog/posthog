@@ -470,27 +470,54 @@ class SelectorPart {
     requirements: Partial<Element>
 
     constructor(tag: string, directDescendant: boolean, escapeSlashes: boolean) {
-        const SELECTOR_ATTRIBUTE_REGEX = /([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]/
+        const ATTRIBUTE_SELECTOR_REGEX = /\[(.*)=[\'|\"](.*)[\'|\"]\]/
+        const COLON_SELECTOR_REGEX = /:([A-Za-z-]+)\((\d+)\)/
+        const FINAL_TAG_REGEX = /^([A-Za-z0-9]+)/
+
         this.directDescendant = directDescendant
         this.uniqueOrder = 0
         this.requirements = {}
 
-        const result = tag.match(SELECTOR_ATTRIBUTE_REGEX)
-        if (result && tag.includes('[id=')) {
-            this.requirements.attr_id = result[3]
-            tag = result[1]
-        }
-        if (result && tag.includes('[')) {
-            if (!this.requirements.attributes) {
-                this.requirements.attributes = {}
+        let attributeSelector = tag.match(ATTRIBUTE_SELECTOR_REGEX)
+        while (attributeSelector) {
+            tag =
+                tag.slice(0, attributeSelector.index) +
+                tag.slice(attributeSelector.index! + attributeSelector[0].length)
+            const attribute = attributeSelector[1].toLowerCase()
+            switch (attribute) {
+                case 'id':
+                    this.requirements.attr_id = attributeSelector[2].toLowerCase()
+                    break
+                case 'href':
+                    this.requirements.href = attributeSelector[2]
+                    break
+                default:
+                    if (!this.requirements.attributes) {
+                        this.requirements.attributes = {}
+                    }
+                    this.requirements.attributes[attribute] = attributeSelector[2]
+                    break
             }
-            this.requirements.attributes[result[2]] = result[3]
-            tag = result[1]
+            attributeSelector = tag.match(ATTRIBUTE_SELECTOR_REGEX)
         }
-        if (tag.includes('nth-child(')) {
-            const nthChildParts = tag.split(':nth-child(')
-            this.requirements.nth_child = parseInt(nthChildParts[1].replace(')', ''))
-            tag = nthChildParts[0]
+        let colonSelector = tag.match(COLON_SELECTOR_REGEX)
+        while (colonSelector) {
+            tag = tag.slice(0, colonSelector.index) + tag.slice(colonSelector.index! + colonSelector[0].length)
+            const parsedArgument = parseInt(colonSelector[2])
+            if (!parsedArgument) {
+                continue
+            }
+            switch (colonSelector[1]) {
+                case 'nth-child':
+                    this.requirements.nth_child = parsedArgument
+                    break
+                case 'nth-of-type':
+                    this.requirements.nth_of_type = parsedArgument
+                    break
+                default:
+                    continue // unsupported selector
+            }
+            colonSelector = tag.match(COLON_SELECTOR_REGEX)
         }
         if (tag.includes('.')) {
             const classParts = tag.split('.')
@@ -501,8 +528,9 @@ class SelectorPart {
             } // TODO: determine if we need escapeSlashes in this port
             tag = classParts[0]
         }
-        if (tag) {
-            this.requirements.tag_name = tag
+        const finalTag = tag.match(FINAL_TAG_REGEX)
+        if (finalTag) {
+            this.requirements.tag_name = finalTag[1]
         }
     }
 
