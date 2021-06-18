@@ -510,9 +510,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "PAGE_SIZE": 100,
-    "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
 }
+if not TEST:
+    REST_FRAMEWORK["EXCEPTION_HANDLER"] = "exceptions_hog.exception_handler"
 
 EXCEPTIONS_HOG = {
     "EXCEPTION_REPORTING": "posthog.exceptions.exception_reporting",
