@@ -499,7 +499,8 @@ export function LineGraph({
                         ticks: percentage
                             ? {
                                   callback: function (value) {
-                                      return value.toFixed(0) + '%' // convert it to percentage
+                                      const fixedValue = value < 1 ? value.toFixed(2) : value.toFixed(0)
+                                      return `${fixedValue}%` // convert it to percentage
                                   },
                               }
                             : {
