@@ -78,7 +78,11 @@ export const userLogic = kea<userLogicType<UpdateUserPayload>>({
                     }
 
                     posthog.identify(user.distinct_id)
-                    posthog.people.set({ email: user.anonymize_data ? null : user.email })
+                    posthog.people.set({
+                        email: user.anonymize_data ? null : user.email,
+                        realm: user.realm,
+                        posthog_version: user.posthog_version,
+                    })
 
                     posthog.register({
                         is_demo_project: user.team?.is_demo,

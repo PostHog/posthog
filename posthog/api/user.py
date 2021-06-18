@@ -25,6 +25,7 @@ from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.tasks import user_identify
+from posthog.utils import get_instance_realm
 from posthog.version import VERSION
 
 
@@ -289,6 +290,7 @@ def user(request):
             "is_staff": user.is_staff,
             "is_impersonated": is_impersonated_session(request),
             "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
+            "realm": get_instance_realm(),
         }
     )
 
