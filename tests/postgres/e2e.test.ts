@@ -51,6 +51,7 @@ describe('e2e postgres ingestion', () => {
                 CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
                 LOG_LEVEL: LogLevel.Log,
                 KAFKA_ENABLED: false,
+                PLUGIN_SERVER_ACTION_MATCHING: 2,
             },
             makePiscina
         )
@@ -94,8 +95,6 @@ describe('e2e postgres ingestion', () => {
     test('snapshot captured, processed, ingested', async () => {
         expect((await hub.db.fetchSessionRecordingEvents()).length).toBe(0)
 
-        const uuid = new UUIDT().toString()
-
         posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: 'yes way' })
 
         await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
@@ -126,5 +125,21 @@ describe('e2e postgres ingestion', () => {
         expect(
             pluginLogEntries.filter(({ message, type }) => message.includes('amogus') && type === 'INFO').length
         ).toEqual(1)
+    })
+
+    test('action matches are saved', async () => {
+        await hub.db.postgresQuery(
+            `UPDATE posthog_team SET slack_incoming_webhook = 'https://webhook.example.com/'`,
+            [],
+            'testTag'
+        )
+
+        posthog.capture('xyz', { foo: 'bar' })
+
+        await delayUntilEventIngested(() => hub.db.fetchActionMatches())
+
+        const savedMatches = await hub.db.fetchActionMatches()
+
+        expect(savedMatches).toStrictEqual([{ id: expect.any(Number), event_id: expect.any(Number), action_id: 69 }])
     })
 })

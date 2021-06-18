@@ -15,7 +15,10 @@ import { JobQueueManager } from '../../main/job-queues/job-queue-manager'
 import { Hub, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
+import { HookCommander } from '../../worker/ingestion/hooks'
+import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
+import { TeamManager } from '../../worker/ingestion/team-manager'
 import { InternalMetrics } from '../internal-metrics'
 import { killProcess } from '../kill'
 import { status } from '../status'
@@ -154,6 +157,10 @@ export async function createHub(
     )
 
     const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd)
+    const teamManager = new TeamManager(db)
+    const organizationManager = new OrganizationManager(db)
+    const actionManager = new ActionManager(db)
+    await actionManager.prepare()
 
     const hub: Omit<Hub, 'eventsProcessor'> = {
         ...serverConfig,
@@ -174,12 +181,15 @@ export async function createHub(
 
         pluginSchedule: null,
         pluginSchedulePromises: { runEveryMinute: {}, runEveryHour: {}, runEveryDay: {} },
+
+        teamManager,
+        organizationManager,
+        actionManager,
+        actionMatcher: new ActionMatcher(db, actionManager, statsd),
+        hookCannon: new HookCommander(db, teamManager, organizationManager, statsd),
     }
 
     // :TODO: This is only used on worker threads, not main
-    hub.actionManager = new ActionManager(db)
-    await hub.actionManager.prepare()
-    hub.actionMatcher = new ActionMatcher(db, hub.actionManager, statsd)
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.jobQueueManager = new JobQueueManager(hub as Hub)
 

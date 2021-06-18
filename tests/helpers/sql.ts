@@ -43,6 +43,7 @@ export async function resetTestDatabase(
         DELETE FROM posthog_cohortpeople;
         DELETE FROM posthog_cohort;
         DELETE FROM posthog_actionstep;
+        DELETE FROM posthog_action_events;
         DELETE FROM posthog_action;
         DELETE FROM posthog_element;
         DELETE FROM posthog_elementgroup;
@@ -74,7 +75,7 @@ export async function resetTestDatabase(
             created_at: new Date().toISOString(),
             created_by_id: commonUserId,
             deleted: false,
-            post_to_slack: false,
+            post_to_slack: true,
             slack_message_format: '',
             is_calculating: false,
             updated_at: new Date().toISOString(),
