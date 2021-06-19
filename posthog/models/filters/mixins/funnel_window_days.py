@@ -15,5 +15,10 @@ class FunnelWindowDaysMixin(BaseParamMixin):
 
     @staticmethod
     def milliseconds_from_days(days):
-        second, minute, hour, day = [1000, 60, 60, 24]
-        return second * minute * hour * day * days
+        milliseconds, seconds, minutes, hours = [1000, 60, 60, 24]
+        return milliseconds * seconds * minutes * hours * days
+
+    @staticmethod
+    def microseconds_from_days(days):
+        microseconds = 1000
+        return microseconds * FunnelWindowDaysMixin.milliseconds_from_days(days)

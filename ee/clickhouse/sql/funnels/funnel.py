@@ -40,14 +40,17 @@ FROM
     ) as pid
     ON pid.distinct_id = events.distinct_id
     WHERE
-        team_id = %(team_id)s {filters} {parsed_date_from} {parsed_date_to}
+        team_id = %(team_id)s
+        {filters}
+        {parsed_date_from}
+        {parsed_date_to}
         AND event IN %(events)s
     GROUP BY pid.person_id {extra_groupby}
 )
-WHERE max_step = {current_step}
+WHERE max_step > 0
 GROUP BY max_step, id {top_level_groupby}
 ORDER BY max_step {top_level_groupby} ASC
-limit 50
+limit 100
 offset {offset}
 ;
 """

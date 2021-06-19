@@ -7,9 +7,10 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_funnel_base import ClickhouseFunnelBase
 from ee.clickhouse.queries.clickhouse_funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.funnels.funnel import FUNNEL_SQL
+from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_SQL, FUNNEL_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.constants import TRENDS_LINEAR
+from posthog.models.filters.mixins.funnel_window_days import FunnelWindowDaysMixin
 from posthog.utils import relative_date_parse
 
 
@@ -23,6 +24,9 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         else:
             # Format of this is [step order, person count (that reached that step), array of person uuids]
             results = self._exec_query()
+
+            if self._filter.offset > 0:
+                return results
 
             steps = []
             relevant_people = []
@@ -60,16 +64,24 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         )
         self.params.update(prop_filter_params)
         steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
-        query = FUNNEL_SQL.format(
-            team_id=self._team.id,
-            steps=", ".join(steps),
-            filters=prop_filters.replace("uuid IN", "events.uuid IN", 1),
-            parsed_date_from=parsed_date_from,
-            parsed_date_to=parsed_date_to,
-            top_level_groupby="",
-            extra_select="",
-            extra_groupby="",
-            within_time="6048000000000000",
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
-        )
+
+        format_properties = {
+            "team_id": self._team.id,
+            "steps": ", ".join(steps),
+            "filters": prop_filters.replace("uuid IN", "events.uuid IN", 1),
+            "parsed_date_from": parsed_date_from,
+            "parsed_date_to": parsed_date_to,
+            "top_level_groupby": "",
+            "extra_select": "",
+            "extra_groupby": "",
+            "within_time": FunnelWindowDaysMixin.microseconds_from_days(self._filter.funnel_window_days),
+            "latest_distinct_id_sql": GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            "offset": self._filter.offset,
+        }
+
+        if self._filter.offset == 0:
+            query = FUNNEL_SQL.format(**format_properties)
+        else:
+            query = FUNNEL_PERSONS_SQL.format(**format_properties)
+
         return sync_execute(query, self.params)
