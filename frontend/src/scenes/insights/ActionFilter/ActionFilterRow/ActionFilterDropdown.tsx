@@ -161,10 +161,34 @@ export function ActionFilterDropdown({
                         )
                     },
                     dataSource:
-                        eventDefinitions.map((definition) => ({
-                            ...definition,
-                            key: EntityTypes.EVENTS + definition.id,
-                        })) || [],
+                        eventDefinitions
+                            .filter((definition) => definition.volume_30_day)
+                            .map((definition) => ({
+                                ...definition,
+                                key: EntityTypes.EVENTS + definition.id,
+                            })) || [],
+                    renderInfo: EventInfo,
+                    type: EntityTypes.EVENTS,
+                    getValue: (item: SelectedItem) => item.name || '',
+                    getLabel: (item: SelectedItem) => item.name || '',
+                },
+                {
+                    key: 'stale-events',
+                    name: 'Stale events',
+                    header: function eventHeader(label: string) {
+                        return (
+                            <>
+                                <ContainerOutlined /> {label}
+                            </>
+                        )
+                    },
+                    dataSource:
+                        eventDefinitions
+                            .filter((definition) => !definition.volume_30_day)
+                            .map((definition) => ({
+                                ...definition,
+                                key: EntityTypes.EVENTS + definition.id,
+                            })) || [],
                     renderInfo: EventInfo,
                     type: EntityTypes.EVENTS,
                     getValue: (item: SelectedItem) => item.name || '',
