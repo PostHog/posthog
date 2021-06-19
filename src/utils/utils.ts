@@ -482,11 +482,19 @@ export enum NodeEnv {
     Test = 'test',
 }
 
-export function stringToBoolean(value: unknown): boolean {
-    if (!value) {
-        return false
+export function stringToBoolean(value: unknown, strict?: false): boolean
+export function stringToBoolean(value: unknown, strict: true): boolean | null
+export function stringToBoolean(value: unknown, strict = false): boolean | null {
+    const stringValue = String(value).toLowerCase()
+    const isStrictlyTrue = ['y', 'yes', 't', 'true', 'on', '1'].includes(stringValue)
+    if (isStrictlyTrue) {
+        return true
     }
-    return ['y', 'yes', 't', 'true', 'on', '1'].includes(String(value).toLowerCase())
+    if (strict) {
+        const isStrictlyFalse = ['n', 'no', 'f', 'false', 'off', '0'].includes(stringValue)
+        return isStrictlyFalse ? false : null
+    }
+    return false
 }
 
 export function determineNodeEnv(): NodeEnv {

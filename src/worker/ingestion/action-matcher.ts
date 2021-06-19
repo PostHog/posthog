@@ -21,6 +21,7 @@ import {
 } from '../../types'
 import { DB } from '../../utils/db/db'
 import { extractElements } from '../../utils/db/utils'
+import { stringToBoolean } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 
 /** These operators can only be matched if the provided filter's value has the right type. */
@@ -39,6 +40,46 @@ const emptyMatchingOperator: Partial<Record<PropertyOperator, boolean>> = {
     [PropertyOperator.IsNot]: true,
     [PropertyOperator.NotIContains]: true,
     [PropertyOperator.NotRegex]: true,
+}
+
+// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
+export function castingCompare(
+    a: any,
+    b: any,
+    operator: PropertyOperator.Exact | PropertyOperator.LessThan | PropertyOperator.GreaterThan
+): boolean {
+    // Check basic case first
+    switch (operator) {
+        case PropertyOperator.Exact:
+            if (a == b) {
+                return true
+            }
+            break
+        case PropertyOperator.LessThan:
+            if (typeof a !== 'string' && typeof b !== 'string' && a < b) {
+                return true
+            }
+            break
+        case PropertyOperator.GreaterThan:
+            if (typeof a !== 'string' && typeof b !== 'string' && a > b) {
+                return true
+            }
+            break
+        default:
+            throw new Error(`Operator ${operator} is not supported in castingCompare!`)
+    }
+    // Try to cast to number, first via stringToBoolean, and then from raw value if that fails
+    const aCast = Number(stringToBoolean(a, true) ?? a)
+    const bCast = Number(stringToBoolean(b, true) ?? b)
+    // Compare finally (if either cast value is NaN, it will be rejected here too)
+    switch (operator) {
+        case PropertyOperator.Exact:
+            return aCast == bCast
+        case PropertyOperator.LessThan:
+            return aCast < bCast
+        case PropertyOperator.GreaterThan:
+            return aCast > bCast
+    }
 }
 
 export class ActionMatcher {
@@ -341,10 +382,10 @@ export class ActionMatcher {
                 test = (okValue) => !(typeof okValue === 'string' && new RE2(okValue).test(foundValue))
                 break
             case PropertyOperator.GreaterThan:
-                test = (okValue) => foundValue > okValue
+                test = (okValue) => castingCompare(foundValue, okValue, PropertyOperator.GreaterThan)
                 break
             case PropertyOperator.LessThan:
-                test = (okValue) => foundValue < okValue
+                test = (okValue) => castingCompare(foundValue, okValue, PropertyOperator.LessThan)
                 break
             case PropertyOperator.IsSet:
                 test = () => foundValue !== undefined
@@ -354,7 +395,7 @@ export class ActionMatcher {
                 break
             case PropertyOperator.Exact:
             default:
-                test = (okValue) => okValue === foundValue
+                test = (okValue) => castingCompare(foundValue, okValue, PropertyOperator.Exact)
         }
 
         return okValues.some(test) // ANY OF POSSIBLE VALUES MUST BE A MATCH AGAINST THE FOUND VALUE

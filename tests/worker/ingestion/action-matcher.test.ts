@@ -13,7 +13,7 @@ import {
 } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
-import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
+import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/action-matcher'
 import { commonUserId } from '../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../helpers/sql'
 
@@ -890,6 +890,40 @@ describe('ActionMatcher', () => {
                 actionDefinitionDirectDescendant,
             ])
         })
+
+        it('returns a match using filter value casting, with multiple match groups', async () => {
+            const actionDefinition: Action = await createTestAction([
+                { event: 'tenet' },
+                {
+                    properties: [
+                        { key: 'insight', type: 'event', value: ['STICKINESS'], operator: PropertyOperator.Exact },
+                        {
+                            key: 'total_event_action_filters_count',
+                            type: 'event',
+                            value: '0',
+                            operator: PropertyOperator.Exact,
+                        },
+                        {
+                            key: 'total_event_actions_count',
+                            type: 'event',
+                            value: '0',
+                            operator: PropertyOperator.GreaterThan,
+                        },
+                    ],
+                },
+            ])
+
+            const eventExampleOk1: PluginEvent = createTestEvent({
+                event: 'meow',
+                properties: {
+                    insight: 'STICKINESS',
+                    total_event_action_filters_count: 0,
+                    total_event_actions_count: 4,
+                },
+            })
+
+            expect(await actionMatcher.match(eventExampleOk1)).toEqual([actionDefinition])
+        })
     })
 
     describe('#checkElementsAgainstSelector()', () => {
@@ -984,5 +1018,56 @@ describe('ActionMatcher', () => {
                 actionMatcher.checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(3)')
             ).toBeFalsy()
         })
+    })
+})
+
+describe('castingCompare', () => {
+    it('compares exact', () => {
+        expect(castingCompare(2, '2', PropertyOperator.Exact)).toBeTruthy()
+        expect(castingCompare('2', 2, PropertyOperator.Exact)).toBeTruthy()
+        expect(castingCompare('1', 'true', PropertyOperator.Exact)).toBeTruthy()
+        expect(castingCompare(true, 'true', PropertyOperator.Exact)).toBeTruthy()
+        expect(castingCompare(true, true, PropertyOperator.Exact)).toBeTruthy()
+        expect(castingCompare('90', '90', PropertyOperator.Exact)).toBeTruthy()
+        expect(castingCompare('1', true, PropertyOperator.Exact)).toBeTruthy()
+
+        expect(castingCompare('1', false, PropertyOperator.Exact)).toBeFalsy()
+        expect(castingCompare(false, '1', PropertyOperator.Exact)).toBeFalsy()
+        expect(castingCompare(false, 'true', PropertyOperator.Exact)).toBeFalsy()
+    })
+    it('compares less than', () => {
+        expect(castingCompare(2, '2', PropertyOperator.LessThan)).toBeFalsy()
+        expect(castingCompare('2', 2, PropertyOperator.LessThan)).toBeFalsy()
+        expect(castingCompare('1', 'true', PropertyOperator.LessThan)).toBeFalsy()
+        expect(castingCompare(true, 'true', PropertyOperator.LessThan)).toBeFalsy()
+        expect(castingCompare(true, true, PropertyOperator.LessThan)).toBeFalsy()
+        expect(castingCompare('90', '90', PropertyOperator.LessThan)).toBeFalsy()
+        expect(castingCompare('1', true, PropertyOperator.LessThan)).toBeFalsy()
+        expect(castingCompare('1', false, PropertyOperator.LessThan)).toBeFalsy()
+
+        expect(castingCompare(false, '1', PropertyOperator.LessThan)).toBeTruthy()
+        expect(castingCompare(false, 'true', PropertyOperator.LessThan)).toBeTruthy()
+        expect(castingCompare('2', 3, PropertyOperator.LessThan)).toBeTruthy()
+        expect(castingCompare('445.3', '9099.2', PropertyOperator.LessThan)).toBeTruthy()
+    })
+    it('compares greater than', () => {
+        expect(castingCompare(2, '2', PropertyOperator.GreaterThan)).toBeFalsy()
+        expect(castingCompare('2', 2, PropertyOperator.GreaterThan)).toBeFalsy()
+        expect(castingCompare('1', 'true', PropertyOperator.GreaterThan)).toBeFalsy()
+        expect(castingCompare(true, 'true', PropertyOperator.GreaterThan)).toBeFalsy()
+        expect(castingCompare(true, true, PropertyOperator.GreaterThan)).toBeFalsy()
+        expect(castingCompare('90', '90', PropertyOperator.GreaterThan)).toBeFalsy()
+        expect(castingCompare('1', true, PropertyOperator.GreaterThan)).toBeFalsy()
+        expect(castingCompare('1', false, PropertyOperator.GreaterThan)).toBeTruthy()
+
+        expect(castingCompare(false, '1', PropertyOperator.GreaterThan)).toBeFalsy()
+        expect(castingCompare(false, 'true', PropertyOperator.GreaterThan)).toBeFalsy()
+        expect(castingCompare('2', 3, PropertyOperator.GreaterThan)).toBeFalsy()
+        expect(castingCompare('445.3', '9099.2', PropertyOperator.GreaterThan)).toBeFalsy()
+
+        expect(castingCompare(true, '-1', PropertyOperator.GreaterThan)).toBeTruthy()
+        expect(castingCompare(1, 'false', PropertyOperator.GreaterThan)).toBeTruthy()
+        expect(castingCompare(333, '2', PropertyOperator.GreaterThan)).toBeTruthy()
+        expect(castingCompare('9032.3', '-1.2', PropertyOperator.GreaterThan)).toBeTruthy()
     })
 })
