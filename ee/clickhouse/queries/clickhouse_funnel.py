@@ -1,8 +1,8 @@
-from typing import Any, Dict, List, Tuple
+from typing import List, Tuple
 
 from django.utils import timezone
 
-from ee.clickhouse.client import format_sql, sync_execute
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_funnel_base import ClickhouseFunnelBase
 from ee.clickhouse.queries.clickhouse_funnel_trends import ClickhouseFunnelTrends
@@ -15,7 +15,7 @@ from posthog.utils import relative_date_parse
 
 
 class ClickhouseFunnel(ClickhouseFunnelBase):
-    def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
             return []
 
