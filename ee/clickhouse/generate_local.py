@@ -15,7 +15,6 @@ class GenerateLocal:
 
     def generate(self):
         self._insert_persons()
-        self._insert_person_distinct_ids()
         self._insert_event_definitions()
         self._insert_events()
 
@@ -34,17 +33,15 @@ class GenerateLocal:
     def _insert_persons(self):
         for i in range(self._number):
             try:
-                Person.objects.create(distinct_ids=[f"user_{i}"], team=self._team)
+                person = Person.objects.create(distinct_ids=[f"user_{i}"], team=self._team)
+                self._insert_person_distinct_ids(person.id)
             except Exception as e:
                 print(str(e))
 
-    def _insert_person_distinct_ids(self):
-        values = []
-        for i in range(self._number):
-            values.append(f"('user_{i}', generateUUIDv4(), {self._team.id}, now())")
-
+    def _insert_person_distinct_ids(self, user_id, person_id):
         sql = f"""
-        insert into person_distinct_id (distinct_id, person_id, team_id, _timestamp) values {",".join(values)};
+        insert into person_distinct_id (distinct_id, person_id, team_id, _timestamp) values
+        ('user_{user_id}', '{person_id}', '{self._team.id}', now());
         """
 
         sync_execute(sql)
