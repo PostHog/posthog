@@ -1,5 +1,7 @@
 import uuid
 
+from django.db import connection
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from posthog.models import EventDefinition, Person, Team
@@ -19,9 +21,14 @@ class GenerateLocal:
         self._insert_events()
 
     def destroy(self):
-        # TODO
-        # You'll need to manually clean up the clickhouse database
-        pass
+        # You'll need to manually clean up the clickhouse database by:
+        # 1. docker compose -f ee/docker-compose.ch.yml down clickhouse zookeeper kafka
+        # 2. DEBUG=1;DJANGO_SETTINGS_MODULE=posthog.settings;PRIMARY_DB=clickhouse;CLICKHOUSE_HOST=clickhouse;CLICKHOUSE_DATABASE=posthog;CLICKHOUSE_SECURE=false;CLICKHOUSE_VERIFY=false python migrate.py migrate_clickhouse
+
+        with connection.cursor() as cursor:
+            cursor.execute("delete from posthog_persondistinctid where distinct_id like 'user_%%'")
+            cursor.execute("delete from posthog_person where properties->> 'name' like 'user_%'")
+            cursor.execute("delete from posthog_eventdefinition where name like 'step %'")
 
     def _insert_event_definitions(self):
         EventDefinition.objects.get_or_create(team=self._team, name="step one")
@@ -31,23 +38,25 @@ class GenerateLocal:
         EventDefinition.objects.get_or_create(team=self._team, name="step five")
 
     def _insert_persons(self):
-        for i in range(self._number):
+        for i in range(1, self._number + 1):
             try:
-                person = Person.objects.create(distinct_ids=[f"user_{i}"], team=self._team)
-                self._insert_person_distinct_ids(person.id)
+                person = Person.objects.create(
+                    distinct_ids=[f"user_{i}"], team=self._team, properties={"name": f"user_{i}"}
+                )
+                self._insert_person_distinct_ids(f"user_{i}", person.uuid)
             except Exception as e:
                 print(str(e))
 
-    def _insert_person_distinct_ids(self, user_id, person_id):
+    def _insert_person_distinct_ids(self, distinct_id, person_uuid):
         sql = f"""
         insert into person_distinct_id (distinct_id, person_id, team_id, _timestamp) values
-        ('user_{user_id}', '{person_id}', '{self._team.id}', now());
+        ('{distinct_id}', '{person_uuid}', '{self._team.id}', now());
         """
 
         sync_execute(sql)
 
     def _insert_events(self):
-        for i in range(self._number):
+        for i in range(1, self._number + 1):
             create_event(uuid.uuid4(), "step one", self._team, f"user_{i}", "2021-05-01 00:00:00")
             create_event(uuid.uuid4(), "step two", self._team, f"user_{i}", "2021-05-03 00:00:00")
             create_event(uuid.uuid4(), "step three", self._team, f"user_{i}", "2021-05-05 00:00:00")
