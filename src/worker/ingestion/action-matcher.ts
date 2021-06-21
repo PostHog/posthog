@@ -21,7 +21,7 @@ import {
 } from '../../types'
 import { DB } from '../../utils/db/db'
 import { extractElements } from '../../utils/db/utils'
-import { stringToBoolean } from '../../utils/utils'
+import { stringify, stringToBoolean } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 
 /** These operators can only be matched if the provided filter's value has the right type. */
@@ -42,16 +42,23 @@ const emptyMatchingOperator: Partial<Record<PropertyOperator, boolean>> = {
     [PropertyOperator.NotRegex]: true,
 }
 
-// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
+/** Return whether two values compare to each other according to the specified operator.
+ * This simulates the behavior of ClickHouse (or other DBMSs) which like to cast values in SELECTs to the column's type.
+ */
 export function castingCompare(
-    a: any,
-    b: any,
-    operator: PropertyOperator.Exact | PropertyOperator.LessThan | PropertyOperator.GreaterThan
+    a: any, // eslint-disable-line @typescript-eslint/explicit-module-boundary-types
+    b: any, // eslint-disable-line @typescript-eslint/explicit-module-boundary-types
+    operator: PropertyOperator.Exact | PropertyOperator.IsNot | PropertyOperator.LessThan | PropertyOperator.GreaterThan
 ): boolean {
     // Check basic case first
     switch (operator) {
         case PropertyOperator.Exact:
             if (a == b) {
+                return true
+            }
+            break
+        case PropertyOperator.IsNot:
+            if (a != b) {
                 return true
             }
             break
@@ -68,18 +75,23 @@ export function castingCompare(
         default:
             throw new Error(`Operator ${operator} is not supported in castingCompare!`)
     }
-    // Try to cast to number, first via stringToBoolean, and then from raw value if that fails
-    const aCast = Number(stringToBoolean(a, true) ?? a)
-    const bCast = Number(stringToBoolean(b, true) ?? b)
-    // Compare finally (if either cast value is NaN, it will be rejected here too)
-    switch (operator) {
-        case PropertyOperator.Exact:
-            return aCast == bCast
-        case PropertyOperator.LessThan:
-            return aCast < bCast
-        case PropertyOperator.GreaterThan:
-            return aCast > bCast
+    if (typeof a !== typeof b) {
+        // Try to cast to number, first via stringToBoolean, and then from raw value if that fails
+        const aCast = Number(stringToBoolean(a, true) ?? a)
+        const bCast = Number(stringToBoolean(b, true) ?? b)
+        // Compare finally (if either cast value is NaN, it will be rejected here too)
+        switch (operator) {
+            case PropertyOperator.Exact:
+                return aCast == bCast
+            case PropertyOperator.IsNot:
+                return aCast != bCast
+            case PropertyOperator.LessThan:
+                return aCast < bCast
+            case PropertyOperator.GreaterThan:
+                return aCast > bCast
+        }
     }
+    return false
 }
 
 export class ActionMatcher {
@@ -364,22 +376,21 @@ export class ActionMatcher {
         let test: (okValue: any) => boolean
         switch (filter.operator) {
             case PropertyOperator.IsNot:
-                test = (okValue) => okValue !== foundValue
+                test = (okValue) => castingCompare(foundValue, okValue, PropertyOperator.IsNot)
                 break
             case PropertyOperator.IContains:
                 foundValueLowerCase = foundValue.toLowerCase()
-                test = (okValue) => typeof okValue === 'string' && foundValueLowerCase.includes(okValue.toLowerCase())
+                test = (okValue) => foundValueLowerCase.includes(stringify(okValue).toLowerCase())
                 break
             case PropertyOperator.NotIContains:
                 foundValueLowerCase = foundValue.toLowerCase()
-                test = (okValue) =>
-                    !(typeof okValue === 'string' && foundValueLowerCase.includes(okValue.toLowerCase()))
+                test = (okValue) => !foundValueLowerCase.includes(stringify(okValue).toLowerCase())
                 break
             case PropertyOperator.Regex:
-                test = (okValue) => typeof okValue === 'string' && new RE2(okValue).test(foundValue)
+                test = (okValue) => new RE2(stringify(okValue)).test(foundValue)
                 break
             case PropertyOperator.NotRegex:
-                test = (okValue) => !(typeof okValue === 'string' && new RE2(okValue).test(foundValue))
+                test = (okValue) => !new RE2(stringify(okValue)).test(foundValue)
                 break
             case PropertyOperator.GreaterThan:
                 test = (okValue) => castingCompare(foundValue, okValue, PropertyOperator.GreaterThan)
