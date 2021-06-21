@@ -2,7 +2,7 @@ import React from 'react'
 import dayjs from 'dayjs'
 import { SceneLoading } from 'lib/utils'
 import { BindLogic, useActions, useValues } from 'kea'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { AUTO_REFRESH_INTERVAL_MINS, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -31,32 +31,18 @@ export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
     )
 }
 
-let interval: number
-
 function DashboardView(): JSX.Element {
-    const { dashboard, itemsLoading, items, filters: dashboardFilters, dashboardMode, lastRefreshed } = useValues(
-        dashboardLogic
-    )
+    const {
+        dashboard,
+        itemsLoading,
+        items,
+        filters: dashboardFilters,
+        dashboardMode,
+        lastRefreshed,
+        autoRefresh,
+    } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { setDashboardMode, addGraph, setDates, loadDashboardItems } = useActions(dashboardLogic)
-
-    function auto_refresh(): number {
-        //autorefresh function #1687
-        if (!!interval == false) {
-            //if autorefresh is disabled
-            loadDashboardItems({ refresh: true })
-            interval = 5 //initialize internal so that the toggle button instantly open when press it
-            interval = window.setInterval(function () {
-                loadDashboardItems({ refresh: true })
-            }, 120000) //starts autorefresh
-        } else {
-            //if autorefresh is enabled
-            clearInterval(interval) //stops autorefresh
-            loadDashboardItems({ refresh: true })
-            interval = 0 //makes internal false
-        }
-        return 0 // return something because when commiting tests failed because auto_refresh function didn't returned something
-    }
+    const { setDashboardMode, addGraph, setDates, loadDashboardItems, setAutoRefresh } = useActions(dashboardLogic)
 
     useKeyboardHotkeys(
         dashboardMode === DashboardMode.Public || dashboardMode === DashboardMode.Internal
@@ -116,40 +102,37 @@ function DashboardView(): JSX.Element {
                         <div className="left-item">
                             Last updated <b>{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</b>
                             {dashboardMode !== DashboardMode.Public && (
-                                <Button
-                                    type="link"
-                                    icon={<ReloadOutlined />}
-                                    onClick={() => loadDashboardItems({ refresh: true })}
-                                >
-                                    Refresh
-                                </Button>
-                            )}
-                            {dashboardMode !== DashboardMode.Public && ( //autorefresh toggle button #1687
-                                <Tooltip
-                                    title={
-                                        !!interval
-                                            ? 'Stop Auto-Refreshing.'
-                                            : 'Auto-refresh dashboards every 2 minutes.'
-                                    }
-                                    placement={'bottomLeft'}
-                                >
-                                    <Row style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
-                                        <Switch
-                                            onChange={() => {
-                                                auto_refresh()
-                                            }}
-                                            checked={!!interval} //checks if interval is still alive
-                                            size="small"
-                                        />
-                                        <label
-                                            style={{
-                                                marginLeft: 10,
-                                            }}
-                                        >
-                                            Auto-Refresh
-                                        </label>
-                                    </Row>
-                                </Tooltip>
+                                <>
+                                    <Button
+                                        type="link"
+                                        icon={<ReloadOutlined />}
+                                        onClick={() => loadDashboardItems({ refresh: true })}
+                                    >
+                                        Refresh
+                                    </Button>
+                                    <Tooltip
+                                        title={`Refresh dashboard automatically every ${AUTO_REFRESH_INTERVAL_MINS} minutes`}
+                                        placement="bottomLeft"
+                                    >
+                                        <Row style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
+                                            <Switch
+                                                // @ts-expect-error `id` prop is valid on switch
+                                                id="auto-refresh"
+                                                onChange={setAutoRefresh}
+                                                checked={autoRefresh}
+                                                size="small"
+                                            />
+                                            <label
+                                                style={{
+                                                    marginLeft: 10,
+                                                }}
+                                                htmlFor="auto-refresh"
+                                            >
+                                                Auto refresh
+                                            </label>
+                                        </Row>
+                                    </Tooltip>
+                                </>
                             )}
                         </div>
 
