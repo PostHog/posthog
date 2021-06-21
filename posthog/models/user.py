@@ -112,7 +112,7 @@ class User(AbstractUser, UUIDClassicModel):
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     toolbar_mode: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
+        max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=DISABLED,
     )
     events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
 
