@@ -240,7 +240,9 @@ export const keyMapping: KeyMappingInterface = {
         $plugins_deferred: {
             label: 'Plugins Deferred',
             description:
-                'Plugins that had read-only access to an event for some asynchronous processing (e.g. for exporting it).',
+                <>
+                    Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method <code>onEvent<code/>).
+                </>,
         },
 
         // UTM tags
