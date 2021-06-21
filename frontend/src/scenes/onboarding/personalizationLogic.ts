@@ -5,7 +5,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { PersonalizationData } from '~/types'
 import { router } from 'kea-router'
 
-export const personalizationLogic = kea<personalizationLogicType<PersonalizationData>>({
+export const personalizationLogic = kea<personalizationLogicType>({
     connect: {
         actions: [organizationLogic, ['updateOrganizationSuccess', 'loadCurrentOrganizationSuccess']],
     },

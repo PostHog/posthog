@@ -7,7 +7,7 @@ import React from 'react'
 import { DashboardItemType } from '~/types'
 import { insightRouterLogicType } from './InsightRouterType'
 
-const insightRouterLogic = kea<insightRouterLogicType<DashboardItemType>>({
+const insightRouterLogic = kea<insightRouterLogicType>({
     actions: {
         loadInsight: (id: string) => ({ id }),
         setError: true,

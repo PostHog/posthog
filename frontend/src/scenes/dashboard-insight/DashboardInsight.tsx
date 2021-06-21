@@ -10,7 +10,7 @@ import { ActionsBarValueGraph, ActionsLineGraph, ActionsPie, ActionsTable } from
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { ViewType } from 'scenes/insights/insightLogic'
 
-export function DashboardInsight(): JSX.Element {
+export function DashboardInsight(): JSX.Element | null {
     const { dashboardInsight } = useValues(dashboardInsightLogic)
     const { dashboard } = useValues(dashboardLogic({ id: 5 }))
 
