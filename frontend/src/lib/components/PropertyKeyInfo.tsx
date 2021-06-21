@@ -235,7 +235,7 @@ export const keyMapping: KeyMappingInterface = {
         },
         $plugins_failed: {
             label: 'Plugins Failed',
-            description: 'Plugins that tried to run on an event but failed.',
+            description: <>Plugins that failed to process the event (plugin method <code>processEvent<code/>).</>,
         },
         $plugins_deferred: {
             label: 'Plugins Deferred',
