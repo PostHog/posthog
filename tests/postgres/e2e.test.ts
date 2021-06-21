@@ -128,12 +128,6 @@ describe('e2e postgres ingestion', () => {
     })
 
     test('action matches are saved', async () => {
-        await hub.db.postgresQuery(
-            `UPDATE posthog_team SET slack_incoming_webhook = 'https://webhook.example.com/'`,
-            [],
-            'testTag'
-        )
-
         posthog.capture('xyz', { foo: 'bar' })
 
         await delayUntilEventIngested(() => hub.db.fetchActionMatches())

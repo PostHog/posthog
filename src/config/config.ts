@@ -73,7 +73,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         STALENESS_RESTART_SECONDS: 0,
         CAPTURE_INTERNAL_METRICS: false,
-        PLUGIN_SERVER_ACTION_MATCHING: 0,
+        PLUGIN_SERVER_ACTION_MATCHING: 2,
     }
 }
 

@@ -4,7 +4,7 @@ import { StatsD } from 'hot-shots'
 import fetch from 'node-fetch'
 import { format } from 'util'
 
-import { Action, Person } from '../../types'
+import { Action, Hook, Person } from '../../types'
 import { DB } from '../../utils/db/db'
 import { stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
@@ -181,11 +181,15 @@ export class HookCommander {
             await Promise.all(webhookRequests).catch((error) => captureException(error))
         }
 
-        if (organization?.available_features.includes('zapier')) {
-            const restHookRequests = actionMatches.flatMap(async (action) => {
-                const relevantRestHooks = await this.db.fetchRelevantRestHooks(team.id, 'action_performed', action.id)
-                return Promise.all(relevantRestHooks.map((hook) => this.postRestHook(hook.target, event, person)))
-            })
+        if (organization!.available_features.includes('zapier')) {
+            const restHooks = (
+                await Promise.all(
+                    actionMatches.map(
+                        async (action) => await this.db.fetchRelevantRestHooks(team.id, 'action_performed', action.id)
+                    )
+                )
+            ).flat()
+            const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event, person))
             await Promise.all(restHookRequests).catch((error) => captureException(error))
         }
     }
@@ -218,13 +222,17 @@ export class HookCommander {
         this.statsd?.increment('webhook_firings')
     }
 
-    private async postRestHook(targetUrl: string, event: PluginEvent, person: Person | undefined): Promise<void> {
-        const payload = { ...event, person }
-        await fetch(targetUrl, {
+    private async postRestHook(hook: Hook, event: PluginEvent, person: Person | undefined): Promise<void> {
+        const payload = { ...event, person, id: event.uuid }
+        const request = await fetch(hook.target, {
             method: 'POST',
             body: JSON.stringify(payload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
         })
+        if (request.status === 410) {
+            // Delete hook on our side if it's gone on Zapier's
+            await this.db.deleteRestHook(hook.id)
+        }
         this.statsd?.increment('rest_hook_firings')
     }
 }
