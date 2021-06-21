@@ -11,10 +11,13 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 import AutoSizer from 'react-virtualized/dist/commonjs/AutoSizer'
 import VirtualizedList from 'react-virtualized/dist/commonjs/List'
-import { ListRowProps, ListRowRenderer } from 'react-virtualized'
+import { InfiniteLoader, ListRowProps, ListRowRenderer } from 'react-virtualized'
 
 export interface SelectBoxItem {
     dataSource: SelectedItem[]
+    async?: boolean // Use loaders instead of static dataSource
+    loadMoreItems?: () => Promise<SelectedItem[]>
+    totalCount?: number // Total count available from async API
     renderInfo({ item }: { item: SelectedItem }): JSX.Element
     key: string
     name: string
@@ -133,6 +136,16 @@ export function SelectUnit({
     items: Record<string, SelectBoxItem>
     disablePopover?: boolean // Disable PropertyKeyInfo popover
 }): JSX.Element {
+    const loadableItems: typeof items = {}
+    const staticItems: typeof items = {}
+    Object.entries(items).forEach(([key, item]) => {
+        if (item.async) {
+            loadableItems[key] = item
+        } else {
+            staticItems[key] = item
+        }
+    })
+
     const { setSelectedItem, clickSelectedItem } = useActions(dropdownLogic)
     const { selectedItem, search, blockMouseOver } = useValues(dropdownLogic)
     const [hiddenData, setHiddenData] = useState<Record<string, SelectedItem[]>>({})
@@ -165,12 +178,13 @@ export function SelectUnit({
     }, [lengthOfData])
 
     useEffect(() => {
-        const _flattenedData: SelectedItem[] = []
+        const _flattenedData: Array<SelectedItem & { isHeaderRow?: boolean }> = []
         Object.keys(data).forEach((key) => {
             _flattenedData.push({
                 key: key,
                 name: key,
                 groupName: key,
+                isHeaderRow: true,
             })
             _flattenedData.push(...data[key].map((selectItem) => ({ ...selectItem, groupName: key })))
         })
@@ -246,25 +260,53 @@ export function SelectUnit({
         }
     }
 
+    const isRowLoaded = ({ index }: { index: number }): boolean => {
+        return Boolean(flattenedData[index])
+    }
+
+    const loadableRowCount = Object.values(loadableItems).reduce(
+        (total, { totalCount: count = 0 }) => (total += count),
+        0
+    )
+    const staticRowCount = Object.values(staticItems).reduce(
+        (total, { dataSource: { length } }) => (total += length),
+        0
+    )
+    const rowCount = loadableRowCount + staticRowCount
+
+    const loadMoreRows = async ({ startIndex, stopIndex }: Record<string, number>): Promise<SelectedItem[]> => {
+        // This function should identify which SelectBoxItem's loader should be called (if available) in order to fetch new rows.
+        console.log('loadMoreRows', { startIndex, stopIndex })
+        return [] // TODO
+    }
+
     return (
         <>
             {flattenedData.length > 0 && (
                 <div style={{ height: '100%' }}>
                     {
                         <AutoSizer>
-                            {({ height, width }: { height: number; width: number }) => {
-                                return (
-                                    <VirtualizedList
-                                        height={height}
-                                        overscanRowCount={0}
-                                        rowCount={flattenedData.length}
-                                        rowHeight={35}
-                                        rowRenderer={renderItem}
-                                        width={width}
-                                        tabIndex={-1}
-                                    />
-                                )
-                            }}
+                            {({ height, width }: { height: number; width: number }) => (
+                                <InfiniteLoader
+                                    isRowLoaded={isRowLoaded}
+                                    loadMoreRows={loadMoreRows}
+                                    rowCount={rowCount}
+                                >
+                                    {({ onRowsRendered, registerChild }) => (
+                                        <VirtualizedList
+                                            height={height}
+                                            onRowsRendered={onRowsRendered}
+                                            ref={registerChild}
+                                            overscanRowCount={0}
+                                            rowCount={flattenedData.length}
+                                            rowHeight={35}
+                                            rowRenderer={renderItem}
+                                            width={width}
+                                            tabIndex={-1}
+                                        />
+                                    )}
+                                </InfiniteLoader>
+                            )}
                         </AutoSizer>
                     }
                 </div>

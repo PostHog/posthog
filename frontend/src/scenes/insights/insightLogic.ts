@@ -48,7 +48,7 @@ export const logicFromInsight = (insight: string, logicProps: Record<string, any
     }
 }
 
-export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>({
+export const insightLogic = kea<insightLogicType<Timeout, ViewType>>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
@@ -77,8 +77,14 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>
             false,
             {
                 // Only show timeout message if timer is still running
-                setShowTimeoutMessage: (_, { showTimeoutMessage }: { showTimeoutMessage: boolean }) =>
-                    showTimeoutMessage,
+                setShowTimeoutMessage: (
+                    _,
+                    {
+                        showTimeoutMessage,
+                    }: {
+                        showTimeoutMessage: boolean
+                    }
+                ) => showTimeoutMessage,
                 endQuery: (_, { exception }) => {
                     if (exception && exception.status !== 500) {
                         return true
