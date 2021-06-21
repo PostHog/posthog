@@ -499,7 +499,7 @@ export interface CohortPeople {
 
 /** Usable Hook model. */
 export interface Hook {
-    id: number
+    id: string
     team_id: number
     user_id: number
     resource_id: number | null

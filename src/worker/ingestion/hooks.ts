@@ -223,7 +223,10 @@ export class HookCommander {
     }
 
     private async postRestHook(hook: Hook, event: PluginEvent, person: Person | undefined): Promise<void> {
-        const payload = { ...event, person, id: event.uuid }
+        const payload = {
+            hook: { id: hook.id, event: hook.event, target: hook.target },
+            data: { ...event, person },
+        }
         const request = await fetch(hook.target, {
             method: 'POST',
             body: JSON.stringify(payload, undefined, 4),
