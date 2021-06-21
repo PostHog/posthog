@@ -1,14 +1,14 @@
-from datetime import datetime
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.clickhouse_funnel import ClickhouseFunnel
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_FUNNEL
 from posthog.models import Filter
 from posthog.models.filters.mixins.funnel_window_days import FunnelWindowDaysMixin
 from posthog.models.person import Person
-from posthog.queries.test.test_funnel import funnel_test_factory
+from posthog.test.base import APIBaseTest
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
@@ -26,7 +26,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
+class TestFunnel(ClickhouseTestMixin, APIBaseTest):  # type: ignore
     def setUp(self):
         self._create_sample_data()
         super().setUp()
@@ -54,18 +54,15 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
         }
 
         filter = Filter(data=data)
-        results = ClickhouseFunnel(filter, self.team)._exec_query()
-        self.assertEqual(1, len(results))
-        self.assertEqual(3, results[0][MAX_STEP_COLUMN])
-        self.assertEqual(250, results[0][COUNT_COLUMN])
-        self.assertEqual(100, len(results[0][PERSON_ID_COLUMN]))
+        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        self.assertEqual(100, len(results))
 
         filter_offset = Filter(data={**data, "offset": 100,})
-        results = ClickhouseFunnel(filter_offset, self.team).run()
+        results = ClickhouseFunnelPersons(filter_offset, self.team).run()
         self.assertEqual(100, len(results))
 
         filter_offset = Filter(data={**data, "offset": 200,})
-        results = ClickhouseFunnel(filter_offset, self.team).run()
+        results = ClickhouseFunnelPersons(filter_offset, self.team).run()
         self.assertEqual(50, len(results))
 
     def test_funnel_window_days_to_microseconds(self):

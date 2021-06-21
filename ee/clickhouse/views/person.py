@@ -1,4 +1,5 @@
 from rest_framework import request, response
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 
 from ee.clickhouse.models.person import delete_person
@@ -15,6 +16,14 @@ class ClickhousePersonViewSet(PersonViewSet):
     lifecycle_class = ClickhouseLifecycle
     retention_class = ClickhouseRetention
     stickiness_class = ClickhouseStickiness
+
+    @action(methods=["GET"], detail=False)
+    def funnel(self, request: request.Request, **kwargs) -> response.Response:
+        pass
+
+    @action(methods=["GET"], detail=False)
+    def funnel_trends(self, request: request.Request, **kwargs) -> response.Response:
+        pass
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
