@@ -285,6 +285,11 @@ export const dashboardLogic = kea({
                 toast.dismiss(cache.draggingToastId)
                 cache.draggingToastId = null
             }
+
+            if (cache.autoRefreshInterval) {
+                window.clearInterval(cache.autoRefreshInterval)
+                cache.autoRefreshInterval = null
+            }
         },
     }),
     listeners: ({ actions, values, key, cache }) => ({
@@ -408,6 +413,7 @@ export const dashboardLogic = kea({
         setAutoRefresh: ({ enabled }) => {
             if (cache.autoRefreshInterval) {
                 window.clearInterval(cache.autoRefreshInterval)
+                cache.autoRefreshInterval = null
             }
             if (enabled) {
                 cache.autoRefreshInterval = window.setInterval(() => {
