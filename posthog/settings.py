@@ -76,7 +76,7 @@ PLUGINS_PREINSTALLED_URLS: List[str] = os.getenv(
 ).split(",") if not DISABLE_MMDB else []
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
-PLUGIN_SERVER_ACTION_MATCHING = get_from_env("PLUGIN_SERVER_ACTION_MATCHING", 0, type_cast=int)
+PLUGIN_SERVER_ACTION_MATCHING = get_from_env("PLUGIN_SERVER_ACTION_MATCHING", 2, type_cast=int)
 
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
 # Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
