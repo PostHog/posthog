@@ -98,12 +98,27 @@ def namedtuplefetchall(cursor):
 
 
 def generate_random_token(nbytes: int = 32) -> str:
+
     """Generate a securely random token.
 
     Random 32 bytes - default value here - is believed to be sufficiently secure for practically all purposes:
     https://docs.python.org/3/library/secrets.html#how-many-bytes-should-tokens-use
     """
-    return secrets.token_urlsafe(nbytes)
+    return number_to_b36(secrets.randbits(nbytes * 8))
+
+
+def number_to_b36(number: int) -> str:
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+    if number < 0:
+        return "-" + number_to_b36(-number)
+
+    value = ""
+
+    while number != 0:
+        number, index = divmod(number, len(alphabet))
+        value = alphabet[index] + value
+
+    return value or "0"
 
 
 class Percentile(models.Aggregate):
