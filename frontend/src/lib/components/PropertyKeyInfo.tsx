@@ -231,7 +231,7 @@ export const keyMapping: KeyMappingInterface = {
         },
         $plugins_succeeded: {
             label: 'Plugins Succeeded',
-            description: 'Plugins that ran successfully on an event.',
+            description: <>Plugins that successfully processed the event, e.g. edited properties (plugin method <code>processEvent<code/>).</>,
         },
         $plugins_failed: {
             label: 'Plugins Failed',
