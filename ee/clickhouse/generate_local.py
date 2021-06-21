@@ -56,9 +56,19 @@ class GenerateLocal:
         sync_execute(sql)
 
     def _insert_events(self):
-        for i in range(1, self._number + 1):
+        step_one = self._number + 1
+        step_two = round(step_one / 2)
+        step_three = round(step_one / 3)
+        step_four = round(step_one / 4)
+        step_five = round(step_one / 5)
+
+        for i in range(1, step_one):
             create_event(uuid.uuid4(), "step one", self._team, f"user_{i}", "2021-05-01 00:00:00")
+        for i in range(1, step_two):
             create_event(uuid.uuid4(), "step two", self._team, f"user_{i}", "2021-05-03 00:00:00")
+        for i in range(1, step_three):
             create_event(uuid.uuid4(), "step three", self._team, f"user_{i}", "2021-05-05 00:00:00")
+        for i in range(1, step_four):
             create_event(uuid.uuid4(), "step four", self._team, f"user_{i}", "2021-05-07 00:00:00")
+        for i in range(1, step_five):
             create_event(uuid.uuid4(), "step five", self._team, f"user_{i}", "2021-05-09 00:00:00")
