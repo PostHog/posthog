@@ -7,30 +7,28 @@ import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined, DisconnectOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { router } from 'kea-router'
 import { LinkButton } from 'lib/components/LinkButton'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
 
 export function FeatureFlags(): JSX.Element {
     const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags } = useActions(featureFlagsLogic)
     const { push } = useActions(router)
-    const tableScrollBreakpoint = getBreakpoint('lg')
+    const { tableScrollX } = useIsTableScrolling('lg')
 
     const BackTo = '#backTo=Feature Flags&backToURL=/feature_flags'
 
     const columns = [
         {
-            title: 'Key',
+            title: normalizeColumnTitle('Key'),
             dataIndex: 'key',
             className: 'ph-no-capture',
             fixed: 'left',
-            ellipsis: {
-                showTitle: false,
-            },
+            width: '15%',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 if (!featureFlag.active) {
@@ -42,42 +40,47 @@ export function FeatureFlags(): JSX.Element {
                 }
 
                 return (
-                    <Tooltip title={featureFlag.key}>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <div
-                                style={{
-                                    marginRight: 4,
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                }}
-                            >
-                                {featureFlag.key}
-                            </div>
-                            <div onClick={(e) => e.stopPropagation()}>
-                                <CopyToClipboardInline iconPosition="start" explicitValue={featureFlag.key} />
-                            </div>
+                    <div
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            maxWidth: 150,
+                            width: 'auto',
+                        }}
+                    >
+                        <div
+                            style={{
+                                marginRight: 4,
+                                whiteSpace: 'break-spaces',
+                            }}
+                        >
+                            {featureFlag.key}
                         </div>
-                    </Tooltip>
+                        <div onClick={(e) => e.stopPropagation()}>
+                            <CopyToClipboardInline iconPosition="start" explicitValue={featureFlag.key} />
+                        </div>
+                    </div>
                 )
             },
         },
         {
-            title: 'Description',
+            title: normalizeColumnTitle('Description'),
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
-                    <Tooltip title={featureFlag.name}>
-                        <div style={{ wordWrap: 'break-word', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                            {featureFlag.name}
-                        </div>
-                    </Tooltip>
+                    <div
+                        style={{
+                            wordWrap: 'break-word',
+                            maxWidth: 450,
+                            width: 'auto',
+                            whiteSpace: 'break-spaces',
+                        }}
+                    >
+                        {featureFlag.name}
+                    </div>
                 )
             },
             className: 'ph-no-capture',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.name).localeCompare(b.name),
-            ellipsis: {
-                showTitle: false,
-            },
         },
         createdAtColumn(),
         createdByColumn(featureFlags),
@@ -96,7 +99,6 @@ export function FeatureFlags(): JSX.Element {
         {
             title: 'Enabled',
             width: 90,
-            fixed: 'right',
             align: 'right',
             render: function RenderActive(_: string, featureFlag: FeatureFlagType) {
                 return (
@@ -111,9 +113,8 @@ export function FeatureFlags(): JSX.Element {
             },
         },
         {
-            title: 'Usage',
+            title: normalizeColumnTitle('Usage'),
             width: 100,
-            fixed: 'right',
             align: 'right',
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
@@ -133,9 +134,8 @@ export function FeatureFlags(): JSX.Element {
             },
         },
         {
-            title: 'Actions',
+            title: normalizeColumnTitle('Actions'),
             width: 100,
-            fixed: 'right',
             align: 'right',
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
@@ -188,7 +188,7 @@ export function FeatureFlags(): JSX.Element {
                 size="small"
                 rowClassName="cursor-pointer"
                 data-attr="feature-flag-table"
-                scroll={{ x: `${tableScrollBreakpoint}px` }}
+                scroll={{ x: tableScrollX }}
             />
         </div>
     )
