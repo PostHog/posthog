@@ -62,7 +62,7 @@ describe('ingestEvent', () => {
     it('fires a REST hook', async () => {
         await hub.db.postgresQuery(`UPDATE posthog_organization SET available_features = '{"zapier"}'`, [], 'testTag')
         await insertRow(hub.db.postgres, 'ee_hook', {
-            id: 3,
+            id: 'abc',
             team_id: 2,
             user_id: commonUserId,
             resource_id: 69,
@@ -87,27 +87,34 @@ describe('ingestEvent', () => {
         await ingestEvent(hub, event)
 
         const expectedPayload = {
-            event: 'xyz',
-            properties: {
-                foo: 'bar',
+            hook: {
+                id: 'abc',
+                event: 'action_performed',
+                target: 'https://rest-hooks.example.com/',
             },
-            timestamp: expect.any(String),
-            now: expect.any(String),
-            team_id: 2,
-            distinct_id: 'abc',
-            ip: null,
-            site_url: 'https://example.com',
-            uuid: expect.any(String),
-            person: {
-                id: expect.any(Number),
-                created_at: expect.any(String),
+            data: {
+                event: 'xyz',
+                properties: {
+                    foo: 'bar',
+                },
+                timestamp: expect.any(String),
+                now: expect.any(String),
                 team_id: 2,
-                properties: {},
-                is_user_id: null,
-                is_identified: false,
+                distinct_id: 'abc',
+                ip: null,
+                site_url: 'https://example.com',
                 uuid: expect.any(String),
-                persondistinctid__team_id: 2,
-                persondistinctid__distinct_id: 'abc',
+                person: {
+                    id: expect.any(Number),
+                    created_at: expect.any(String),
+                    team_id: 2,
+                    properties: {},
+                    is_user_id: null,
+                    is_identified: false,
+                    uuid: expect.any(String),
+                    persondistinctid__team_id: 2,
+                    persondistinctid__distinct_id: 'abc',
+                },
             },
         }
 
