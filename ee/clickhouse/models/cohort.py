@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dateutil import parser
 from django.conf import settings
@@ -10,7 +10,9 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
+    GET_DISTINCT_ID_BY_ENTITY_SQL,
     GET_PERSON_ID_BY_COHORT_ID,
+    GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
 )
@@ -41,33 +43,16 @@ def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
 
     or_queries = []
     for group_idx, group in enumerate(cohort.groups):
-        if group.get("action_id"):
-            action = Action.objects.get(pk=group["action_id"], team_id=cohort.team.pk)
-            action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
-
-            date_query: str = ""
-            date_params: Dict[str, str] = {}
-            if group.get("days"):
-                date_query, date_params = parse_action_timestamps(int(group.get("days")))
-
-            extract_person = "SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {query}".format(
-                query=action_filter_query, date_query=date_query
-            )
-            params = {**params, **action_params, **date_params}
-            filters.append("distinct_id IN (" + extract_person + ")")
+        if group.get("action_id") or group.get("event_id"):
+            entity_query, entity_params = get_entity_cohort_subquery(cohort, group, group_idx)
+            params = {**params, **entity_params}
+            filters.append(entity_query)
 
         elif group.get("properties"):
-            from ee.clickhouse.models.property import prop_filter_json_extract
+            prop_query, prop_params = get_properties_cohort_subquery(cohort, group, group_idx)
+            or_queries.append(prop_query)
+            params = {**params, **prop_params}
 
-            filter = Filter(data=group)
-            query = ""
-            for idx, prop in enumerate(filter.properties):
-                filter_query, filter_params = prop_filter_json_extract(
-                    prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
-                )
-                params = {**params, **filter_params}
-                query += filter_query
-            or_queries.append(query.replace("AND ", "", 1))
     if len(or_queries) > 0:
         query = "AND ({})".format(" OR ".join(or_queries))
         filters.append("{} IN {}".format(custom_match_field, GET_LATEST_PERSON_ID_SQL.format(query=query)))
@@ -76,14 +61,110 @@ def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
     return joined_filter, params
 
 
-def parse_action_timestamps(days: int) -> Tuple[str, Dict[str, str]]:
+def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int):
+    from ee.clickhouse.models.property import prop_filter_json_extract
+
+    filter = Filter(data=cohort_group)
+    params: Dict[str, Any] = {}
+
+    query = ""
+    for idx, prop in enumerate(filter.properties):
+        filter_query, filter_params = prop_filter_json_extract(
+            prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
+        )
+        params = {**params, **filter_params}
+        query += filter_query
+
+    return query.replace("AND ", "", 1), params
+
+
+def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int):
+    event_id = cohort_group.get("event_id")
+    action_id = cohort_group.get("action_id")
+    days = cohort_group.get("days")
+    start_time = cohort_group.get("start_date")
+    end_time = cohort_group.get("end_date")
+    count = cohort_group.get("count")
+    count_operator = cohort_group.get("count_operator")
+
+    date_query, date_params = get_date_query(days, start_time, end_time)
+    entity_query, entity_params = _get_entity_query(event_id, action_id, cohort.team.pk, group_idx)
+
+    if count:
+        count_operator = _get_count_operator(count_operator)
+        extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            entity_query=entity_query,
+            date_query=date_query,
+            count_operator=count_operator,
+        )
+        params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
+        return f"person_id IN ({extract_person})", params
+    else:
+        extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query,)
+        return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
+
+
+def _get_count_operator(count_operator: Optional[str]) -> str:
+    if count_operator == "gte":
+        return ">="
+    elif count_operator == "lte":
+        return "<="
+    elif count_operator == "eq" or count_operator is None:
+        return "="
+    else:
+        raise ValueError("count_operator must be gte, lte, eq, or None")
+
+
+def _get_entity_query(
+    event_id: Optional[str], action_id: Optional[int], team_id: int, group_idx: int
+) -> Tuple[str, Dict[str, str]]:
+    if event_id:
+        return "event = %(event)s", {"event": event_id}
+    elif action_id:
+        action = Action.objects.get(pk=action_id, team_id=team_id)
+        action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
+        return action_filter_query, action_params
+    else:
+        raise ValueError("Cohort query requires action_id or event_id")
+
+
+def get_date_query(
+    days: Optional[str], start_time: Optional[str], end_time: Optional[str]
+) -> Tuple[str, Dict[str, str]]:
+    date_query: str = ""
+    date_params: Dict[str, str] = {}
+    if days:
+        date_query, date_params = parse_entity_timestamps_in_days(int(days))
+    elif start_time or end_time:
+        date_query, date_params = parse_cohort_timestamps(start_time, end_time)
+
+    return date_query, date_params
+
+
+def parse_entity_timestamps_in_days(days: int) -> Tuple[str, Dict[str, str]]:
     curr_time = timezone.now()
     start_time = curr_time - timedelta(days=days)
 
     return (
-        "and timestamp >= %(date_from)s AND timestamp <= %(date_to)s",
+        "AND timestamp >= %(date_from)s AND timestamp <= %(date_to)s",
         {"date_from": start_time.strftime("%Y-%m-%d %H:%M:%S"), "date_to": curr_time.strftime("%Y-%m-%d %H:%M:%S")},
     )
+
+
+def parse_cohort_timestamps(start_time: Optional[str], end_time: Optional[str]) -> Tuple[str, Dict[str, str]]:
+    clause = "AND "
+    params: Dict[str, str] = {}
+
+    if start_time:
+        clause += "timestamp >= %(date_from)s"
+
+        params = {"date_from": datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")}
+    if end_time:
+        clause += "timestamp <= %(date_to)s"
+        params = {**params, "date_to": datetime.strptime(end_time, "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")}
+
+    return clause, params
 
 
 def is_precalculated_query(cohort: Cohort) -> bool:
@@ -149,9 +230,7 @@ def recalculate_cohortpeople(cohort: Cohort):
     cohort_filter = GET_PERSON_IDS_BY_FILTER.format(distinct_query="AND " + cohort_filter, query="")
 
     insert_cohortpeople_sql = INSERT_PEOPLE_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
-
     sync_execute(insert_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
 
     remove_cohortpeople_sql = REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
-
     sync_execute(remove_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})

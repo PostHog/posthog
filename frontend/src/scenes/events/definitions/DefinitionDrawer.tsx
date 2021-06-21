@@ -68,12 +68,12 @@ export function DefinitionDrawer(): JSX.Element {
                                             <Col>
                                                 <h4 className="l4">Tags</h4>
                                                 <ObjectTags
-                                                    tags={definition.tags}
+                                                    tags={definition.tags || []}
                                                     onTagSave={saveNewTag}
                                                     onTagDelete={deleteTag}
                                                     saving={definitionLoading}
                                                     tagsAvailable={eventDefinitionTags.filter(
-                                                        (tag) => !definition.tags.includes(tag)
+                                                        (tag) => !definition.tags?.includes(tag)
                                                     )}
                                                 />
                                             </Col>

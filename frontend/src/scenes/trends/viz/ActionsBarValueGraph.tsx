@@ -35,15 +35,19 @@ export function ActionsBarValueGraph({
     function updateData(): void {
         const _data = [...results] as TrendResultWithAggregate[]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
-        const colorList = getChartColors(color)
-        const days = results.length > 0 ? results[0].days : []
 
+        // If there are more series than colors, we reuse colors sequentially so all series are colored
+        const rawColorList = getChartColors(color)
+        const colorList = results.map((_, idx) => rawColorList[idx % rawColorList.length])
+
+        const days = results.length > 0 ? results[0].days : []
         setData([
             {
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
                 days,
+                breakdownValues: _data.map((item) => item.breakdown_value),
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
                 hoverBorderColor: colorList,
@@ -65,12 +69,13 @@ export function ActionsBarValueGraph({
         total > 0 ? (
             <LineGraph
                 data-attr="trend-bar-value-graph"
-                type={'horizontalBar'}
+                type="horizontalBar"
                 color={color}
                 datasets={data}
                 labels={data[0].labels}
                 dashboardItemId={dashboardItemId}
                 totalValue={total}
+                interval={filtersParam?.interval}
                 onClick={
                     dashboardItemId
                         ? null
@@ -80,7 +85,10 @@ export function ActionsBarValueGraph({
                               const label = dataset.labels[point.index]
                               const date_from = filtersParam?.date_from
                               const date_to = filtersParam?.date_to
-                              loadPeople(action, label, date_from, date_to, null)
+                              const breakdownValue = dataset.breakdownValues[point.index]
+                                  ? dataset.breakdownValues[point.index]
+                                  : null
+                              loadPeople(action, label, date_from, date_to, breakdownValue)
                           }
                 }
             />

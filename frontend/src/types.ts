@@ -1,12 +1,8 @@
 import {
     ACTION_TYPE,
-    AUTOCAPTURE,
-    CUSTOM_EVENT,
     EVENT_TYPE,
     OrganizationMembershipLevel,
     PluginsAccessLevel,
-    PAGEVIEW,
-    SCREEN,
     ShownAsValue,
     RETENTION_RECURRING,
     RETENTION_FIRST_TIME,
@@ -45,6 +41,8 @@ export interface UserType {
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
+    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
+    posthog_version?: string
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -544,14 +542,21 @@ export type DisplayType =
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
-export type PathType = typeof PAGEVIEW | typeof AUTOCAPTURE | typeof SCREEN | typeof CUSTOM_EVENT
+export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+
+export enum PathType {
+    PageView = '$pageview',
+    AutoCapture = '$autocapture',
+    Screen = '$screen',
+    CustomEvent = 'custom_event',
+}
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
 export interface FilterType {
     insight?: InsightType
     display?: DisplayType
-    interval?: string
+    interval?: string // TODO: Move to IntervalType
     date_from?: string
     date_to?: string
     properties?: PropertyFilter[]
@@ -640,6 +645,7 @@ export interface TrendResult {
     count: number
     data: number[]
     days: string[]
+    dates?: string[]
     label: string
     labels: string[]
     breakdown_value?: string | number
@@ -704,6 +710,7 @@ export interface PreflightStatus {
     celery: boolean
     ee_available?: boolean
     is_clickhouse_enabled?: boolean
+    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
@@ -773,7 +780,7 @@ export interface EventDefinition {
     id: string
     name: string
     description: string
-    tags: string[]
+    tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
     owner?: UserBasicType | null
@@ -785,7 +792,7 @@ export interface PropertyDefinition {
     id: string
     name: string
     description: string
-    tags: string[]
+    tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
     owner?: UserBasicType | null

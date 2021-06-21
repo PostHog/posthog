@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import { Button, Spin } from 'antd'
 import dayjs from 'dayjs'
 import { EventType, FilterType, ActionFilter } from '~/types'
-import { lightColors } from 'lib/colors'
+import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './logic/featureFlagLogic'
 import { open } from '@papercups-io/chat-widget'
@@ -261,7 +261,7 @@ export function isOperatorRegex(operator: string): boolean {
     return ['regex', 'not_regex'].includes(operator)
 }
 
-export function isValidRegex(value: string): boolean {
+export function isValidRegex(value: any): boolean {
     try {
         new RegExp(value)
         return true
@@ -715,7 +715,7 @@ export function colorForString(s: string): string {
     /*
     Returns a color name for a given string, where the color will always be the same for the same string.
     */
-    return lightColors[hashCodeForString(s) % lightColors.length]
+    return tagColors[hashCodeForString(s) % tagColors.length]
 }
 
 export function midEllipsis(input: string, maxLength: number): string {
@@ -854,4 +854,80 @@ export function maybeAddCommasToInteger(value: any): any {
     }
     const internationalNumberFormat = new Intl.NumberFormat('en-US')
     return internationalNumberFormat.format(value)
+}
+
+function hexToRGB(hex: string): { r: number; g: number; b: number } {
+    const originalString = hex.trim()
+    const hasPoundSign = originalString[0] === '#'
+    const originalColor = hasPoundSign ? originalString.slice(1) : originalString
+
+    if (originalColor.length !== 6) {
+        console.warn(`Incorrectly formatted color string: ${hex}.`)
+        return { r: 0, g: 0, b: 0 }
+    }
+
+    const originalBase16 = parseInt(originalColor, 16)
+    const r = originalBase16 >> 16
+    const g = (originalBase16 >> 8) & 0x00ff
+    const b = originalBase16 & 0x0000ff
+    return { r, g, b }
+}
+
+export function hexToRGBA(hex: string, alpha = 1): string {
+    /**
+     * Returns an RGBA string with specified alpha if the hex string is valid.
+     * @param hex e.g. '#FF0000'
+     * @param alpha e.g. 0.5
+     */
+
+    const { r, g, b } = hexToRGB(hex)
+    const a = alpha
+    return `rgba(${[r, g, b, a].join(',')})`
+}
+
+export function lightenDarkenColor(hex: string, pct: number): string {
+    /**
+     * Returns a lightened or darkened color, similar to SCSS darken()
+     * @param hex e.g. '#FF0000'
+     * @param pct percentage amount to lighten or darken, e.g. -20
+     */
+
+    function output(val: number): number {
+        return Math.max(0, Math.min(255, val))
+    }
+
+    const amt = Math.round(2.55 * pct)
+    let { r, g, b } = hexToRGB(hex)
+
+    r = output(r + amt)
+    g = output(g + amt)
+    b = output(b + amt)
+
+    return `rgb(${[r, g, b].join(',')})`
+}
+
+export function toString(input?: any | null): string {
+    return input?.toString() || ''
+}
+
+export function average(input: number[]): number {
+    /**
+     * Returns the average of an array
+     * @param input e.g. [100,50, 75]
+     */
+    return Math.round((input.reduce((acc, val) => acc + val, 0) / input.length) * 10) / 10
+}
+
+export function median(input: number[]): number {
+    /**
+     * Returns the median of an array
+     * @param input e.g. [3,7,10]
+     */
+    const sorted = [...input].sort((a, b) => a - b)
+    const half = Math.floor(sorted.length / 2)
+
+    if (sorted.length % 2) {
+        return sorted[half]
+    }
+    return average([sorted[half - 1], sorted[half]])
 }

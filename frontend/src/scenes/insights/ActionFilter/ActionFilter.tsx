@@ -5,7 +5,6 @@ import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
-import { alphabet } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ActionFilter as ActionFilterType, FilterType, Optional } from '~/types'
 import { SortableContainer, SortableActionFilterRow } from './Sortable'
@@ -86,6 +85,7 @@ export function ActionFilter({
                                 hidePropertySelector={hidePropertySelector}
                                 filterCount={localFilters.length}
                                 customRowPrefix={customRowPrefix}
+                                hasBreakdown={!!filters.breakdown}
                             />
                         ))}
                     </SortableContainer>
@@ -96,7 +96,7 @@ export function ActionFilter({
                             filter={filter as ActionFilterType}
                             index={index}
                             key={index}
-                            letter={(showLetters && (alphabet[index] || '-')) || null}
+                            showLetters={showLetters}
                             hideMathSelector={hideMathSelector}
                             hidePropertySelector={hidePropertySelector}
                             singleFilter={singleFilter}
@@ -104,6 +104,7 @@ export function ActionFilter({
                             horizontalUI={horizontalUI}
                             filterCount={localFilters.length}
                             customRowPrefix={customRowPrefix}
+                            hasBreakdown={!!filters.breakdown}
                         />
                     ))
                 )

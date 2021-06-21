@@ -214,6 +214,23 @@ class TestFeatureFlag(APIBaseTest):
 
         mock_capture.assert_not_called()
 
+    def test_get_flags_with_specified_token(self):
+        _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
+        self.client.force_login(user)
+        assert user.team is not None
+        assert self.team is not None
+        self.assertNotEqual(user.team.id, self.team.id)
+
+        response_team_1 = self.client.get(f"/api/feature_flag")
+        response_team_1_token = self.client.get(f"/api/feature_flag?token={user.team.api_token}")
+        response_team_2 = self.client.get(f"/api/feature_flag?token={self.team.api_token}")
+
+        self.assertEqual(response_team_1.json(), response_team_1_token.json())
+        self.assertNotEqual(response_team_1.json(), response_team_2.json())
+
+        response_invalid_token = self.client.get(f"/api/feature_flag?token=invalid")
+        self.assertEqual(response_invalid_token.status_code, 401)
+
     def test_creating_a_feature_flag_with_same_team_and_key_after_deleting(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature", deleted=True)
 

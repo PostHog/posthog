@@ -14,6 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { pluralize } from 'lib/utils'
 import './index.scss'
+import { SeriesLetter } from 'lib/components/SeriesLetter'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
@@ -36,10 +37,11 @@ export interface ActionFilterRowProps {
     hidePropertySelector?: boolean // DEPRECATED: Out of use in the new horizontal UI
     singleFilter?: boolean
     showOr?: boolean
-    letter?: string | null
+    showLetters?: boolean
     horizontalUI?: boolean
     filterCount: number
     customRowPrefix?: string | JSX.Element // Custom prefix element to show in each row
+    hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
 }
 
 export function ActionFilterRow({
@@ -50,10 +52,11 @@ export function ActionFilterRow({
     hidePropertySelector,
     singleFilter,
     showOr,
-    letter,
+    showLetters,
     horizontalUI = false,
     filterCount,
     customRowPrefix,
+    hasBreakdown,
 }: ActionFilterRowProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
@@ -134,9 +137,9 @@ export function ActionFilterRow({
                         />
                     </Col>
                 )}
-                {letter && (
+                {showLetters && (
                     <Col className="action-row-letter">
-                        <span>{letter}</span>
+                        <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
                     </Col>
                 )}
                 {customRowPrefix ? <Col>{customRowPrefix}</Col> : <>{horizontalUI && <Col>Showing</Col>}</>}
@@ -162,7 +165,7 @@ export function ActionFilterRow({
                 {!hideMathSelector && (
                     <>
                         {horizontalUI && <Col>counted by</Col>}
-                        <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
+                        <Col style={{ maxWidth: `calc(50% - 16px${showLetters ? ' - 32px' : ''})` }}>
                             <MathSelector
                                 math={math}
                                 index={index}
@@ -174,7 +177,7 @@ export function ActionFilterRow({
                         {MATHS[math || '']?.onProperty && (
                             <>
                                 {horizontalUI && <Col>on property</Col>}
-                                <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
+                                <Col style={{ maxWidth: `calc(50% - 16px${showLetters ? ' - 32px' : ''})` }}>
                                     <MathPropertySelector
                                         name={name}
                                         math={math}

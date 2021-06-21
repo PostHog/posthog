@@ -75,7 +75,6 @@ FLAGS=()
 echo
 echo "celery -A posthog worker ${FLAGS[*]}"
 echo
-# Warning: Changing the command below affects posthog-cloud. Please check ./bin/pull_main for details
 celery -A posthog worker ${FLAGS[*]}
 
 # Stop the beat!

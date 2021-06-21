@@ -146,7 +146,6 @@ function HorizontalDefaultInsightDisplayConfig({
                 <TZIndicator style={{ float: 'left', fontSize: '0.75rem', marginRight: 16 }} placement="topRight" />
             </span>
             <div style={{ width: '100%', textAlign: 'right' }}>
-                {showComparePrevious[activeView] && <CompareFilter />}
                 {showChartFilter(activeView, featureFlags) && (
                     <ChartFilter
                         onChange={(display: DisplayType) => {
@@ -176,6 +175,8 @@ function HorizontalDefaultInsightDisplayConfig({
                         />
                     </>
                 )}
+
+                {showComparePrevious[activeView] && <CompareFilter />}
             </div>
         </div>
     )

@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
@@ -105,3 +105,22 @@ def populate_entity_params(entity: Entity) -> Tuple[Dict, Dict]:
         params = {"event": entity.id}
 
     return params, content_sql_params
+
+
+def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
+    date_from = filter.date_from
+    date_to = filter.date_to
+    delta = timedelta(seconds=seconds_in_interval)
+    time_range: List[str] = []
+
+    if not date_from or not date_to:
+        return time_range
+
+    while date_from <= date_to:
+        time_range.append(
+            date_from.strftime(
+                "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else "")
+            )
+        )
+        date_from += delta
+    return time_range

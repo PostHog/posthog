@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
+export const ingestionLogic = kea<ingestionLogicType>({
     connect: {
         actions: [teamLogic, ['updateCurrentTeamSuccess']],
     },

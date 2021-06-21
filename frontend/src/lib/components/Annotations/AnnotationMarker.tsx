@@ -10,6 +10,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { dashboardColors } from 'lib/colors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { AnnotationScope, AnnotationType } from '~/types'
+import styles from '~/vars.scss'
 
 const { TextArea } = Input
 
@@ -310,7 +311,8 @@ export function AnnotationMarker({
                     borderRadius: 5,
                     cursor: 'pointer',
                     border: dynamic ? undefined : '1px solid ' + _color,
-                    zIndex: dynamic || hovered || elementId === currentDateMarker ? 999 : index,
+                    zIndex:
+                        dynamic || hovered || elementId === currentDateMarker ? styles.zGraphAnnotationPrompt : index,
                     boxShadow: dynamic ? '0 0 5px 4px rgba(0, 0, 0, 0.2)' : undefined,
                 }}
                 onClick={() => {
