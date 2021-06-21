@@ -153,9 +153,12 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             .annotate(count=Count("id"))
             .order_by("-count", "keys")
         )
-        result = [{"name": property["keys"], "count": property["count"]} for property in properties]
-
-        return response.Response(result)
+        page = self.paginate_queryset(properties)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(properties, many=True)
+        return response.Response(serializer.data)  # EXPECT ERROR: Trying to index on 'id'
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
