@@ -111,7 +111,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
         return queryset.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
-    def active_flags(self, request: request.Request, **kwargs):
+    def user_status(self, request: request.Request, **kwargs):
         distinct_id = request.GET.get("distinct_id", None)
         flags = get_active_feature_flags(self.team, distinct_id)
-        return Response(flags)
+        return Response({"distinct_id": distinct_id, "flags_enabled": flags})
