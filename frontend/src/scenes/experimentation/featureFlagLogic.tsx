@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import React from 'react'
 import { featureFlagLogicType } from './featureFlagLogicType'
-import { FeatureFlagType, PropertyFilter } from '~/types'
+import { AnyPropertyFilter, FeatureFlagType } from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
@@ -24,7 +24,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         setFeatureFlagId: (id) => ({ id }),
         addMatchGroup: true,
         removeMatchGroup: (index: number) => ({ index }),
-        updateMatchGroup: (index: number, newRolloutPercentage?: number | null, newProperties?: PropertyFilter[]) => ({
+        updateMatchGroup: (
+            index: number,
+            newRolloutPercentage?: number | null,
+            newProperties?: AnyPropertyFilter[]
+        ) => ({
             index,
             newRolloutPercentage,
             newProperties,

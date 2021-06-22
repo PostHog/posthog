@@ -1,6 +1,5 @@
 import React from 'react'
 import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
-import { propertyFilterLogic } from '../propertyFilterLogic'
 import { TabbedPropertyFilter } from './TabbedPropertyFilter'
 import { TaxonomicPropertyFilter } from './TaxonomicPropertyFilter'
 import { UnifiedPropertyFilter } from './UnifiedPropertyFilter'
@@ -8,7 +7,6 @@ import { UnifiedPropertyFilter } from './UnifiedPropertyFilter'
 export interface PropertyFilterInternalProps {
     index: number
     onComplete: CallableFunction
-    logic: typeof propertyFilterLogic
     selectProps: Partial<SelectGradientOverflowProps>
 }
 

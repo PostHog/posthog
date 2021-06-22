@@ -14,7 +14,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                 id="email-preferences"
                 data-attr="email-preferences"
                 onChange={() => {
-                    updateUser({ user: { email_opt_in: !user?.email_opt_in } })
+                    updateUser({ email_opt_in: !user?.email_opt_in })
                 }}
                 defaultChecked={user?.email_opt_in}
                 loading={userLoading}
