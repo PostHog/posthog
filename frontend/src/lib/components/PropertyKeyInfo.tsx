@@ -239,6 +239,32 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Capture Failed Request',
             description: '',
         },
+        $plugins_succeeded: {
+            label: 'Plugins Succeeded',
+            description: (
+                <>
+                    Plugins that successfully processed the event, e.g. edited properties (plugin method{' '}
+                    <code>processEvent</code>).
+                </>
+            ),
+        },
+        $plugins_failed: {
+            label: 'Plugins Failed',
+            description: (
+                <>
+                    Plugins that failed to process the event (plugin method <code>processEvent</code>).
+                </>
+            ),
+        },
+        $plugins_deferred: {
+            label: 'Plugins Deferred',
+            description: (
+                <>
+                    Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method{' '}
+                    <code>onEvent</code>).
+                </>
+            ),
+        },
 
         // UTM tags
         utm_source: {
