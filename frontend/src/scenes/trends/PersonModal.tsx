@@ -34,7 +34,6 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
     const { setShowingPeople, loadMorePeople, setPeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
     const [searchTerm, setSearchTerm] = useState('')
-    const [useFuseSearch, setUseFuseSearch] = useState(false)
     const title =
         filters.shown_as === 'Stickiness'
             ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
@@ -42,9 +41,9 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
             ? `"${people?.label}"`
             : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
     const closeModal = (): void => {
-        setSearchTerm('')
         setShowingPeople(false)
     }
+
     return (
         <Modal
             title={title}
@@ -65,7 +64,13 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                         }}
                     >
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                            <span>Showing <b>{people.count > 99 ? '99' : people.count} of {people.count}</b> persons</span>
+                            <span>
+                                Showing{' '}
+                                <b>
+                                    {people.count > 99 ? '99' : people.count} of {people.count}
+                                </b>{' '}
+                                persons
+                            </span>
                             <Input.Search
                                 allowClear
                                 enterButton
@@ -80,12 +85,9 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                         setPersonsModalFilters({ search: undefined })
                                         const { count, action, label, day, breakdown_value, next } = firstLoadedPeople
                                         setPeople(firstLoadedPeople, count, action, label, day, breakdown_value, next)
-                                    } else if (searchTerm.includes("has:")) {
+                                    } else if (searchTerm.includes('has:')) {
                                         setPersonsModalFilters(searchTerm)
-                                    } else {
-                                        setUseFuseSearch(true)
                                     }
-
                                 }}
                             />
                             {featureFlags['save-cohort-on-modal'] &&
@@ -97,7 +99,6 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                     </div>
                                 )}
                         </div>
-
                     </div>
                     <div className="text-right">
                         <Button
@@ -114,7 +115,14 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                             title="Download CSV"
                         />
                     </div>
-                    <PersonsTable loading={!people?.people} people={searchTerm && useFuseSearch ? searchPersons(people.people, searchTerm) : people.people} />
+                    <PersonsTable
+                        loading={!people?.people}
+                        people={
+                            searchTerm === '' || searchTerm.includes('has:')
+                                ? people.people
+                                : searchPersons(people.people, searchTerm)
+                        }
+                    />
                     <div
                         style={{
                             margin: '1rem',
