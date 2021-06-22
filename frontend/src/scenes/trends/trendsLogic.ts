@@ -559,12 +559,12 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             const date_from = day
             const date_to = day
             const key = searchTerm.match(/(?<=has:).*/)?.[0]
-            const properties = [{ key: `${key}`, value: 'is_set', operator: 'is_set', type: 'person' }]
+            const properties = key ? [{ key: `${key}`, value: 'is_set', operator: 'is_set', type: 'person' }] : []
             const filterParams = parsePeopleParams(
                 { label, action, date_from, date_to, breakdown_value },
                 { ...values.filters, properties }
             )
-            const filteredPeople = await api.get(`api/action/people/?${filterParams}`)
+            const filteredPeople = await api.get(`api/action/people/?${filterParams}&search=${searchTerm}`)
             actions.setPeople(
                 filteredPeople.results[0]?.people,
                 filteredPeople.results[0]?.count,

@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict, List, Optional, Union, cast
+from django.db.models.query_utils import Q
 
 import posthoganalytics
 from django.core.cache import cache
@@ -370,10 +371,13 @@ def calculate_people(
         team=team.id,
         id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],
     )
-    if request.GET.get("properties"):
+    if request.GET.get("search"):
+        term = request.GET.get("search")
+        people = people.filter(Q(persondistinctid__distinct_id=term) | Q(properties__email__icontains=term))
+    if request.GET.get("properties") and len(request.GET.get("properties")) > 0:
         value = request.GET.get("properties")
         filter = Filter(data={"properties": json.loads(value)})
-    people = people.filter(base.properties_to_Q(filter.properties, team_id=1, is_person_query=True))
+        people = people.filter(base.properties_to_Q(filter.properties, team_id=team.id, is_person_query=True))
 
     people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return people

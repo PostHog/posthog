@@ -8,22 +8,10 @@ import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { toParams } from 'lib/utils'
-import { PersonType } from '~/types'
-import Fuse from 'fuse.js'
-
 interface Props {
     visible: boolean
     view: ViewType
     onSaveCohort: () => void
-}
-
-const searchPersons = (sources: PersonType[], search: string): PersonType[] => {
-    return new Fuse(sources, {
-        keys: ['name', 'email', 'id'],
-        threshold: 0.3,
-    })
-        .search(search)
-        .map((result) => result.item)
 }
 
 export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element {
@@ -110,16 +98,8 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                             breakdown_value,
                                             next
                                         )
-                                    } else if (searchTerm.includes('has:')) {
-                                        setPersonsModalFilters(searchTerm, people)
                                     } else {
-                                        setPeople(
-                                            searchPersons(people.people, searchTerm),
-                                            people.count,
-                                            people.action,
-                                            people.label,
-                                            people.day
-                                        )
+                                        setPersonsModalFilters(searchTerm, people)
                                     }
                                 }}
                             />
