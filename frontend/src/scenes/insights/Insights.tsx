@@ -379,7 +379,7 @@ export function Insights(): JSX.Element {
                                     <Card style={{ marginTop: 8 }}>
                                         <BindLogic
                                             logic={trendsLogic}
-                                            props={{ dashboardItemId: null, view: activeView }}
+                                            props={{ dashboardItemId: null, view: activeView, filters: allFilters }}
                                         >
                                             <h3 className="l3">Details table</h3>
                                             <InsightsTable showTotalCount={activeView !== ViewType.SESSIONS} />

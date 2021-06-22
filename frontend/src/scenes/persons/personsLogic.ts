@@ -14,7 +14,7 @@ interface PersonPaginatedResponse {
 
 const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
 
-export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, PersonType, CohortType>>({
+export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
     },
@@ -117,7 +117,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                             .reduce(function (result, key) {
                                 const value = values.listFilters[key]
                                 if (value !== undefined && value !== null) {
-                                    result.push(`${key}=${value}`)
+                                    result.push(`${key}=${encodeURIComponent(value)}`)
                                 }
                                 return result
                             }, [] as string[])

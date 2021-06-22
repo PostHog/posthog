@@ -1,11 +1,12 @@
 import React, { useState } from 'react'
-import { Button } from 'antd'
+import { Button, Tooltip, TooltipProps } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
 import { router } from 'kea-router'
 
 interface Props {
     item: DashboardItemAttributes
     displayComponent?: JSX.Element // Show custom component instead of default `Add to dashboard` button
+    tooltipOptions?: TooltipProps // Wrap button component in a tooltip with specified props
 }
 
 interface DashboardItemAttributes {
@@ -22,8 +23,9 @@ interface FunnelPayload {
     name: string
 }
 
-export function SaveToDashboard({ item, displayComponent }: Props): JSX.Element {
+export function SaveToDashboard({ item, displayComponent, tooltipOptions }: Props): JSX.Element {
     const [openModal, setOpenModal] = useState<boolean>(false)
+    const [openTooltip, setOpenTooltip] = useState<boolean>(false)
     const [{ fromItem, fromItemName, fromDashboard }] = useState(router.values.hashParams)
 
     let _name: string = ''
@@ -37,11 +39,28 @@ export function SaveToDashboard({ item, displayComponent }: Props): JSX.Element 
         _name = item.entity.name
     }
 
-    return (
+    function showTooltip(): void {
+        setOpenTooltip(true)
+    }
+
+    function hideTooltip(): void {
+        setOpenTooltip(false)
+    }
+
+    function showModal(): void {
+        setOpenModal(true)
+        hideTooltip()
+    }
+
+    function hideModal(): void {
+        setOpenModal(false)
+    }
+
+    const innerContent = (
         <span className="save-to-dashboard">
             {openModal && (
                 <SaveToDashboardModal
-                    closeModal={() => setOpenModal(false)}
+                    closeModal={hideModal}
                     name={_name}
                     filters={_filters}
                     fromItem={fromItem}
@@ -51,12 +70,28 @@ export function SaveToDashboard({ item, displayComponent }: Props): JSX.Element 
                 />
             )}
             {displayComponent ? (
-                <span onClick={() => setOpenModal(true)}>{displayComponent}</span>
+                <span onClick={showModal} onMouseEnter={showTooltip} onMouseLeave={hideTooltip}>
+                    {displayComponent}
+                </span>
             ) : (
-                <Button onClick={() => setOpenModal(true)} type="primary" data-attr="save-to-dashboard-button">
+                <Button
+                    onClick={showModal}
+                    type="primary"
+                    data-attr="save-to-dashboard-button"
+                    onMouseEnter={showTooltip}
+                    onMouseLeave={hideTooltip}
+                >
                     {fromItem ? 'Update Dashboard' : 'Add to dashboard'}
                 </Button>
             )}
         </span>
+    )
+
+    return tooltipOptions ? (
+        <Tooltip {...tooltipOptions} visible={openTooltip}>
+            {innerContent}
+        </Tooltip>
+    ) : (
+        innerContent
     )
 }

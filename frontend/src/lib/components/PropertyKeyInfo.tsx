@@ -57,13 +57,23 @@ export const keyMapping: KeyMappingInterface = {
         },
         $screen_height: {
             label: 'Screen Height',
-            description: "The height of the user's screen in pixels.",
+            description: "The height of the user's entire screen (in pixels).",
             examples: ['2160', '1050'],
         },
         $screen_width: {
             label: 'Screen Width',
-            description: "The width of the user's screen in pixels.",
+            description: "The width of the user's entire screen (in pixels).",
             examples: ['1440', '1920'],
+        },
+        $viewport_height: {
+            label: 'Viewport Height',
+            description: "The height of the user's actual browser window (in pixels).",
+            examples: ['2094', '1031'],
+        },
+        $viewport_width: {
+            label: 'Viewport Width',
+            description: "The width of the user's actual browser window (in pixels).",
+            examples: ['1439', '1915'],
         },
         $lib: {
             label: 'Library',
@@ -228,6 +238,32 @@ export const keyMapping: KeyMappingInterface = {
         $capture_failed_request: {
             label: 'Capture Failed Request',
             description: '',
+        },
+        $plugins_succeeded: {
+            label: 'Plugins Succeeded',
+            description: (
+                <>
+                    Plugins that successfully processed the event, e.g. edited properties (plugin method{' '}
+                    <code>processEvent</code>).
+                </>
+            ),
+        },
+        $plugins_failed: {
+            label: 'Plugins Failed',
+            description: (
+                <>
+                    Plugins that failed to process the event (plugin method <code>processEvent</code>).
+                </>
+            ),
+        },
+        $plugins_deferred: {
+            label: 'Plugins Deferred',
+            description: (
+                <>
+                    Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method{' '}
+                    <code>onEvent</code>).
+                </>
+            ),
         },
 
         // UTM tags

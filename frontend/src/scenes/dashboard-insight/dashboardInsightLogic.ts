@@ -6,7 +6,7 @@ import { dashboardInsightLogicType } from './dashboardInsightLogicType'
 export const dashboardInsightLogic = kea<dashboardInsightLogicType>({
     actions: () => ({
         updateDashboardInsight: (id: number, payload: Partial<DashboardItemType>) => ({ id, ...payload }),
-        setDashboardInsightMode: (mode: DashboardItemMode) => ({ mode }),
+        setDashboardInsightMode: (mode: DashboardItemMode | null) => ({ mode }),
     }),
 
     loaders: () => ({

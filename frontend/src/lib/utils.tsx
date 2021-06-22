@@ -862,7 +862,7 @@ function hexToRGB(hex: string): { r: number; g: number; b: number } {
     const originalColor = hasPoundSign ? originalString.slice(1) : originalString
 
     if (originalColor.length !== 6) {
-        console.log('Incorrectly formatted color string.')
+        console.warn(`Incorrectly formatted color string: ${hex}.`)
         return { r: 0, g: 0, b: 0 }
     }
 
