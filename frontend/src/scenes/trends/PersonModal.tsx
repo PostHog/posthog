@@ -63,8 +63,15 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                             justifyContent: 'space-between',
                         }}
                     >
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                            <span>
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                width: '100%',
+                                alignItems: 'flex-start',
+                            }}
+                        >
+                            <span style={{ paddingBottom: 12 }}>
                                 Showing{' '}
                                 <b>
                                     {people.count > 99 ? '99' : people.count} of {people.count}
@@ -74,7 +81,8 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                             <Input.Search
                                 allowClear
                                 enterButton
-                                style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
+                                placeholder="search person by email, name, or ID"
+                                style={{ width: '100%', flexGrow: 1 }}
                                 onChange={(e) => {
                                     setSearchTerm(e.target.value)
                                     if (!e.target.value) {
@@ -105,11 +113,20 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                     } else if (searchTerm.includes('has:')) {
                                         setPersonsModalFilters(searchTerm, people)
                                     } else {
-                                        const ppl = searchPersons(people.people, searchTerm)
-                                        setPeople(ppl, people.count, people.action, people.label, people.day)
+                                        setPeople(
+                                            searchPersons(people.people, searchTerm),
+                                            people.count,
+                                            people.action,
+                                            people.label,
+                                            people.day
+                                        )
                                     }
                                 }}
                             />
+                            <div className="text-muted text-small">
+                                You can also filter persons that have a certain property set (e.g.{' '}
+                                <code>has:email</code> or <code>has:name</code>)
+                            </div>
                             {featureFlags['save-cohort-on-modal'] &&
                                 (view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
                                     <div>
