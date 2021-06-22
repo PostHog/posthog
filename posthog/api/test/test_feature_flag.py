@@ -250,7 +250,7 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(instance.key, "alpha-feature")
 
     @patch("posthoganalytics.capture")
-    def test_get_active_for_user(self, mock_capture):
+    def test_user_status(self, mock_capture):
         self.client.post(
             "/api/feature_flag/",
             {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 20}]}},
@@ -260,9 +260,11 @@ class TestFeatureFlag(APIBaseTest):
         # alpha-feature is set for "distinct_id"
         response = self.client.get("/api/feature_flag/user_status?distinct_id=distinct_id")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data, ["alpha-feature", "red_button"])
+        self.assertEqual(
+            response.data, {"distinct_id": "distinct_id", "flags_enabled": ["alpha-feature", "red_button"]}
+        )
 
         # alpha-feature is not set for "distinct_id_0"
         response = self.client.get("/api/feature_flag/user_status?distinct_id=distinct_id_0")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data, ["red_button"])
+        self.assertEqual(response.data, {"distinct_id": "distinct_id_0", "flags_enabled": ["red_button"]})
