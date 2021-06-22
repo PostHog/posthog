@@ -95,30 +95,29 @@ export function PersonsTable({
                 return person.created_at ? <TZLabel time={person.created_at} /> : <></>
             },
         })
-
-        columns.push({
-            key: 'actions',
-            title: '',
-            span: 2,
-            render: function Render(person: PersonType, ...[, index]: [PersonType, number]) {
-                return (
-                    <>
-                        <Link
-                            to={linkToPerson(person)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            data-attr={`goto-person-arrow-${index}`}
-                            data-test-goto-person
-                        >
-                            <ArrowRightOutlined style={{ float: 'right' }} />
-                            {allColumns ? ' view' : ''}
-                        </Link>
-                    </>
-                )
-            },
-        })
     }
 
+    columns.push({
+        key: 'actions',
+        title: '',
+        span: 2,
+        render: function Render(person: PersonType, ...[, index]: [PersonType, number]) {
+            return (
+                <>
+                    <Link
+                        to={linkToPerson(person)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-attr={`goto-person-arrow-${index}`}
+                        data-test-goto-person
+                    >
+                        <ArrowRightOutlined style={{ float: 'right' }} />
+                        {allColumns ? ' view' : ''}
+                    </Link>
+                </>
+            )
+        },
+    })
 
     return (
         <>

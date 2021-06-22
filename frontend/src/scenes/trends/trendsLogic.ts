@@ -202,14 +202,14 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             date_from,
             date_to,
             breakdown_value,
-            saveOriginal
+            saveOriginal,
         }),
         saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
         refreshCohort: true,
         setLoadingMorePeople: (status) => ({ status }),
         setShowingPeople: (isShowing) => ({ isShowing }),
-        setPeople: (people, count, action, label, day, breakdown_value, next) => ({
+        setPeople: (people, count?, action?, label?, day?, breakdown_value?, next?) => ({
             people,
             count,
             action,
@@ -224,7 +224,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
-        setPersonsModalFilters: (searchTerm) => ({ searchTerm }),
+        setPersonsModalFilters: (searchTerm: string, people: TrendPeople) => ({ searchTerm, people }),
         saveFirstLoadedPeople: (people, count, action, label, day, breakdown_value, next) => ({
             people,
             count,
@@ -233,7 +233,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             day,
             breakdown_value,
             next,
-        })
+        }),
     }),
 
     reducers: ({ props }) => ({
@@ -257,17 +257,14 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             null as TrendPeople | null,
             {
                 setFilters: () => null,
-                setPeople: (_, people) => {
-                    console.log('setting ppl')
-                    return people
-                },
+                setPeople: (_, people) => people,
             },
         ],
         firstLoadedPeople: [
             null as TrendPeople | null,
             {
                 saveFirstLoadedPeople: (_, people) => people,
-            }
+            },
         ],
         loadingMorePeople: [
             false,
@@ -557,8 +554,27 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 actions.setFilters(mergedFilter, true)
             }
         },
-        setPersonsModalFilters: ({ searchTerm }) => {
-        }
+        setPersonsModalFilters: async ({ searchTerm, people }) => {
+            const { label, action, day, breakdown_value } = people
+            const date_from = day
+            const date_to = day
+            const key = searchTerm.match(/(?<=has:).*/)?.[0]
+            const properties = [{ key: `${key}`, value: 'is_set', operator: 'is_set', type: 'person' }]
+            const filterParams = parsePeopleParams(
+                { label, action, date_from, date_to, breakdown_value },
+                { ...values.filters, properties }
+            )
+            const filteredPeople = await api.get(`api/action/people/?${filterParams}`)
+            actions.setPeople(
+                filteredPeople.results[0]?.people,
+                filteredPeople.results[0]?.count,
+                action,
+                label,
+                date_from,
+                date_to,
+                breakdown_value
+            )
+        },
     }),
 
     events: ({ actions, props }) => ({

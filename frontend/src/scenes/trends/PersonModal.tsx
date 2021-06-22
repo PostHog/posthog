@@ -77,16 +77,36 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                 style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
                                 onChange={(e) => {
                                     setSearchTerm(e.target.value)
+                                    if (!e.target.value) {
+                                        setPeople(
+                                            firstLoadedPeople?.people,
+                                            people.count,
+                                            people.action,
+                                            people.label,
+                                            people.day,
+                                            people.breakdown_value,
+                                            people.next
+                                        )
+                                    }
                                 }}
                                 value={searchTerm}
                                 onSearch={() => {
-                                    setPersonsModalFilters(searchTerm)
                                     if (!searchTerm) {
-                                        setPersonsModalFilters({ search: undefined })
-                                        const { count, action, label, day, breakdown_value, next } = firstLoadedPeople
-                                        setPeople(firstLoadedPeople, count, action, label, day, breakdown_value, next)
+                                        const { count, action, label, day, breakdown_value, next } = people
+                                        setPeople(
+                                            firstLoadedPeople?.people,
+                                            count,
+                                            action,
+                                            label,
+                                            day,
+                                            breakdown_value,
+                                            next
+                                        )
                                     } else if (searchTerm.includes('has:')) {
-                                        setPersonsModalFilters(searchTerm)
+                                        setPersonsModalFilters(searchTerm, people)
+                                    } else {
+                                        const ppl = searchPersons(people.people, searchTerm)
+                                        setPeople(ppl, people.count, people.action, people.label, people.day)
                                     }
                                 }}
                             />
@@ -115,14 +135,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                             title="Download CSV"
                         />
                     </div>
-                    <PersonsTable
-                        loading={!people?.people}
-                        people={
-                            searchTerm === '' || searchTerm.includes('has:')
-                                ? people.people
-                                : searchPersons(people.people, searchTerm)
-                        }
-                    />
+                    <PersonsTable loading={!people?.people} people={people.people} />
                     <div
                         style={{
                             margin: '1rem',
