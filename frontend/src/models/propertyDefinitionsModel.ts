@@ -14,7 +14,7 @@ interface PropertyDefinitionStorage {
 }
 
 export const propertyDefinitionsModel = kea<
-    propertyDefinitionsModelType<PropertyDefinitionStorage, PropertySelectOption, PropertyDefinition>
+    propertyDefinitionsModelType<PropertyDefinitionStorage, PropertySelectOption>
 >({
     loaders: ({ values }) => ({
         propertyStorage: [

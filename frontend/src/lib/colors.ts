@@ -1,3 +1,4 @@
+/* Used for graphs line or background color (as applicable) */
 export const lightColors = [
     'navy',
     'blue',
@@ -15,6 +16,20 @@ export const lightColors = [
     'salmon',
     'indigo',
     'purple',
+]
+
+export const tagColors = [
+    'blue',
+    'cyan',
+    'orange',
+    'gold',
+    'green',
+    'lime',
+    'volcano',
+    'magenta',
+    'purple',
+    'red',
+    'geekblue',
 ]
 
 const getColorVar = (variable: string): string => getComputedStyle(document.body).getPropertyValue('--' + variable)

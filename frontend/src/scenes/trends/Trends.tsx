@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { PersonModal } from './PersonModal'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
@@ -8,7 +8,6 @@ import {
     ACTIONS_PIE_CHART,
     ACTIONS_BAR_CHART,
     ACTIONS_BAR_CHART_VALUE,
-    FEATURE_FLAGS,
 } from 'lib/constants'
 
 import { ActionsPie, ActionsLineGraph, ActionsBarValueGraph, ActionsTable } from './viz'
@@ -17,7 +16,6 @@ import { trendsLogic } from './trendsLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface Props {
     view: ViewType
@@ -35,7 +33,6 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { saveCohortWithFilters, refreshCohort, loadMoreBreakdownValues } = useActions(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -51,10 +48,9 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 return <ActionsTable filters={_filters} view={view} />
             }
             return (
-                <InsightsTable
-                    isLegend={false}
-                    showTotalCount={featureFlags[FEATURE_FLAGS.NEW_TOOLTIPS] && view !== ViewType.SESSIONS}
-                />
+                <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
+                    <InsightsTable isLegend={false} showTotalCount={view !== ViewType.SESSIONS} />
+                </BindLogic>
             )
         }
         if (_filters.display === ACTIONS_PIE_CHART) {

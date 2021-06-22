@@ -5,7 +5,7 @@ import { ViewType } from 'scenes/insights/insightLogic'
 import { InsightType } from '~/types'
 import { compareFilterLogicType } from './compareFilterLogicType'
 
-export const compareFilterLogic = kea<compareFilterLogicType<InsightType>>({
+export const compareFilterLogic = kea<compareFilterLogicType>({
     actions: () => ({
         setCompare: (compare: boolean) => ({ compare }),
         setDisabled: (disabled: boolean) => ({ disabled }),
@@ -43,7 +43,15 @@ export const compareFilterLogic = kea<compareFilterLogicType<InsightType>>({
     urlToAction: ({ actions }) => ({
         '/insights': (
             _: any,
-            { compare, insight, date_from }: { compare?: boolean; insight?: InsightType; date_from?: string }
+            {
+                compare,
+                insight,
+                date_from,
+            }: {
+                compare?: boolean
+                insight?: InsightType
+                date_from?: string
+            }
         ) => {
             if (compare !== undefined) {
                 actions.setCompare(compare)

@@ -10,11 +10,14 @@ import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined } from '
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models/actionsModel'
-import { AsyncActionMappingNotice } from 'scenes/project/Settings/WebhookIntegration'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import dayjs from 'dayjs'
 import { compactNumber } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+
+function AsyncActionMappingNotice() {
+    return <p>Please note that actions may be delayed up to 5 minutes due to open-source PostHog configuration.</p>
+}
 
 export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, temporaryToken }) {
     let logic = actionEditLogic({

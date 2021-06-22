@@ -46,7 +46,8 @@ class ClickhouseEventsViewSet(EventViewSet):
     def _query_events_list(
         self, filter: Filter, team: Team, request: Request, long_date_from: bool = False, limit: int = 100
     ) -> List:
-        limit_sql = f"LIMIT {limit + 1}"
+        limit += 1
+        limit_sql = "LIMIT %(limit)s"
         conditions, condition_params = determine_event_conditions(
             team,
             {
@@ -72,17 +73,22 @@ class ClickhouseEventsViewSet(EventViewSet):
         if prop_filters != "":
             return sync_execute(
                 SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit_sql, filters=prop_filters),
-                {"team_id": team.pk, **condition_params, **prop_filter_params},
+                {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             )
         else:
             return sync_execute(
                 SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit_sql),
-                {"team_id": team.pk, **condition_params},
+                {"team_id": team.pk, "limit": limit, **condition_params},
             )
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
-        limit = self.CSV_EXPORT_LIMIT if is_csv_request else 100
+        if is_csv_request:
+            limit = self.CSV_EXPORT_LIMIT
+        elif self.request.GET.get("limit", None):
+            limit = int(self.request.GET.get("limit"))  # type: ignore
+        else:
+            limit = 100
 
         team = self.team
         filter = Filter(request=request)

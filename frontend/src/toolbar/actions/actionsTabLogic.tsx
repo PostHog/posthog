@@ -21,7 +21,7 @@ function newAction(element: HTMLElement | null, dataAttributes: string[]): Parti
 
 type ActionFormInstance = FormInstance<ActionForm>
 
-export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, ActionFormInstance, AntdFieldData>>({
+export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
     actions: {
         setForm: (form: ActionFormInstance) => ({ form }),
         selectAction: (id: number | null) => ({ id: id || null }),

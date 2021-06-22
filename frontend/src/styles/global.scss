@@ -34,9 +34,9 @@ style files without adding already imported styles. */
     --cyan: #17a2b8;
     --pink: #e83e8c;
     --white: #f4f6ff;
-    --maroon: #800000;
+    --maroon: #7f0000;
     --mint: #aaffc3;
-    --olive: #808000;
+    --olive: #807500;
     --navy: #000075;
     --orange: #f58231;
     --lime: #bfef45;
@@ -472,6 +472,19 @@ code.code {
     font-size: 12px;
 }
 
+.graph-series-letter {
+    border-radius: 50%;
+    border: 2px solid $text_default;
+    font-weight: bold;
+    font-size: 12px;
+    height: 22px;
+    width: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
 // Overlays styles
 
 #bottom-notice {
@@ -495,6 +508,7 @@ code.code {
         background: $danger;
     }
     &.tricolor {
+        cursor: pointer;
         div:nth-child(1) {
             background: $brand_blue;
         }
@@ -504,10 +518,7 @@ code.code {
         div:nth-child(3) {
             background: $brand_yellow;
         }
-    }
-    &.click-close {
-        cursor: pointer;
-        code {
+        span {
             cursor: text;
         }
     }

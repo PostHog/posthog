@@ -1,29 +1,44 @@
 import React, { useState } from 'react'
 import { PropertyFilter } from './PropertyFilter'
+import { AnyPropertyFilter, PropertyFilter as PropertyFilterType } from '~/types'
 import { Button } from 'antd'
 import { useActions } from 'kea'
 import { Popover, Row } from 'antd'
 import { CloseButton } from 'lib/components/CloseButton'
 import PropertyFilterButton from './PropertyFilterButton'
 import 'scenes/actions/Actions.scss'
+import { TooltipPlacement } from 'antd/lib/tooltip'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+
+interface FilterRowProps {
+    item: AnyPropertyFilter
+    index: number
+    filters: AnyPropertyFilter[]
+    pageKey: string
+    showConditionBadge?: boolean
+    totalCount: number
+    disablePopover?: boolean
+    popoverPlacement?: TooltipPlacement | null
+}
 
 export const FilterRow = React.memo(function FilterRow({
     item,
     index,
     filters,
-    logic,
     pageKey,
     showConditionBadge,
     totalCount,
     disablePopover = false, // use bare PropertyFilter without popover
     popoverPlacement,
-}) {
-    const { remove } = useActions(logic)
-    let [open, setOpen] = useState(false)
+}: FilterRowProps) {
+    const { remove } = useActions(propertyFilterLogic)
+    const [open, setOpen] = useState(false)
+    const isEmptyProperty = !('key' in item) && Object.keys(item).length == 0
+
     const { key } = item
 
-    let handleVisibleChange = (visible) => {
-        if (!visible && Object.keys(item).length >= 0 && !item[Object.keys(item)[0]]) {
+    const handleVisibleChange = (visible: boolean): void => {
+        if (!visible && !isEmptyProperty && !item.key) {
             remove(index)
         }
         setOpen(visible)
@@ -33,7 +48,7 @@ export const FilterRow = React.memo(function FilterRow({
         key: index,
         index,
         onComplete: () => setOpen(false),
-        logic,
+        selectProps: {},
     }
 
     return (
@@ -67,20 +82,27 @@ export const FilterRow = React.memo(function FilterRow({
                         defaultVisible={false}
                         visible={open}
                         placement={popoverPlacement || 'bottomLeft'}
-                        getPopupContainer={(trigger) => trigger.parentNode} // Prevent scrolling up on trigger
+                        getPopupContainer={(trigger) =>
+                            // Prevent scrolling up on trigger
+                            (trigger.parentNode as HTMLElement | undefined) ||
+                            (document.querySelector('body') as HTMLElement)
+                        }
                         content={
                             <PropertyFilter
                                 {...propertyFilterCommonProps}
                                 variant="tabs"
                                 selectProps={{
                                     delayBeforeAutoOpen: 150,
-                                    position: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
+                                    placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
                                 }}
                             />
                         }
                     >
-                        {key ? (
-                            <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
+                        {!isEmptyProperty ? (
+                            <PropertyFilterButton
+                                onClick={() => setOpen(!open)}
+                                item={item as PropertyFilterType /* not EmptyPropertyFilter */}
+                            />
                         ) : (
                             <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
                                 Add filter

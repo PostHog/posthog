@@ -6,9 +6,9 @@ import { toast } from 'react-toastify'
 import { DashboardItemType } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
-import { dashboardItemsModelType } from '~/models/dashboardItemsModelType'
+import { dashboardItemsModelType } from './dashboardItemsModelType'
 
-export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType>>({
+export const dashboardItemsModel = kea<dashboardItemsModelType>({
     actions: () => ({
         renameDashboardItem: (item: DashboardItemType) => ({ item }),
         renameDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
@@ -50,7 +50,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
 
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
 
-            if (move) {
+            if (dashboard && move) {
                 const deletedItem = await api.update(`api/insight/${item.id}`, {
                     deleted: true,
                 })
@@ -82,7 +82,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType
                         </Link>
                     </div>
                 )
-            } else if (!move && dashboardId) {
+            } else if (!move && dashboardId && dashboard) {
                 // copy
                 const toastId = toast(
                     <div data-attr="success-toast">

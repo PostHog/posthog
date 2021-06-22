@@ -44,10 +44,10 @@ class ClickhouseElementViewSet(ElementViewSet):
             return response.Response([])
 
         if key == "tag_name":
-            select_regex = "^([-_a-zA-Z0-9]*?)[\.|:]"
+            select_regex = r"^([-_a-zA-Z0-9]*?)[\.|:]"
             filter_regex = select_regex
             if value:
-                filter_regex = "^([-_a-zA-Z0-9]*?{}[-_a-zA-Z0-9]*?)[\.|:]".format(value)
+                filter_regex = r"^([-_a-zA-Z0-9]*?{}[-_a-zA-Z0-9]*?)[\.|:]".format(value)
         else:
             if value:
                 filter_regex = '[:|"]{}=".*?{}.*?"'.format(key, value)

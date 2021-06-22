@@ -35,7 +35,11 @@ export function ActionsBarValueGraph({
     function updateData(): void {
         const _data = [...results] as TrendResultWithAggregate[]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
-        const colorList = getChartColors(color)
+
+        // If there are more series than colors, we reuse colors sequentially so all series are colored
+        const rawColorList = getChartColors(color)
+        const colorList = results.map((_, idx) => rawColorList[idx % rawColorList.length])
+
         const days = results.length > 0 ? results[0].days : []
         setData([
             {
@@ -65,12 +69,13 @@ export function ActionsBarValueGraph({
         total > 0 ? (
             <LineGraph
                 data-attr="trend-bar-value-graph"
-                type={'horizontalBar'}
+                type="horizontalBar"
                 color={color}
                 datasets={data}
                 labels={data[0].labels}
                 dashboardItemId={dashboardItemId}
                 totalValue={total}
+                interval={filtersParam?.interval}
                 onClick={
                     dashboardItemId
                         ? null
