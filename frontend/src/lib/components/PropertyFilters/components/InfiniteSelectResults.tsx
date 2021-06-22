@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react'
-import { Col, Row, Select, Tabs, List } from 'antd'
+import { Col, Row, Tabs, List } from 'antd'
 import AutoSizer from 'react-virtualized/dist/commonjs/AutoSizer'
 import VirtualizedList from 'react-virtualized/dist/commonjs/List'
 import { InfiniteLoader, ListRowProps, ListRowRenderer } from 'react-virtualized'
 
-import { ActionType, CohortType, EventDefinition } from '~/types'
+import { EventDefinition } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectedItem } from 'lib/components/SelectBox'
 import api from 'lib/api'
@@ -86,16 +86,6 @@ interface InfiniteListProps {
     onSelect: InfiniteSelectResultsProps['onSelect']
 }
 
-// function buildUrl(url: string, queryParams?: Record<string, any>): string {
-//     const result = new URL(url)
-//     if(queryParams) {
-//         Object.entries(queryParams).forEach(([key, value]) => {
-//             result.searchParams.append(key, value)
-//         })
-//     }
-//     return result.href
-// }
-
 function buildUrl(url: string, queryParams?: Record<string, any>): string {
     let result = url
     if(queryParams) {
@@ -124,60 +114,85 @@ function InfiniteList({
         return Boolean(items[index])
     }
 
-    const loadMoreRows = async ({ startIndex, endIndex }: Record<string, number>): Promise<any> => {
-        const initial = items.length === 0 && totalCount !== 0
-        if (initial || (startIndex >= items.length && Boolean(next))) {
+    const loadInitialRows = async (): Promise<any> => {
+        try {
+            const url = buildUrl(endpoint, {
+                search: searchQuery,
+                limit: 100,
+                offset: 0,
+            })
+            const response: EventDefinitionResult = await api.get(url)
+            setTotalCount(response.count)
+            setNext(response.next)
+            setItems(response.results)
+        } catch (err) {
+            console.error(err)
+        }
+    }
+
+    const loadMoreRows = async ({ startIndex }: { startIndex: number }): Promise<any> => {
+        const [, , nextOffset] = next?.match(/(offset=)(\d*)/) || []
+        // Only load values not yet in state
+        if (startIndex >= items.length && parseInt(nextOffset) >= items.length) {
             try {
-                const params = {
-                    search: searchQuery,
-                    limit: endIndex - startIndex,
-                    offset: startIndex,
-                }
-                const response: EventDefinitionResult = await api.get(buildUrl(endpoint, params))
-                setTotalCount(response.count ?? null)
-                setNext(response.next ?? null)
-                setItems(response.results)
+                const response: EventDefinitionResult = await api.get(next)
+                setTotalCount(response.count)
+                setNext(response.next)
+                setItems(previousItems => [...previousItems, ...response.results])
                 return response.results
             } catch (err) {
                 console.error(err)
-            } finally {
-                return
             }
         }
     }
 
-    const renderItem = ({ index }) => (
-        <li><pre>{items[index]?.toString()}</pre></li>
-    )
+    const renderItem: ListRowRenderer = ({ index, style }: ListRowProps): JSX.Element | null => {
+        const item = items[index]
+        return item ? (
+            <List.Item
+                // className={selectedItem?.key === item.key ? 'selected' : undefined}
+                key={item.id}
+                // onClick={() => clickSelectedItem(item, group)}
+                style={style}
+                // onMouseOver={() =>
+                //     !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
+                // }
+            >
+                <PropertyKeyInfo value={item.name} />
+            </List.Item>
+        ) : null
+    }
 
     useEffect(() => {
-        loadMoreRows({ startIndex: 0, endIndex: 10 })
+        loadInitialRows()
     }, [])
 
     return (
-        <AutoSizer>
-            {({ height, width }: { height: number; width: number }) => (
-                <InfiniteLoader
-                    isRowLoaded={isRowLoaded}
-                    loadMoreRows={loadMoreRows}
-                    rowCount={totalCount || 0}
-                >
-                    {({ onRowsRendered, registerChild }) => (
-                        <VirtualizedList
-                            height={height}
-                            onRowsRendered={onRowsRendered}
-                            ref={registerChild}
-                            overscanRowCount={0}
-                            rowCount={totalCount || 0}
-                            rowHeight={35}
-                            rowRenderer={renderItem}
-                            width={width}
-                            tabIndex={-1}
-                        />
-                    )}
-                </InfiniteLoader>
-            )}
-        </AutoSizer>
+        <div style={{ height: '200px', width: '350px' }}>
+            <AutoSizer>
+                {({ height, width }: { height: number; width: number }) => (
+                    <InfiniteLoader
+                        isRowLoaded={isRowLoaded}
+                        loadMoreRows={loadMoreRows}
+                        rowCount={totalCount || 0}
+                    >
+                        {({ onRowsRendered, registerChild }) => (
+                            <VirtualizedList
+                                height={height}
+                                onRowsRendered={onRowsRendered}
+                                ref={registerChild}
+                                overscanRowCount={0}
+                                rowCount={totalCount || 0}
+                                rowHeight={35}
+                                rowRenderer={renderItem}
+                                width={width}
+                                tabIndex={-1}
+                            />
+                        )}
+                    </InfiniteLoader>
+                )}
+            </AutoSizer>
+        </div>
     )
 }
 
