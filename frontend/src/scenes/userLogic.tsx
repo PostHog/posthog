@@ -7,17 +7,13 @@ import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-interface UpdateUserPayload {
-    user: Partial<UserType>
-    successCallback?: () => void
-}
-
-export const userLogic = kea<userLogicType<UpdateUserPayload>>({
+export const userLogic = kea<userLogicType>({
     actions: () => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
+        updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
     }),
     selectors: ({ selectors }) => ({
         demoOnlyProject: [
@@ -39,7 +35,7 @@ export const userLogic = kea<userLogicType<UpdateUserPayload>>({
                     }
                     return null
                 },
-                updateUser: async ({ user, successCallback }: UpdateUserPayload) => {
+                updateUser: async ({ user, successCallback }) => {
                     if (!values.user) {
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }

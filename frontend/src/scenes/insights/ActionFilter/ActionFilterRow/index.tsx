@@ -247,7 +247,7 @@ export function ActionFilterRow({
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
-                        onChange={(properties: PropertyFilter[]) => updateFilterProperty({ properties, index })}
+                        onChange={(properties) => updateFilterProperty({ properties, index })}
                         disablePopover={horizontalUI}
                         style={{ marginBottom: 0 }}
                     />
