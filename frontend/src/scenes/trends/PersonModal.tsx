@@ -76,7 +76,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                     if (!e.target.value) {
                                         setPeople(
                                             firstLoadedPeople?.people,
-                                            people.count,
+                                            firstLoadedPeople?.count,
                                             people.action,
                                             people.label,
                                             people.day,
