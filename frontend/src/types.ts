@@ -385,11 +385,17 @@ export interface SessionType {
     length: number
     start_time: string
     end_time: string
-    session_recordings: Array<{ id: string; viewed: boolean }>
+    session_recordings: SessionTypeSessionRecording[]
     start_url?: string
     end_url?: string
     email?: string
     matching_events: Array<number | string>
+}
+
+export interface SessionTypeSessionRecording {
+    id: string
+    viewed: boolean
+    recording_duration: number
 }
 
 export interface BillingType {

@@ -104,6 +104,12 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         {
             title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
+                if (session.session_recordings.length > 0) {
+                    const sum = session.session_recordings
+                        .map(({ recording_duration }) => recording_duration)
+                        .reduce((a, b) => a + b, 0)
+                    return <span>{humanFriendlyDuration(sum)}</span>
+                }
                 return <span>{humanFriendlyDuration(session.length)}</span>
             },
             span: 2,
