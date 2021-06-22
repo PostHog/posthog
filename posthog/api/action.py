@@ -1,10 +1,10 @@
 import json
 from typing import Any, Dict, List, Optional, Union, cast
-from django.db.models.query_utils import Q
 
 import posthoganalytics
 from django.core.cache import cache
 from django.db.models import Count, Exists, OuterRef, Prefetch, QuerySet
+from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
@@ -360,9 +360,7 @@ def _filter_event_prop_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
     return events
 
 
-def calculate_people(
-    team: Team, events: QuerySet, filter: Filter, request = None, use_offset: bool = True
-) -> QuerySet:
+def calculate_people(team: Team, events: QuerySet, filter: Filter, request=None, use_offset: bool = True) -> QuerySet:
     events = events.values("person_id").distinct()
     events = _filter_cohort_breakdown(events, filter)
     events = _filter_person_prop_breakdown(events, filter)
@@ -371,14 +369,13 @@ def calculate_people(
         team=team.id,
         id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],
     )
-    if request.GET.get("search"):
+    if request and request.GET.get("search"):
         term = request.GET.get("search")
         people = people.filter(Q(persondistinctid__distinct_id__icontains=term) | Q(properties__email__icontains=term))
-    if request.GET.get("properties") and len(request.GET.get("properties")) > 2:
+    if request and request.GET.get("properties") and len(request.GET.get("properties")) > 2:
         value = request.GET.get("properties")
         filter = Filter(data={"properties": json.loads(value)})
         people = people.filter(base.properties_to_Q(filter.properties, team_id=team.id, is_person_query=True))
-
     people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return people
 
