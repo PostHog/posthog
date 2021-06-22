@@ -132,6 +132,12 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
 
     selectors: {
         filtersLoading: [() => [propertyDefinitionsModel.selectors.loaded], (loaded) => !loaded],
+        filtersNotEmpty: [
+            (s) => [s.filters],
+            (filters) => {
+                return filters.filter((f) => 'key' in f) as PropertyFilter[]
+            },
+        ],
     },
 
     events: ({ actions }) => ({
