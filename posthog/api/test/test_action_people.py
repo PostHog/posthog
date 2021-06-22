@@ -429,7 +429,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             resp = people.content.decode("utf-8").split("\r\n")
             resp = sorted(resp)
             self.assertEqual(len(resp), 6)  # header, 4 people, empty line
-            self.assertEqual(resp[1], "Distinct ID,Internal ID,Email,Name")
+            self.assertEqual(resp[1], "Distinct ID,Internal ID,Email,Name,Properties")
             self.assertEqual(resp[2].split(",")[0], "person1")
 
         def test_breakdown_by_cohort_people_endpoint(self):
