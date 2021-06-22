@@ -5,7 +5,6 @@ import { Select, Card, Radio } from 'antd'
 
 import { actionsModel } from '~/models/actionsModel'
 import { useValues } from 'kea'
-import { PropertyFilter } from '~/types'
 
 export function CohortGroup({
     onChange,
@@ -74,7 +73,7 @@ export function CohortGroup({
                         <PropertyFilters
                             endpoint="person"
                             pageKey={'cohort_' + index}
-                            onChange={(properties: PropertyFilter[]) => {
+                            onChange={(properties) => {
                                 onChange(
                                     properties.length
                                         ? {
