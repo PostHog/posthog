@@ -12,7 +12,6 @@ import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { PropertyOperator } from '~/types'
 import { PropertyFilterInternalProps } from './PropertyFilter'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { propertyFilterLogic } from '../propertyFilterLogic'
 
@@ -23,30 +22,28 @@ enum DisplayMode {
     OPERATOR_VALUE_SELECT,
 }
 
-export function TaxonomicPropertyFilter({
-    index,
-    onComplete,
-    selectProps,
-}: PropertyFilterInternalProps): JSX.Element {
+export function TaxonomicPropertyFilter({ index, onComplete }: PropertyFilterInternalProps): JSX.Element {
     const { filters } = useValues(propertyFilterLogic)
     const { personProperties } = useValues(personPropertiesModel)
+    const { cohorts } = useValues(cohortsModel)
     const { setFilter } = useActions(propertyFilterLogic)
     const { key, value, operator, type } = filters[index]
 
     const [searchQuery, setSearchQuery] = useState('')
     const [selectedItemKey, setSelectedItemKey] = useState<string | number | null>(null)
-    const initialDisplayMode = key ? DisplayMode.OPERATOR_VALUE_SELECT : DisplayMode.PROPERTY_SELECT
+    const initialDisplayMode =
+        key && type !== 'cohort' ? DisplayMode.OPERATOR_VALUE_SELECT : DisplayMode.PROPERTY_SELECT
     const [displayMode, setDisplayMode] = useState(initialDisplayMode)
 
     return (
         <div>
-            { displayMode === DisplayMode.PROPERTY_SELECT && (
+            {displayMode === DisplayMode.PROPERTY_SELECT && (
                 <>
                     <Input
                         autoFocus
                         placeholder="Search event or person properties"
                         value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
+                        onChange={(e) => setSearchQuery(e.target.value)}
                     />
                     <InfiniteSelectResults
                         groups={[
@@ -54,38 +51,50 @@ export function TaxonomicPropertyFilter({
                                 key: 'events',
                                 name: 'Event properties',
                                 type: 'event',
-                                endpoint: 'api/projects/@current/property_definitions'
+                                endpoint: 'api/projects/@current/property_definitions',
                             },
                             {
                                 key: 'persons',
                                 name: 'Person properties',
                                 type: 'person',
-                                dataSource: personProperties.map(property => ({
+                                dataSource: personProperties.map((property) => ({
                                     ...property,
                                     key: property.name,
-                                }))
-                            }
+                                })),
+                            },
+                            {
+                                key: 'cohorts',
+                                name: 'Cohort',
+                                type: 'cohort',
+                                dataSource: cohorts.map((cohort) => ({
+                                    ...cohort,
+                                    key: cohort.id.toString(),
+                                    name: cohort.name || '',
+                                })),
+                            },
                         ]}
                         searchQuery={searchQuery}
                         selectedItemKey={selectedItemKey}
                         onSelect={(newType, newKey, name) => {
                             const newOperator = name === '$active_feature_flags' ? PropertyOperator.IContains : operator
                             setSelectedItemKey(newKey)
-                            setFilter(
-                                index,
-                                name,
-                                null, // Reset value field
-                                newOperator || PropertyOperator.Exact,
-                                newType,
-                            )
-                            if(newType !== 'cohort') {
+                            if (newType === 'cohort') {
+                                setFilter(index, 'id', name, null, newType)
+                            } else {
+                                setFilter(
+                                    index,
+                                    name,
+                                    null, // Reset value field
+                                    newOperator || PropertyOperator.Exact,
+                                    newType
+                                )
                                 setDisplayMode(DisplayMode.OPERATOR_VALUE_SELECT)
                             }
                         }}
                     />
                 </>
             )}
-            { displayMode === DisplayMode.OPERATOR_VALUE_SELECT && (
+            {displayMode === DisplayMode.OPERATOR_VALUE_SELECT && (
                 <div className="taxonomic-filter-row">
                     <Button onClick={() => setDisplayMode(DisplayMode.PROPERTY_SELECT)}>
                         <div style={{ display: 'flex' }}>
@@ -100,13 +109,7 @@ export function TaxonomicPropertyFilter({
                         value={value}
                         onChange={(newOperator, newValue) => {
                             if (key && type) {
-                                setFilter(
-                                    index,
-                                    key,
-                                    newValue || null,
-                                    newOperator,
-                                    type,
-                                )
+                                setFilter(index, key, newValue || null, newOperator, type)
                             }
                             if (
                                 newOperator &&
