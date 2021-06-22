@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { ACTIONS_BAR_CHART_VALUE, ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,17 +17,6 @@ interface InsightDisplayConfigProps {
     allFilters: FilterType
     activeView: ViewType
     annotationsToCreate: any[] // TODO: Annotate properly
-}
-
-export function InsightDisplayConfig({
-    horizontalUI,
-    ...props
-}: InsightDisplayConfigProps & { horizontalUI: boolean }): JSX.Element {
-    return horizontalUI ? (
-        <HorizontalDefaultInsightDisplayConfig {...props} />
-    ) : (
-        <DefaultInsightDisplayConfig {...props} />
-    )
 }
 
 const showIntervalFilter = function (activeView: ViewType, filter: FilterType): boolean {
@@ -88,51 +76,7 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
-function DefaultInsightDisplayConfig({
-    allFilters,
-    activeView,
-    clearAnnotationsToCreate,
-    annotationsToCreate,
-}: InsightDisplayConfigProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
-
-    return (
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-            <TZIndicator style={{ float: 'left' }} />
-            <div style={{ width: '100%', textAlign: 'right' }}>
-                {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
-                {showChartFilter(activeView, featureFlags) && (
-                    <ChartFilter
-                        onChange={(display: ChartDisplayType) => {
-                            if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
-                                clearAnnotationsToCreate()
-                            }
-                        }}
-                        filters={allFilters}
-                        disabled={allFilters.insight === ViewType.LIFECYCLE}
-                    />
-                )}
-
-                {showDateFilter[activeView] && (
-                    <InsightDateFilter defaultValue="Last 7 days" disabled={dateFilterDisabled} bordered={false} />
-                )}
-
-                {showComparePrevious[activeView] && <CompareFilter />}
-                <SaveToDashboard
-                    item={{
-                        entity: {
-                            filters: allFilters,
-                            annotations: annotationsToCreate,
-                        },
-                    }}
-                />
-            </div>
-        </div>
-    )
-}
-
-function HorizontalDefaultInsightDisplayConfig({
+export function InsightDisplayConfig({
     allFilters,
     activeView,
     clearAnnotationsToCreate,
