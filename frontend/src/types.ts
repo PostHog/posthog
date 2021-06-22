@@ -194,12 +194,18 @@ export type EditorProps = {
     dataAttributes?: string[]
 }
 
+export type PropertyFilterValue = string | number | (string | number)[] | null
+
 export interface PropertyFilter {
     key: string
-    operator: string | null
+    operator: PropertyOperator | null
     type: string
-    value: string | number | (string | number)[]
+    value: PropertyFilterValue
 }
+
+export type EmptyPropertyFilter = Partial<PropertyFilter>
+
+export type AnyPropertyFilter = PropertyFilter | EmptyPropertyFilter
 
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
@@ -218,7 +224,7 @@ export enum PropertyOperator {
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
-    value: string | number | Array<string | number> | null
+    value: PropertyFilterValue
     label?: string
 }
 
