@@ -17,37 +17,47 @@ import { PropertyFilterInternalProps } from './PropertyFilter'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
+import { propertyFilterLogic } from '../propertyFilterLogic'
 
 export function TaxonomicPropertyFilter({
     index,
     onComplete,
-    logic,
     selectProps,
 }: PropertyFilterInternalProps): JSX.Element {
-    const { filters } = useValues(logic)
-    const { setFilter } = useActions(logic)
+    const { filters } = useValues(propertyFilterLogic)
+    const { personProperties } = useValues(personPropertiesModel)
+    const { setFilter } = useActions(propertyFilterLogic)
     const { key, value, operator, type } = filters[index]
 
     const displayOperatorAndValue = key && type !== 'cohort'
 
-    const setThisFilter = (newKey: string, newValue: string | undefined, newOperator: string, newType: string): void => {
-        setFilter(index, newKey, newValue, newOperator, newType)
-    }
-
     return (
         <InfiniteSelectResults
-            groups={[{
-                key: 'events',
-                name: 'Event properties',
-                type: 'event',
-                endpoint: 'api/projects/@current/property_definitions'
-            }]}
+            groups={[
+                {
+                    key: 'events',
+                    name: 'Event properties',
+                    type: 'event',
+                    endpoint: 'api/projects/@current/property_definitions'
+                },
+                {
+                    key: 'persons',
+                    name: 'Person properties',
+                    type: 'person',
+                    dataSource: personProperties.map(property => ({
+                        ...property,
+                        key: property.name,
+                    }))
+                }
+            ]}
             searchQuery={undefined}
             onSelect={(newType, _id, name) => {
-                setThisFilter(
+                const newOperator = name === '$active_feature_flags' ? PropertyOperator.IContains : operator
+                setFilter(
+                    index,
                     name,
-                    undefined,
-                    name === '$active_feature_flags' ? 'icontains' : operator,
+                    value || null,
+                    newOperator || PropertyOperator.Exact,
                     newType,
                 )
             }}

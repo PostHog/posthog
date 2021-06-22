@@ -32,7 +32,7 @@ type EventDefinitionResult = {
 export interface InfiniteSelectResultsProps {
     groups: SelectResultGroup[]
     searchQuery?: string // Search query for endpoint if defined, else simple filter on dataSource
-    onSelect: (type: any, id: string | number, name: string) => void
+    onSelect: (type: string, id: string | number, name: string) => void
 }
 
 export function InfiniteSelectResults({
@@ -42,11 +42,11 @@ export function InfiniteSelectResults({
 }: InfiniteSelectResultsProps): JSX.Element {
     const defaultActiveKey = groups[0]?.key || undefined
     const [activeKey, setActiveKey] = useState(defaultActiveKey)
-    const [selectedItem, setSelectedItem] = useState<{ type: string, id: string | number } | null>(null)
+    const [selectedItem, setSelectedItem] = useState<{ type: string, key: string | number } | null>(null)
     
-    const handleSelect = (type: string, id: string | number, name: string): void => {
-        setSelectedItem({ type, id })
-        onSelect(type, id, name)
+    const handleSelect = (type: string, key: string | number, name: string): void => {
+        setSelectedItem({ type, key })
+        onSelect(type, key, name)
     }
 
     return (
@@ -59,7 +59,7 @@ export function InfiniteSelectResults({
                     animated={false}
                 >
                     {groups.map(({ key, name, type, endpoint, dataSource }) => {
-                        const selectedItemId = (selectedItem?.type === type && selectedItem?.id) || undefined
+                        const selectedItemKey = (selectedItem?.type === type && selectedItem?.key) || null
                         return (
                             <Tabs.TabPane
                                 tab={name}
@@ -72,15 +72,15 @@ export function InfiniteSelectResults({
                                         endpoint={endpoint}
                                         searchQuery={searchQuery}
                                         onSelect={handleSelect}
-                                        selectedItemId={selectedItemId}
+                                        selectedItemKey={selectedItemKey}
                                     />
                                 ) : (
                                     <StaticVirtualizedList
                                         type={type}
-                                        dataSource={dataSource?.filter(({ groupName }) => groupName === type) || []}
+                                        dataSource={dataSource || []}
                                         searchQuery={searchQuery}
                                         onSelect={handleSelect}
-                                        selectedItemId={selectedItemId}
+                                        selectedItemKey={selectedItemKey}
                                     />
                                 )}
                             </Tabs.TabPane>
@@ -90,14 +90,6 @@ export function InfiniteSelectResults({
             </Col>
         </Row>
     )
-}
-
-interface InfiniteListProps {
-    type: string
-    endpoint: string
-    searchQuery?: string
-    onSelect: InfiniteSelectResultsProps['onSelect']
-    selectedItemId?: string | number
 }
 
 function buildUrl(url: string, queryParams?: Record<string, any>): string {
@@ -114,14 +106,29 @@ function buildUrl(url: string, queryParams?: Record<string, any>): string {
     return result
 }
 
+function transformResults(results: EventDefinitionResult['results']): SelectResult[] {
+    return results.map(definition => ({
+        ...definition,
+        key: definition.id
+    }))
+}
+
+interface InfiniteListProps {
+    type: string
+    endpoint: string
+    searchQuery?: string
+    onSelect: InfiniteSelectResultsProps['onSelect']
+    selectedItemKey: string | number | null
+}
+
 function InfiniteList({
     type,
     endpoint,
     searchQuery,
     onSelect,
-    selectedItemId,
+    selectedItemKey,
 }: InfiniteListProps): JSX.Element {
-    const [items, setItems] = useState<EventDefinition[]>([])
+    const [items, setItems] = useState<SelectResult[]>([])
     const [totalCount, setTotalCount] = useState<number | null>(null)
     const [next, setNext] = useState<string | null>(null)
 
@@ -139,7 +146,7 @@ function InfiniteList({
             const response: EventDefinitionResult = await api.get(url)
             setTotalCount(response.count)
             setNext(response.next)
-            setItems(response.results)
+            setItems(transformResults(response.results))
         } catch (err) {
             console.error(err)
         }
@@ -153,7 +160,7 @@ function InfiniteList({
                 const response: EventDefinitionResult = await api.get(next)
                 setTotalCount(response.count)
                 setNext(response.next)
-                setItems(previousItems => [...previousItems, ...response.results])
+                setItems(previousItems => [...previousItems, ...transformResults(response.results)])
                 return response.results
             } catch (err) {
                 console.error(err)
@@ -165,10 +172,11 @@ function InfiniteList({
         const item = items[index]
         return item ? (
             <List.Item
-                className={selectedItemId === item.id ? 'selected' : undefined}
+                className={selectedItemKey === item.id ? 'selected' : undefined}
                 key={item.id}
-                onClick={() => onSelect(type, item.id, item.name)}
+                onClick={() => onSelect(type, item.key, item.name)}
                 style={style}
+                data-attr={`prop-filter-${item.groupName || type}-${index}`}
             >
                 <PropertyKeyInfo value={item.name} />
             </List.Item>
@@ -202,6 +210,60 @@ function InfiniteList({
                             />
                         )}
                     </InfiniteLoader>
+                )}
+            </AutoSizer>
+        </div>
+    )
+}
+
+interface StaticVirtualizedListProps {
+    type: string
+    dataSource: SelectResult[]
+    searchQuery?: string
+    onSelect: (type: string, id: string | number, name: string) => void
+    selectedItemKey: string | number | null
+}
+
+export function StaticVirtualizedList({
+    type,
+    dataSource,
+    searchQuery,
+    onSelect,
+    selectedItemKey,
+}: StaticVirtualizedListProps): JSX.Element {
+    let items = dataSource
+    if (searchQuery) {
+        items = dataSource.filter(({ name }) => name.match(searchQuery))
+    }
+
+    const renderItem: ListRowRenderer = ({ index, style }: ListRowProps) => {
+        const item = items[index]
+        return item ? (
+            <List.Item
+                className={selectedItemKey === item.key ? 'selected' : undefined}
+                key={item.id}
+                onClick={() => onSelect(type, item.key, item.name)}
+                style={style}
+                data-attr={`prop-filter-${item.groupName || type}-${index}`}
+            >
+                <PropertyKeyInfo value={item.name} />
+            </List.Item>
+        ) : null
+    }
+
+    return (
+        <div style={{ height: '200px', width: '350px' }}>
+            <AutoSizer>
+                {({ height, width }: { height: number; width: number }) => (
+                    <VirtualizedList
+                        height={height}
+                        overscanRowCount={0}
+                        rowCount={items.length}
+                        rowHeight={35}
+                        rowRenderer={renderItem}
+                        width={width}
+                        tabIndex={-1}
+                    />
                 )}
             </AutoSizer>
         </div>
