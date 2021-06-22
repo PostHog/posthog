@@ -10,6 +10,8 @@ import { SelectedItem } from 'lib/components/SelectBox'
 import api from 'lib/api'
 
 import './InfiniteSelectResults.scss'
+import { useThrottledCallback } from 'use-debounce/lib'
+import { Loading } from 'lib/utils'
 
 interface SelectResult extends SelectedItem {
     tags?: string[] // TODO better type
@@ -129,6 +131,7 @@ function InfiniteList({
     selectedItemKey,
 }: InfiniteListProps): JSX.Element {
     const [items, setItems] = useState<SelectResult[]>([])
+    const [loading, setLoading] = useState(false)
     const [totalCount, setTotalCount] = useState<number | null>(null)
     const [next, setNext] = useState<string | null>(null)
 
@@ -136,17 +139,19 @@ function InfiniteList({
         return Boolean(items[index])
     }
 
-    const loadInitialRows = async (): Promise<any> => {
+    const loadInitialRows = async (search?: string): Promise<any> => {
         try {
             const url = buildUrl(endpoint, {
-                search: searchQuery,
+                search,
                 limit: 100,
                 offset: 0,
             })
+            setLoading(true)
             const response: EventDefinitionResult = await api.get(url)
             setTotalCount(response.count)
             setNext(response.next)
             setItems(transformResults(response.results))
+            setLoading(false)
         } catch (err) {
             console.error(err)
         }
@@ -187,8 +192,16 @@ function InfiniteList({
         loadInitialRows()
     }, [])
 
+    useEffect(
+        useThrottledCallback(() => {
+            loadInitialRows(searchQuery)
+        }, 100),
+        [searchQuery]
+    )
+
     return (
         <div style={{ height: '200px', width: '350px' }}>
+            { loading && <Loading /> }
             <AutoSizer>
                 {({ height, width }: { height: number; width: number }) => (
                     <InfiniteLoader

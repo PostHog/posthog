@@ -2,7 +2,7 @@
 Contains the property filter component w/ properties and cohorts separated in tabs. Also includes infinite-scroll remote loading.
 */
 import React, { useState } from 'react'
-import { Col, Row, Select, Tabs } from 'antd'
+import { Col, Input, Row, Select, Tabs } from 'antd'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '~/models/cohortsModel'
 import { useValues, useActions } from 'kea'
@@ -31,36 +31,45 @@ export function TaxonomicPropertyFilter({
 
     const displayOperatorAndValue = key && type !== 'cohort'
 
+    const [searchQuery, setSearchQuery] = useState('')
+
     return (
-        <InfiniteSelectResults
-            groups={[
-                {
-                    key: 'events',
-                    name: 'Event properties',
-                    type: 'event',
-                    endpoint: 'api/projects/@current/property_definitions'
-                },
-                {
-                    key: 'persons',
-                    name: 'Person properties',
-                    type: 'person',
-                    dataSource: personProperties.map(property => ({
-                        ...property,
-                        key: property.name,
-                    }))
-                }
-            ]}
-            searchQuery={undefined}
-            onSelect={(newType, _id, name) => {
-                const newOperator = name === '$active_feature_flags' ? PropertyOperator.IContains : operator
-                setFilter(
-                    index,
-                    name,
-                    value || null,
-                    newOperator || PropertyOperator.Exact,
-                    newType,
-                )
-            }}
-        />
+        <div>
+            <Input
+                autoFocus
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+            />
+            <InfiniteSelectResults
+                groups={[
+                    {
+                        key: 'events',
+                        name: 'Event properties',
+                        type: 'event',
+                        endpoint: 'api/projects/@current/property_definitions'
+                    },
+                    {
+                        key: 'persons',
+                        name: 'Person properties',
+                        type: 'person',
+                        dataSource: personProperties.map(property => ({
+                            ...property,
+                            key: property.name,
+                        }))
+                    }
+                ]}
+                searchQuery={searchQuery}
+                onSelect={(newType, _id, name) => {
+                    const newOperator = name === '$active_feature_flags' ? PropertyOperator.IContains : operator
+                    setFilter(
+                        index,
+                        name,
+                        value || null,
+                        newOperator || PropertyOperator.Exact,
+                        newType,
+                    )
+                }}
+            />
+        </div>
     )
 }
