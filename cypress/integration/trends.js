@@ -51,18 +51,6 @@ describe('Trends', () => {
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
     })
 
-    it('Apply specific filter on custom action', () => {
-        cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.get('li.ant-list-item').contains('Watched Movie').click()
-        cy.get('[data-attr=show-prop-filter-0]').click()
-        cy.get('[data-attr=property-filter-0]').contains('Add filter').click()
-        cy.get('[data-attr=property-filter-dropdown]').click()
-        cy.get('.ant-select-item-option-content').contains('is_first_movie').click({ force: true })
-        cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
-        cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
-    })
-
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
         cy.get('div.property-key-info').contains('Pageview').click()
@@ -95,6 +83,13 @@ describe('Trends', () => {
         cy.contains('Table').click()
 
         cy.get('[data-attr=insights-table-graph]').should('exist')
+
+        // Select Total Count math property
+        cy.get('[data-attr=math-selector-0]').click()
+        cy.get('[data-attr=math-total-0]').click()
+
+        // Should contain more than label column
+        cy.get('[data-attr=insights-table-graph]').find('.ant-table-cell').its('length').should('be.gte', 1)
     })
 
     it('Apply date filter', () => {

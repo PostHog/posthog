@@ -19,6 +19,7 @@ from posthog.utils import (
     get_available_social_auth_providers,
     get_available_timezones_with_offsets,
     get_celery_heartbeat,
+    get_instance_realm,
     is_celery_alive,
     is_plugin_server_alive,
     is_postgres_alive,
@@ -87,6 +88,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "db": is_postgres_alive(),
         "initiated": User.objects.exists() if not settings.E2E_TESTING else False,  # Enables E2E testing of signup flow
         "cloud": settings.MULTI_TENANCY,
+        "realm": get_instance_realm(),
         "available_social_auth_providers": get_available_social_auth_providers(),
     }
 

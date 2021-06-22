@@ -15,10 +15,7 @@ import {
     UsergroupAddOutlined,
     PlusOutlined,
 } from '@ant-design/icons'
-import {
-    OperatorValueFilterType,
-    OperatorValueSelect,
-} from 'lib/components/PropertyFilters/components/OperatorValueSelect'
+import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { humanFriendlyDetailedTime, isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { SelectBox, SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
 import { PropertyFilterInternalProps } from './PropertyFilter'
@@ -28,6 +25,8 @@ import './UnifiedPropertyFilter.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import { PropertyFilterValue, PropertyOperator } from '~/types'
 
 function FilterDropdown({ open, children }: { open: boolean; children: React.ReactNode }): JSX.Element | null {
     return open ? <div>{children}</div> : null
@@ -88,30 +87,29 @@ function CohortPropertiesInfo({ item }: { item: SelectedItem }): JSX.Element {
     )
 }
 
-export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilterInternalProps): JSX.Element {
+export function UnifiedPropertyFilter({ index, onComplete }: PropertyFilterInternalProps): JSX.Element {
     // TODO: PersonPropertiesInfo (which will require making new entries in `keyMapping`)
-    const { filters } = useValues(logic)
-
+    const { filters } = useValues(propertyFilterLogic)
     const { personProperties } = useValues(personPropertiesModel)
     const { transformedPropertyDefinitions: eventProperties } = useValues(propertyDefinitionsModel)
     const { cohorts } = useValues(cohortsModel)
-    const { setFilter } = useActions(logic)
+    const { setFilter } = useActions(propertyFilterLogic)
     const { reportPropertySelectOpened } = useActions(eventUsageLogic)
-    const { key, value, operator, type } = filters[index]
     const [open, setOpen] = useState(false)
     const selectBoxToggleRef = useRef<HTMLElement>(null)
     const screens = useBreakpoint()
-    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
 
+    const { key, value, operator, type } = filters[index]
+    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
     const displayOperatorAndValue = key && type !== 'cohort'
 
     const setThisFilter = (
         newKey: string,
-        newValue: OperatorValueFilterType | undefined,
-        newOperator: string | undefined,
+        newValue: PropertyFilterValue | undefined,
+        newOperator: PropertyOperator | null | undefined,
         newType: string
     ): void => {
-        setFilter(index, newKey, newValue, newOperator, newType)
+        setFilter(index, newKey, newValue || null, newOperator || null, newType)
     }
 
     const selectBoxItems: SelectBoxItem[] = [
@@ -259,7 +257,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </FilterDropdown>
                 </Col>
 
-                {displayOperatorAndValue && (
+                {displayOperatorAndValue && key && type && (
                     <OperatorValueSelect
                         type={type}
                         propkey={key}

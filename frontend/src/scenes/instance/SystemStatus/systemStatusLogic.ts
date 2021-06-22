@@ -7,9 +7,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export type TabName = 'overview' | 'internal_metrics'
 
-export const systemStatusLogic = kea<
-    systemStatusLogicType<SystemStatus, SystemStatusRow, SystemStatusQueriesResult, TabName>
->({
+export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
     actions: {
         setTab: (tab: TabName) => ({ tab }),
         setOpenSections: (sections: string[]) => ({ sections }),

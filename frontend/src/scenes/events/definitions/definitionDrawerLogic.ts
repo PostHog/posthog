@@ -7,7 +7,7 @@ import { errorToast, toParams, uniqueBy } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { valueType } from 'antd/lib/statistic/utils'
 
-export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropType>>({
+export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
     actions: () => ({
         openDrawer: (type: string, id: string) => ({ type, id }),
         setType: (type: string) => ({ type }),
@@ -89,7 +89,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType<EventOrPropTy
         visibilityMap: [
             {} as Record<number, any>,
             {
-                setVisibilityById: (state: Record<number, any>, { entry }: { entry: Record<number, any> }) => ({
+                setVisibilityById: (state: Record<number, any>, { entry }) => ({
                     ...state,
                     ...entry,
                 }),

@@ -22,8 +22,6 @@ export enum ViewType {
     HISTORY = 'HISTORY',
 }
 
-type Timeout = NodeJS.Timeout
-
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 
 /*
@@ -48,7 +46,7 @@ export const logicFromInsight = (insight: string, logicProps: Record<string, any
     }
 }
 
-export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>({
+export const insightLogic = kea<insightLogicType<ViewType>>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
@@ -65,7 +63,7 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>
         setShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
-        setTimeout: (timeout: Timeout | null) => ({ timeout }),
+        setTimeout: (timeout: number | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
         toggleControlsCollapsed: true,
@@ -77,14 +75,8 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>
             false,
             {
                 // Only show timeout message if timer is still running
-                setShowTimeoutMessage: (_, { showTimeoutMessage }: { showTimeoutMessage: boolean }) =>
-                    showTimeoutMessage,
-                endQuery: (_, { exception }) => {
-                    if (exception && exception.status !== 500) {
-                        return true
-                    }
-                    return false
-                },
+                setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage,
+                endQuery: (_, { exception }) => !!exception && exception.status !== 500,
                 startQuery: () => false,
                 setActiveView: () => false,
             },
@@ -110,7 +102,7 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>
                 updateActiveView: (_, { type }) => type,
             },
         ],
-        timeout: [null as Timeout | null, { setTimeout: (_, { timeout }) => timeout }],
+        timeout: [null as number | null, { setTimeout: (_, { timeout }) => timeout }],
         lastRefresh: [
             null as string | null,
             {
@@ -167,7 +159,7 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>
             values.timeout && clearTimeout(values.timeout || undefined)
             const view = values.activeView
             actions.setTimeout(
-                setTimeout(() => {
+                window.setTimeout(() => {
                     if (values && view == values.activeView) {
                         actions.setShowTimeoutMessage(true)
                         const tags = {

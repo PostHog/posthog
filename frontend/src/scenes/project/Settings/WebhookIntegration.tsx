@@ -2,23 +2,12 @@ import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Input, Button, Col, Row } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { webhookIntegrationLogic } from './webhookIntegrationLogic'
-
-export function AsyncActionMappingNotice(): JSX.Element {
-    return (
-        <p>
-            Please note that webhooks and actions may be delayed up to 5 minutes due to open-source PostHog
-            configuration.
-        </p>
-    )
-}
 
 export function WebhookIntegration(): JSX.Element {
     const [webhook, setWebhook] = useState('')
     const { testWebhook, removeWebhook } = useActions(webhookIntegrationLogic)
     const { loading } = useValues(webhookIntegrationLogic)
-    const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
 
     useEffect(() => {
@@ -37,7 +26,6 @@ export function WebhookIntegration(): JSX.Element {
                 <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>. Discord is also
                 supported.
             </p>
-            {!preflight?.is_clickhouse_enabled && <AsyncActionMappingNotice />}
 
             <Input
                 value={webhook}

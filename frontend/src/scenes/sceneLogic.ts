@@ -207,9 +207,9 @@ export const routes: Record<string, Scene> = {
     '/home': Scene.Home,
 }
 
-export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneConfig>>({
+export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneConfig>>({
     actions: {
-        /* 1. Prepares to open the scene, as the listener may override and do something 
+        /* 1. Prepares to open the scene, as the listener may override and do something
             else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
         openScene: (scene: Scene, params: Params) => ({ scene, params }),
         // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
@@ -353,7 +353,16 @@ export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneCo
 
             actions.loadScene(scene, params)
         },
-        loadScene: async ({ scene, params = {} }: { scene: Scene; params: Params }, breakpoint) => {
+        loadScene: async (
+            {
+                scene,
+                params = {},
+            }: {
+                scene: Scene
+                params: Params
+            },
+            breakpoint
+        ) => {
             if (values.scene === scene) {
                 actions.setScene(scene, params)
                 return
