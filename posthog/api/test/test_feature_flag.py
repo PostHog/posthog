@@ -268,3 +268,10 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["distinct_id"], "distinct_id_0")
         self.assertEqual(sorted(response.json()["flags_enabled"]), ["red_button"])
+
+        # error if no distinct_id
+        response = self.client.get("/api/feature_flag/user_status?distinct_id=")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["code"], "invalid_input")
+        self.assertEqual(response.json()["detail"], "Please provide a distinct_id to continue.")

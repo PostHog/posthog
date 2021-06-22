@@ -113,5 +113,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     @action(methods=["GET"], detail=False)
     def user_status(self, request: request.Request, **kwargs):
         distinct_id = request.GET.get("distinct_id", None)
+        if not distinct_id:
+            raise serializers.ValidationError("Please provide a distinct_id to continue.")
         flags = get_active_feature_flags(self.team, distinct_id)
         return Response({"distinct_id": distinct_id, "flags_enabled": flags})
