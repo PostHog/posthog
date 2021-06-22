@@ -675,7 +675,7 @@ export interface ChartParams {
 }
 
 export interface FeatureFlagGroupType {
-    properties: PropertyFilter[]
+    properties: AnyPropertyFilter[]
     rollout_percentage: number | null
 }
 interface FeatureFlagFilters {

@@ -6,7 +6,9 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { propertyFilterLogicType } from './propertyFilterLogicType'
 import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
 
-export function parseProperties(input: AnyPropertyFilter[] | Record<string, string>): AnyPropertyFilter[] {
+export function parseProperties(
+    input: AnyPropertyFilter[] | Record<string, string> | null | undefined
+): AnyPropertyFilter[] {
     if (Array.isArray(input) || !input) {
         return input || []
     }

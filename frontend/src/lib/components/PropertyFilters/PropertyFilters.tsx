@@ -7,9 +7,9 @@ import { TooltipPlacement } from 'antd/lib/tooltip'
 import { AnyPropertyFilter } from '~/types'
 
 interface PropertyFiltersProps {
-    endpoint: string | null
-    propertyFilters: AnyPropertyFilter[] | null
-    onChange: null | ((filters: AnyPropertyFilter[]) => void)
+    endpoint?: string | null
+    propertyFilters?: AnyPropertyFilter[] | null
+    onChange?: null | ((filters: AnyPropertyFilter[]) => void)
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
