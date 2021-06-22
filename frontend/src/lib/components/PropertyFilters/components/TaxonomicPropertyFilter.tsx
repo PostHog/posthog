@@ -73,6 +73,7 @@ export function TaxonomicPropertyFilter({ index, onComplete }: PropertyFilterInt
                                 })),
                             },
                         ]}
+                        defaultActiveTabKey={type ? type + 's' : undefined}
                         searchQuery={searchQuery}
                         selectedItemKey={selectedItemKey}
                         onSelect={(newType, newKey, name) => {

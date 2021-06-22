@@ -36,6 +36,7 @@ export interface InfiniteSelectResultsProps {
     searchQuery?: string // Search query for endpoint if defined, else simple filter on dataSource
     onSelect: (type: string, id: string | number, name: string) => void
     selectedItemKey?: string | number | null
+    defaultActiveTabKey?: string
 }
 
 export function InfiniteSelectResults({
@@ -43,9 +44,10 @@ export function InfiniteSelectResults({
     searchQuery,
     onSelect,
     selectedItemKey = null,
+    defaultActiveTabKey,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const defaultActiveKey = groups[0]?.key || undefined
-    const [activeKey, setActiveKey] = useState(defaultActiveKey)
+    console.log('defaultActiveTabKey', defaultActiveTabKey)
+    const [activeTabKey, setActiveTabKey] = useState(defaultActiveTabKey || groups[0]?.key)
 
     const handleSelect = (type: string, key: string | number, name: string): void => {
         onSelect(type, key, name)
@@ -54,9 +56,14 @@ export function InfiniteSelectResults({
     return (
         <Row gutter={8} style={{ width: '100%' }} wrap={false}>
             <Col flex={1}>
-                <Tabs defaultActiveKey={defaultActiveKey} onChange={setActiveKey} tabPosition="top" animated={false}>
+                <Tabs
+                    defaultActiveKey={defaultActiveTabKey}
+                    onChange={setActiveTabKey}
+                    tabPosition="top"
+                    animated={false}
+                >
                     {groups.map(({ key, name, type, endpoint, dataSource }) => (
-                        <Tabs.TabPane tab={name} key={key} active={activeKey === key}>
+                        <Tabs.TabPane tab={name} key={key} active={activeTabKey === key}>
                             {endpoint && !dataSource ? (
                                 <InfiniteList
                                     type={type}
