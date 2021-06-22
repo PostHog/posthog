@@ -35,11 +35,11 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
                 ).sort(),
         ],
     },
-    listeners: {
+    listeners: () => ({
         [dashboardsModel.actionTypes.addDashboardSuccess]: ({ dashboard }) => {
             router.actions.push(`/dashboard/${dashboard?.id}`)
         },
-    },
+    }),
     urlToAction: ({ actions }) => ({
         '/dashboard': (_: any, { new: newDashboard }: { new: boolean }) => {
             if (newDashboard !== undefined) {
