@@ -530,15 +530,17 @@ export interface AnnotationType {
     creation_type?: string
 }
 
-export type DisplayType =
-    | 'ActionsLineGraph'
-    | 'ActionsLineGraphCumulative'
-    | 'ActionsTable'
-    | 'ActionsPie'
-    | 'ActionsBar'
-    | 'ActionsBarValue'
-    | 'PathsViz'
-    | 'FunnelViz'
+export enum ChartDisplayType {
+    ActionsLineGraphLinear = 'ActionsLineGraph',
+    ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
+    ActionsTable = 'ActionsTable',
+    ActionsPieChart = 'ActionsPie',
+    ActionsBarChart = 'ActionsBar',
+    ActionsBarChartValue = 'ActionsBarValue',
+    PathsViz = 'PathsViz',
+    FunnelViz = 'FunnelViz',
+}
+
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
@@ -555,7 +557,7 @@ export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_
 
 export interface FilterType {
     insight?: InsightType
-    display?: DisplayType
+    display?: ChartDisplayType
     interval?: string // TODO: Move to IntervalType
     date_from?: string
     date_to?: string
