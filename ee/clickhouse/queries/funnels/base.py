@@ -31,15 +31,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if len(self._filter.entities) == 0:
             return []
 
-        # if self._filter.display == TRENDS_LINEAR:
-        #     return ClickhouseFunnelTrends(self._filter, self._team).run()
-        # else:
-
-        # Format of this is [step order, person count (that reached that step), array of person uuids]
         results = self._exec_query()
         return self._format_results(results)
 
     def _format_results(self, results):
+        # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
         relevant_people = []
         total_people = 0
