@@ -108,6 +108,7 @@ test('getPluginRows', async () => {
             created_at: expect.anything(),
             updated_at: expect.anything(),
             capabilities: {},
+            metrics: {},
         },
     ]
 
