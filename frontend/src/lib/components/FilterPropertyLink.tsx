@@ -3,8 +3,8 @@ import { combineUrl } from 'kea-router'
 
 import { Property } from 'lib/components/Property'
 import { Link } from 'lib/components/Link'
-import { parseProperties } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { FilterType } from '~/types'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
 
 export function FilterPropertyLink({
     property,

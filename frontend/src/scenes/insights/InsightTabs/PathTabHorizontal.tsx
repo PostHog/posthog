@@ -17,7 +17,7 @@ export function PathTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.El
     const { customEventNames } = useValues(eventDefinitionsModel)
     const { filter, filtersLoading } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
-    const { filtersNotEmpty: properties } = useValues(propertyFilterLogic({ pageKey: 'insight-path' }))
+    const { filledFilters: properties } = useValues(propertyFilterLogic({ pageKey: 'insight-path' }))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
