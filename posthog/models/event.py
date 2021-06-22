@@ -160,7 +160,7 @@ class EventManager(models.QuerySet):
             return {}
 
         groups = groups.filter(filter)
-        print(groups.query.sql_with_params())
+
         return {"elements_hash__in": groups.values_list("hash", flat=True)}
 
     def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):

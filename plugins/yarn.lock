@@ -967,10 +967,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.10.0.tgz#e80f57c5d3833753632607bed3ca71ebf272b12b"
   integrity sha512-c8lNzQTBMJ0X3SCjcaD+mXZIx2thc+ptf8G4gbfT9YBFFD6TMaxs+/APMUab2aRJRbVwOsCGj9poxwuF4wxPpA==
 
-"@posthog/plugin-server@0.21.24":
-  version "0.21.24"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-0.21.24.tgz#8ff46f84edceee5acfd9396121bef726e9acf109"
-  integrity sha512-WpPuc+kctWDgQFjOxSjVjpmlF/25D6i7UUQfAoK7Glq4LhQaM/C3dullX/k57DbViV/TjMbSMWE3rxKg9kutOA==
+"@posthog/plugin-server@1.0.0":
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.0.0.tgz#7bec2bfd35c9a0ca91594dd1ffc47cc77a219539"
+  integrity sha512-Uz2QHk7PSGndLUSMJWpAB7San58P0p/TsCqEd9xQKawdMwlNTfeFkDFYx5Eq6Co+eo1Ll5IkkPe8AQwptyFHGA==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"

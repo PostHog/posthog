@@ -63,9 +63,12 @@ def create_event(
 
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
 
-    if team.slack_incoming_webhook or (
-        team.organization.is_feature_available("zapier")
-        and Hook.objects.filter(event="action_performed", team=team).exists()
+    if not settings.PLUGIN_SERVER_ACTION_MATCHING and (
+        team.slack_incoming_webhook
+        or (
+            team.organization.is_feature_available("zapier")
+            and Hook.objects.filter(event="action_performed", team=team).exists()
+        )
     ):
         try:
             statsd.incr("posthog_cloud_hooks_send_task")

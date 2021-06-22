@@ -14,8 +14,6 @@ from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
-# TODO: two tests below fail in EE
-
 
 def insight_test_factory(event_factory, person_factory):
     class TestInsight(APIBaseTest):
@@ -176,47 +174,62 @@ def insight_test_factory(event_factory, person_factory):
             response = self.client.get("/api/insight/path",).json()
             self.assertEqual(len(response["result"]), 1)
 
-        # TODO: remove this check
-        if not is_clickhouse_enabled():
+        def test_insight_funnels_basic_post(self):
+            event_factory(team=self.team, event="user signed up", distinct_id="1")
+            event_factory(team=self.team, event="user did things", distinct_id="1")
+            response = self.client.post(
+                "/api/insight/funnel/",
+                {
+                    "events": [
+                        {"id": "user signed up", "type": "events", "order": 0},
+                        {"id": "user did things", "type": "events", "order": 1},
+                    ]
+                },
+            ).json()
 
-            @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
-            def test_insight_funnels_basic_post(self):
-                event_factory(team=self.team, event="user signed up", distinct_id="1")
-                response = self.client.post(
-                    "/api/insight/funnel/", {"events": [{"id": "user signed up", "type": "events", "order": 0}]}
-                ).json()
+            # clickhouse funnels don't have a loading system
+            if is_clickhouse_enabled():
+                self.assertEqual(len(response["result"]), 2)
+                self.assertEqual(response["result"][0]["name"], "user signed up")
+                self.assertEqual(response["result"][1]["name"], "user did things")
+            else:
                 self.assertEqual(response["result"]["loading"], True)
 
-            # Tests backwards-compatibility when we changed GET to POST | GET
-            @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
-            def test_insight_funnels_basic_get(self):
-                event_factory(team=self.team, event="user signed up", distinct_id="1")
-                response = self.client.get(
-                    "/api/insight/funnel/?events={}".format(
-                        json.dumps([{"id": "user signed up", "type": "events", "order": 0},])
+        # Tests backwards-compatibility when we changed GET to POST | GET
+        def test_insight_funnels_basic_get(self):
+            event_factory(team=self.team, event="user signed up", distinct_id="1")
+            event_factory(team=self.team, event="user did things", distinct_id="1")
+            response = self.client.get(
+                "/api/insight/funnel/?events={}".format(
+                    json.dumps(
+                        [
+                            {"id": "user signed up", "type": "events", "order": 0},
+                            {"id": "user did things", "type": "events", "order": 1},
+                        ]
                     )
-                ).json()
+                )
+            ).json()
+
+            # clickhouse funnels don't have a loading system
+            if is_clickhouse_enabled():
+                self.assertEqual(len(response["result"]), 2)
+                self.assertEqual(response["result"][0]["name"], "user signed up")
+                self.assertEqual(response["result"][1]["name"], "user did things")
+            else:
                 self.assertEqual(response["result"]["loading"], True)
 
-            # TODO: remove this check
-            def test_insight_retention_basic(self):
-                person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
-                event_factory(
-                    team=self.team,
-                    event="$pageview",
-                    distinct_id="person1",
-                    timestamp=timezone.now() - timedelta(days=11),
-                )
+        def test_insight_retention_basic(self):
+            person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=11),
+            )
 
-                event_factory(
-                    team=self.team,
-                    event="$pageview",
-                    distinct_id="person1",
-                    timestamp=timezone.now() - timedelta(days=10),
-                )
-                response = self.client.get("/api/insight/retention/",).json()
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=10),
+            )
+            response = self.client.get("/api/insight/retention/",).json()
 
-                self.assertEqual(len(response["result"]), 11)
+            self.assertEqual(len(response["result"]), 11)
 
     return TestInsight
 
