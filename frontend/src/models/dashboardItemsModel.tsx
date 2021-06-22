@@ -50,7 +50,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
 
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
 
-            if (move) {
+            if (dashboard && move) {
                 const deletedItem = await api.update(`api/insight/${item.id}`, {
                     deleted: true,
                 })
@@ -82,7 +82,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                         </Link>
                     </div>
                 )
-            } else if (!move && dashboardId) {
+            } else if (!move && dashboardId && dashboard) {
                 // copy
                 const toastId = toast(
                     <div data-attr="success-toast">

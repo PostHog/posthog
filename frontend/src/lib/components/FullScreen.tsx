@@ -1,17 +1,17 @@
 import { useEffect } from 'react'
 
-export function FullScreen({ onExit }) {
+export function FullScreen({ onExit }: { onExit?: () => any }): null {
     const selector = 'aside.ant-layout-sider, .layout-top-content'
     useEffect(() => {
-        const myClasses = window.document.querySelectorAll(selector)
+        const myClasses = window.document.querySelectorAll(selector) as NodeListOf<HTMLElement>
 
         for (let i = 0; i < myClasses.length; i++) {
             myClasses[i].style.display = 'none'
         }
 
-        const handler = () => {
+        const handler = (): void => {
             if (window.document.fullscreenElement === null) {
-                onExit && onExit()
+                onExit?.()
             }
         }
 
@@ -31,7 +31,7 @@ export function FullScreen({ onExit }) {
         }
 
         return () => {
-            const elements = window.document.querySelectorAll(selector)
+            const elements = window.document.querySelectorAll(selector) as NodeListOf<HTMLElement>
 
             for (let i = 0; i < elements.length; i++) {
                 elements[i].style.display = 'block'
