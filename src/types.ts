@@ -189,6 +189,9 @@ export type JobQueueExport = {
 export type PluginId = Plugin['id']
 export type PluginConfigId = PluginConfig['id']
 export type TeamId = Team['id']
+
+export type MetricMathOperations = 'max' | 'min' | 'sum'
+
 export interface Plugin {
     id: number
     organization_id: string
@@ -208,6 +211,7 @@ export interface Plugin {
     created_at: string
     updated_at: string
     capabilities?: PluginCapabilities
+    metrics?: Record<string, MetricMathOperations> | null
 }
 
 export interface PluginCapabilities {

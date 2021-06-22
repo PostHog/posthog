@@ -49,6 +49,7 @@ export const plugin60: Plugin = {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     capabilities: {}, // inferred on setup
+    metrics: {},
 }
 
 export const pluginAttachment1: PluginAttachmentDB = {
