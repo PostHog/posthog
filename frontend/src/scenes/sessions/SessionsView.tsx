@@ -108,7 +108,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     const sum = session.session_recordings
                         .map(({ recording_duration }) => recording_duration)
                         .reduce((a, b) => a + b, 0)
-                    return <span>{humanFriendlyDuration(sum)}</span>
+                    return <span>{humanFriendlyDuration(Math.max(sum, session.length))}</span>
                 }
                 return <span>{humanFriendlyDuration(session.length)}</span>
             },
