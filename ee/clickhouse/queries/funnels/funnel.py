@@ -9,7 +9,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         return FUNNEL_SQL.format(**format_properties)
 
 
-class ClickhouseFunelNew(ClickhouseFunnelBase):
+class ClickhouseFunnelNew(ClickhouseFunnelBase):
     def get_query(self, format_properties):
         return FUNNEL_SQL.format(**format_properties)
 
