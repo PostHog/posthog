@@ -5,7 +5,7 @@ import { Spin } from 'antd'
 import api from 'lib/api'
 import { router } from 'kea-router'
 import { cohortsModel } from '~/models/cohortsModel'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/components/Link/Link'
 
 export const cohortLogic = kea({
     key: (props) => props.cohort.id || 'new',

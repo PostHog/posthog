@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/components/Link/Link'
 import { kea, useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Input, Select, Modal, Radio } from 'antd'

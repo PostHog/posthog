@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { personsLogicType } from './personsLogicType'
-import { CohortType, PersonType } from '~/types'
+import { CohortType, PersonsTabType, PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface PersonPaginatedResponse {
@@ -12,17 +12,29 @@ interface PersonPaginatedResponse {
     results: PersonType[]
 }
 
+export interface HighlightedItems {
+    sessionIds?: string[]
+    eventIds?: string[]
+    recordingIds?: string[]
+}
+
 const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
 
-export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
+export const personsLogic = kea<personsLogicType<HighlightedItems, PersonPaginatedResponse>>({
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
     },
     actions: {
         setListFilters: (payload) => ({ payload }),
+        setHighlightFilters: (sessionIds: string[], eventIds: string[], recordingIds: string[]): HighlightedItems => ({
+            sessionIds,
+            eventIds,
+            recordingIds,
+        }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         setHasNewKeys: true,
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
+        navigateToTab: (tab: PersonsTabType) => ({ tab }),
     },
     reducers: {
         listFilters: [
@@ -35,6 +47,18 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             false,
             {
                 setHasNewKeys: () => true,
+            },
+        ],
+        activeTab: [
+            PersonsTabType.EVENTS as PersonsTabType,
+            {
+                navigateToTab: (_, { tab }) => tab,
+            },
+        ],
+        highlightedItems: [
+            { sessionIds: [], eventIds: [], recordingIds: [] },
+            {
+                setHighlights: (_, highlightedItems) => highlightedItems,
             },
         ],
     },
@@ -182,7 +206,20 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 actions.loadPersons()
             }
         },
-        '/person/*': ({ _ }: { _: string }) => {
+        '/person/*': (
+            {
+                _,
+            }: {
+                _: string
+            },
+            _searchParams: Record<string, string>,
+            { activeTab = PersonsTabType.EVENTS, highlightedItems }: Record<string, string>
+        ) => {
+            if (values.activeTab !== activeTab) {
+                actions.navigateToTab(activeTab as PersonsTabType)
+            }
+            console.log('highlights', highlightedItems)
+            // actions.setHighlights(sessions, events, recordings)
             actions.loadPerson(_) // underscore contains the wildcard
         },
     }),

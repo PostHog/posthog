@@ -12,7 +12,7 @@ import {
     HomeOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/components/Link/Link'
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { isMobile } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'

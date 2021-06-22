@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { WarningOutlined, ToolFilled } from '@ant-design/icons'
 import { Button, Card } from 'antd'
 import { billingLogic, BillingAlertType } from 'scenes/billing/billingLogic'
-import { LinkButton } from './LinkButton'
+import { LinkButton } from './Link/LinkButton'
 
 export function BillingAlerts(): JSX.Element | null {
     const { billing } = useValues(billingLogic)

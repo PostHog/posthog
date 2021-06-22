@@ -16,7 +16,7 @@ import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/components/Link/Link'
 
 dayjs.extend(relativeTime)
 

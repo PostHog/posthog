@@ -1,5 +1,5 @@
 import './DashboardItems.scss'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/components/Link/Link'
 import { useActions, useValues } from 'kea'
 import { Dropdown, Menu, Tooltip, Alert, Button, Skeleton } from 'antd'
 import { combineUrl, router } from 'kea-router'

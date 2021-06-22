@@ -12,7 +12,7 @@ import {
     retentionOptionDescriptions,
 } from 'scenes/retention/retentionTableLogic'
 import { Button, Select, Tooltip } from 'antd'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/components/Link/Link'
 import { CloseButton } from 'lib/components/CloseButton'
 import dayjs from 'dayjs'
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'

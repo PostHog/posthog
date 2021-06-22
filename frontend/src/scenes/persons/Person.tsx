@@ -17,17 +17,17 @@ import { NewPropertyComponent } from './NewPropertyComponent'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { PersonsTabType } from '~/types'
 dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
 
 export function Person(): JSX.Element {
-    const [activeTab, setActiveTab] = useState('events')
     const [activeCardTab, setActiveCardTab] = useState('properties')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
 
-    const { person, personLoading, deletedPersonLoading, hasNewKeys } = useValues(personsLogic)
-    const { deletePerson, setPerson, editProperty } = useActions(personsLogic)
+    const { person, personLoading, deletedPersonLoading, hasNewKeys, activeTab } = useValues(personsLogic)
+    const { deletePerson, setPerson, editProperty, navigateToTab } = useActions(personsLogic)
 
     const ids = (
         <Menu>
@@ -52,7 +52,7 @@ export function Person(): JSX.Element {
                     <Tabs
                         defaultActiveKey={activeTab}
                         onChange={(tab) => {
-                            setActiveTab(tab)
+                            navigateToTab(tab as PersonsTabType)
                         }}
                     >
                         <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key="events" />

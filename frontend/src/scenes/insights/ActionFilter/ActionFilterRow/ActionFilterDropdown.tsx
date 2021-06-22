@@ -12,7 +12,7 @@ import {
 import { Button, Tooltip } from 'antd'
 import { ActionSelectInfo } from '../../ActionSelectInfo'
 import { RenderInfoProps, SelectBox, SelectedItem } from 'lib/components/SelectBox'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/components/Link/Link'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { entityFilterLogic } from '../entityFilterLogic'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'

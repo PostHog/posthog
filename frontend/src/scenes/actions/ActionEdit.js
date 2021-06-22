@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { uuid, deleteWithUndo } from 'lib/utils'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/components/Link/Link'
 import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
 import './Actions.scss'

@@ -362,13 +362,16 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         ],
         peopleModalURL: [
             (selectors) => [selectors.sessionsPageParams],
-            (params) => ({
-                sessions: `/sessions?${toAPIParams(params)}`,
-                recordings: `/sessions?${toAPIParams({
-                    ...params,
-                    filters: [...(params.filters || []), SESSIONS_WITH_RECORDINGS_FILTER],
-                })}`,
-            }),
+            (params) => {
+                console.log('params', params)
+                return {
+                    sessions: `/sessions?${toAPIParams(params)}`,
+                    recordings: `/sessions?${toAPIParams({
+                        ...params,
+                        filters: [...(params.filters || []), SESSIONS_WITH_RECORDINGS_FILTER],
+                    })}`,
+                }
+            },
         ],
         numberOfSeries: [
             (selectors) => [selectors.filters],

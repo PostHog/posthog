@@ -1,6 +1,6 @@
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
-import { Link } from '../Link'
+import { Link } from '../Link/Link'
 import './NotFound.scss'
 
 interface NotFoundProps {

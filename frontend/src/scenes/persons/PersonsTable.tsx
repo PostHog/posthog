@@ -1,18 +1,20 @@
 import React, { useRef } from 'react'
 import { Button } from 'antd'
-import { Link } from 'lib/components/Link'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import { TZLabel } from 'lib/components/TimezoneAware'
+import { Link } from 'lib/components/Link/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { CohortType, PersonType } from '~/types'
 import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import dayjs from 'dayjs'
 import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
-
-import relativeTime from 'dayjs/plugin/relativeTime'
-import { TZLabel } from 'lib/components/TimezoneAware'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
+import { HighlightedItems } from 'scenes/persons/personsLogic'
+// import {DeepLink} from "lib/components/Link/DeepLink";
+
 dayjs.extend(relativeTime)
 
 interface PersonsTableType {
@@ -24,6 +26,7 @@ interface PersonsTableType {
     loadNext?: () => void
     allColumns?: boolean // whether to show all columns or not
     cohort?: CohortType
+    context?: HighlightedItems // info required for deeplinking
 }
 
 export function PersonsTable({
@@ -99,7 +102,12 @@ export function PersonsTable({
         render: function Render(person: PersonType, ...[, index]: [PersonType, number]) {
             return (
                 <>
-                    <Link to={linkToPerson(person)} data-attr={'goto-person-arrow-' + index} data-test-goto-person>
+                    <Link
+                        to={linkToPerson(person)}
+                        // context={{}}
+                        data-attr={'goto-person-arrow-' + index}
+                        data-test-goto-person
+                    >
                         <ArrowRightOutlined />
                         {allColumns ? ' view' : ''}
                     </Link>

@@ -5,7 +5,7 @@ import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
 import { DashboardItemType } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/components/Link/Link'
 import { dashboardItemsModelType } from './dashboardItemsModelType'
 
 export const dashboardItemsModel = kea<dashboardItemsModelType>({

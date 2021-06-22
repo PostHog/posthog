@@ -5,7 +5,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/components/Link/Link'
 import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -23,6 +23,8 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
     )
     const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
+
+    console.log('people', people, filters, peopleModalURL)
 
     const title =
         filters.shown_as === 'Stickiness'

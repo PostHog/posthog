@@ -1,7 +1,7 @@
 import { Button, Card, Input } from 'antd'
 import { useValues, useActions } from 'kea'
 import { IconDashboard } from 'lib/components/icons'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/components/Link/Link'
 import React, { useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { DashboardItemMode, DashboardItemType } from '~/types'

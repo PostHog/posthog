@@ -2,7 +2,7 @@ import React from 'react'
 import { CodeSnippet, Language } from './CodeSnippet'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/components/Link/Link'
 
 function JSInstallSnippet(): JSX.Element {
     return (
