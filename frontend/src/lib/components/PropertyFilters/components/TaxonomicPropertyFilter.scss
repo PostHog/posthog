@@ -12,3 +12,11 @@
         font-weight: bold;
     }
 }
+
+.taxonomic-filter-row {
+    display: flex;
+
+    & > div {
+        margin-left: 0.5rem;
+    }
+}

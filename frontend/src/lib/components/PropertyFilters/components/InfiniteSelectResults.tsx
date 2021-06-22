@@ -9,7 +9,6 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectedItem } from 'lib/components/SelectBox'
 import api from 'lib/api'
 
-import './InfiniteSelectResults.scss'
 import { useThrottledCallback } from 'use-debounce/lib'
 import { Loading } from 'lib/utils'
 
@@ -34,20 +33,20 @@ type EventDefinitionResult = {
 export interface InfiniteSelectResultsProps {
     groups: SelectResultGroup[]
     searchQuery?: string // Search query for endpoint if defined, else simple filter on dataSource
-    onSelect: (type: string, id: string | number, name: string) => void
+    onSelect: (type: string, id: string | number, name: string) => void,
+    selectedItemKey?: string | number | null
 }
 
 export function InfiniteSelectResults({
     groups,
     searchQuery,
     onSelect,
+    selectedItemKey = null,
 }: InfiniteSelectResultsProps): JSX.Element {
     const defaultActiveKey = groups[0]?.key || undefined
     const [activeKey, setActiveKey] = useState(defaultActiveKey)
-    const [selectedItem, setSelectedItem] = useState<{ type: string, key: string | number } | null>(null)
     
     const handleSelect = (type: string, key: string | number, name: string): void => {
-        setSelectedItem({ type, key })
         onSelect(type, key, name)
     }
 
@@ -60,34 +59,31 @@ export function InfiniteSelectResults({
                     tabPosition="top"
                     animated={false}
                 >
-                    {groups.map(({ key, name, type, endpoint, dataSource }) => {
-                        const selectedItemKey = (selectedItem?.type === type && selectedItem?.key) || null
-                        return (
-                            <Tabs.TabPane
-                                tab={name}
-                                key={key}
-                                active={activeKey === key}
-                            >
-                                {(endpoint && !dataSource) ? (
-                                    <InfiniteList
-                                        type={type}
-                                        endpoint={endpoint}
-                                        searchQuery={searchQuery}
-                                        onSelect={handleSelect}
-                                        selectedItemKey={selectedItemKey}
-                                    />
-                                ) : (
-                                    <StaticVirtualizedList
-                                        type={type}
-                                        dataSource={dataSource || []}
-                                        searchQuery={searchQuery}
-                                        onSelect={handleSelect}
-                                        selectedItemKey={selectedItemKey}
-                                    />
-                                )}
-                            </Tabs.TabPane>
-                        )
-                    })}
+                    {groups.map(({ key, name, type, endpoint, dataSource }) => (
+                        <Tabs.TabPane
+                            tab={name}
+                            key={key}
+                            active={activeKey === key}
+                        >
+                            {(endpoint && !dataSource) ? (
+                                <InfiniteList
+                                    type={type}
+                                    endpoint={endpoint}
+                                    searchQuery={searchQuery}
+                                    onSelect={handleSelect}
+                                    selectedItemKey={selectedItemKey}
+                                />
+                            ) : (
+                                <StaticVirtualizedList
+                                    type={type}
+                                    dataSource={dataSource || []}
+                                    searchQuery={searchQuery}
+                                    onSelect={handleSelect}
+                                    selectedItemKey={selectedItemKey}
+                                />
+                            )}
+                        </Tabs.TabPane>
+                    ))}
                 </Tabs>
             </Col>
         </Row>
