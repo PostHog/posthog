@@ -3,50 +3,69 @@ import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
-export function parseProperties(input) {
+import { propertyFilterLogicType } from './propertyFilterLogicType'
+import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
+
+export function parseProperties(
+    input: AnyPropertyFilter[] | Record<string, string> | null | undefined
+): AnyPropertyFilter[] {
     if (Array.isArray(input) || !input) {
-        return input
+        return input || []
     }
     // Old style dict properties
-    return Object.entries(input).map(([key, value]) => {
-        key = key.split('__')
+    return Object.entries(input).map(([inputKey, value]) => {
+        const [key, operator] = inputKey.split('__')
         return {
-            key: key[0],
+            key,
             value,
-            operator: key[1],
+            operator: operator as PropertyOperator,
             type: 'event',
         }
     })
 }
 
-export const propertyFilterLogic = kea({
+export const propertyFilterLogic = kea<propertyFilterLogicType>({
+    props: {} as {
+        pageKey: string
+        propertyFilters?: AnyPropertyFilter[] | null
+        onChange?: null | ((filters: AnyPropertyFilter[]) => void)
+    },
     key: (props) => props.pageKey,
 
     actions: () => ({
-        update: (filters) => ({ filters }),
-        setFilter: (index, key, value, operator, type) => ({ index, key, value, operator, type }),
-        setFilters: (filters) => ({ filters }),
+        update: true,
+        setFilter: (
+            index: number,
+            key: PropertyFilter['key'],
+            value: PropertyFilterValue,
+            operator: PropertyFilter['operator'],
+            type: PropertyFilter['type']
+        ) => ({ index, key, value, operator, type }),
+        setFilters: (filters: AnyPropertyFilter[]) => ({ filters }),
         newFilter: true,
-        remove: (index) => ({ index }),
+        remove: (index: number) => ({ index }),
     }),
 
-    reducers: ({ actions, props }) => ({
+    reducers: ({ props }) => ({
         filters: [
-            props.propertyFilters ? parseProperties(props.propertyFilters) : [],
+            (props.propertyFilters ? parseProperties(props.propertyFilters) : []) as (
+                | PropertyFilter
+                | EmptyPropertyFilter
+            )[],
             {
-                [actions.setFilter]: (state, { index, key, value, operator, type }) => {
+                setFilter: (state, { index, key, value, operator, type }) => {
                     const newFilters = [...state]
                     newFilters[index] = { key, value, operator, type }
                     return newFilters
                 },
-                [actions.setFilters]: (_, { filters }) => filters,
-                [actions.newFilter]: (state) => {
-                    return [...state, {}]
+                setFilters: (_, { filters }) => filters,
+                newFilter: (state) => {
+                    return [...state, {} as EmptyPropertyFilter]
                 },
-                [actions.remove]: (state, { index }) => {
+                remove: (state, { index }) => {
                     const newState = state.filter((_, i) => i !== index)
                     if (newState.length === 0) {
-                        return [{}]
+                        return [{} as EmptyPropertyFilter]
                     }
                     if (Object.keys(newState[newState.length - 1]).length !== 0) {
                         return [...newState, {}]
@@ -59,13 +78,15 @@ export const propertyFilterLogic = kea({
 
     listeners: ({ actions, props, values }) => ({
         // Only send update if value is set to something
-        [actions.setFilter]: ({ value }) => value && actions.update(),
-        [actions.remove]: () => actions.update(),
-        [actions.update]: () => {
-            const cleanedFilters = [...values.filters].filter((property) => property.key)
+        setFilter: ({ value }) => {
+            value && actions.update()
+        },
+        remove: () => actions.update(),
+        update: () => {
+            const cleanedFilters = [...values.filters].filter((property) => 'key' in property) as PropertyFilter[]
 
             // If the last item has a key, we need to add a new empty filter so the button appears
-            if (values.filters[values.filters.length - 1].key) {
+            if ('key' in values.filters[values.filters.length - 1]) {
                 actions.newFilter()
             }
             if (props.onChange) {
@@ -87,7 +108,7 @@ export const propertyFilterLogic = kea({
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '*': (_, { properties }) => {
+        '*': (_: Record<string, string>, { properties }: Record<string, any>) => {
             if (props.onChange) {
                 return
             }

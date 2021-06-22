@@ -108,7 +108,7 @@ def delete_person(
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
-        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
 

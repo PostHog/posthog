@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Tuple
 from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
 from ee.clickhouse.queries.util import parse_timestamps
-from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
 from posthog.models import Cohort, Entity, Filter, Property, Team
 
 

@@ -41,6 +41,8 @@ export interface UserType {
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
+    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
+    posthog_version?: string
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -129,7 +131,7 @@ export interface TeamType extends TeamBasicType {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
-    test_account_filters: FilterType[]
+    test_account_filters: AnyPropertyFilter[]
     data_attributes: string[]
 }
 
@@ -192,12 +194,18 @@ export type EditorProps = {
     dataAttributes?: string[]
 }
 
+export type PropertyFilterValue = string | number | (string | number)[] | null
+
 export interface PropertyFilter {
     key: string
-    operator: string | null
+    operator: PropertyOperator | null
     type: string
-    value: string | number | (string | number)[]
+    value: PropertyFilterValue
 }
+
+export type EmptyPropertyFilter = Partial<PropertyFilter>
+
+export type AnyPropertyFilter = PropertyFilter | EmptyPropertyFilter
 
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
@@ -216,7 +224,7 @@ export enum PropertyOperator {
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
-    value: string | number | Array<string | number> | null
+    value: PropertyFilterValue
     label?: string
 }
 
@@ -528,18 +536,21 @@ export interface AnnotationType {
     creation_type?: string
 }
 
-export type DisplayType =
-    | 'ActionsLineGraph'
-    | 'ActionsLineGraphCumulative'
-    | 'ActionsTable'
-    | 'ActionsPie'
-    | 'ActionsBar'
-    | 'ActionsBarValue'
-    | 'PathsViz'
-    | 'FunnelViz'
+export enum ChartDisplayType {
+    ActionsLineGraphLinear = 'ActionsLineGraph',
+    ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
+    ActionsTable = 'ActionsTable',
+    ActionsPieChart = 'ActionsPie',
+    ActionsBarChart = 'ActionsBar',
+    ActionsBarChartValue = 'ActionsBarValue',
+    PathsViz = 'PathsViz',
+    FunnelViz = 'FunnelViz',
+}
+
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
+export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 export enum PathType {
     PageView = '$pageview',
@@ -552,8 +563,8 @@ export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_
 
 export interface FilterType {
     insight?: InsightType
-    display?: DisplayType
-    interval?: string
+    display?: ChartDisplayType
+    interval?: string // TODO: Move to IntervalType
     date_from?: string
     date_to?: string
     properties?: PropertyFilter[]
@@ -642,6 +653,7 @@ export interface TrendResult {
     count: number
     data: number[]
     days: string[]
+    dates?: string[]
     label: string
     labels: string[]
     breakdown_value?: string | number
@@ -663,7 +675,7 @@ export interface ChartParams {
 }
 
 export interface FeatureFlagGroupType {
-    properties: PropertyFilter[]
+    properties: AnyPropertyFilter[]
     rollout_percentage: number | null
 }
 interface FeatureFlagFilters {
@@ -706,6 +718,7 @@ export interface PreflightStatus {
     celery: boolean
     ee_available?: boolean
     is_clickhouse_enabled?: boolean
+    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
@@ -775,7 +788,7 @@ export interface EventDefinition {
     id: string
     name: string
     description: string
-    tags: string[]
+    tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
     owner?: UserBasicType | null
@@ -787,7 +800,7 @@ export interface PropertyDefinition {
     id: string
     name: string
     description: string
-    tags: string[]
+    tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
     owner?: UserBasicType | null

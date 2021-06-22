@@ -7,7 +7,7 @@ import { getNextKey } from './utils'
 import { annotationsLogicType } from './annotationsLogicType'
 import { AnnotationScope, AnnotationType } from '~/types'
 
-export const annotationsLogic = kea<annotationsLogicType<AnnotationType, AnnotationScope, Dayjs, OpUnitType>>({
+export const annotationsLogic = kea<annotationsLogicType>({
     key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
     connect: {
         actions: [annotationsModel, ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
@@ -21,7 +21,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationType, Annotat
         ) => ({
             content,
             date_marker,
-            created_at: dayjs(),
+            created_at: dayjs() as Dayjs,
             scope,
         }),
         createAnnotationNow: (
@@ -31,7 +31,7 @@ export const annotationsLogic = kea<annotationsLogicType<AnnotationType, Annotat
         ) => ({
             content,
             date_marker,
-            created_at: dayjs(),
+            created_at: dayjs() as Dayjs,
             scope,
         }),
         deleteAnnotation: (id: string) => ({ id }),

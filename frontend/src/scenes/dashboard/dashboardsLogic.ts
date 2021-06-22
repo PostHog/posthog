@@ -6,19 +6,19 @@ import { DashboardType } from '~/types'
 import { uniqueBy } from 'lib/utils'
 
 export const dashboardsLogic = kea<dashboardsLogicType>({
-    actions: () => ({
+    actions: {
         addNewDashboard: true,
-        setNewDashboardDrawer: (shown) => ({ shown }), // Whether the drawer to create a new dashboard should be shown
-    }),
-    reducers: () => ({
+        setNewDashboardDrawer: (shown: boolean) => ({ shown }), // Whether the drawer to create a new dashboard should be shown
+    },
+    reducers: {
         newDashboardDrawer: [
             false,
             {
                 setNewDashboardDrawer: (_, { shown }) => shown,
             },
         ],
-    }),
-    selectors: () => ({
+    },
+    selectors: {
         dashboards: [
             () => [dashboardsModel.selectors.dashboards],
             (dashboards: DashboardType[]) =>
@@ -34,10 +34,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
                     (item) => item
                 ).sort(),
         ],
-    }),
+    },
     listeners: () => ({
-        [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
-            router.actions.push(`/dashboard/${dashboard.id}`)
+        [dashboardsModel.actionTypes.addDashboardSuccess]: ({ dashboard }) => {
+            router.actions.push(`/dashboard/${dashboard?.id}`)
         },
     }),
     urlToAction: ({ actions }) => ({

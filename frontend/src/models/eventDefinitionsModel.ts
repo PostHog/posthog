@@ -15,9 +15,7 @@ interface EventsGroupedInterface {
     options: SelectOption[]
 }
 
-export const eventDefinitionsModel = kea<
-    eventDefinitionsModelType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface>
->({
+export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefinitionStorage, EventsGroupedInterface>>({
     actions: () => ({
         updateEventDefinition: (id: string, description: string | null) => ({ id, description }),
         setEventDefinitions: (event) => ({ event }),

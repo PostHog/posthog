@@ -3,11 +3,11 @@ import { useValues } from 'kea'
 import { formatPropertyLabel } from 'lib/utils'
 import React from 'react'
 import { cohortsModel } from '~/models/cohortsModel'
-import { PropertyFilter } from '~/types'
+import { AnyPropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 
 export interface Props {
-    item: PropertyFilter
+    item: AnyPropertyFilter
     onClick?: () => void
 }
 

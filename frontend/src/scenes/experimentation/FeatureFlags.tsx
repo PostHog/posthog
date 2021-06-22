@@ -34,10 +34,14 @@ export function FeatureFlags(): JSX.Element {
                                 <DisconnectOutlined style={{ marginRight: 4 }} />
                             </Tooltip>
                         )}
-                        <span style={{ marginRight: 4 }}>{featureFlag.key}</span>
                         <div onClick={(e) => e.stopPropagation()}>
-                            <CopyToClipboardInline iconPosition="start" explicitValue={featureFlag.key} />
+                            <CopyToClipboardInline
+                                iconStyle={{ color: 'var(--primary)' }}
+                                iconPosition="start"
+                                explicitValue={featureFlag.key}
+                            />
                         </div>
+                        <span style={{ marginRight: 4 }}>{featureFlag.key}</span>
                     </div>
                 )
             },

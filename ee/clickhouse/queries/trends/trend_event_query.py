@@ -57,7 +57,8 @@ class TrendsEventQuery(ClickhouseEventQuery):
             return
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
-        date_filter, date_params = "", {}
+        date_filter = ""
+        date_params: Dict[str, Any] = {}
         interval_annotation = get_trunc_func_ch(self._filter.interval)
         _, _, round_interval = get_time_diff(
             self._filter.interval or "day", self._filter.date_from, self._filter.date_to, team_id=self._team_id

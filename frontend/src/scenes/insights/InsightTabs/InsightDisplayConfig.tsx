@@ -7,7 +7,7 @@ import { TZIndicator } from 'lib/components/TimezoneAware'
 import { ACTIONS_BAR_CHART_VALUE, ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
-import { DisplayType, FilterType } from '~/types'
+import { ChartDisplayType, FilterType } from '~/types'
 import { ViewType } from '../insightLogic'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
@@ -104,7 +104,7 @@ function DefaultInsightDisplayConfig({
                 {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
                 {showChartFilter(activeView, featureFlags) && (
                     <ChartFilter
-                        onChange={(display: DisplayType) => {
+                        onChange={(display: ChartDisplayType) => {
                             if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
                                 clearAnnotationsToCreate()
                             }
@@ -146,10 +146,9 @@ function HorizontalDefaultInsightDisplayConfig({
                 <TZIndicator style={{ float: 'left', fontSize: '0.75rem', marginRight: 16 }} placement="topRight" />
             </span>
             <div style={{ width: '100%', textAlign: 'right' }}>
-                {showComparePrevious[activeView] && <CompareFilter />}
                 {showChartFilter(activeView, featureFlags) && (
                     <ChartFilter
-                        onChange={(display: DisplayType) => {
+                        onChange={(display: ChartDisplayType) => {
                             if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
                                 clearAnnotationsToCreate()
                             }
@@ -176,6 +175,8 @@ function HorizontalDefaultInsightDisplayConfig({
                         />
                     </>
                 )}
+
+                {showComparePrevious[activeView] && <CompareFilter />}
             </div>
         </div>
     )
