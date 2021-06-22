@@ -5,9 +5,11 @@ from rest_framework.exceptions import NotFound
 from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
+from ee.clickhouse.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsPersons
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from posthog.api.person import PersonViewSet
-from posthog.models import Event, Person
+from posthog.models import Event, Filter, Person
 
 
 # TODO: Move grabbing all this to Clickhouse. See WIP-people-from-clickhouse branch.
@@ -19,11 +21,17 @@ class ClickhousePersonViewSet(PersonViewSet):
 
     @action(methods=["GET"], detail=False)
     def funnel(self, request: request.Request, **kwargs) -> response.Response:
-        pass
+        filter = Filter(request=request)
+        team = request.user.team
+        results = ClickhouseFunnelPersons(filter, team).run()
+        return response.Response(data=results)
 
     @action(methods=["GET"], detail=False)
     def funnel_trends(self, request: request.Request, **kwargs) -> response.Response:
-        pass
+        filter = Filter(request=request)
+        team = request.user.team
+        results = ClickhouseFunnelTrendsPersons(filter, team).run()
+        return response.Response(data=results)
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:

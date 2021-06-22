@@ -37,10 +37,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         results = self._exec_query()
+        return self._format_results(results)
 
-        if self._filter.offset > 0:
-            return results
-
+    def _format_results(self, results):
         steps = []
         relevant_people = []
         total_people = 0
