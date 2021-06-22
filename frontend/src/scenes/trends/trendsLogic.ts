@@ -571,8 +571,8 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 action,
                 label,
                 date_from,
-                date_to,
-                breakdown_value
+                breakdown_value,
+                filteredPeople.next
             )
         },
     }),
