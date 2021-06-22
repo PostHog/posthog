@@ -27,7 +27,6 @@ export function TaxonomicPropertyFilter({
     const { filters } = useValues(logic)
     const { setFilter } = useActions(logic)
     const { key, value, operator, type } = filters[index]
-    const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
 
     const displayOperatorAndValue = key && type !== 'cohort'
 
@@ -44,11 +43,11 @@ export function TaxonomicPropertyFilter({
                 endpoint: 'api/projects/@current/property_definitions'
             }]}
             searchQuery={undefined}
-            onSelect={(newType, newValue, name) => {
+            onSelect={(newType, _id, name) => {
                 setThisFilter(
-                    newValue.toString(),
+                    name,
                     undefined,
-                    newValue === '$active_feature_flags' ? 'icontains' : operator,
+                    name === '$active_feature_flags' ? 'icontains' : operator,
                     newType,
                 )
             }}
