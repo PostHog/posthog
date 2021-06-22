@@ -9,6 +9,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectedItem } from 'lib/components/SelectBox'
 import api from 'lib/api'
 
+import './InfiniteSelectResults.scss'
 
 interface SelectResult extends SelectedItem {
     tags?: string[] // TODO better type
@@ -41,6 +42,13 @@ export function InfiniteSelectResults({
 }: InfiniteSelectResultsProps): JSX.Element {
     const defaultActiveKey = groups[0]?.key || undefined
     const [activeKey, setActiveKey] = useState(defaultActiveKey)
+    const [selectedItem, setSelectedItem] = useState<{ type: string, id: string | number } | null>(null)
+    
+    const handleSelect = (type: string, id: string | number, name: string): void => {
+        setSelectedItem({ type, id })
+        onSelect(type, id, name)
+    }
+
     return (
         <Row gutter={8} className="full-width" wrap={false}>
             <Col flex={1} style={{ minWidth: '11rem' }}>
@@ -50,29 +58,34 @@ export function InfiniteSelectResults({
                     tabPosition="top"
                     animated={false}
                 >
-                    {groups.map(({ key, name, type, endpoint, dataSource }) => (
-                        <Tabs.TabPane
-                            tab={name}
-                            key={key}
-                            active={activeKey === key}
-                        >
-                            {(endpoint && !dataSource) ? (
-                                <InfiniteList
-                                    type={type}
-                                    endpoint={endpoint}
-                                    searchQuery={searchQuery}
-                                    onSelect={onSelect}
-                                />
-                            ) : (
-                                <StaticVirtualizedList
-                                    type={type}
-                                    dataSource={dataSource?.filter(({ groupName }) => groupName === type) || []}
-                                    searchQuery={searchQuery}
-                                    onSelect={onSelect}
-                                />
-                            )}
-                        </Tabs.TabPane>
-                    ))}
+                    {groups.map(({ key, name, type, endpoint, dataSource }) => {
+                        const selectedItemId = (selectedItem?.type === type && selectedItem?.id) || undefined
+                        return (
+                            <Tabs.TabPane
+                                tab={name}
+                                key={key}
+                                active={activeKey === key}
+                            >
+                                {(endpoint && !dataSource) ? (
+                                    <InfiniteList
+                                        type={type}
+                                        endpoint={endpoint}
+                                        searchQuery={searchQuery}
+                                        onSelect={handleSelect}
+                                        selectedItemId={selectedItemId}
+                                    />
+                                ) : (
+                                    <StaticVirtualizedList
+                                        type={type}
+                                        dataSource={dataSource?.filter(({ groupName }) => groupName === type) || []}
+                                        searchQuery={searchQuery}
+                                        onSelect={handleSelect}
+                                        selectedItemId={selectedItemId}
+                                    />
+                                )}
+                            </Tabs.TabPane>
+                        )
+                    })}
                 </Tabs>
             </Col>
         </Row>
@@ -84,6 +97,7 @@ interface InfiniteListProps {
     endpoint: string
     searchQuery?: string
     onSelect: InfiniteSelectResultsProps['onSelect']
+    selectedItemId?: string | number
 }
 
 function buildUrl(url: string, queryParams?: Record<string, any>): string {
@@ -105,6 +119,7 @@ function InfiniteList({
     endpoint,
     searchQuery,
     onSelect,
+    selectedItemId,
 }: InfiniteListProps): JSX.Element {
     const [items, setItems] = useState<EventDefinition[]>([])
     const [totalCount, setTotalCount] = useState<number | null>(null)
@@ -150,13 +165,10 @@ function InfiniteList({
         const item = items[index]
         return item ? (
             <List.Item
-                // className={selectedItem?.key === item.key ? 'selected' : undefined}
+                className={selectedItemId === item.id ? 'selected' : undefined}
                 key={item.id}
-                // onClick={() => clickSelectedItem(item, group)}
+                onClick={() => onSelect(type, item.id, item.name)}
                 style={style}
-                // onMouseOver={() =>
-                //     !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
-                // }
             >
                 <PropertyKeyInfo value={item.name} />
             </List.Item>

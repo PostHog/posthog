@@ -1,0 +1,14 @@
+.ant-list-item {
+    padding: 4px 12px;
+    cursor: pointer;
+    border: none;
+
+    &:hover,
+    &.selected {
+        background: rgba(0, 0, 0, 0.1);
+    }
+
+    &.selected {
+        font-weight: bold;
+    }
+}
