@@ -196,13 +196,13 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
-
-        loadPeople: (action, label, date_from, date_to, breakdown_value) => ({
+        loadPeople: (action, label, date_from, date_to, breakdown_value, saveOriginal?: boolean) => ({
             action,
             label,
             date_from,
             date_to,
             breakdown_value,
+            saveOriginal
         }),
         saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
@@ -224,6 +224,16 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
+        setPersonsModalFilters: (searchTerm) => ({ searchTerm }),
+        saveFirstLoadedPeople: (people, count, action, label, day, breakdown_value, next) => ({
+            people,
+            count,
+            action,
+            label,
+            day,
+            breakdown_value,
+            next,
+        })
     }),
 
     reducers: ({ props }) => ({
@@ -247,8 +257,17 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             null as TrendPeople | null,
             {
                 setFilters: () => null,
-                setPeople: (_, people) => people,
+                setPeople: (_, people) => {
+                    console.log('setting ppl')
+                    return people
+                },
             },
+        ],
+        firstLoadedPeople: [
+            null as TrendPeople | null,
+            {
+                saveFirstLoadedPeople: (_, people) => people,
+            }
         ],
         loadingMorePeople: [
             false,
@@ -418,7 +437,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 errorToast(undefined, "We couldn't create your cohort:")
             }
         },
-        loadPeople: async ({ label, action, date_from, date_to, breakdown_value }, breakpoint) => {
+        loadPeople: async ({ label, action, date_from, date_to, breakdown_value, saveOriginal }, breakpoint) => {
             let people = []
             if (values.filters.insight === ViewType.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
@@ -452,6 +471,17 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 breakdown_value,
                 people.next
             )
+            if (saveOriginal) {
+                actions.saveFirstLoadedPeople(
+                    people.results[0]?.people,
+                    people.results[0]?.count,
+                    action,
+                    label,
+                    date_from,
+                    breakdown_value,
+                    people.next
+                )
+            }
         },
         loadMorePeople: async ({}, breakpoint) => {
             if (values.people) {
@@ -527,6 +557,8 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 actions.setFilters(mergedFilter, true)
             }
         },
+        setPersonsModalFilters: ({ searchTerm }) => {
+        }
     }),
 
     events: ({ actions, props }) => ({

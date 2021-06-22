@@ -1,15 +1,15 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined } from '@ant-design/icons'
-import { Modal, Button, Spin } from 'antd'
+import { Modal, Button, Spin, Input } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
-import { Link } from 'lib/components/Link'
-import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { toParams } from 'lib/utils'
+import { PersonType } from '~/types'
+import Fuse from 'fuse.js'
 
 interface Props {
     visible: boolean
@@ -17,20 +17,34 @@ interface Props {
     onSaveCohort: () => void
 }
 
+const searchPersons = (sources: PersonType[], search: string): PersonType[] => {
+    return new Fuse(sources, {
+        keys: ['name', 'email', 'id'],
+        threshold: 0.3,
+    })
+        .search(search)
+        .map((result) => result.item)
+}
+
 export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element {
-    const { people, filters, peopleModalURL, loadingMorePeople } = useValues(
+    const { people, filters, loadingMorePeople, firstLoadedPeople } = useValues(
         trendsLogic({ dashboardItemId: null, view })
     )
-    const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
+    const { setPersonsModalFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
+    const { setShowingPeople, loadMorePeople, setPeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
-
+    const [searchTerm, setSearchTerm] = useState('')
+    const [useFuseSearch, setUseFuseSearch] = useState(false)
     const title =
         filters.shown_as === 'Stickiness'
             ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
             : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie'
             ? `"${people?.label}"`
             : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
-    const closeModal = (): void => setShowingPeople(false)
+    const closeModal = (): void => {
+        setSearchTerm('')
+        setShowingPeople(false)
+    }
     return (
         <Modal
             title={title}
@@ -51,7 +65,29 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                         }}
                     >
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                            Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
+                            <span>Showing <b>{people.count > 99 ? '99' : people.count} of {people.count}</b> persons</span>
+                            <Input.Search
+                                allowClear
+                                enterButton
+                                style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
+                                onChange={(e) => {
+                                    setSearchTerm(e.target.value)
+                                }}
+                                value={searchTerm}
+                                onSearch={() => {
+                                    setPersonsModalFilters(searchTerm)
+                                    if (!searchTerm) {
+                                        setPersonsModalFilters({ search: undefined })
+                                        const { count, action, label, day, breakdown_value, next } = firstLoadedPeople
+                                        setPeople(firstLoadedPeople, count, action, label, day, breakdown_value, next)
+                                    } else if (searchTerm.includes("has:")) {
+                                        setPersonsModalFilters(searchTerm)
+                                    } else {
+                                        setUseFuseSearch(true)
+                                    }
+
+                                }}
+                            />
                             {featureFlags['save-cohort-on-modal'] &&
                                 (view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
                                     <div>
@@ -62,18 +98,6 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                 )}
                         </div>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                            <Link
-                                to={peopleModalURL.sessions}
-                                style={{ marginLeft: 8 }}
-                                data-attr="persons-modal-sessions"
-                            >
-                                <ClockCircleOutlined /> View related sessions <ArrowRightOutlined />
-                            </Link>
-                            <Link to={peopleModalURL.recordings} type="primary" data-attr="persons-modal-recordings">
-                                View related recordings <ArrowRightOutlined />
-                            </Link>
-                        </div>
                     </div>
                     <div className="text-right">
                         <Button
@@ -90,7 +114,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                             title="Download CSV"
                         />
                     </div>
-                    <PersonsTable loading={!people?.people} people={people.people} />
+                    <PersonsTable loading={!people?.people} people={searchTerm && useFuseSearch ? searchPersons(people.people, searchTerm) : people.people} />
                     <div
                         style={{
                             margin: '1rem',

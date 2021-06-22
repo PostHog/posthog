@@ -286,7 +286,8 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         entity = get_target_entity(request)
 
         events = filter_by_type(entity=entity, team=team, filter=filter)
-        people = calculate_people(team=team, events=events, filter=filter)
+        # pdb.set_trace()
+        people = calculate_people(team=team, events=events, filter=filter, request=request)
         serialized_people = PersonSerializer(people, context={"request": request}, many=True).data
 
         current_url = request.get_full_path()
@@ -359,16 +360,16 @@ def _filter_event_prop_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
     return events
 
 
-def calculate_people(team: Team, events: QuerySet, filter: Filter, use_offset: bool = True) -> QuerySet:
+def calculate_people(team: Team, events: QuerySet, filter: Filter, request: request.Request, use_offset: bool = True) -> QuerySet:
     events = events.values("person_id").distinct()
     events = _filter_cohort_breakdown(events, filter)
     events = _filter_person_prop_breakdown(events, filter)
     events = _filter_event_prop_breakdown(events, filter)
-
-    people = Person.objects.filter(
-        team=team,
-        id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],
-    )
+    people = Person.objects.filter(team=team.id, id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)])
+    if request.GET.get("properties"):
+        value = request.GET.get("properties")
+        filter = Filter(data={"properties": json.loads(value)})
+    people = people.filter(base.properties_to_Q(filter.properties, team_id=1, is_person_query=True))
 
     people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return people
