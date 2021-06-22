@@ -36,7 +36,7 @@ export function TaxonomicPropertyFilter({ index, onComplete }: PropertyFilterInt
     const [displayMode, setDisplayMode] = useState(initialDisplayMode)
 
     return (
-        <div>
+        <div style={{ minWidth: '25rem' }}>
             {displayMode === DisplayMode.PROPERTY_SELECT && (
                 <>
                     <Input
@@ -68,7 +68,7 @@ export function TaxonomicPropertyFilter({ index, onComplete }: PropertyFilterInt
                                 type: 'cohort',
                                 dataSource: cohorts.map((cohort) => ({
                                     ...cohort,
-                                    key: cohort.id.toString(),
+                                    key: cohort.id,
                                     name: cohort.name || '',
                                 })),
                             },
@@ -79,7 +79,7 @@ export function TaxonomicPropertyFilter({ index, onComplete }: PropertyFilterInt
                             const newOperator = name === '$active_feature_flags' ? PropertyOperator.IContains : operator
                             setSelectedItemKey(newKey)
                             if (newType === 'cohort') {
-                                setFilter(index, 'id', name, null, newType)
+                                setFilter(index, 'id', newKey, null, newType)
                             } else {
                                 setFilter(
                                     index,

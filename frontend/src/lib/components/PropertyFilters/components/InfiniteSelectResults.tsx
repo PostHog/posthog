@@ -12,7 +12,8 @@ import api from 'lib/api'
 import { useThrottledCallback } from 'use-debounce/lib'
 import { Loading } from 'lib/utils'
 
-interface SelectResult extends SelectedItem {
+interface SelectResult extends Omit<SelectedItem, 'key'> {
+    key: string | number
     tags?: string[] // TODO better type
 }
 
@@ -33,7 +34,7 @@ type EventDefinitionResult = {
 export interface InfiniteSelectResultsProps {
     groups: SelectResultGroup[]
     searchQuery?: string // Search query for endpoint if defined, else simple filter on dataSource
-    onSelect: (type: string, id: string | number, name: string) => void,
+    onSelect: (type: string, id: string | number, name: string) => void
     selectedItemKey?: string | number | null
 }
 
@@ -45,27 +46,18 @@ export function InfiniteSelectResults({
 }: InfiniteSelectResultsProps): JSX.Element {
     const defaultActiveKey = groups[0]?.key || undefined
     const [activeKey, setActiveKey] = useState(defaultActiveKey)
-    
+
     const handleSelect = (type: string, key: string | number, name: string): void => {
         onSelect(type, key, name)
     }
 
     return (
-        <Row gutter={8} className="full-width" wrap={false}>
-            <Col flex={1} style={{ minWidth: '11rem' }}>
-                <Tabs
-                    defaultActiveKey={defaultActiveKey}
-                    onChange={setActiveKey}
-                    tabPosition="top"
-                    animated={false}
-                >
+        <Row gutter={8} style={{ width: '100%' }} wrap={false}>
+            <Col flex={1}>
+                <Tabs defaultActiveKey={defaultActiveKey} onChange={setActiveKey} tabPosition="top" animated={false}>
                     {groups.map(({ key, name, type, endpoint, dataSource }) => (
-                        <Tabs.TabPane
-                            tab={name}
-                            key={key}
-                            active={activeKey === key}
-                        >
-                            {(endpoint && !dataSource) ? (
+                        <Tabs.TabPane tab={name} key={key} active={activeKey === key}>
+                            {endpoint && !dataSource ? (
                                 <InfiniteList
                                     type={type}
                                     endpoint={endpoint}
@@ -92,7 +84,7 @@ export function InfiniteSelectResults({
 
 function buildUrl(url: string, queryParams?: Record<string, any>): string {
     let result = url
-    if(queryParams) {
+    if (queryParams) {
         const initialChar = url.indexOf('?') !== -1 ? '&' : '?'
         result += initialChar
         const searchString = Object.entries(queryParams)
@@ -105,9 +97,9 @@ function buildUrl(url: string, queryParams?: Record<string, any>): string {
 }
 
 function transformResults(results: EventDefinitionResult['results']): SelectResult[] {
-    return results.map(definition => ({
+    return results.map((definition) => ({
         ...definition,
-        key: definition.id
+        key: definition.id,
     }))
 }
 
@@ -119,13 +111,7 @@ interface InfiniteListProps {
     selectedItemKey: string | number | null
 }
 
-function InfiniteList({
-    type,
-    endpoint,
-    searchQuery,
-    onSelect,
-    selectedItemKey,
-}: InfiniteListProps): JSX.Element {
+function InfiniteList({ type, endpoint, searchQuery, onSelect, selectedItemKey }: InfiniteListProps): JSX.Element {
     const [items, setItems] = useState<SelectResult[]>([])
     const [loading, setLoading] = useState(false)
     const [totalCount, setTotalCount] = useState<number | null>(null)
@@ -161,7 +147,7 @@ function InfiniteList({
                 const response: EventDefinitionResult = await api.get(next)
                 setTotalCount(response.count)
                 setNext(response.next)
-                setItems(previousItems => [...previousItems, ...transformResults(response.results)])
+                setItems((previousItems) => [...previousItems, ...transformResults(response.results)])
                 return response.results
             } catch (err) {
                 console.error(err)
@@ -196,15 +182,11 @@ function InfiniteList({
     )
 
     return (
-        <div style={{ height: '200px', width: '350px' }}>
-            { loading && <Loading /> }
+        <div style={{ minHeight: '200px' }}>
+            {loading && <Loading />}
             <AutoSizer>
                 {({ height, width }: { height: number; width: number }) => (
-                    <InfiniteLoader
-                        isRowLoaded={isRowLoaded}
-                        loadMoreRows={loadMoreRows}
-                        rowCount={totalCount || 0}
-                    >
+                    <InfiniteLoader isRowLoaded={isRowLoaded} loadMoreRows={loadMoreRows} rowCount={totalCount || 0}>
                         {({ onRowsRendered, registerChild }) => (
                             <VirtualizedList
                                 height={height}
@@ -278,4 +260,3 @@ export function StaticVirtualizedList({
         </div>
     )
 }
-
