@@ -4,7 +4,6 @@ import { prompt } from 'lib/logic/prompt'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { saveToDashboardModalLogicType } from './saveToDashboardModalLogicType'
-import { DashboardType } from '~/types'
 
 export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
     props: {} as { fromDashboard: boolean },
@@ -46,9 +45,9 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
             })
         },
 
-        [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }: { dashboard: DashboardType }) => {
+        [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
             eventUsageLogic.actions.reportCreatedDashboardFromModal()
-            actions.setDashboardId(dashboard.id)
+            actions.setDashboardId(dashboard!.id)
         },
     }),
 })
