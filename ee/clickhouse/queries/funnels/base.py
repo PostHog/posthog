@@ -110,9 +110,25 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         steps = ", ".join(all_step_cols)
 
+        select_prop = self._get_select_prop()
+
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
-            steps=steps, event_query=event_query, steps_condition=steps_conditions
+            steps=steps,
+            event_query=event_query,
+            steps_condition=steps_conditions,
+            select_prop=select_prop,
+            extra_conditions=("AND prop != ''" if select_prop else ""),
         )
+
+    def _get_select_prop(self) -> str:
+        if self._filter.breakdown:
+            self.params.update({"breakdown": self._filter.breakdown})
+            if self._filter.breakdown_type == "person":
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
+            elif self._filter.breakdown_type == "event":
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
+        else:
+            return ""
 
     def _get_steps_conditions(self, length: int) -> str:
         step_conditions: List[str] = []

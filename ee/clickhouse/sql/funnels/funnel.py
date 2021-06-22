@@ -60,7 +60,9 @@ SELECT
 person_id,
 timestamp,
 {steps}
+{select_prop}
 FROM 
 ({event_query})
 WHERE ({steps_condition})
+{extra_conditions}
 """
