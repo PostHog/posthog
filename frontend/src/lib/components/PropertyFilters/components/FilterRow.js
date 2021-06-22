@@ -1,11 +1,12 @@
 import React, { useState } from 'react'
 import { PropertyFilter } from './PropertyFilter'
 import { Button } from 'antd'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Popover, Row } from 'antd'
 import { CloseButton } from 'lib/components/CloseButton'
 import PropertyFilterButton from './PropertyFilterButton'
 import 'scenes/actions/Actions.scss'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const FilterRow = React.memo(function FilterRow({
     item,
@@ -19,6 +20,7 @@ export const FilterRow = React.memo(function FilterRow({
     popoverPlacement,
 }) {
     const { remove } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
     let [open, setOpen] = useState(false)
     const { key } = item
 
@@ -36,6 +38,8 @@ export const FilterRow = React.memo(function FilterRow({
         logic,
     }
 
+    const filterVariant = featureFlags['4267-taxonomic-property-filter'] ? 'taxonomic' : (disablePopover ? 'unified' : 'tabs')
+
     return (
         <Row
             align="middle"
@@ -50,7 +54,7 @@ export const FilterRow = React.memo(function FilterRow({
         >
             {disablePopover ? (
                 <>
-                    <PropertyFilter {...propertyFilterCommonProps} variant="unified" />
+                    <PropertyFilter {...propertyFilterCommonProps} variant={filterVariant} />
                     {!!Object.keys(filters[index]).length && (
                         <CloseButton
                             onClick={() => remove(index)}
@@ -71,7 +75,7 @@ export const FilterRow = React.memo(function FilterRow({
                         content={
                             <PropertyFilter
                                 {...propertyFilterCommonProps}
-                                variant="tabs"
+                                variant={filterVariant}
                                 selectProps={{
                                     delayBeforeAutoOpen: 150,
                                     position: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
