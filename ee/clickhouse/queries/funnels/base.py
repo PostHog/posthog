@@ -1,12 +1,14 @@
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.queries.util import parse_timestamps
+from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter, Team
@@ -76,7 +78,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             filter=self._filter, table="events.", team_id=self._team.pk
         )
         self.params.update(prop_filter_params)
-        steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
+        steps = [self._build_step_query(entity, index) for index, entity in enumerate(self._filter.entities)]
 
         format_properties = {
             "team_id": self._team.id,
@@ -96,7 +98,39 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         return sync_execute(query, self.params)
 
-    def _build_steps_query(self, entity: Entity, index: int) -> str:
+    def _get_inner_event_query(self) -> Tuple[str, Dict[str, Any]]:
+        event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query()
+        self.params.update(params)
+        steps_conditions = self._get_steps_conditions(length=len(self._filter.entities))
+
+        all_step_cols: List[str] = []
+        for index, entity in enumerate(self._filter.entities):
+            step_cols = self._get_step_col(entity, index)
+            all_step_cols = [*all_step_cols, *step_cols]
+
+        steps = ", ".join(all_step_cols)
+
+        return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
+            steps=steps, event_query=event_query, steps_condition=steps_conditions
+        )
+
+    def _get_steps_conditions(self, length: int) -> str:
+        step_conditions: List[str] = []
+
+        for index in range(length):
+            step_conditions.append(f"step_{index} = 1")
+
+        return " OR ".join(step_conditions)
+
+    def _get_step_col(self, entity: Entity, index: int) -> List[str]:
+        step_cols: List[str] = []
+        condition = self._build_step_query(entity, index)
+        step_cols.append(f"if({condition}, 1, 0) as step_{index}")
+        step_cols.append(f"if(step_{index} = 1, timestamp, null) as latest_{index}")
+
+        return step_cols
+
+    def _build_step_query(self, entity: Entity, index: int) -> str:
         filters = self._build_filters(entity, index)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
@@ -110,7 +144,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
             self.params["events"].append(entity.id)
-            content_sql = "event = '{event}' {filters}".format(event=entity.id, filters=filters)
+            self.params[f"event_{index}"] = entity.id
+            content_sql = f"event = %(event_{index})s {filters}"
         return content_sql
 
     def _build_filters(self, entity: Entity, index: int) -> str:

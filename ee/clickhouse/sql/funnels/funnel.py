@@ -54,3 +54,13 @@ limit 100
 offset {offset}
 ;
 """
+
+FUNNEL_INNER_EVENT_STEPS_QUERY = """
+SELECT 
+person_id,
+timestamp,
+{steps}
+FROM 
+({event_query})
+WHERE ({steps_condition})
+"""

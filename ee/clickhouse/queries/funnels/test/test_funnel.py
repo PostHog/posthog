@@ -5,6 +5,7 @@ from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
+from posthog.test.base import APIBaseTest
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
@@ -24,3 +25,8 @@ def _create_event(**kwargs):
 
 class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
     pass
+
+
+class TestFunnelNew(ClickhouseTestMixin, APIBaseTest):
+    def test_base_event_query(self):
+        pass
