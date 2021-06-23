@@ -1,8 +1,12 @@
 import React from 'react'
 import { Select } from 'antd'
 
-export function SessionFilter(props) {
-    let { onChange, value } = props
+interface SessionFilterProps {
+    onChange: (value: string) => void
+    value: string | undefined
+}
+
+export function SessionFilter({ onChange, value }: SessionFilterProps): JSX.Element {
     return (
         <Select
             style={{ maxWidth: '100%' }}

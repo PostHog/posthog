@@ -55,7 +55,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionReco
         previousDay: true,
         nextDay: true,
         applyFilters: true,
-        setFilters: (properties: Array<PropertyFilter>, selectedDate: Dayjs | null) => ({
+        setFilters: (properties: PropertyFilter[], selectedDate: Dayjs | null) => ({
             properties,
             selectedDate,
         }),
@@ -149,10 +149,10 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionReco
             actions.loadSessions(true)
         },
         previousDay: () => {
-            actions.setFilters(values.properties, dayjs(values.selectedDate).add(-1, 'day'))
+            actions.setFilters(values.properties, dayjs(values.selectedDate || undefined).add(-1, 'day'))
         },
         nextDay: () => {
-            actions.setFilters(values.properties, dayjs(values.selectedDate).add(1, 'day'))
+            actions.setFilters(values.properties, dayjs(values.selectedDate || undefined).add(1, 'day'))
         },
         loadSessionEvents: async ({ session }, breakpoint) => {
             if (!values.loadedSessionEvents[session.global_session_id]) {

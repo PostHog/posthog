@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
-import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, PropertyFilter } from '~/types'
+import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { ActionFilterProps } from './ActionFilter'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
@@ -8,7 +8,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export type LocalFilter = EntityFilter & {
     order: number
-    properties?: PropertyFilter[]
+    properties?: AnyPropertyFilter[]
 }
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
@@ -78,7 +78,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, LocalFilt
         updateFilterProperty: (
             filter: Partial<EntityFilter> & {
                 index?: number
-                properties: PropertyFilter[]
+                properties: AnyPropertyFilter[]
             }
         ) => ({
             properties: filter.properties,
