@@ -125,7 +125,22 @@ class TestFunnelNew(ClickhouseTestMixin, APIBaseTest):
         res = sync_execute(query, params)
         self.assertEqual(res[0], (0, 3, 1, 0, 0, 1, 103680.0, 174000.0, 3600.0, 79200.0, 14400.0))
 
-    def test_breakdown_query(self):
+    def test_funnel_step_timing(self):
+        pass
+
+    def test_funnel_step_repeated_steps(self):
+        # step X -> step Y -> step Y
+        pass
+
+    def test_funnel_step_repeated_first_step(self):
+        # step X -> step X -> step Y
+        pass
+
+    def test_funnel_step_all_repeated(self):
+        # step X -> step X -> step X
+        pass
+
+    def test_breakdown_basic_query(self):
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
@@ -142,3 +157,10 @@ class TestFunnelNew(ClickhouseTestMixin, APIBaseTest):
         query = query_builder.test_query()
         res = sync_execute(query, params)
         self.assertEqual(res[0], (0, 1, 86400.0, "Chrome"), (0, 1, 86400.0, "Safari"))
+
+    def test_breakdown_limit(self):
+        # decide how to handle properties that have hundreds of values
+        pass
+
+    def test_breakdown_step_timing(self):
+        pass
