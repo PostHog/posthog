@@ -57,8 +57,13 @@ export function FeatureFlags(): JSX.Element {
                             {featureFlag.key}
                         </div>
                         <div onClick={(e) => e.stopPropagation()}>
-                            <CopyToClipboardInline iconPosition="start" explicitValue={featureFlag.key} />
+                            <CopyToClipboardInline
+                                iconStyle={{ color: 'var(--primary)' }}
+                                iconPosition="start"
+                                explicitValue={featureFlag.key}
+                            />
                         </div>
+                        <span style={{ marginRight: 4 }}>{featureFlag.key}</span>
                     </div>
                 )
             },

@@ -1,65 +1,28 @@
-import React, { useState } from 'react'
+import React, { FormEvent, useState } from 'react'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
-import { kea, useActions, useValues } from 'kea'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { useActions, useValues } from 'kea'
 import { Input, Select, Modal, Radio } from 'antd'
-import { prompt } from 'lib/logic/prompt'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { saveToDashboardModalLogic } from 'lib/components/SaveToDashboard/saveToDashboardModalLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
-const saveToDashboardModalLogic = kea({
-    connect: {
-        values: [dashboardsModel, ['dashboards', 'lastDashboardId']],
-    },
-
-    actions: () => ({
-        addNewDashboard: true,
-        setDashboardId: (id) => ({ id }),
-    }),
-
-    reducers: {
-        _dashboardId: [null, { setDashboardId: (_, { id }) => id }],
-    },
-
-    selectors: ({ props }) => ({
-        dashboardId: [
-            (s) => [s._dashboardId, s.lastDashboardId, s.dashboards],
-            (_dashboardId, lastDashboardId, dashboards) =>
-                _dashboardId ||
-                props.fromDashboard ||
-                lastDashboardId ||
-                (dashboards.length > 0 ? dashboards[0].id : null),
-        ],
-    }),
-
-    listeners: ({ actions }) => ({
-        setDashboardId: ({ id }) => {
-            dashboardsModel.actions.setLastDashboardId(id)
-        },
-
-        addNewDashboard: async () => {
-            prompt({ key: `saveToDashboardModalLogic-new-dashboard` }).actions.prompt({
-                title: 'New dashboard',
-                placeholder: 'Please enter a name',
-                value: '',
-                error: 'You must enter name',
-                success: (name) => dashboardsModel.actions.addDashboard({ name }),
-            })
-        },
-
-        [dashboardsModel.actions.addDashboardSuccess]: async ({ dashboard }) => {
-            eventUsageLogic.actions.reportCreatedDashboardFromModal()
-            actions.setDashboardId(dashboard.id)
-        },
-    }),
-})
-
-const radioStyle = {
+const radioStyle: React.CSSProperties = {
     display: 'block',
     overflow: 'hidden',
     whiteSpace: 'normal',
+}
+
+interface SaveToDashboardModalProps {
+    closeModal: () => void
+    name: string
+    filters: any
+    fromItem: any
+    fromDashboard: any
+    fromItemName: string
+    annotations: any
 }
 
 export function SaveToDashboardModal({
@@ -70,9 +33,10 @@ export function SaveToDashboardModal({
     fromDashboard,
     fromItemName,
     annotations,
-}) {
+}: SaveToDashboardModalProps): JSX.Element {
     const logic = saveToDashboardModalLogic({ fromDashboard })
-    const { dashboards, dashboardId } = useValues(logic)
+    const { dashboards } = useValues(dashboardsModel)
+    const { dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)
     const { reportSavedInsightToDashboard } = useActions(eventUsageLogic)
     const [name, setName] = useState(fromItemName || initialName || '')
@@ -81,7 +45,7 @@ export function SaveToDashboardModal({
     const fromDashboardName =
         (fromDashboard ? dashboards.find((d) => d.id === parseInt(fromDashboard)) : null)?.name || 'Untitled'
 
-    async function save(event) {
+    async function save(event: MouseEvent | FormEvent): Promise<void> {
         event.preventDefault()
         if (newItem) {
             const response = await api.create('api/insight', {
@@ -115,14 +79,14 @@ export function SaveToDashboardModal({
 
     return (
         <Modal
-            onOk={save}
+            onOk={(e) => void save(e)}
             onCancel={() => setVisible(false)}
             afterClose={closeModal}
             visible={visible}
             title="Add graph to dashboard"
             okText={newItem ? 'Add panel to dashboard' : 'Update panel on dashboard'}
         >
-            <form onSubmit={save}>
+            <form onSubmit={(e) => void save(e)}>
                 {fromItem ? (
                     <Radio.Group
                         onChange={(e) => setNewItem(e.target.value === 'true')}
