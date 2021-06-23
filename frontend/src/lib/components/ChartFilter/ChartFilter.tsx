@@ -1,48 +1,44 @@
 import React from 'react'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Select, Tag } from 'antd'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_LINE_GRAPH_CUMULATIVE,
-    ACTIONS_PIE_CHART,
-    ACTIONS_BAR_CHART,
-    ACTIONS_TABLE,
-    FUNNEL_VIZ,
-    ACTIONS_BAR_CHART_VALUE,
-} from '~/lib/constants'
 import { chartFilterLogic } from './chartFilterLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import {
-    OrderedListOutlined,
-    LineChartOutlined,
     AreaChartOutlined,
     BarChartOutlined,
-    TableOutlined,
+    LineChartOutlined,
+    OrderedListOutlined,
     PieChartOutlined,
+    TableOutlined,
 } from '@ant-design/icons'
+import { ChartDisplayType, FilterType } from '~/types'
 
-export function ChartFilter(props) {
-    let { filters, onChange } = props
+interface ChartFilterProps {
+    filters: FilterType
+    onChange: (chartFilter: ChartDisplayType) => void
+    disabled: boolean
+}
 
+export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
     const { chartFilter } = useValues(chartFilterLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
 
-    const linearDisabled = filters.session && filters.session === 'dist'
+    const linearDisabled = !!filters.session && filters.session === 'dist'
     const cumulativeDisabled =
-        filters.session || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION
+        !!filters.session || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION
     const tableDisabled = false
-    const pieDisabled = filters.session || filters.insight === ViewType.RETENTION
-    const barDisabled = filters.session || filters.insight === ViewType.RETENTION
+    const pieDisabled = !!filters.session || filters.insight === ViewType.RETENTION
+    const barDisabled = !!filters.session || filters.insight === ViewType.RETENTION
     const barValueDisabled =
         barDisabled || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION
-    const defaultDisplay =
+    const defaultDisplay: ChartDisplayType =
         filters.insight === ViewType.RETENTION
-            ? ACTIONS_TABLE
+            ? ChartDisplayType.ActionsTable
             : filters.insight === ViewType.FUNNELS
-            ? FUNNEL_VIZ
-            : ACTIONS_LINE_GRAPH_LINEAR
+            ? ChartDisplayType.FunnelViz
+            : ChartDisplayType.ActionsLineGraphLinear
 
-    function Label({ icon, children = null }) {
+    function Label({ icon, children = null }: { icon: React.ReactNode; children: React.ReactNode }): JSX.Element {
         return (
             <>
                 {icon} {children}
@@ -54,11 +50,11 @@ export function ChartFilter(props) {
         filters.insight === ViewType.FUNNELS
             ? [
                   {
-                      value: FUNNEL_VIZ,
+                      value: ChartDisplayType.FunnelViz,
                       label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
                   },
                   {
-                      value: ACTIONS_LINE_GRAPH_LINEAR,
+                      value: ChartDisplayType.ActionsLineGraphLinear,
                       label: (
                           <Label icon={<LineChartOutlined />}>
                               Trends
@@ -74,12 +70,12 @@ export function ChartFilter(props) {
                       label: 'Line Chart',
                       options: [
                           {
-                              value: ACTIONS_LINE_GRAPH_LINEAR,
+                              value: ChartDisplayType.ActionsLineGraphLinear,
                               label: <Label icon={<LineChartOutlined />}>Linear</Label>,
                               disabled: linearDisabled,
                           },
                           {
-                              value: ACTIONS_LINE_GRAPH_CUMULATIVE,
+                              value: ChartDisplayType.ActionsLineGraphCumulative,
                               label: <Label icon={<AreaChartOutlined />}>Cumulative</Label>,
                               disabled: cumulativeDisabled,
                           },
@@ -89,24 +85,24 @@ export function ChartFilter(props) {
                       label: 'Bar Chart',
                       options: [
                           {
-                              value: ACTIONS_BAR_CHART,
+                              value: ChartDisplayType.ActionsBarChart,
                               label: <Label icon={<BarChartOutlined />}>Time</Label>,
                               disabled: barDisabled,
                           },
                           {
-                              value: ACTIONS_BAR_CHART_VALUE,
+                              value: ChartDisplayType.ActionsBarChartValue,
                               label: <Label icon={<BarChartOutlined />}>Value</Label>,
                               disabled: barValueDisabled,
                           },
                       ],
                   },
                   {
-                      value: ACTIONS_TABLE,
+                      value: ChartDisplayType.ActionsTable,
                       label: <Label icon={<TableOutlined />}>Table</Label>,
                       disabled: tableDisabled,
                   },
                   {
-                      value: ACTIONS_PIE_CHART,
+                      value: ChartDisplayType.ActionsPieChart,
                       label: <Label icon={<PieChartOutlined />}>Pie</Label>,
                       disabled: pieDisabled,
                   },
@@ -116,14 +112,14 @@ export function ChartFilter(props) {
             key="2"
             defaultValue={filters.display || defaultDisplay}
             value={chartFilter || defaultDisplay}
-            onChange={(value) => {
+            onChange={(value: ChartDisplayType) => {
                 setChartFilter(value)
                 onChange(value)
             }}
             bordered={false}
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
-            disabled={props.disabled}
+            disabled={disabled}
             options={options}
         />
     )

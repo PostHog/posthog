@@ -1,13 +1,13 @@
-from typing import Any, Dict, Tuple
+from abc import ABCMeta, abstractmethod
+from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
-from ee.clickhouse.queries.trends.util import populate_entity_params
-from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.util import parse_timestamps
 from posthog.models import Cohort, Entity, Filter, Property, Team
 
 
-class ClickhouseEventQuery:
+class ClickhouseEventQuery(metaclass=ABCMeta):
     DISTINCT_ID_TABLE_ALIAS = "pdi"
     PERSON_TABLE_ALIAS = "person"
     EVENT_TABLE_ALIAS = "e"
@@ -19,26 +19,21 @@ class ClickhouseEventQuery:
     _should_join_distinct_ids = False
     _should_join_persons = False
     _should_round_interval = False
-    _date_filter = None
 
     def __init__(
         self,
         filter: Filter,
-        entity: Entity,
         team_id: int,
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
-        date_filter=None,
         **kwargs,
     ) -> None:
         self._filter = filter
-        self._entity = entity
         self._team_id = team_id
         self.params = {
             "team_id": self._team_id,
         }
-        self._date_filter = date_filter
 
         self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
@@ -51,38 +46,13 @@ class ClickhouseEventQuery:
 
         self._should_round_interval = round_interval
 
+    @abstractmethod
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-        _fields = (
-            f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp, {self.EVENT_TABLE_ALIAS}.properties as properties"
-            + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
-            + (f", {self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons else "")
-        )
+        pass
 
-        date_query, date_params = self._get_date_filter()
-        self.params.update(date_params)
-
-        prop_query, prop_params = self._get_props()
-        self.params.update(prop_params)
-
-        entity_query, entity_params = self._get_entity_query()
-        self.params.update(entity_params)
-
-        query = f"""
-            SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_disintct_id_query()}
-            {self._get_person_query()}
-            WHERE team_id = %(team_id)s
-            {entity_query}
-            {date_query}
-            {prop_query}
-        """
-
-        return query, self.params
-
+    @abstractmethod
     def _determine_should_join_distinct_ids(self) -> None:
-        if self._entity.math == "dau":
-            self._should_join_distinct_ids = True
-            return
+        pass
 
     def _get_disintct_id_query(self) -> str:
         if self._should_join_distinct_ids:
@@ -118,12 +88,6 @@ class ClickhouseEventQuery:
                 self._should_join_persons = True
                 return
             if prop.type == "cohort" and self._does_cohort_need_persons(prop):
-                self._should_join_distinct_ids = True
-                self._should_join_persons = True
-                return
-
-        for prop in self._entity.properties:
-            if prop.type == "person":
                 self._should_join_distinct_ids = True
                 self._should_join_persons = True
                 return
@@ -168,14 +132,7 @@ class ClickhouseEventQuery:
         else:
             return ""
 
-    def _get_entity_query(self) -> Tuple[str, Dict]:
-        entity_params, entity_format_params = populate_entity_params(self._entity)
-
-        return entity_format_params["entity_query"], entity_params
-
     def _get_date_filter(self) -> Tuple[str, Dict]:
-        if self._date_filter:
-            return self._date_filter, {}
 
         parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)
 
@@ -186,9 +143,8 @@ class ClickhouseEventQuery:
 
         return query, date_params
 
-    def _get_props(self, allow_denormalized_props: bool = False) -> Tuple[str, Dict]:
+    def _get_props(self, filters: List[Property], allow_denormalized_props: bool = False) -> Tuple[str, Dict]:
 
-        filters = [*self._filter.properties, *self._entity.properties]
         filter_test_accounts = self._filter.filter_test_accounts
         team_id = self._team_id
         table_name = f"{self.EVENT_TABLE_ALIAS}."

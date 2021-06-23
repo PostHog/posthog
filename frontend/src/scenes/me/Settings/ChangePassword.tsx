@@ -15,7 +15,7 @@ export function ChangePassword(): JSX.Element {
 
     return (
         <Form
-            onFinish={(values) => updateUser({ user: values, successCallback: updateCompleted })}
+            onFinish={(values) => updateUser(values, updateCompleted)}
             labelAlign="left"
             layout="vertical"
             requiredMark={false}

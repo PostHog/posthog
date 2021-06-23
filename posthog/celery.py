@@ -82,7 +82,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
         sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
         sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
-    else:
+    elif settings.PLUGIN_SERVER_ACTION_MATCHING >= 2:
         sender.add_periodic_task(
             ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
             calculate_event_action_mappings.s(),

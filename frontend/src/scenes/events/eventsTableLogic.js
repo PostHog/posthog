@@ -207,7 +207,7 @@ export const eventsTableLogic = kea({
     listeners: ({ actions, values, props }) => ({
         setColumnConfig: ({ columnConfig }) => {
             actions.setColumnConfigSaving(true)
-            userLogic.actions.updateUser({ user: { events_column_config: { active: columnConfig } } })
+            userLogic.actions.updateUser({ events_column_config: { active: columnConfig } })
         },
         setProperties: () => actions.fetchEvents(),
         flipSort: () => actions.fetchEvents(),

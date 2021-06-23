@@ -36,11 +36,11 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
         ],
         realm: [
             (s) => [s.preflight],
-            (preflight): 'cloud' | 'hosted' | null => {
+            (preflight): 'cloud' | 'hosted' | 'hosted-clickhouse' | null => {
                 if (!preflight) {
                     return null
                 }
-                return preflight.cloud ? 'cloud' : 'hosted'
+                return preflight.realm
             },
         ],
         siteUrlMisconfigured: [

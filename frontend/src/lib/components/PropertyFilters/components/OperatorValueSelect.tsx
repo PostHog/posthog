@@ -1,19 +1,17 @@
 import React, { useState } from 'react'
-import { PropertyOperator } from '~/types'
+import { PropertyFilterValue, PropertyOperator } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
 import { isMobile, isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
 
-export type OperatorValueFilterType = string | number | Array<string | number> | null
-
 interface OperatorValueSelectProps {
-    type: string
-    propkey: string
-    operator: PropertyOperator | undefined
-    value: string | number | Array<string | number> | null
+    type?: string
+    propkey?: string
+    operator?: PropertyOperator | null
+    value?: string | number | Array<string | number> | null
     columnOptions?: ColProps | [ColProps, ColProps]
-    onChange: (operator: PropertyOperator, value: OperatorValueFilterType) => void
+    onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
     operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
 }
 
@@ -59,7 +57,7 @@ export function OperatorValueSelect({
                     {...operatorSelectProps}
                 />
             </Col>
-            {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && (
+            {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propkey && (
                 <Col {...(Array.isArray(columnOptions) ? columnOptions[1] : columnOptions)}>
                     <PropertyValue
                         type={type}
