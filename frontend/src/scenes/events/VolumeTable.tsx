@@ -50,7 +50,7 @@ export function VolumeTable({
     const { featureFlags } = useValues(featureFlagLogic)
 
     const hasTaxonomyFeatures =
-        // featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
+        featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
         user?.organization?.available_features?.includes('ingestion_taxonomy')
 
     const columns: ColumnsType<VolumeTableRecord> = [
@@ -207,12 +207,12 @@ export function VolumeTable({
                 columns={columns}
                 rowKey={(item) => item.eventOrProp.name}
                 size="small"
-                style={{ marginBottom: '4rem', cursor: 'pointer' }}
+                style={{ marginBottom: '4rem' }}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(record) =>
-                    isPosthogEvent(record.eventOrProp.name) || !hasTaxonomyFeatures
-                        ? {}
-                        : { onClick: () => openDrawer(type, record.eventOrProp.id) }
+                    hasTaxonomyFeatures && !isPosthogEvent(record.eventOrProp.name)
+                        ? { onClick: () => openDrawer(type, record.eventOrProp.id), style: { cursor: 'pointer' } }
+                        : {}
                 }
             />
         </>
