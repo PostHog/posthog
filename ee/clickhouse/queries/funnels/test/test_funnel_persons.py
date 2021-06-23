@@ -26,7 +26,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFunnel(ClickhouseTestMixin, APIBaseTest):  # type: ignore
+class TestFunnel(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         self._create_sample_data()
         super().setUp()

@@ -8,12 +8,12 @@ from posthog.models import EventDefinition, Person, Team
 
 
 class GenerateLocal:
-    _team: None
-    _number: None
+    team: Team
+    number: int
 
-    def __init__(self, team_id=1, number=250):
-        self._team = Team.objects.get(id=team_id)
-        self._number = number
+    def __init__(self, team, number=250):
+        self.team = team
+        self.number = number
 
     def generate(self):
         self._insert_persons()
@@ -31,17 +31,17 @@ class GenerateLocal:
             cursor.execute("delete from posthog_eventdefinition where name like 'step %'")
 
     def _insert_event_definitions(self):
-        EventDefinition.objects.get_or_create(team=self._team, name="step one")
-        EventDefinition.objects.get_or_create(team=self._team, name="step two")
-        EventDefinition.objects.get_or_create(team=self._team, name="step three")
-        EventDefinition.objects.get_or_create(team=self._team, name="step four")
-        EventDefinition.objects.get_or_create(team=self._team, name="step five")
+        EventDefinition.objects.get_or_create(team=self.team, name="step one")
+        EventDefinition.objects.get_or_create(team=self.team, name="step two")
+        EventDefinition.objects.get_or_create(team=self.team, name="step three")
+        EventDefinition.objects.get_or_create(team=self.team, name="step four")
+        EventDefinition.objects.get_or_create(team=self.team, name="step five")
 
     def _insert_persons(self):
-        for i in range(1, self._number + 1):
+        for i in range(1, self.number + 1):
             try:
                 person = Person.objects.create(
-                    distinct_ids=[f"user_{i}"], team=self._team, properties={"name": f"user_{i}"}
+                    distinct_ids=[f"user_{i}"], team=self.team, properties={"name": f"user_{i}"}
                 )
                 self._insert_person_distinct_ids(f"user_{i}", person.uuid)
             except Exception as e:
@@ -50,25 +50,25 @@ class GenerateLocal:
     def _insert_person_distinct_ids(self, distinct_id, person_uuid):
         sql = f"""
         insert into person_distinct_id (distinct_id, person_id, team_id, _timestamp) values
-        ('{distinct_id}', '{person_uuid}', '{self._team.id}', now());
+        ('{distinct_id}', '{person_uuid}', '{self.team.id}', now());
         """
 
         sync_execute(sql)
 
     def _insert_events(self):
-        step_one = self._number + 1
+        step_one = self.number + 1
         step_two = round(step_one / 2)
         step_three = round(step_one / 3)
         step_four = round(step_one / 4)
         step_five = round(step_one / 5)
 
         for i in range(1, step_one):
-            create_event(uuid.uuid4(), "step one", self._team, f"user_{i}", "2021-05-01 00:00:00")
+            create_event(uuid.uuid4(), "step one", self.team, f"user_{i}", "2021-05-01 00:00:00")
         for i in range(1, step_two):
-            create_event(uuid.uuid4(), "step two", self._team, f"user_{i}", "2021-05-03 00:00:00")
+            create_event(uuid.uuid4(), "step two", self.team, f"user_{i}", "2021-05-03 00:00:00")
         for i in range(1, step_three):
-            create_event(uuid.uuid4(), "step three", self._team, f"user_{i}", "2021-05-05 00:00:00")
+            create_event(uuid.uuid4(), "step three", self.team, f"user_{i}", "2021-05-05 00:00:00")
         for i in range(1, step_four):
-            create_event(uuid.uuid4(), "step four", self._team, f"user_{i}", "2021-05-07 00:00:00")
+            create_event(uuid.uuid4(), "step four", self.team, f"user_{i}", "2021-05-07 00:00:00")
         for i in range(1, step_five):
-            create_event(uuid.uuid4(), "step five", self._team, f"user_{i}", "2021-05-09 00:00:00")
+            create_event(uuid.uuid4(), "step five", self.team, f"user_{i}", "2021-05-09 00:00:00")
