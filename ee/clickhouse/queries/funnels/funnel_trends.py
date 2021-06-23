@@ -116,7 +116,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return prop_filters, prop_filter_params
 
     def _get_steps(self):
-        return [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
+        return [self._build_step_query(entity, index) for index, entity in enumerate(self._filter.entities)]
 
     def _determine_complete(self, timestamp):
         # difference between current date and timestamp greater than window
