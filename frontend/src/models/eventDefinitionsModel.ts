@@ -19,7 +19,7 @@ interface EventsGroupedInterface {
 export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefinitionStorage, EventsGroupedInterface>>({
     actions: () => ({
         updateDescription: (id: string, description: string | null, type: string) => ({ id, description, type }),
-        setEventDefinitions: (event) => ({ event }),
+        updateEventDefinition: (eventDefinition: EventDefinition) => ({ eventDefinition }),
     }),
     loaders: ({ values }) => ({
         eventStorage: [
@@ -39,14 +39,6 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefiniti
                         next: eventStorage.next,
                     }
                 },
-                // setEventDefinitions: (event) => {
-                //     const updatedDefinitions = values.eventStorage.results.map((e) => (event.id === e.id ? event : e))
-                //     return {
-                //         count: values.eventStorage.count,
-                //         results: updatedDefinitions,
-                //         next: values.eventStorage.next,
-                //     }
-                // },
             },
         ],
     }),
@@ -54,14 +46,11 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefiniti
         eventStorage: [
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
             {
-                setEventDefinitions: (state, { event }) => {
-                    const updatedDefinitions = state.results.map((p) => (event.id === p.id ? { ...event } : { ...p }))
-                    return {
-                        count: state.count,
-                        results: updatedDefinitions,
-                        next: state.next,
-                    }
-                },
+                updateEventDefinition: (state, { eventDefinition }) => ({
+                    count: state.count,
+                    results: state.results.map((p) => (eventDefinition.id === p.id ? eventDefinition : p)),
+                    next: state.next,
+                }),
             },
         ],
     }),
@@ -74,9 +63,9 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefiniti
         updateDescription: async ({ id, description, type }) => {
             const response = await api.update(`api/projects/@current/${type}_definitions/${id}`, { description })
             if (type === 'event') {
-                actions.setEventDefinitions(response)
+                actions.updateEventDefinition(response)
             } else {
-                propertyDefinitionsModel.actions.setPropertyDefinitions(response)
+                propertyDefinitionsModel.actions.updatePropertyDefinition(response)
             }
         },
     }),

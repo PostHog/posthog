@@ -17,7 +17,7 @@ export const propertyDefinitionsModel = kea<
     propertyDefinitionsModelType<PropertyDefinitionStorage, PropertySelectOption>
 >({
     actions: () => ({
-        setPropertyDefinitions: (property) => ({ property }),
+        updatePropertyDefinition: (property) => ({ property }),
     }),
     loaders: ({ values }) => ({
         propertyStorage: [
@@ -37,16 +37,6 @@ export const propertyDefinitionsModel = kea<
                         next: propertyStorage.next,
                     }
                 },
-                // setPropertyDefinitions: ({ property }) => {
-                //     const updatedDefinitions = values.propertyDefinitions.map((p) =>
-                //         property.id === p.id ? property : p
-                //     )
-                //     return {
-                //         count: values.propertyStorage.count,
-                //         results: updatedDefinitions,
-                //         next: values.propertyStorage.next,
-                //     }
-                // },
             },
         ],
     }),
@@ -54,16 +44,11 @@ export const propertyDefinitionsModel = kea<
         propertyStorage: [
             { results: [], next: null, count: 0 } as PropertyDefinitionStorage,
             {
-                setPropertyDefinitions: (state, { property }) => {
-                    const updatedDefinitions = state.results.map((p) => (property.id === p.id ? property : p))
-                    console.log(updatedDefinitions.find((p) => p.id === property.id).description)
-                    // console.log('property', property === state.results.find(p => p.id === property.id))
-                    return {
-                        count: state.count,
-                        results: updatedDefinitions,
-                        next: state.next,
-                    }
-                },
+                updatePropertyDefinition: (state, { property }) => ({
+                    count: state.count,
+                    results: state.results.map((p) => (property.id === p.id ? property : p)),
+                    next: state.next,
+                }),
             },
         ],
     }),
