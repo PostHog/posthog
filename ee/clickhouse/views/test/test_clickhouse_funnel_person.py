@@ -1,6 +1,4 @@
 import json
-import urllib.parse
-from urllib.parse import urlencode
 
 from rest_framework import status
 
@@ -13,7 +11,7 @@ from posthog.test.base import APIBaseTest
 class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        GenerateLocal().generate()
+        GenerateLocal(self.team).generate()
 
     def test_basic_pagination(self):
         request_data = {
@@ -34,12 +32,19 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get("/api/person/funnel/", data=request_data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(100, len(response.json()))
+        j = response.json()
+        next = j["next"]
+        self.assertEqual(100, len(j["results"]))
 
-        response = self.client.get("/api/person/funnel/", data={**request_data, "offset": 100})
+        response = self.client.get(next)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(100, len(response.json()))
+        j = response.json()
+        next = j["next"]
+        self.assertEqual(100, len(j["results"]))
+        self.assertNotEqual(None, next)
 
-        response = self.client.get("/api/person/funnel/", data={**request_data, "offset": 200})
+        response = self.client.get(next)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(50, len(response.json()))
+        j = response.json()
+        self.assertEqual(50, len(j["results"]))
+        self.assertEqual(None, j["next"])

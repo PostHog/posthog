@@ -9,6 +9,7 @@ from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsPersons
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from posthog.api.person import PersonViewSet
+from posthog.api.utils import format_next_absolute_url, format_next_url
 from posthog.models import Event, Filter, Person
 
 
@@ -27,7 +28,9 @@ class ClickhousePersonViewSet(PersonViewSet):
         filter = Filter(request=request)
         team = request.user.team
         results = ClickhouseFunnelPersons(filter, team).run()
-        return response.Response(data=results)
+
+        next_url = format_next_absolute_url(request, filter.offset, 100) if len(results) > 99 else None
+        return response.Response(data={"results": results, "next": next_url})
 
     @action(methods=["GET"], detail=False)
     def funnel_trends(self, request: request.Request, **kwargs) -> response.Response:
@@ -37,7 +40,9 @@ class ClickhousePersonViewSet(PersonViewSet):
         filter = Filter(request=request)
         team = request.user.team
         results = ClickhouseFunnelTrendsPersons(filter, team).run()
-        return response.Response(data=results)
+
+        next_url = format_next_absolute_url(request, filter.offset, 100) if len(results) > 99 else None
+        return response.Response(data={"results": results, "next": next_url})
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
