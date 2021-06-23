@@ -8,9 +8,9 @@ from posthog.models.action import Action
 class FunnelEventQuery(ClickhouseEventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = (
-            f"{self.EVENT_TABLE_ALIAS}.event as event, {self.EVENT_TABLE_ALIAS}.timestamp as timestamp, {self.EVENT_TABLE_ALIAS}.properties as properties"
+            f"{self.EVENT_TABLE_ALIAS}.event as event, {self.EVENT_TABLE_ALIAS}.team_id as team_id, {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id, {self.EVENT_TABLE_ALIAS}.timestamp as timestamp, {self.EVENT_TABLE_ALIAS}.properties as properties, {self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
-            + (f", {self.PERSON_TABLE_ALIAS}.properties as person_props" if self._should_join_persons else "")
+            + (f", {self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons else "")
         )
 
         date_query, date_params = self._get_date_filter()

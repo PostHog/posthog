@@ -30,137 +30,41 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
     pass
 
 
-class TestFunnelNew(ClickhouseTestMixin, APIBaseTest):
-    def setUp(self):
-        self._create_sample_data()
-        super().setUp()
+class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew, _create_event, _create_person)):
+    pass
+    # def test_funnel_step_timing(self):
+    #     pass
 
-    def _create_sample_data(self):
-        # five people, three steps
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_person(distinct_ids=["user_two"], team=self.team)
-        _create_person(distinct_ids=["user_three"], team=self.team)
-        _create_person(distinct_ids=["user_four"], team=self.team)
-        _create_person(distinct_ids=["user_five"], team=self.team)
-        _create_person(distinct_ids=["user_six"], team=self.team)
-        _create_person(distinct_ids=["user_seven"], team=self.team)
-        _create_person(distinct_ids=["user_eight"], team=self.team)
+    # def test_funnel_step_repeated_steps(self):
+    #     # step X -> step Y -> step Y
+    #     pass
 
-        _create_event(
-            event="step one",
-            distinct_id="user_one",
-            team=self.team,
-            timestamp="2021-05-02 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step two",
-            distinct_id="user_one",
-            team=self.team,
-            timestamp="2021-05-03 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            event="step three",
-            distinct_id="user_one",
-            team=self.team,
-            timestamp="2021-05-05 00:00:00",
-            properties={"$browser": "Chrome"},
-        )
+    # def test_funnel_step_repeated_first_step(self):
+    #     # step X -> step X -> step Y
+    #     pass
 
-        _create_event(
-            event="step one",
-            distinct_id="user_two",
-            team=self.team,
-            timestamp="2021-05-02 00:00:00",
-            properties={"$browser": "Safari"},
-        )
-        _create_event(
-            event="step two",
-            distinct_id="user_two",
-            team=self.team,
-            timestamp="2021-05-03 00:00:00",
-            properties={"$browser": "Safari"},
-        )
+    # def test_funnel_step_all_repeated(self):
+    #     # step X -> step X -> step X
+    #     pass
 
-        _create_event(event="step one", distinct_id="user_three", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step three", distinct_id="user_three", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step two", distinct_id="user_three", team=self.team, timestamp="2021-05-04 00:00:00")
+    # def test_breakdown_basic_query(self):
+    #     filter = Filter(
+    #         data={
+    #             "insight": INSIGHT_FUNNELS,
+    #             "date_from": "2021-05-01 00:00:00",
+    #             "date_to": "2021-05-07 00:00:00",
+    #             "funnel_window_days": 4,
+    #             "breakdown": "$browser",
+    #             "breakdown_type": "event",
+    #             "events": [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}],
+    #         }
+    #     )
+    #     res = ClickhouseFunnelNew(filter, self.team).run()
+    #     self.assertEqual(res[0], (0, 1, 86400.0, "Chrome"), (0, 1, 86400.0, "Safari"))
 
-        _create_event(event="step one", distinct_id="user_three", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step three", distinct_id="user_three", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step two", distinct_id="user_three", team=self.team, timestamp="2021-05-04 00:00:00")
+    # def test_breakdown_limit(self):
+    #     # decide how to handle properties that have hundreds of values
+    #     pass
 
-        _create_event(event="step one", distinct_id="user_four", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step two", distinct_id="user_four", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step three", distinct_id="user_four", team=self.team, timestamp="2021-05-07 00:00:00")
-
-        _create_event(event="step one", distinct_id="user_six", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step two", distinct_id="user_six", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step three", distinct_id="user_six", team=self.team, timestamp="2021-05-03 01:00:00")
-        _create_event(event="step four", distinct_id="user_six", team=self.team, timestamp="2021-05-03 02:00:00")
-        _create_event(event="step five", distinct_id="user_six", team=self.team, timestamp="2021-05-04 00:00:00")
-        _create_event(event="step six", distinct_id="user_six", team=self.team, timestamp="2021-05-04 04:00:00")
-
-    def test_base_event_query(self):
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
-                "funnel_window_days": 4,
-                "events": [
-                    {"id": "step one", "order": 0},
-                    {"id": "step two", "order": 1},
-                    {"id": "step three", "order": 2},
-                    {"id": "step four", "order": 2},
-                    {"id": "step five", "order": 2},
-                    {"id": "step six", "order": 2},
-                ],
-            }
-        )
-        query_builder = ClickhouseFunnelNew(filter, self.team)
-        params = query_builder.params
-        query = query_builder.test_query()
-        res = sync_execute(query, params)
-        self.assertEqual(res[0], (0, 3, 1, 0, 0, 1, 103680.0, 174000.0, 3600.0, 79200.0, 14400.0))
-
-    def test_funnel_step_timing(self):
-        pass
-
-    def test_funnel_step_repeated_steps(self):
-        # step X -> step Y -> step Y
-        pass
-
-    def test_funnel_step_repeated_first_step(self):
-        # step X -> step X -> step Y
-        pass
-
-    def test_funnel_step_all_repeated(self):
-        # step X -> step X -> step X
-        pass
-
-    def test_breakdown_basic_query(self):
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
-                "funnel_window_days": 4,
-                "breakdown": "$browser",
-                "breakdown_type": "event",
-                "events": [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}],
-            }
-        )
-        query_builder = ClickhouseFunnelNew(filter, self.team)
-        params = query_builder.params
-        query = query_builder.test_query()
-        res = sync_execute(query, params)
-        self.assertEqual(res[0], (0, 1, 86400.0, "Chrome"), (0, 1, 86400.0, "Safari"))
-
-    def test_breakdown_limit(self):
-        # decide how to handle properties that have hundreds of values
-        pass
-
-    def test_breakdown_step_timing(self):
-        pass
+    # def test_breakdown_step_timing(self):
+    #     pass

@@ -11,9 +11,6 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
 class ClickhouseFunnelNew(ClickhouseFunnelBase):
     def get_query(self, format_properties):
-        return FUNNEL_SQL.format(**format_properties)
-
-    def test_query(self):
         return self.get_step_counts_query()
 
     def get_step_counts_query(self):
@@ -28,13 +25,13 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
         breakdown_prop = self._get_breakdown_prop()
 
         return f"""
-        SELECT {self._get_count_columns(max_steps)}, {self._get_step_time_avgs(max_steps)} {breakdown_prop} FROM (
-            SELECT person_id, {self._get_step_time_avgs(max_steps)}, max(steps) AS furthest {breakdown_prop} FROM (
-                SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps, {self._get_step_times(max_steps)} FROM (
+        SELECT furthest, count(*), groupArray(100)(person_id) {breakdown_prop} FROM (
+            SELECT person_id, max(steps) AS furthest {breakdown_prop} FROM (
+                SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps FROM (
                     {formatted_query}
                 ) WHERE step_0 = 1
             ) GROUP BY person_id {breakdown_prop}
-        ) {'GROUP BY prop' if breakdown_prop != '' else ''} SETTINGS allow_experimental_window_functions = 1
+        ) GROUP BY furthest {breakdown_prop} SETTINGS allow_experimental_window_functions = 1
         """
 
     def build_step_subquery(self, level_index: int, max_steps: int):
@@ -105,14 +102,14 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
     def _get_sorting_condition(self, curr_index: int, max_steps: int):
 
         if curr_index == 1:
-            return "0"
+            return "1"
 
         conditions: List[str] = []
         for i in range(1, curr_index):
             conditions.append(f"latest_{i - 1} <= latest_{i }")
             conditions.append(f"latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY")
 
-        return f"if({' AND '.join(conditions)}, {curr_index - 1}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
+        return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 
     def _get_step_times(self, max_steps: int):
         conditions: List[str] = []
@@ -129,11 +126,3 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
             conditions.append(f"avg(step{i-1}ToStep{i}Time) step{i-1}ToStep{i}Time")
 
         return ", ".join(conditions)
-
-    def _get_count_columns(self, max_steps: int):
-        cols: List[str] = []
-
-        for i in range(max_steps):
-            cols.append(f"countIf(furthest = {i}) step_{i}")
-
-        return ", ".join(cols)
