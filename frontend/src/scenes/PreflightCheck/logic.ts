@@ -7,7 +7,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 type PreflightMode = 'experimentation' | 'live'
 
-export const preflightLogic = kea<preflightLogicType<PreflightStatus, PreflightMode>>({
+export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
     loaders: {
         preflight: [
             null as PreflightStatus | null,
@@ -36,11 +36,11 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus, PreflightM
         ],
         realm: [
             (s) => [s.preflight],
-            (preflight): 'cloud' | 'hosted' | null => {
+            (preflight): 'cloud' | 'hosted' | 'hosted-clickhouse' | null => {
                 if (!preflight) {
                     return null
                 }
-                return preflight.cloud ? 'cloud' : 'hosted'
+                return preflight.realm
             },
         ],
         siteUrlMisconfigured: [
@@ -106,7 +106,14 @@ export const preflightLogic = kea<preflightLogicType<PreflightStatus, PreflightM
         setPreflightMode: () => ['/preflight', { mode: values.preflightMode }],
     }),
     urlToAction: ({ actions }) => ({
-        '/preflight': (_: any, { mode }: { mode: PreflightMode | null }) => {
+        '/preflight': (
+            _: any,
+            {
+                mode,
+            }: {
+                mode: PreflightMode | null
+            }
+        ) => {
             if (mode) {
                 actions.setPreflightMode(mode, true)
             }

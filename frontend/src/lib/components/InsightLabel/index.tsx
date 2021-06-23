@@ -9,7 +9,7 @@ import { SeriesLetter } from '../SeriesLetter'
 
 // InsightsLabel pretty prints the action (or event) returned from /insights
 interface InsightsLabelProps {
-    seriesColor: string
+    seriesColor?: string
     action?: ActionFilter
     value?: string
     breakdownValue?: string
@@ -45,7 +45,7 @@ function MathTag({ math, mathProperty }: Record<string, string | undefined>): JS
 }
 
 export function InsightLabel({
-    seriesColor,
+    seriesColor = '#000000',
     action,
     value,
     breakdownValue,

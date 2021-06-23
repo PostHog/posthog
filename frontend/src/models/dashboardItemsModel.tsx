@@ -6,9 +6,9 @@ import { toast } from 'react-toastify'
 import { DashboardItemType } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
-import { dashboardItemsModelType } from '~/models/dashboardItemsModelType'
+import { dashboardItemsModelType } from './dashboardItemsModelType'
 
-export const dashboardItemsModel = kea<dashboardItemsModelType<DashboardItemType>>({
+export const dashboardItemsModel = kea<dashboardItemsModelType>({
     actions: () => ({
         renameDashboardItem: (item: DashboardItemType) => ({ item }),
         renameDashboardItemSuccess: (item: DashboardItemType) => ({ item }),

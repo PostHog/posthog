@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 const defaultValue = 'https://'
 
-export const appUrlsLogic = kea<appUrlsLogicType<TrendResult>>({
+export const appUrlsLogic = kea<appUrlsLogicType>({
     connect: {
         values: [teamLogic, ['currentTeam']],
     },
@@ -103,7 +103,9 @@ export const appUrlsLogic = kea<appUrlsLogicType<TrendResult>>({
         removeUrl: sharedListeners.saveAppUrls,
         updateUrl: sharedListeners.saveAppUrls,
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: async ({ currentTeam }) => {
-            actions.setAppUrls(currentTeam.app_urls)
+            if (currentTeam) {
+                actions.setAppUrls(currentTeam.app_urls)
+            }
         },
     }),
 

@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import dayjs from 'dayjs'
+import dayjs, { Dayjs } from 'dayjs'
 import equal from 'fast-deep-equal'
 import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from './sessionsTableLogicType'
@@ -10,8 +10,6 @@ import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLog
 
 type SessionRecordingId = string
 
-type Dayjs = dayjs.Dayjs
-
 interface Params {
     date?: string
     properties?: any
@@ -19,9 +17,7 @@ interface Params {
     filters?: Array<SessionsPropertyFilter>
 }
 
-export const sessionsTableLogic = kea<
-    sessionsTableLogicType<Dayjs, SessionType, SessionRecordingId, PropertyFilter, SessionsPropertyFilter, EventType>
->({
+export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionRecordingId>>({
     key: (props) => props.personIds || 'global',
     props: {} as {
         personIds?: string[]
@@ -81,7 +77,7 @@ export const sessionsTableLogic = kea<
                 loadSessionsFailure: () => null,
             },
         ],
-        selectedDate: [null as null | dayjs.Dayjs, { setFilters: (_, { selectedDate }) => selectedDate }],
+        selectedDate: [null as null | Dayjs, { setFilters: (_, { selectedDate }) => selectedDate }],
         properties: [
             [] as PropertyFilter[],
             {

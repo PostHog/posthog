@@ -20,7 +20,7 @@ import { Link } from 'lib/components/Link'
 
 dayjs.extend(relativeTime)
 
-const cohortsUrlLogic = kea<cohortsUrlLogicType<CohortType>>({
+const cohortsUrlLogic = kea<cohortsUrlLogicType>({
     actions: {
         setOpenCohort: (cohort: CohortType | null) => ({ cohort }),
     },

@@ -41,6 +41,8 @@ export interface UserType {
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
+    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
+    posthog_version?: string
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -708,6 +710,7 @@ export interface PreflightStatus {
     celery: boolean
     ee_available?: boolean
     is_clickhouse_enabled?: boolean
+    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>

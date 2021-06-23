@@ -13,6 +13,8 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { Button } from 'antd'
 import { DashboardMode } from '../../types'
 
+export const AUTO_REFRESH_INTERVAL_MINS = 5
+
 export const dashboardLogic = kea({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
 
@@ -34,6 +36,7 @@ export const dashboardLogic = kea({
         addGraph: true, // takes the user to insights to add a graph
         deleteTag: (tag) => ({ tag }),
         saveNewTag: (tag) => ({ tag }),
+        setAutoRefresh: (enabled) => ({ enabled }), // enabled: boolean
     }),
 
     loaders: ({ actions, props }) => ({
@@ -128,6 +131,12 @@ export const dashboardLogic = kea({
             null,
             {
                 setDashboardMode: (_, { source }) => source, // used to determine what input to focus on edit mode
+            },
+        ],
+        autoRefresh: [
+            false,
+            {
+                setAutoRefresh: (_, { enabled }) => enabled,
             },
         ],
     }),
@@ -276,6 +285,11 @@ export const dashboardLogic = kea({
                 toast.dismiss(cache.draggingToastId)
                 cache.draggingToastId = null
             }
+
+            if (cache.autoRefreshInterval) {
+                window.clearInterval(cache.autoRefreshInterval)
+                cache.autoRefreshInterval = null
+            }
         },
     }),
     listeners: ({ actions, values, key, cache }) => ({
@@ -395,6 +409,17 @@ export const dashboardLogic = kea({
         deleteTag: async ({ tag }, breakpoint) => {
             await breakpoint(100)
             actions.triggerDashboardUpdate({ tags: values.dashboard.tags.filter((_tag) => _tag !== tag) })
+        },
+        setAutoRefresh: ({ enabled }) => {
+            if (cache.autoRefreshInterval) {
+                window.clearInterval(cache.autoRefreshInterval)
+                cache.autoRefreshInterval = null
+            }
+            if (enabled) {
+                cache.autoRefreshInterval = window.setInterval(() => {
+                    actions.loadDashboardItems({ refresh: true })
+                }, AUTO_REFRESH_INTERVAL_MINS * 60 * 1000)
+            }
         },
     }),
 })

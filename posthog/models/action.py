@@ -2,6 +2,7 @@ import datetime
 import json
 
 import celery
+from django.conf import settings
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.db.models import Q
@@ -66,7 +67,7 @@ class Action(models.Model):
                 except Exception as err:
                     capture_exception(err)
 
-            if self.post_to_slack:
+            if not settings.PLUGIN_SERVER_ACTION_MATCHING and self.post_to_slack:
                 for event in self.events.filter(
                     created_at__gt=last_calculated_at, team__slack_incoming_webhook__isnull=False
                 ).only("pk", "site_url"):
