@@ -2,9 +2,9 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import dayjs, { Dayjs } from 'dayjs'
 import equal from 'fast-deep-equal'
-import { toParams } from 'lib/utils'
+import { isObjectEmpty, toParams } from 'lib/utils'
 import { sessionsTableLogicType } from './sessionsTableLogicType'
-import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
+import { EventType, FilterType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
@@ -15,6 +15,7 @@ interface Params {
     properties?: any
     sessionRecordingId?: SessionRecordingId
     filters?: Array<SessionsPropertyFilter>
+    highlightFilters?: Partial<FilterType>
 }
 
 export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionRecordingId>>({
@@ -169,12 +170,12 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionReco
         },
     }),
     actionToUrl: ({ values }) => {
-        const buildURL = (overrides: Partial<Params> = {}): [string, Params] => {
+        const buildURL = (overrides: Partial<Params> = {}): [string, Params, Record<string, any>] => {
             const today = dayjs().startOf('day').format('YYYY-MM-DD')
 
             const { properties } = router.values.searchParams // eslint-disable-line
 
-            const params: Params = {
+            let params: Params = {
                 date: values.selectedDateURLparam !== today ? values.selectedDateURLparam : undefined,
                 properties: properties || undefined,
                 sessionRecordingId: values.sessionRecordingId || undefined,
@@ -182,7 +183,16 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionReco
                 ...overrides,
             }
 
-            return [router.values.location.pathname, params]
+            // Keep highlight filters param in url if sessions table is on person page.
+            // Used for deeplinking specific sessions and events #4840.
+            if (router.values.location.pathname.indexOf('/person') > -1) {
+                const highlightFilters = !isObjectEmpty(router.values?.searchParams?.highlightFilters)
+                    ? { highlightFilters: router.values.searchParams.highlightFilters }
+                    : {}
+                params = { ...params, ...highlightFilters }
+            }
+
+            return [router.values.location.pathname, params, router.values.hashParams]
         }
 
         return {

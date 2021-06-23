@@ -11,7 +11,7 @@ import {
     TabletOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
-import { Link } from 'lib/components/Link/Link'
+import { Link } from 'lib/components/Link'
 import { colorForString } from 'lib/utils'
 import { Loading } from 'lib/utils'
 import { sessionsPlayLogic } from './sessionsPlayLogic'

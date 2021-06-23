@@ -3,17 +3,15 @@ import { Button } from 'antd'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { Link } from 'lib/components/Link/Link'
+import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { CohortType, PersonType } from '~/types'
+import { FilterType, PersonType } from '~/types'
 import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { midEllipsis } from 'lib/utils'
+import { buildUrl, midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
-import { HighlightedItems } from 'scenes/persons/personsLogic'
-// import {DeepLink} from "lib/components/Link/DeepLink";
 
 dayjs.extend(relativeTime)
 
@@ -25,8 +23,8 @@ interface PersonsTableType {
     loadPrevious?: () => void
     loadNext?: () => void
     allColumns?: boolean // whether to show all columns or not
-    cohort?: CohortType
-    context?: HighlightedItems // info required for deeplinking
+    backTo?: string
+    filters?: FilterType // contains context relevant to all items in table
 }
 
 export function PersonsTable({
@@ -37,13 +35,19 @@ export function PersonsTable({
     loadPrevious,
     loadNext,
     allColumns,
-    cohort,
+    backTo = 'Persons',
+    filters = {},
 }: PersonsTableType): JSX.Element {
-    const linkToPerson = (person: PersonType): string => {
-        const backTo = cohort
-            ? `#backTo=Cohorts&backToURL=${window.location.pathname}`
-            : `#backTo=Persons&backToURL=${window.location.pathname}`
-        return `/person/${encodeURIComponent(person.distinct_ids[0])}${backTo}`
+    console.log('Person table', filters)
+    const deepLinkToPerson = (person: PersonType): string => {
+        return buildUrl(
+            `/person/${encodeURIComponent(person.distinct_ids[0])}`,
+            { highlightFilters: { ...filters } },
+            {
+                backTo,
+                backToURL: window.location.pathname + window.location.search + window.location.hash,
+            }
+        )
     }
 
     const topRef = useRef<HTMLSpanElement>(null)
@@ -55,7 +59,7 @@ export function PersonsTable({
             span: 6,
             render: function Render(person: PersonType) {
                 return (
-                    <Link to={linkToPerson(person)} data-attr="goto-person-email">
+                    <Link to={deepLinkToPerson(person)} data-attr="goto-person-email">
                         <PersonHeader person={person} />
                     </Link>
                 )
@@ -103,7 +107,7 @@ export function PersonsTable({
             return (
                 <>
                     <Link
-                        to={linkToPerson(person)}
+                        to={deepLinkToPerson(person)}
                         // context={{}}
                         data-attr={'goto-person-arrow-' + index}
                         data-test-goto-person

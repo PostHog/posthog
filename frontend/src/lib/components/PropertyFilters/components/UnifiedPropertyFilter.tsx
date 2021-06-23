@@ -6,7 +6,7 @@ import { Button, Col, Row } from 'antd'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { cohortsModel } from '~/models/cohortsModel'
 import { useValues, useActions } from 'kea'
-import { Link } from '../../Link/Link'
+import { Link } from '../../Link'
 import {
     DownOutlined,
     InfoCircleOutlined,

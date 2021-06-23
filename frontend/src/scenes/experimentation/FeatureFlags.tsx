@@ -2,7 +2,7 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
 import { Table, Switch, Tooltip } from 'antd'
-import { Link } from 'lib/components/Link/Link'
+import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined, DisconnectOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -10,7 +10,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { createdAtColumn, createdByColumn } from 'lib/components/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { router } from 'kea-router'
-import { LinkButton } from 'lib/components/Link/LinkButton'
+import { LinkButton } from 'lib/components/LinkButton'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
 export function FeatureFlags(): JSX.Element {

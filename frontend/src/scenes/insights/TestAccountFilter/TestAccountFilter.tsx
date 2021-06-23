@@ -1,6 +1,6 @@
 import { Row, Switch, Tooltip } from 'antd'
 import { useValues } from 'kea'
-import { Link } from 'lib/components/Link/Link'
+import { Link } from 'lib/components/Link'
 import React from 'react'
 import { FilterType } from '~/types'
 import { SettingOutlined } from '@ant-design/icons'

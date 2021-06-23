@@ -2,7 +2,7 @@ import React from 'react'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { SessionType } from '~/types'
 import { fromParams, toParams } from 'lib/utils'
-import { Link } from 'lib/components/Link/Link'
+import { Link } from 'lib/components/Link'
 import './Sessions.scss'
 
 interface SessionsPlayerButtonProps {

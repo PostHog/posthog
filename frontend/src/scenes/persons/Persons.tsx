@@ -5,9 +5,9 @@ import { Button, Row, Radio, Alert } from 'antd'
 import { ExportOutlined, PlusOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsLogic } from './personsLogic'
-import { Link } from 'lib/components/Link/Link'
+import { Link } from 'lib/components/Link'
 import { CohortType } from '~/types'
-import { LinkButton } from 'lib/components/Link/LinkButton'
+import { LinkButton } from 'lib/components/LinkButton'
 import { ClockCircleFilled } from '@ant-design/icons'
 import { toParams } from 'lib/utils'
 import { PersonsSearch } from './PersonsSearch'
@@ -115,7 +115,7 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
                     loadPrevious={() => loadPersons(persons.previous)}
                     loadNext={() => loadPersons(persons.next)}
                     allColumns
-                    cohort={cohort}
+                    backTo={cohort ? 'Cohort' : 'Persons'}
                 />
             </div>
         </div>

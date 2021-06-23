@@ -314,6 +314,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:
     events: Union[EventManager, QuerySet] = Event.objects.none()
+    print("filter", filter, entity, team, filter.session)
     if filter.session:
         events = Event.objects.filter(team=team).filter(base.filter_events(team.pk, filter)).add_person_id(team.pk)
     else:
@@ -369,6 +370,8 @@ def calculate_people(team: Team, events: QuerySet, filter: Filter, use_offset: b
         team=team,
         id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],
     )
+
+    print("people", people, events)
 
     people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return people

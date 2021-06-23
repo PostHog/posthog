@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { funnelLogic } from './funnelLogic'
-import { Link } from 'lib/components/Link/Link'
+import { Link } from 'lib/components/Link'
 import { percentage, Loading } from 'lib/utils'
 import { EntityTypes } from '~/types'
 import './FunnelPeople.scss'

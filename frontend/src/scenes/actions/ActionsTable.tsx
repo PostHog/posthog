@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import './Actions.scss'
-import { Link } from 'lib/components/Link/Link'
+import { Link } from 'lib/components/Link'
 import { Input, Radio, Table } from 'antd'
 import { QuestionCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined } from '@ant-design/icons'
 import { DeleteWithUndo, stripHTTP, toParams } from 'lib/utils'

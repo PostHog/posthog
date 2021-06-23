@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { eventToName } from 'lib/utils'
-import { Link } from 'lib/components/Link/Link'
+import { Link } from 'lib/components/Link'
 
 export function recurseSelector(elements, parts, index) {
     let element = elements[index]

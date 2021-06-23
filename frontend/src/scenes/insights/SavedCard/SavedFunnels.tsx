@@ -4,7 +4,7 @@ import { funnelsModel } from '~/models/funnelsModel'
 import { List, Col, Row, Button, Popconfirm } from 'antd'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
-import { Link } from 'lib/components/Link/Link'
+import { Link } from 'lib/components/Link'
 import { toParams } from 'lib/utils'
 
 export function SavedFunnels(): JSX.Element {

@@ -5,7 +5,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
-import { Link } from 'lib/components/Link/Link'
+import { Link } from 'lib/components/Link'
 import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -92,7 +92,12 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                             title="Download CSV"
                         />
                     </div>
-                    <PersonsTable loading={!people?.people} people={people.people} />
+                    <PersonsTable
+                        loading={!people?.people}
+                        people={people.people}
+                        filters={filters}
+                        backTo="Insights"
+                    />
                     <div
                         style={{
                             margin: '1rem',

@@ -1,5 +1,5 @@
 import React from 'react'
-import { Link } from './Link/Link'
+import { Link } from './Link'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 
 import { kea, useValues } from 'kea'

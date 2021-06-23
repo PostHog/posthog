@@ -4,7 +4,7 @@ import { personalizationLogic } from './personalizationLogic'
 import { Row, Col, Button } from 'antd'
 import { RadioSelect } from 'lib/components/RadioSelect'
 import { ROLES, PRODUCTS, IS_TECHNICAL } from './personalizationOptions'
-import { Link } from 'lib/components/Link/Link'
+import { Link } from 'lib/components/Link'
 import './Personalization.scss'
 
 export function Personalization(): JSX.Element {

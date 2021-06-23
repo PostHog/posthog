@@ -12,25 +12,15 @@ interface PersonPaginatedResponse {
     results: PersonType[]
 }
 
-export interface HighlightedItems {
-    sessionIds?: string[]
-    eventIds?: string[]
-    recordingIds?: string[]
-}
+const FILTER_ALLOWLIST: string[] = ['is_identified', 'search', 'cohort']
 
-const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
-
-export const personsLogic = kea<personsLogicType<HighlightedItems, PersonPaginatedResponse>>({
+export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
     },
     actions: {
         setListFilters: (payload) => ({ payload }),
-        setHighlightFilters: (sessionIds: string[], eventIds: string[], recordingIds: string[]): HighlightedItems => ({
-            sessionIds,
-            eventIds,
-            recordingIds,
-        }),
+        setHighlightFilters: (payload) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         setHasNewKeys: true,
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
@@ -55,10 +45,10 @@ export const personsLogic = kea<personsLogicType<HighlightedItems, PersonPaginat
                 navigateToTab: (_, { tab }) => tab,
             },
         ],
-        highlightedItems: [
-            { sessionIds: [], eventIds: [], recordingIds: [] },
+        highlightFilters: [
+            {},
             {
-                setHighlights: (_, highlightedItems) => highlightedItems,
+                setHighlightFilters: (state, { payload }) => ({ ...state, ...payload }),
             },
         ],
     },
@@ -135,7 +125,7 @@ export const personsLogic = kea<personsLogicType<HighlightedItems, PersonPaginat
                         const qs = Object.keys(values.listFilters)
                             .filter((key) =>
                                 key !== 'is_identified'
-                                    ? FILTER_WHITELIST.includes(key)
+                                    ? FILTER_ALLOWLIST.includes(key)
                                     : !url?.includes('is_identified')
                             )
                             .reduce(function (result, key) {
@@ -197,6 +187,18 @@ export const personsLogic = kea<personsLogicType<HighlightedItems, PersonPaginat
                 return ['/persons', values.listFilters]
             }
         },
+        navigateToTab: () => {
+            if (router.values.location.pathname.indexOf('/person') > -1) {
+                return [
+                    router.values.location.pathname,
+                    router.values.searchParams,
+                    {
+                        ...router.values.hashParams,
+                        activeTab: values.activeTab,
+                    },
+                ]
+            }
+        },
     }),
     urlToAction: ({ actions, values }) => ({
         '/persons': ({}, searchParams: Record<string, string>) => {
@@ -213,12 +215,13 @@ export const personsLogic = kea<personsLogicType<HighlightedItems, PersonPaginat
                 _: string
             },
             _searchParams: Record<string, string>,
-            { activeTab = PersonsTabType.EVENTS, highlightedItems }: Record<string, string>
+            { activeTab, highlightFilters }: Record<string, any>
         ) => {
-            if (values.activeTab !== activeTab) {
+            if (activeTab && values.activeTab !== activeTab) {
+                console.log('set active tab to', activeTab)
                 actions.navigateToTab(activeTab as PersonsTabType)
             }
-            console.log('highlights', highlightedItems)
+            console.log('highlights', highlightFilters, activeTab, values.activeTab)
             // actions.setHighlights(sessions, events, recordings)
             actions.loadPerson(_) // underscore contains the wildcard
         },
