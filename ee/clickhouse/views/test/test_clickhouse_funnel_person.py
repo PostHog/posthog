@@ -34,12 +34,12 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get("/api/person/funnel/", data=request_data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(100, len(response.data))
+        self.assertEqual(100, len(response.json()))
 
         response = self.client.get("/api/person/funnel/", data={**request_data, "offset": 100})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(100, len(response.data))
+        self.assertEqual(100, len(response.json()))
 
         response = self.client.get("/api/person/funnel/", data={**request_data, "offset": 200})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(50, len(response.data))
+        self.assertEqual(50, len(response.json()))

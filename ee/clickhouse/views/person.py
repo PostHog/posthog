@@ -21,6 +21,9 @@ class ClickhousePersonViewSet(PersonViewSet):
 
     @action(methods=["GET"], detail=False)
     def funnel(self, request: request.Request, **kwargs) -> response.Response:
+        if request.user.is_anonymous or not request.user.team:
+            return response.Response(data=[])
+
         filter = Filter(request=request)
         team = request.user.team
         results = ClickhouseFunnelPersons(filter, team).run()
@@ -28,6 +31,9 @@ class ClickhousePersonViewSet(PersonViewSet):
 
     @action(methods=["GET"], detail=False)
     def funnel_trends(self, request: request.Request, **kwargs) -> response.Response:
+        if request.user.is_anonymous or not request.user.team:
+            return response.Response(data=[])
+
         filter = Filter(request=request)
         team = request.user.team
         results = ClickhouseFunnelTrendsPersons(filter, team).run()

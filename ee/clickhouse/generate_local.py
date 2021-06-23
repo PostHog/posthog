@@ -8,8 +8,8 @@ from posthog.models import EventDefinition, Person, Team
 
 
 class GenerateLocal:
-    _team: None
-    _number: None
+    _team: Team
+    _number: int
 
     def __init__(self, team_id=1, number=250):
         self._team = Team.objects.get(id=team_id)

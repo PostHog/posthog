@@ -24,7 +24,7 @@ ORDER BY max_step {top_level_groupby} ASC
 """
 
 FUNNEL_PERSONS_SQL = """
-SELECT max_step {top_level_groupby}, count(1) as cnt, id
+SELECT max_step, id
 FROM
 (
     SELECT
@@ -48,8 +48,8 @@ FROM
     GROUP BY pid.person_id {extra_groupby}
 )
 WHERE max_step > 0
-GROUP BY max_step, id {top_level_groupby}
-ORDER BY max_step {top_level_groupby} ASC
+GROUP BY max_step, id
+ORDER BY max_step ASC
 limit 100
 offset {offset}
 ;
