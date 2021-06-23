@@ -42,8 +42,8 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
                 saveDefinition: async ({ definition, type }) => {
                     if (type === 'event') {
                         definition.owner = definition.owner.user?.id || null
+                        definition.description = values.description
                     }
-                    definition.description = values.description
                     const updatedDefinition = await api.update(
                         `api/projects/@current/${type}_definitions/${definition.id}`,
                         definition
@@ -127,7 +127,6 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
             {
                 setEventPropertyDefinition: (state, { propertyDefinition, id }) => {
                     const newDefinitions = state.map((p) => (p.id === id ? { ...p, ...propertyDefinition } : p))
-                    debugger
                     return newDefinitions
                 },
             },
