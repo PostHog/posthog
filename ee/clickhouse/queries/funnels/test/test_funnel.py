@@ -29,7 +29,64 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
 
 
 class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew, _create_event, _create_person)):
-    pass
+    def _create_sample_data(self):
+        # five people, three steps
+        _create_person(distinct_ids=["user_one"], team=self.team)
+        _create_person(distinct_ids=["user_two"], team=self.team)
+        _create_person(distinct_ids=["user_three"], team=self.team)
+        _create_person(distinct_ids=["user_four"], team=self.team)
+
+        # user_one, funnel steps: one, two three
+        _create_event(
+            event="step one",
+            distinct_id="user_one",
+            team=self.team,
+            timestamp="2021-05-01 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_one",
+            team=self.team,
+            timestamp="2021-05-03 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step three",
+            distinct_id="user_one",
+            team=self.team,
+            timestamp="2021-05-05 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+
+        # user_two, funnel steps: one, two
+        _create_event(
+            event="step one",
+            distinct_id="user_two",
+            team=self.team,
+            timestamp="2021-05-02 00:00:00",
+            properties={"$browser": "Safari"},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_two",
+            team=self.team,
+            timestamp="2021-05-04 00:00:00",
+            properties={"$browser": "Safari"},
+        )
+
+        # user_three, funnel steps: one
+        _create_event(
+            event="step one",
+            distinct_id="user_three",
+            team=self.team,
+            timestamp="2021-05-06 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+
+        # user_four, funnel steps: one
+        _create_event(event="step one", distinct_id="user_four", team=self.team, timestamp="2021-05-06 00:00:00")
+
     # def test_funnel_step_timing(self):
     #     pass
 
@@ -46,6 +103,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
     #     pass
 
     # def test_breakdown_basic_query(self):
+    #     self._create_sample_data()
     #     filter = Filter(
     #         data={
     #             "insight": INSIGHT_FUNNELS,
@@ -66,3 +124,6 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
 
     # def test_breakdown_step_timing(self):
     #     pass
+
+    # def test_conversion_window(self):
+    #    pass
