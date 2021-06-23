@@ -20,9 +20,7 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
 
         formatted_query = ""
         max_steps = len(self._filter.entities)
-        if max_steps > 2:
-            formatted_query = self.build_step_subquery(2, max_steps)
-        elif max_steps == 2:
+        if max_steps >= 2:
             formatted_query = self.build_step_subquery(2, max_steps)
         else:
             formatted_query = super()._get_inner_event_query()
