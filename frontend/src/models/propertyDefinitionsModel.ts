@@ -17,7 +17,7 @@ export const propertyDefinitionsModel = kea<
     propertyDefinitionsModelType<PropertyDefinitionStorage, PropertySelectOption>
 >({
     actions: () => ({
-        updatePropertyDefinition: (property) => ({ property }),
+        updatePropertyDefinition: (property: PropertyDefinition) => ({ property }),
     }),
     loaders: ({ values }) => ({
         propertyStorage: [

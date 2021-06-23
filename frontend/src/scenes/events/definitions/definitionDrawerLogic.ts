@@ -44,6 +44,9 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
                         definition.owner = definition.owner.user?.id || null
                         definition.description = values.description
                     }
+                    if (type === 'property' && values.type === 'property') {
+                        definition.description = values.description
+                    }
                     const updatedDefinition = await api.update(
                         `api/projects/@current/${type}_definitions/${definition.id}`,
                         definition
@@ -198,7 +201,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
             if (values.type === 'event') {
                 eventDefinitionsModel.actions.updateEventDefinition(definition as EventDefinition)
             } else {
-                propertyDefinitionsModel.actions.updatePropertyDefinition(definition)
+                propertyDefinitionsModel.actions.updatePropertyDefinition(definition as PropertyDefinition)
             }
         },
         setNewTag: async ({ tag }, breakpoint) => {
