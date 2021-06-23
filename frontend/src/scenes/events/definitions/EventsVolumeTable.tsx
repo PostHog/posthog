@@ -22,7 +22,7 @@ export function EventsVolumeTable(): JSX.Element | null {
                     {preflight && !preflight?.is_event_property_usage_enabled ? (
                         <UsageDisabledWarning tab="Events Stats" />
                     ) : (
-                        eventDefinitions[0].volume_30_day === null && (
+                        (eventDefinitions.length === 0 || eventDefinitions[0].volume_30_day === null) && (
                             <>
                                 <Alert
                                     type="warning"
