@@ -1,6 +1,5 @@
 from uuid import uuid4
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel, ClickhouseFunnelNew
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -8,7 +7,6 @@ from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
-from posthog.test.base import APIBaseTest
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
