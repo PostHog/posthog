@@ -93,7 +93,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         return sync_execute(query, self.params)
 
-    def _get_inner_event_query(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_inner_event_query(self) -> str:
         event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query()
         self.params.update(params)
         steps_conditions = self._get_steps_conditions(length=len(self._filter.entities))
@@ -122,8 +122,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
             elif self._filter.breakdown_type == "event":
                 return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
-        else:
-            return ""
+
+        return ""
 
     def _get_steps_conditions(self, length: int) -> str:
         step_conditions: List[str] = []
