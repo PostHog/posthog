@@ -2,22 +2,13 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { definitionDrawerLogicType } from './definitionDrawerLogicType'
 import { IndexedTrendResult } from 'scenes/trends/trendsLogic'
-import { EventDefinition, EventOrPropType, EventType, PropertyDefinition, UserBasicType } from '~/types'
+import { EventOrPropType, EventType, PropertyDefinition, UserBasicType } from '~/types'
 import { errorToast, toParams, uniqueBy } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
-export const definitionDrawerLogic = kea<
-    definitionDrawerLogicType<
-        EventOrPropType,
-        EventDefinition,
-        PropertyDefinition,
-        EventType,
-        UserBasicType,
-        IndexedTrendResult
-    >
->({
+export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
     actions: () => ({
         openDrawer: (type: string, id: string) => ({ type, id }),
         setDrawerType: (type: string) => ({ type }),
