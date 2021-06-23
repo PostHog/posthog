@@ -1,6 +1,6 @@
 import { Button, Input, Row } from 'antd'
 import { useActions } from 'kea'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
 export function VolumeTableRecordDescription({
@@ -15,6 +15,10 @@ export function VolumeTableRecordDescription({
     const { updateDescription } = useActions(eventDefinitionsModel)
     const [newDescription, setDescription] = useState(description)
     const [editing, setEditing] = useState(false)
+
+    useEffect(() => {
+        setDescription(description)
+    }, [description])
 
     return (
         <>

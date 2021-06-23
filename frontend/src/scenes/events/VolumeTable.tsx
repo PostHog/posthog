@@ -187,7 +187,7 @@ export function VolumeTable({
                 }
             ) || []
         )
-    }, [])
+    }, [data])
 
     return (
         <>
