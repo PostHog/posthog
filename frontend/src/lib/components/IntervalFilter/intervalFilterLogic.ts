@@ -1,29 +1,31 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
+import { intervalFilterLogicType } from './intervalFilterLogicType'
+import { IntervalKeyType } from 'lib/components/IntervalFilter/intervals'
 
-export const intervalFilterLogic = kea({
+export const intervalFilterLogic = kea<intervalFilterLogicType>({
     actions: () => ({
-        setIntervalFilter: (filter) => ({ filter }),
-        setDateFrom: (dateFrom) => ({ dateFrom }),
+        setIntervalFilter: (filter: IntervalKeyType) => ({ filter }),
+        setDateFrom: (dateFrom: string) => ({ dateFrom }),
     }),
-    reducers: ({ actions }) => ({
+    reducers: {
         interval: [
-            null,
+            null as null | IntervalKeyType,
             {
-                [actions.setIntervalFilter]: (_, { filter }) => filter,
+                setIntervalFilter: (_, { filter }) => filter,
             },
         ],
         dateFrom: [
-            null,
+            null as null | string,
             {
-                [actions.setDateFrom]: (_, { dateFrom }) => dateFrom,
+                setDateFrom: (_, { dateFrom }) => dateFrom,
             },
         ],
-    }),
+    },
     listeners: ({ values }) => ({
         setIntervalFilter: () => {
-            const { interval, ...searchParams } = router.values.searchParams // eslint-disable-line
+            const { interval, ...searchParams } = router.values.searchParams
             const { pathname } = router.values.location
 
             searchParams.interval = values.interval
@@ -33,7 +35,7 @@ export const intervalFilterLogic = kea({
             }
         },
         setDateFrom: () => {
-            const { date_from, ...searchParams } = router.values.searchParams // eslint-disable-line
+            const { date_from, ...searchParams } = router.values.searchParams
             const { pathname } = router.values.location
 
             searchParams.date_from = values.dateFrom
@@ -44,7 +46,7 @@ export const intervalFilterLogic = kea({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, { interval, date_from }) => {
+        '/insights': (_: Record<string, string>, { interval, date_from }: Record<string, any>) => {
             if (interval) {
                 actions.setIntervalFilter(interval)
             }

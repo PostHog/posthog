@@ -1,6 +1,8 @@
 import React from 'react'
 import { AnnotationScope } from '../types'
 
+// Sync these with the ChartDisplayType enum in types.ts
+// ... and remove once all files have migrated to TypeScript
 export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraph'
 export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
 export const ACTIONS_TABLE = 'ActionsTable'

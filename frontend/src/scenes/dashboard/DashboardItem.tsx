@@ -34,7 +34,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { DashboardItemType, DashboardMode, DashboardType, DisplayType } from '~/types'
+import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -60,7 +60,7 @@ interface Props {
     duplicateDashboardItem?: (it: DashboardItemType, dashboardId?: number) => void
 }
 
-export type DisplayedType = DisplayType | 'RetentionContainer'
+export type DisplayedType = ChartDisplayType | 'RetentionContainer'
 
 interface DisplayProps {
     className: string
