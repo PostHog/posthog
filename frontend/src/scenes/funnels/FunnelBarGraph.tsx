@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { humanizeNumber, pluralize } from 'lib/utils'
 import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -18,13 +18,46 @@ interface BarProps {
     name?: string
 }
 
+type LabelPosition = 'inside' | 'outside'
+
 function Bar({ percentage, order, name }: BarProps): JSX.Element {
     console.log(order)
+    const barRef = useRef<HTMLDivElement | null>(null)
+    const labelRef = useRef<HTMLDivElement | null>(null)
+    const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
+    const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
+
+    function decideLabelPosition(): void {
+        // Place label inside or outside bar, based on whether it fits
+        const barWidth = barRef.current?.clientWidth ?? null
+        const labelWidth = labelRef.current?.clientWidth ?? null
+
+        if (barWidth !== null && labelWidth !== null) {
+            if (labelWidth + LABEL_POSITION_OFFSET * 2 > barWidth) {
+                setLabelPosition('outside')
+                return
+            }
+        }
+        setLabelPosition('inside')
+    }
+
+    const resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
+        entries.forEach(() => decideLabelPosition())
+    })
+
+    useEffect(() => {
+        if (barRef.current) {
+            resizeObserver.observe(barRef.current)
+        }
+        decideLabelPosition()
+    }, [])
+
     return (
         <div className="funnel-bar-wrapper">
-            <div className="funnel-bar" style={{ width: `${percentage}%` }}>
+            <div ref={barRef} className="funnel-bar" style={{ width: `${percentage}%` }}>
                 <div
-                    className="funnel-bar-percentage"
+                    ref={labelRef}
+                    className={`funnel-bar-percentage ${labelPosition}`}
                     title={name ? `Users who did ${name}` : undefined}
                     aria-role="progressbar"
                     aria-valuemin={0}
@@ -62,13 +95,11 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
             {steps.map((step) => (
                 <section key={step.order} className="funnel-step">
                     <header>
-                        <div>
-                            {' '}
-                            {/* div wrapper for flex purposes */}
+                        <div className="funnel-step-title">
                             <PropertyKeyInfo value={step.name} />
                         </div>
                         <div className="funnel-step-metadata">
-                            {step.average_time >= 0 && step.order !== 0 ? (
+                            {step.average_time >= 0 + Number.EPSILON && step.order !== 0 ? (
                                 <ValueInspectorButton icon={<ClockCircleOutlined />} onClick={() => {}} disabled>
                                     {pluralize(step.average_time, 'hour')}
                                 </ValueInspectorButton>

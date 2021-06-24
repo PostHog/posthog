@@ -7,7 +7,7 @@
         display: flex;
         align-items: center;
 
-        .property-key-info {
+        .funnel-step-title {
             font-weight: 700;
         }
 
@@ -56,24 +56,35 @@
     }
 }
 
+$label_position_offset: 8px;
+
 .funnel-bar-wrapper {
-    position: relative;
-    background-color: #e7e8ee;
-    border-radius: 4px;
     height: 32px;
     margin: 4px 0 8px 0;
+    background-color: #e7e8ee;
+    border-radius: 4px;
 
     .funnel-bar {
+        position: relative;
+        height: 100%;
         background: #3b4b87;
         border-radius: 4px;
-        height: 100%;
-    }
 
-    .funnel-bar-percentage {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        line-height: 16px;
-        color: #fff;
+        .funnel-bar-percentage {
+            position: absolute;
+            top: 8px;
+            line-height: 16px;
+            font-weight: 500;
+            color: #fff;
+
+            &.inside {
+                right: $label_position_offset;
+            }
+
+            &.outside {
+                left: calc(100% + #{$label_position_offset});
+                color: #3b4b87;
+            }
+        }
     }
 }
