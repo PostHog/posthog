@@ -366,12 +366,12 @@ def calculate_people(team: Team, events: QuerySet, filter: Filter, request=None,
     events = _filter_person_prop_breakdown(events, filter)
     events = _filter_event_prop_breakdown(events, filter)
     people = Person.objects.filter(
-        team=team.id,
+        team=team,
         id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],
     )
     if request and request.GET.get("search"):
         term = request.GET.get("search")
-        people = people.filter(Q(persondistinctid__distinct_id__icontains=term) | Q(properties__email__icontains=term))
+        people = people.filter(Q(persondistinctid__distinct_id__icontains=term) | Q(properties__email__icontains=term)).distinct()
     if request and request.GET.get("properties") and len(request.GET.get("properties")) > 2:
         value = request.GET.get("properties")
         filter = Filter(data={"properties": json.loads(value)})
