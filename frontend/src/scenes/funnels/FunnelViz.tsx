@@ -91,7 +91,7 @@ export function FunnelViz({
     }, [stepsResult, funnelLoading])
 
     if (filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
-        if (filters.events?.length + filters.actions?.length == 1) {
+        if ((filters.events?.length || 0) + (filters.actions?.length || 0) == 1) {
             return (
                 <div className="insight-empty-state error-message">
                     <div className="illustration-main">
@@ -112,7 +112,7 @@ export function FunnelViz({
                                 min={1}
                                 max={365}
                                 defaultValue={conversionWindowInDays}
-                                onChange={(days) => loadConversionWindow(days)}
+                                onChange={(days) => loadConversionWindow(Number(days))}
                             />
                             &nbsp;days =&nbsp;
                         </>
