@@ -4,7 +4,8 @@ import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PageHeader } from 'lib/components/PageHeader'
-import { UsageDisabledWarning, VolumeTable } from './VolumeTable'
+import { UsageDisabledWarning } from './UsageDisabledWarning'
+import { VolumeTable } from './VolumeTable'
 
 export function PropertiesVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)

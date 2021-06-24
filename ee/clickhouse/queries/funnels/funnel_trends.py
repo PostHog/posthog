@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.clickhouse_funnel_base import ClickhouseFunnelBase
+from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import NULL_SQL_FUNNEL_TRENDS
 from ee.clickhouse.sql.funnels.funnel_trend import FUNNEL_TREND_SQL
@@ -18,6 +18,9 @@ HUMAN_READABLE_TIMESTAMP_FORMAT = "%a. %-d %b"
 
 class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     def run(self):
+        if len(self._filter.entities) == 0:
+            return []
+
         summary = self.perform_query()
         ui_response = self._get_ui_response(summary)
         return ui_response
@@ -124,3 +127,6 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         compare_timestamp = timestamp.date() if type(timestamp) is datetime else timestamp
         is_incomplete = compare_timestamp > completed_end
         return not is_incomplete
+
+    def get_query(self, format_properties):
+        pass

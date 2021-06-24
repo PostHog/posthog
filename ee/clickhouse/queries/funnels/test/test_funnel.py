@@ -1,10 +1,15 @@
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.clickhouse_funnel import ClickhouseFunnel
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
+
+FORMAT_TIME = "%Y-%m-%d 00:00:00"
+MAX_STEP_COLUMN = 0
+COUNT_COLUMN = 1
+PERSON_ID_COLUMN = 2
 
 
 def _create_person(**kwargs):
