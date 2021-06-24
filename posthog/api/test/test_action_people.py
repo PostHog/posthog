@@ -412,6 +412,26 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             )
             return (person1, person2, person3, person4)
 
+        def test_people_csv(self):
+            person1, _, _, _ = self._create_multiple_people()
+            people = self.client.get(
+                "/api/action/people.csv",
+                data={
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-07",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "watched movie",
+                    "display": "ActionsLineGraphCumulative",
+                    "entity_math": "dau",
+                    "events": [{"id": "watched movie", "math": "dau"}],
+                },
+            )
+            resp = people.content.decode("utf-8").split("\r\n")
+            resp = sorted(resp)
+            self.assertEqual(len(resp), 6)  # header, 4 people, empty line
+            self.assertEqual(resp[1], "Distinct ID,Internal ID,Email,Name,Properties")
+            self.assertEqual(resp[2].split(",")[0], "person1")
+
         def test_breakdown_by_cohort_people_endpoint(self):
             person1, _, _, _ = self._create_multiple_people()
             cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
