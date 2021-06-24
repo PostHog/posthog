@@ -665,6 +665,17 @@ export interface TrendResultWithAggregate extends TrendResult {
     aggregated_value: number
 }
 
+export interface FunnelStep {
+    action_id: string
+    average_time: number
+    count: number
+    name: string
+    order: number
+    people: string[]
+    type: string
+    labels?: string[]
+}
+
 export interface ChartParams {
     dashboardItemId?: number
     color?: string
