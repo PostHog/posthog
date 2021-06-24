@@ -52,7 +52,7 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
             title: 'Time Elapsed from Previous',
             render: function RenderElapsed({ timestamp }: EventType, _: any, index: number) {
                 const realIndex = (page - 1) * pageSize + index
-                const lastEvent = realIndex > 0 ? events[realIndex - 1] : null
+                const lastEvent = realIndex > 0 && events ? events[realIndex - 1] : null
                 return <span>{lastEvent ? humanFriendlyDiff(lastEvent.timestamp, timestamp) : 0}</span>
             },
         },
