@@ -69,8 +69,11 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
             if i < level_index:
                 cols.append(f"latest_{i}")
             else:
+                duplicate_event = 0
+                if i > 0 and self._filter.entities[i].id == self._filter.entities[i - 1].id:
+                    duplicate_event = 1
                 cols.append(
-                    f"min(latest_{i}) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) latest_{i}"
+                    f"min(latest_{i}) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
         return ", ".join(cols)
 
@@ -106,7 +109,7 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
 
         conditions: List[str] = []
         for i in range(1, curr_index):
-            conditions.append(f"latest_{i - 1} <= latest_{i }")
+            conditions.append(f"latest_{i - 1} < latest_{i }")
             conditions.append(f"latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY")
 
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
