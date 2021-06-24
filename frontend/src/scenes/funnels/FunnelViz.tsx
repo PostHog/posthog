@@ -6,6 +6,7 @@ import './FunnelViz.scss'
 import { funnelLogic } from './funnelLogic'
 import { ACTIONS_LINE_GRAPH_LINEAR, FUNNEL_VIZ, FUNNEL_BAR_VIZ } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
+import { FunnelBarGraph } from './FunnelBarGraph'
 import { router } from 'kea-router'
 import { IllustrationDanger } from 'lib/components/icons'
 import { InputNumber } from 'antd'
@@ -145,6 +146,10 @@ export function FunnelViz({
                 />
             </>
         ) : null
+    }
+
+    if (filters.display === FUNNEL_BAR_VIZ) {
+        return <FunnelBarGraph layout="horizontal" steps={steps} />
     }
 
     return !funnelLoading ? (
