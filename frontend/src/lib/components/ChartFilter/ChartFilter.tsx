@@ -49,64 +49,64 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const options =
         filters.insight === ViewType.FUNNELS
             ? [
-                  {
-                      value: ChartDisplayType.FunnelViz,
-                      label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
-                  },
-                  {
-                      value: ChartDisplayType.ActionsLineGraphLinear,
-                      label: (
-                          <Label icon={<LineChartOutlined />}>
-                              Trends
-                              <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
-                                  BETA
-                              </Tag>
-                          </Label>
-                      ),
-                  },
+                {
+                    value: ChartDisplayType.FunnelViz,
+                    label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
+                },
+                {
+                    value: ChartDisplayType.ActionsLineGraphLinear,
+                    label: (
+                        <Label icon={<LineChartOutlined />}>
+                            Trends
+                            <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
+                                BETA
+                            </Tag>
+                        </Label>
+                    ),
+                },
               ]
             : [
-                  {
-                      label: 'Line Chart',
-                      options: [
-                          {
-                              value: ChartDisplayType.ActionsLineGraphLinear,
-                              label: <Label icon={<LineChartOutlined />}>Linear</Label>,
-                              disabled: linearDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsLineGraphCumulative,
-                              label: <Label icon={<AreaChartOutlined />}>Cumulative</Label>,
-                              disabled: cumulativeDisabled,
-                          },
-                      ],
-                  },
-                  {
-                      label: 'Bar Chart',
-                      options: [
-                          {
-                              value: ChartDisplayType.ActionsBarChart,
-                              label: <Label icon={<BarChartOutlined />}>Time</Label>,
-                              disabled: barDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsBarChartValue,
-                              label: <Label icon={<BarChartOutlined />}>Value</Label>,
-                              disabled: barValueDisabled,
-                          },
-                      ],
-                  },
-                  {
-                      value: ChartDisplayType.ActionsTable,
-                      label: <Label icon={<TableOutlined />}>Table</Label>,
-                      disabled: tableDisabled,
-                  },
-                  {
-                      value: ChartDisplayType.ActionsPieChart,
-                      label: <Label icon={<PieChartOutlined />}>Pie</Label>,
-                      disabled: pieDisabled,
-                  },
-              ]
+                {
+                    label: 'Line Chart',
+                    options: [
+                        {
+                            value: ChartDisplayType.ActionsLineGraphLinear,
+                            label: <Label icon={<LineChartOutlined />}>Linear</Label>,
+                            disabled: linearDisabled,
+                        },
+                        {
+                            value: ChartDisplayType.ActionsLineGraphCumulative,
+                            label: <Label icon={<AreaChartOutlined />}>Cumulative</Label>,
+                            disabled: cumulativeDisabled,
+                        },
+                    ],
+                },
+                {
+                    label: 'Bar Chart',
+                    options: [
+                        {
+                            value: ChartDisplayType.ActionsBarChart,
+                            label: <Label icon={<BarChartOutlined />}>Time</Label>,
+                            disabled: barDisabled,
+                        },
+                        {
+                            value: ChartDisplayType.ActionsBarChartValue,
+                            label: <Label icon={<BarChartOutlined />}>Value</Label>,
+                            disabled: barValueDisabled,
+                        },
+                    ],
+                },
+                {
+                    value: ChartDisplayType.ActionsTable,
+                    label: <Label icon={<TableOutlined />}>Table</Label>,
+                    disabled: tableDisabled,
+                },
+                {
+                    value: ChartDisplayType.ActionsPieChart,
+                    label: <Label icon={<PieChartOutlined />}>Pie</Label>,
+                    disabled: pieDisabled,
+                },
+            ]
     return (
         <Select
             key="2"
