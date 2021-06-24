@@ -105,7 +105,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         steps = ", ".join(all_step_cols)
 
-        select_prop = self._get_select_prop()
+        select_prop = self._get_breakdown_select_prop()
 
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
@@ -115,7 +115,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             extra_conditions=("AND prop != ''" if select_prop else ""),
         )
 
-    def _get_select_prop(self) -> str:
+    def _get_breakdown_select_prop(self) -> str:
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
