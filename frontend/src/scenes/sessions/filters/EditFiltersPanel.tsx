@@ -68,7 +68,7 @@ const SECTIONS: Record<string, { label: string; description: JSX.Element }> = {
 export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
     const { activeFilter, displayedFilterCount, displayedFilters } = useValues(sessionsFiltersLogic)
     const { openFilterSelect, openEditFilter, removeFilter } = useActions(sessionsFiltersLogic)
-    const { filtersDirty } = useValues(sessionsTableLogic)
+    const { filtersDirty, lastAppliedFilters } = useValues(sessionsTableLogic)
 
     if (displayedFilterCount === 0) {
         return null
@@ -152,6 +152,9 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
     const insightLink = `/insights?${encodedParams}#backTo=Sessions&backToURL=${
         window.location.pathname + window.location.search
     }`
+
+    console.log('DIRTY', filtersDirty)
+    console.log('DIRTY last applied', lastAppliedFilters)
 
     return (
         <Card>

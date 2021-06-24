@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import dayjs, { Dayjs } from 'dayjs'
 import equal from 'fast-deep-equal'
-import { isObjectEmpty, toParams } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from './sessionsTableLogicType'
 import { EventType, FilterType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
@@ -123,6 +123,11 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionReco
             (selectors) => [selectors.filters, selectors.lastAppliedFilters],
             (filters, lastFilters): boolean => !equal(filters, lastFilters),
         ],
+        defaultExpandedSessions: [
+            (selectors) => [selectors.sessions],
+            (sessions: SessionType[]): string[] =>
+                sessions.filter((s) => s?.matching_events?.length > 0).map((s) => s.global_session_id),
+        ],
     },
     listeners: ({ values, actions, props }) => ({
         fetchNextSessions: async (_, breakpoint) => {
@@ -142,6 +147,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionReco
         applyFilters: () => {
             actions.setPagination(null)
             actions.loadSessions(true)
+            console.log('LISTENER setlastfilter', values.filters)
             actions.setLastAppliedFilters(values.filters)
         },
         setFilters: () => {
@@ -175,21 +181,12 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionReco
 
             const { properties } = router.values.searchParams // eslint-disable-line
 
-            let params: Params = {
+            const params: Params = {
                 date: values.selectedDateURLparam !== today ? values.selectedDateURLparam : undefined,
                 properties: properties || undefined,
                 sessionRecordingId: values.sessionRecordingId || undefined,
                 filters: values.filters,
                 ...overrides,
-            }
-
-            // Keep highlight filters param in url if sessions table is on person page.
-            // Used for deeplinking specific sessions and events #4840.
-            if (router.values.location.pathname.indexOf('/person') > -1) {
-                const highlightFilters = !isObjectEmpty(router.values?.searchParams?.highlightFilters)
-                    ? { highlightFilters: router.values.searchParams.highlightFilters }
-                    : {}
-                params = { ...params, ...highlightFilters }
             }
 
             return [router.values.location.pathname, params, router.values.hashParams]
@@ -221,7 +218,11 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionReco
             }
 
             if (JSON.stringify(params.filters || {}) !== JSON.stringify(values.filters)) {
-                actions.setAllFilters(params.filters || [])
+                const nextFilters = params.filters || []
+
+                // set last applied filters on url driven filter change
+                actions.setAllFilters(nextFilters)
+
                 actions.applyFilters()
             }
         }

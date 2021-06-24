@@ -95,7 +95,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                     <PersonsTable
                         loading={!people?.people}
                         people={people.people}
-                        filters={filters}
+                        filters={[filters]}
                         backTo="Insights"
                     />
                     <div

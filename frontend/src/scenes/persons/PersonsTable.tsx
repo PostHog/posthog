@@ -5,7 +5,7 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { FilterType, PersonType } from '~/types'
+import { FilterType, PersonsTabType, PersonType } from '~/types'
 import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -23,8 +23,8 @@ interface PersonsTableType {
     loadPrevious?: () => void
     loadNext?: () => void
     allColumns?: boolean // whether to show all columns or not
-    backTo?: string
-    filters?: FilterType // contains context relevant to all items in table
+    backTo?: string // text to display next to `back to` arrow
+    filters?: FilterType[] // contains context relevant to all items in table
 }
 
 export function PersonsTable({
@@ -36,16 +36,17 @@ export function PersonsTable({
     loadNext,
     allColumns,
     backTo = 'Persons',
-    filters = {},
+    filters = [],
 }: PersonsTableType): JSX.Element {
     console.log('Person table', filters)
     const deepLinkToPerson = (person: PersonType): string => {
         return buildUrl(
             `/person/${encodeURIComponent(person.distinct_ids[0])}`,
-            { highlightFilters: { ...filters } },
+            { filters },
             {
                 backTo,
                 backToURL: window.location.pathname + window.location.search + window.location.hash,
+                activeTab: backTo === 'Insights' ? PersonsTabType.SESSIONS : PersonsTabType.EVENTS,
             }
         )
     }

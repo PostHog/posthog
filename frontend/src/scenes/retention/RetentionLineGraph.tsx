@@ -82,7 +82,7 @@ export function RetentionLineGraph({
                 ) : (
                     <p>Loading users...</p>
                 )}
-                <PersonsTable loading={peopleLoading} people={peopleData} filters={filters} backTo="Insights" />
+                <PersonsTable loading={peopleLoading} people={peopleData} filters={[filters]} backTo="Insights" />
                 <div
                     style={{
                         margin: '1rem',

@@ -1,5 +1,5 @@
 import React from 'react'
-import { useValues, useActions } from 'kea'
+import { useValues, useActions, BindLogic } from 'kea'
 import { Button, Spin, Space, Tooltip } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
@@ -61,6 +61,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         properties,
         sessionRecordingId,
         firstRecordingId,
+        defaultExpandedSessions,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters, applyFilters } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
@@ -177,6 +178,8 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         },
     ]
 
+    console.log('default expanded sessions', defaultExpandedSessions, sessions)
+
     return (
         <div className="events" data-attr="events-table">
             <Space className="mb-05">
@@ -193,7 +196,9 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             <SearchAllBox />
             <SessionsFilterBox selector="new" />
 
-            <EditFiltersPanel onSubmit={applyFilters} />
+            <BindLogic logic={sessionsTableLogic} props={{ personIds }}>
+                <EditFiltersPanel onSubmit={applyFilters} />
+            </BindLogic>
 
             <div className="text-right mb mt">
                 <Tooltip title={playAllCTA}>
@@ -216,7 +221,9 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 size="small"
                 rowKey="global_session_id"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName="cursor-pointer"
+                rowClassName={(session: SessionType) =>
+                    session?.matching_events?.length > 0 ? 'sessions-highlighted' : 'cursor-pointer'
+                }
                 dataSource={sessions}
                 columns={columns}
                 loading={sessionsLoading}
@@ -224,6 +231,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     expandedRowRender: function renderExpand(session) {
                         return <SessionDetails key={session.global_session_id} session={session} />
                     },
+                    expandedRowKeys: defaultExpandedSessions,
                     rowExpandable: () => true,
                     expandRowByClick: true,
                 }}
