@@ -8,8 +8,6 @@ import { PlusCircleOutlined } from '@ant-design/icons'
 import posthog from 'posthog-js'
 import { ActionFilter as ActionFilterType, FilterType, Optional } from '~/types'
 import { SortableContainer, SortableActionFilterRow } from './Sortable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -45,8 +43,6 @@ export function ActionFilter({
     customActions,
 }: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { localFilters } = useValues(logic)
     const { addFilter, setLocalFilters } = useActions(logic)
@@ -113,14 +109,12 @@ export function ActionFilter({
                 <div className="mt" style={{ display: 'flex', alignItems: 'center' }}>
                     {!singleFilter && (
                         <Button
-                            type={featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? 'dashed' : 'primary'}
+                            type="dashed"
                             onClick={() => addFilter()}
                             data-attr="add-action-event-button"
                             icon={<PlusCircleOutlined />}
                             disabled={disabled}
-                            className={`add-action-event-button${
-                                featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? ' new-ui' : ''
-                            }`}
+                            className="add-action-event-button"
                         >
                             {buttonCopy || 'Action or event'}
                         </Button>

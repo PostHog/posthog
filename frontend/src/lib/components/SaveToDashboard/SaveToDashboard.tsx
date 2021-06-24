@@ -57,7 +57,7 @@ export function SaveToDashboard({ item, displayComponent, tooltipOptions }: Prop
     }
 
     const innerContent = (
-        <span className="save-to-dashboard">
+        <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
             {openModal && (
                 <SaveToDashboardModal
                     closeModal={hideModal}
@@ -74,13 +74,7 @@ export function SaveToDashboard({ item, displayComponent, tooltipOptions }: Prop
                     {displayComponent}
                 </span>
             ) : (
-                <Button
-                    onClick={showModal}
-                    type="primary"
-                    data-attr="save-to-dashboard-button"
-                    onMouseEnter={showTooltip}
-                    onMouseLeave={hideTooltip}
-                >
+                <Button onClick={showModal} type="primary" onMouseEnter={showTooltip} onMouseLeave={hideTooltip}>
                     {fromItem ? 'Update Dashboard' : 'Add to dashboard'}
                 </Button>
             )}
