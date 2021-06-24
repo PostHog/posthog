@@ -104,21 +104,22 @@ export const dashboardsModel = kea<dashboardsModelType>({
             // NB! Kea-TypeGen assignes the type of the reducer to the abcSuccess actions.
             // This means we must get rid of the `| null` manually until it's fixed:
             // https://github.com/keajs/kea-typegen/issues/10
-            addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard!.id]: dashboard }),
-            restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard!.id]: dashboard }),
-            updateDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard!.id]: dashboard }),
-            setIsSharedDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard!.id]: dashboard }),
+            addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            updateDashboardSuccess: (state, { dashboard }) =>
+                dashboard ? { ...state, [dashboard.id]: dashboard } : state,
+            setIsSharedDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             deleteDashboardSuccess: (state, { dashboard }) => ({
                 ...state,
-                [dashboard!.id]: { ...state[dashboard!.id], deleted: true },
+                [dashboard.id]: { ...state[dashboard.id], deleted: true },
             }),
             delayedDeleteDashboard: (state, { id }) => {
                 // this gives us time to leave the /dashboard/:deleted_id page
                 const { [id]: _discard, ...rest } = state // eslint-disable-line
                 return rest
             },
-            pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard!.id]: dashboard }),
-            unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard!.id]: dashboard }),
+            pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
         },
         lastDashboardId: [
             null as null | number,
@@ -152,25 +153,25 @@ export const dashboardsModel = kea<dashboardsModelType>({
 
     listeners: ({ actions, values }) => ({
         addDashboardSuccess: ({ dashboard }) => {
-            toast(`Dashboard "${dashboard!.name}" created!`)
+            toast(`Dashboard "${dashboard.name}" created!`)
         },
 
         restoreDashboardSuccess: ({ dashboard }) => {
-            toast(`Dashboard "${dashboard!.name}" restored!`)
+            toast(`Dashboard "${dashboard.name}" restored!`)
             if (values.redirect) {
-                router.actions.push(`/dashboard/${dashboard!.id}`)
+                router.actions.push(`/dashboard/${dashboard.id}`)
             }
         },
 
         deleteDashboardSuccess: async ({ dashboard }) => {
             const toastId = toast(
                 <span>
-                    Dashboard "{dashboard!.name}" deleted!{' '}
+                    Dashboard "{dashboard.name}" deleted!{' '}
                     <a
                         href="#"
                         onClick={(e) => {
                             e.preventDefault()
-                            actions.restoreDashboard({ id: dashboard!.id, redirect: values.redirect })
+                            actions.restoreDashboard({ id: dashboard.id, redirect: values.redirect })
                             toast.dismiss(toastId)
                         }}
                     >
@@ -179,7 +180,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 </span>
             )
 
-            const { id } = dashboard!
+            const { id } = dashboard
             const nextDashboard = [...values.pinnedDashboards, ...values.dashboards].find(
                 (d) => d.id !== id && !d.deleted
             )
