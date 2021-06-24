@@ -9,6 +9,7 @@ import PropertyFilterButton from './PropertyFilterButton'
 import 'scenes/actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import { isFilledPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 interface FilterRowProps {
     item: AnyPropertyFilter
@@ -33,12 +34,11 @@ export const FilterRow = React.memo(function FilterRow({
 }: FilterRowProps) {
     const { remove } = useActions(propertyFilterLogic)
     const [open, setOpen] = useState(false)
-    const isEmptyProperty = !('key' in item) && Object.keys(item).length == 0
 
     const { key } = item
 
     const handleVisibleChange = (visible: boolean): void => {
-        if (!visible && !isEmptyProperty && !item.key) {
+        if (!visible && isFilledPropertyFilter(item) && !item.key) {
             remove(index)
         }
         setOpen(visible)
@@ -98,7 +98,7 @@ export const FilterRow = React.memo(function FilterRow({
                             />
                         }
                     >
-                        {!isEmptyProperty ? (
+                        {isFilledPropertyFilter(item) ? (
                             <PropertyFilterButton
                                 onClick={() => setOpen(!open)}
                                 item={item as PropertyFilterType /* not EmptyPropertyFilter */}

@@ -4,25 +4,8 @@ import { router } from 'kea-router'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 import { propertyFilterLogicType } from './propertyFilterLogicType'
-import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
-
-export function parseProperties(
-    input: AnyPropertyFilter[] | Record<string, string> | null | undefined
-): AnyPropertyFilter[] {
-    if (Array.isArray(input) || !input) {
-        return input || []
-    }
-    // Old style dict properties
-    return Object.entries(input).map(([inputKey, value]) => {
-        const [key, operator] = inputKey.split('__')
-        return {
-            key,
-            value,
-            operator: operator as PropertyOperator,
-            type: 'event',
-        }
-    })
-}
+import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter, PropertyFilterValue } from '~/types'
+import { isFilledPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 
 export const propertyFilterLogic = kea<propertyFilterLogicType>({
     props: {} as {
@@ -83,7 +66,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         },
         remove: () => actions.update(),
         update: () => {
-            const cleanedFilters = [...values.filters].filter((property) => 'key' in property) as PropertyFilter[]
+            const cleanedFilters = [...values.filters].filter(isFilledPropertyFilter)
 
             // If the last item has a key, we need to add a new empty filter so the button appears
             if ('key' in values.filters[values.filters.length - 1]) {
@@ -132,6 +115,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
 
     selectors: {
         filtersLoading: [() => [propertyDefinitionsModel.selectors.loaded], (loaded) => !loaded],
+        filledFilters: [(s) => [s.filters], (filters) => filters.filter(isFilledPropertyFilter)],
     },
 
     events: ({ actions }) => ({
