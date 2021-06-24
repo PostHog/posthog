@@ -64,7 +64,7 @@ class Entity(PropertyMixin):
         if self.math_property != other.math_property:
             return False
 
-        if frozenset(sorted(self.properties_to_dict().items())) != frozenset(
+        if json.dumps(sorted(self.properties_to_dict().items())) != json.dumps(
             sorted(other.properties_to_dict().items())
         ):
             return False
