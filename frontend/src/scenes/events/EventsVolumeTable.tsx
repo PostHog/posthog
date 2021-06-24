@@ -3,8 +3,9 @@ import { useValues } from 'kea'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { UsageDisabledWarning, VolumeTable } from './VolumeTable'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { UsageDisabledWarning } from './UsageDisabledWarning'
+import { VolumeTable } from './VolumeTable'
 
 export function EventsVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -22,7 +23,7 @@ export function EventsVolumeTable(): JSX.Element | null {
                     {preflight && !preflight?.is_event_property_usage_enabled ? (
                         <UsageDisabledWarning tab="Events Stats" />
                     ) : (
-                        eventDefinitions[0].volume_30_day === null && (
+                        (eventDefinitions.length === 0 || eventDefinitions[0].volume_30_day === null) && (
                             <>
                                 <Alert
                                     type="warning"

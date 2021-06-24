@@ -1,4 +1,4 @@
-import { Alert, Button, Input, Tooltip } from 'antd'
+import { Button, Input, Tooltip } from 'antd'
 import { InfoCircleOutlined, WarningOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import Table, { ColumnsType } from 'antd/lib/table'
 import Fuse from 'fuse.js'
@@ -7,13 +7,14 @@ import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
 import React, { useState, useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
-import { ProfilePicture } from '~/layout/navigation/TopNavigation'
-import { EventDefinition, EventOrPropType, PropertyDefinition, UserBasicType } from '~/types'
+import { EventDefinition, EventOrPropType, PropertyDefinition } from '~/types'
 import './VolumeTable.scss'
-import { definitionDrawerLogic } from './definitionDrawerLogic'
+import { definitionDrawerLogic } from './definitions/definitionDrawerLogic'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Owner } from './Owner'
+import { VolumeTableRecordDescription } from './definitions/VolumeTableRecordDescription'
 
 type EventTableType = 'event' | 'property'
 
@@ -34,40 +35,6 @@ const search = (sources: VolumeTableRecord[], searchQuery: string): VolumeTableR
         .search(searchQuery)
         .map((result) => result.item)
 }
-export function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
-    return (
-        <>
-            {user?.uuid ? (
-                <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-                    <ProfilePicture name={user.first_name} email={user.email} small={true} />
-                    <span style={{ paddingLeft: 8 }}>{user.first_name}</span>
-                </div>
-            ) : (
-                <span className="text-muted" style={{ fontStyle: 'italic' }}>
-                    No Owner
-                </span>
-            )}
-        </>
-    )
-}
-export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
-    return (
-        <Alert
-            type="info"
-            showIcon
-            message={`${tab} is not enabled for your instance.`}
-            description={
-                <>
-                    You will still see the list of events and properties, but usage information will be unavailable. If
-                    you want to enable event usage please set the follow environment variable:{' '}
-                    <pre style={{ display: 'inline' }}>ASYNC_EVENT_PROPERTY_USAGE=1</pre>. Please note, enabling this
-                    environment variable <b>may increase load considerably in your infrastructure</b>, particularly if
-                    you have a large volume of events.
-                </>
-            }
-        />
-    )
-}
 
 export function VolumeTable({
     type,
@@ -81,6 +48,7 @@ export function VolumeTable({
     const { user } = useValues(userLogic)
     const { openDrawer } = useActions(definitionDrawerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
     const hasTaxonomyFeatures =
         featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
         user?.organization?.available_features?.includes('ingestion_taxonomy')
@@ -103,9 +71,12 @@ export function VolumeTable({
                             ) : null}
                         </div>
                         {hasTaxonomyFeatures &&
-                            type === 'event' &&
                             (isPosthogEvent(record.eventOrProp.name) ? null : (
-                                <VolumeTableRecordDescription description={record.eventOrProp.description} />
+                                <VolumeTableRecordDescription
+                                    id={record.eventOrProp.id}
+                                    description={record.eventOrProp.description}
+                                    type={type}
+                                />
                             ))}
                         {record.warnings?.map((warning) => (
                             <Tooltip
@@ -181,7 +152,7 @@ export function VolumeTable({
                     ? (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1)
                     : (a.eventOrProp.query_usage_30_day || -1) - (b.eventOrProp.query_usage_30_day || -1),
         },
-        type === 'event' && hasTaxonomyFeatures
+        hasTaxonomyFeatures
             ? {
                   render: function Render(_, item) {
                       return (
@@ -216,7 +187,7 @@ export function VolumeTable({
                 }
             ) || []
         )
-    }, [])
+    }, [data])
 
     return (
         <>
@@ -237,25 +208,13 @@ export function VolumeTable({
                 rowKey={(item) => item.eventOrProp.name}
                 size="small"
                 style={{ marginBottom: '4rem' }}
-                pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(record) =>
-                    isPosthogEvent(record.eventOrProp.name)
-                        ? {}
-                        : { onClick: () => openDrawer(type, record.eventOrProp.id) }
+                    hasTaxonomyFeatures && !isPosthogEvent(record.eventOrProp.name)
+                        ? { onClick: () => openDrawer(type, record.eventOrProp.id), style: { cursor: 'pointer' } }
+                        : {}
                 }
             />
-        </>
-    )
-}
-
-export function VolumeTableRecordDescription({ description }: { description: string }): JSX.Element {
-    return (
-        <>
-            {description ? (
-                <div style={{ display: 'flex', maxWidth: 500 }}>{description}</div>
-            ) : (
-                <div className="text-muted">Click to add description</div>
-            )}
         </>
     )
 }

@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.clickhouse_funnel_trends import ClickhouseFunnelTrends
+from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
 from posthog.models.filters import Filter

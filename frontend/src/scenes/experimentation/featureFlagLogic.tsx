@@ -80,30 +80,27 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         ],
     },
     loaders: ({ values }) => ({
-        featureFlag: [
-            null,
-            {
-                loadFeatureFlag: async () => {
-                    if (values.featureFlagId && values.featureFlagId !== 'new') {
-                        return await api.get(`api/feature_flag/${values.featureFlagId}`)
-                    }
-                    return NEW_FLAG
-                },
-                saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
-                    if (!updatedFlag.id) {
-                        return await api.create('api/feature_flag', {
-                            ...updatedFlag,
-                            id: undefined,
-                        })
-                    } else {
-                        return await api.update(`api/feature_flag/${updatedFlag.id}`, {
-                            ...updatedFlag,
-                            id: undefined,
-                        })
-                    }
-                },
+        featureFlag: {
+            loadFeatureFlag: async () => {
+                if (values.featureFlagId && values.featureFlagId !== 'new') {
+                    return await api.get(`api/feature_flag/${values.featureFlagId}`)
+                }
+                return NEW_FLAG
             },
-        ],
+            saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
+                if (!updatedFlag.id) {
+                    return await api.create('api/feature_flag', {
+                        ...updatedFlag,
+                        id: undefined,
+                    })
+                } else {
+                    return await api.update(`api/feature_flag/${updatedFlag.id}`, {
+                        ...updatedFlag,
+                        id: undefined,
+                    })
+                }
+            },
+        },
     }),
     listeners: {
         saveFeatureFlagSuccess: () => {
