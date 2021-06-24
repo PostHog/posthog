@@ -4,7 +4,7 @@ import { Loading, humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import './FunnelViz.scss'
 import { funnelLogic } from './funnelLogic'
-import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, FUNNEL_VIZ, FUNNEL_BAR_VIZ } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
 import { router } from 'kea-router'
 import { IllustrationDanger } from 'lib/components/icons'
@@ -32,7 +32,8 @@ export function FunnelViz({
     const [{ fromItem }] = useState(router.values.hashParams)
     const { preflight } = useValues(preflightLogic)
 
-    function buildChart(): void {
+    function buildFlowChart(): void {
+        // Build and mount graph for default "flow" visualization
         if (!steps || steps.length === 0) {
             return
         }
@@ -61,6 +62,18 @@ export function FunnelViz({
         if (graph.container) {
             graph.container.appendChild(graph.graphContainer)
             graph.draw()
+        }
+    }
+
+    function buildChart(): void {
+        // Build chart only for the selected display view
+        switch (filters.display) {
+            case FUNNEL_BAR_VIZ:
+                return
+            case FUNNEL_VIZ:
+            case ACTIONS_LINE_GRAPH_LINEAR:
+            default:
+                return buildFlowChart()
         }
     }
 
