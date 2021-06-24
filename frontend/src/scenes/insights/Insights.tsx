@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { FUNNEL_VIZ, FEATURE_FLAGS, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE } from 'lib/constants'
+import { FUNNEL_VIZ, FEATURE_FLAGS, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FUNNEL_BAR_VIZ } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -396,10 +396,15 @@ export function Insights(): JSX.Element {
 }
 
 function FunnelInsight(): JSX.Element {
-    const { stepsWithCount, isValidFunnel, stepsWithCountLoading } = useValues(funnelLogic({}))
+    const {
+        stepsWithCount,
+        isValidFunnel,
+        stepsWithCountLoading,
+        filters: { display },
+    } = useValues(funnelLogic({}))
 
     return (
-        <div style={{ height: 300, position: 'relative' }}>
+        <div style={display === FUNNEL_BAR_VIZ ? {} : { height: 300, position: 'relative' }}>
             {stepsWithCountLoading && <Loading />}
             {isValidFunnel ? (
                 <FunnelViz steps={stepsWithCount} />
