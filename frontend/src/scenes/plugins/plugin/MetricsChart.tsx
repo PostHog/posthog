@@ -18,18 +18,16 @@ const baseFilters = {
 }
 
 export function MetricsChart({ plugin }: { plugin: PluginTypeWithConfig }): JSX.Element {
-    const eventFilters = Object.entries(plugin.metrics || {})
-        .filter((a) => a[0] !== 'myMetric')
-        .map(([metricName, math]) => {
-            return {
-                math: math as string,
-                id: '$plugin_metrics',
-                name: '$plugin_metrics',
-                type: 'events',
-                order: 0,
-                math_property: metricName,
-            }
-        })
+    const eventFilters = Object.entries(plugin.metrics || {}).map(([metricName, math]) => {
+        return {
+            math: math as string,
+            id: '$plugin_metrics',
+            name: '$plugin_metrics',
+            type: 'events',
+            order: 0,
+            math_property: metricName,
+        }
+    })
 
     const pluginNameFilter = { key: 'plugin_name', value: [plugin.name], operator: 'exact', type: 'event' }
     const pluginTagFilter = plugin.tag
