@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from dateutil.relativedelta import relativedelta
 from django.db import connection
@@ -7,13 +7,6 @@ from django.db import connection
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from posthog.models import EventDefinition, Person, Team
-
-# Scaffold test cases:
-# [ ] sequential 5 step funnels (1, 2, 3, 4, 5)
-# [ ] same user completes funnel steps out of order (1, 3, 2, 4, 5)
-# [ ] same user completes funnel steps out of order and finishes (1, 2, 3, 5, 4, 5)
-# [ ] users completes funnels in opposite order (5, 4, 3, 2, 1)
-
 
 UTC_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -83,13 +76,13 @@ class GenerateLocal:
         for i in range(1, step_one):
             create_event(uuid.uuid4(), "step one", self.team, f"user_{i}", start_date)
         for i in range(1, step_two):
-            create_event(uuid.uuid4(), "step two", self.team, f"user_{i}", start_date)
+            create_event(uuid.uuid4(), "step two", self.team, f"user_{i}", self._add_interval("days", 1, start_date))
         for i in range(1, step_three):
-            create_event(uuid.uuid4(), "step three", self.team, f"user_{i}", start_date)
+            create_event(uuid.uuid4(), "step three", self.team, f"user_{i}", self._add_interval("days", 2, start_date))
         for i in range(1, step_four):
-            create_event(uuid.uuid4(), "step four", self.team, f"user_{i}", start_date)
+            create_event(uuid.uuid4(), "step four", self.team, f"user_{i}", self._add_interval("days", 3, start_date))
         for i in range(1, step_five):
-            create_event(uuid.uuid4(), "step five", self.team, f"user_{i}", start_date)
+            create_event(uuid.uuid4(), "step five", self.team, f"user_{i}", self._add_interval("days", 4, start_date))
 
     def _insert_hours_events(self, start_date):
         self._case_correct_order("hours", "user_1", start_date)
