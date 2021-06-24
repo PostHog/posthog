@@ -395,6 +395,7 @@ export interface SessionType {
 export interface SessionTypeSessionRecording {
     id: string
     viewed: boolean
+    /** Length of recording in seconds */
     recording_duration: number
 }
 

@@ -133,13 +133,13 @@ def collect_matching_recordings(
         if matches(session, recording, filter, viewed):
             if isinstance(recording["duration"], datetime.timedelta):
                 # postgres
-                recording_duration = recording["duration"].seconds
+                recording_duration = recording["duration"].total_seconds()
             else:
                 # clickhouse
                 recording_duration = recording["duration"]
             yield {
                 "id": recording["session_id"],
-                "recording_duration": recording_duration,
+                "recording_duration": recording_duration or 0,
                 "viewed": recording["session_id"] in viewed,
             }
 
