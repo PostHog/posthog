@@ -73,7 +73,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             filter=self._filter, table="events.", team_id=self._team.pk
         )
         self.params.update(prop_filter_params)
-        steps = [self._build_step_query(entity, index) for index, entity in enumerate(self._filter.entities)]
+        steps = []
+        # [self._build_step_query(entity, index) for index, entity in enumerate(self._filter.entities)]
 
         format_properties = {
             "team_id": self._team.id,
@@ -90,18 +91,25 @@ class ClickhouseFunnelBase(ABC, Funnel):
         }
 
         query = self.get_query(format_properties)
-
+        print("I have params: ", self.params)
         return sync_execute(query, self.params)
 
-    def _get_inner_event_query(self) -> str:
-        event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query()
+    def _get_inner_event_query(self, entities=[], entity_name="events") -> str:
+        entities_to_use = self._filter.entities
+        if entities:
+            entities_to_use = entities
+
+        event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query(
+            entities_to_use, entity_name
+        )
+
         self.params.update(params)
-        steps_conditions = self._get_steps_conditions(length=len(self._filter.entities))
+        steps_conditions = self._get_steps_conditions(length=len(entities_to_use))
 
         all_step_cols: List[str] = []
-        for index, entity in enumerate(self._filter.entities):
-            step_cols = self._get_step_col(entity, index)
-            all_step_cols = [*all_step_cols, *step_cols]
+        for index, entity in enumerate(entities_to_use):
+            step_cols = self._get_step_col(entity, index, entity_name)
+            all_step_cols.extend(step_cols)
 
         steps = ", ".join(all_step_cols)
 
@@ -133,30 +141,31 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         return " OR ".join(step_conditions)
 
-    def _get_step_col(self, entity: Entity, index: int) -> List[str]:
+    def _get_step_col(self, entity: Entity, index: int, entity_name: str) -> List[str]:
         step_cols: List[str] = []
-        condition = self._build_step_query(entity, index)
+        condition = self._build_step_query(entity, index, entity_name)
         step_cols.append(f"if({condition}, 1, 0) as step_{index}")
         step_cols.append(f"if(step_{index} = 1, timestamp, null) as latest_{index}")
 
         return step_cols
 
-    def _build_step_query(self, entity: Entity, index: int) -> str:
+    def _build_step_query(self, entity: Entity, index: int, entity_name: str) -> str:
         filters = self._build_filters(entity, index)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             for action_step in action.steps.all():
-                self.params["events"].append(action_step.event)
-            action_query, action_params = format_action_filter(action, "step_{}".format(index))
+                self.params[entity_name].append(action_step.event)
+            action_query, action_params = format_action_filter(action, "{}_step_{}".format(entity_name, index))
             if action_query == "":
                 return ""
 
             self.params.update(action_params)
             content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
-            self.params["events"].append(entity.id)
-            self.params[f"event_{index}"] = entity.id
-            content_sql = f"event = %(event_{index})s {filters}"
+            self.params[entity_name].append(entity.id)
+            event_param_key = f"{entity_name}_event_{index}"
+            self.params[event_param_key] = entity.id
+            content_sql = f"event = %({event_param_key})s {filters}"
         return content_sql
 
     def _build_filters(self, entity: Entity, index: int) -> str:
