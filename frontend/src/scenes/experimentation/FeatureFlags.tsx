@@ -44,18 +44,10 @@ export function FeatureFlags(): JSX.Element {
                         style={{
                             display: 'flex',
                             alignItems: 'center',
-                            maxWidth: 150,
+                            maxWidth: 210,
                             width: 'auto',
                         }}
                     >
-                        <div
-                            style={{
-                                marginRight: 4,
-                                whiteSpace: 'break-spaces',
-                            }}
-                        >
-                            {featureFlag.key}
-                        </div>
                         <div onClick={(e) => e.stopPropagation()}>
                             <CopyToClipboardInline
                                 iconStyle={{ color: 'var(--primary)' }}
