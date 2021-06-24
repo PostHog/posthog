@@ -188,13 +188,13 @@ export function UnifiedPropertyFilter({ index, onComplete }: PropertyFilterInter
                     ?.map((cohort) => ({
                         name: cohort.name || '',
                         key: `cohort_${cohort.id}`,
-                        value: cohort.name,
+                        value: cohort.id,
                         cohort,
                     })) || [],
             renderInfo: CohortPropertiesInfo,
             type: 'cohort',
             key: 'cohorts',
-            getValue: (item) => item.name || '',
+            getValue: (item) => item.value || '',
             getLabel: (item) => item.name || '',
         },
     ]
@@ -253,10 +253,9 @@ export function UnifiedPropertyFilter({ index, onComplete }: PropertyFilterInter
                                 }
                                 setOpen(false)
                             }}
-                            onSelect={(itemType, _, name) => {
+                            onSelect={(itemType, val, name) => {
                                 if (itemType === 'cohort') {
-                                    const val = cohorts.find((c) => c.name === name)
-                                    setThisFilter('id', val?.id, operator, itemType)
+                                    setThisFilter('id', val, operator, itemType)
                                 } else {
                                     setThisFilter(name, undefined, operator, itemType)
                                 }

@@ -11,6 +11,7 @@ import { funnelCommandLogic } from './funnelCommandLogic'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { BaseTabProps } from 'scenes/insights/Insights'
 import { InsightTitle } from '../InsightTitle'
+import { AnyPropertyFilter, PropertyFilter } from '~/types'
 
 interface FunnelTabProps extends BaseTabProps {
     newUI: boolean
@@ -27,6 +28,18 @@ export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
     const onSubmit = (input: string): void => {
         saveFunnelInsight(input)
         closeModal()
+    }
+
+    const isValidPropertyFilter = (filter: AnyPropertyFilter): boolean => {
+        return Boolean(filter.key) && Boolean(filter.value)
+    }
+
+    const toNullishFilter = (filter: AnyPropertyFilter & { key: string; value: string }): PropertyFilter => {
+        return {
+            ...filter,
+            operator: filter.operator || null,
+            type: filter.type || '',
+        }
     }
 
     return (
@@ -56,11 +69,14 @@ export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
                 <PropertyFilters
                     pageKey={`EditFunnel-property`}
                     propertyFilters={filters.properties || []}
-                    onChange={(properties: Record<string, any>): void =>
+                    onChange={(anyProperties): void => {
+                        const properties = (anyProperties.filter(isValidPropertyFilter) as Array<
+                            AnyPropertyFilter & { key: string; value: string }
+                        >).map(toNullishFilter)
                         setFilters({
                             properties,
                         })
-                    }
+                    }}
                 />
                 <TestAccountFilter filters={filters} onChange={setFilters} />
                 <hr />
