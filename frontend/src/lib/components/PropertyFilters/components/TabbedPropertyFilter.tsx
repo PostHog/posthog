@@ -12,20 +12,21 @@ import { PropertySelect } from './PropertySelect'
 import { OperatorValueSelect } from './OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { PropertyOptionGroup } from './PropertySelect'
-import { PropertyOperator } from '~/types'
+import { PropertyFilterValue, PropertyOperator } from '~/types'
 import { PropertyFilterInternalProps } from './PropertyFilter'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 
 const { TabPane } = Tabs
 
 interface PropertyPaneProps {
     onComplete: CallableFunction
     setThisFilter: CallableFunction // TODO type this
-    propkey: string
-    value: string
-    operator: PropertyOperator
-    type: string
+    propkey?: string
+    value?: PropertyFilterValue
+    operator?: PropertyOperator | null
+    type?: string
     displayOperatorAndValue?: boolean
     selectProps: Partial<SelectGradientOverflowProps>
 }
@@ -79,8 +80,9 @@ function PropertyPaneContents({
                             ? null
                             : {
                                   value: propkey,
-                                  label:
-                                      keyMapping[type === 'element' ? 'element' : 'event'][propkey]?.label || propkey,
+                                  label: propkey
+                                      ? keyMapping[type === 'element' ? 'element' : 'event'][propkey]?.label || propkey
+                                      : undefined,
                               }
                     }
                     onChange={(newType, newValue) =>
@@ -129,7 +131,7 @@ function PropertyPaneContents({
 interface CohortPaneProps {
     onComplete: CallableFunction
     setThisFilter: CallableFunction // TODO: type this
-    value: string
+    value?: PropertyFilterValue
     displayOperatorAndValue?: boolean
     selectProps?: SelectGradientOverflowProps
 }
@@ -185,20 +187,15 @@ function CohortPaneContents({
     )
 }
 
-export function TabbedPropertyFilter({
-    index,
-    onComplete,
-    logic,
-    selectProps,
-}: PropertyFilterInternalProps): JSX.Element {
-    const { filters } = useValues(logic)
-    const { setFilter } = useActions(logic)
+export function TabbedPropertyFilter({ index, onComplete, selectProps }: PropertyFilterInternalProps): JSX.Element {
+    const { filters } = useValues(propertyFilterLogic)
+    const { setFilter } = useActions(propertyFilterLogic)
     const { key, value, operator, type } = filters[index]
     const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
 
-    const displayOperatorAndValue = key && type !== 'cohort'
+    const displayOperatorAndValue = !!key && type !== 'cohort'
 
-    const setThisFilter = (newKey: string, newValue: string, newOperator: string, newType: string): void => {
+    const setThisFilter = (newKey: string, newValue: string, newOperator: PropertyOperator, newType: string): void => {
         setFilter(index, newKey, newValue, newOperator, newType)
     }
 

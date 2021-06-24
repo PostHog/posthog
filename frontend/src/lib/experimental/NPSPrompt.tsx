@@ -9,7 +9,6 @@ import { npsLogicType } from './NPSPromptType'
 import posthog from 'posthog-js'
 import nps from './nps.svg'
 import { userLogic } from 'scenes/userLogic'
-import { UserType } from '~/types'
 import dayjs from 'dayjs'
 
 const NPS_APPEAR_TIMEOUT = 10000
@@ -24,7 +23,7 @@ interface NPSPayload {
     feedback_persona?: string
 }
 
-const npsLogic = kea<npsLogicType<NPSPayload, Step, UserType>>({
+const npsLogic = kea<npsLogicType<NPSPayload, Step>>({
     selectors: {
         featureFlagEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],
@@ -110,9 +109,9 @@ const npsLogic = kea<npsLogicType<NPSPayload, Step, UserType>>({
 
 /* Asks user for NPS-like score feedback (see product-internal#9 for details). To determine if the component should
 be shown to a user, we follow these rules:
-1. If the user has the appropriate feature flag active (this determines eligibility based on recent 
+1. If the user has the appropriate feature flag active (this determines eligibility based on recent
     activity [e.g. having discovered learnings recently], ...).
-2. If the user hasn't filled out the form already (based on local storage). For a persistent store we use the `nps_2016` user property, 
+2. If the user hasn't filled out the form already (based on local storage). For a persistent store we use the `nps_2016` user property,
     which excludes a user from the feature flag.
 */
 export function NPSPrompt(): JSX.Element | null {

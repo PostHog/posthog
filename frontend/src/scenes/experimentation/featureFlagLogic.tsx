@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import React from 'react'
 import { featureFlagLogicType } from './featureFlagLogicType'
-import { FeatureFlagType, PropertyFilter } from '~/types'
+import { AnyPropertyFilter, FeatureFlagType } from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
@@ -24,7 +24,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         setFeatureFlagId: (id) => ({ id }),
         addMatchGroup: true,
         removeMatchGroup: (index: number) => ({ index }),
-        updateMatchGroup: (index: number, newRolloutPercentage?: number | null, newProperties?: PropertyFilter[]) => ({
+        updateMatchGroup: (
+            index: number,
+            newRolloutPercentage?: number | null,
+            newProperties?: AnyPropertyFilter[]
+        ) => ({
             index,
             newRolloutPercentage,
             newProperties,
@@ -76,30 +80,27 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         ],
     },
     loaders: ({ values }) => ({
-        featureFlag: [
-            null,
-            {
-                loadFeatureFlag: async () => {
-                    if (values.featureFlagId && values.featureFlagId !== 'new') {
-                        return await api.get(`api/feature_flag/${values.featureFlagId}`)
-                    }
-                    return NEW_FLAG
-                },
-                saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
-                    if (!updatedFlag.id) {
-                        return await api.create('api/feature_flag', {
-                            ...updatedFlag,
-                            id: undefined,
-                        })
-                    } else {
-                        return await api.update(`api/feature_flag/${updatedFlag.id}`, {
-                            ...updatedFlag,
-                            id: undefined,
-                        })
-                    }
-                },
+        featureFlag: {
+            loadFeatureFlag: async () => {
+                if (values.featureFlagId && values.featureFlagId !== 'new') {
+                    return await api.get(`api/feature_flag/${values.featureFlagId}`)
+                }
+                return NEW_FLAG
             },
-        ],
+            saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
+                if (!updatedFlag.id) {
+                    return await api.create('api/feature_flag', {
+                        ...updatedFlag,
+                        id: undefined,
+                    })
+                } else {
+                    return await api.update(`api/feature_flag/${updatedFlag.id}`, {
+                        ...updatedFlag,
+                        id: undefined,
+                    })
+                }
+            },
+        },
     }),
     listeners: {
         saveFeatureFlagSuccess: () => {

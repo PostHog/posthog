@@ -11,11 +11,13 @@ import { BaseTabProps } from '../Insights'
 import { InsightTitle } from './InsightTitle'
 import { InsightActionBar } from './InsightActionBar'
 import { PathType } from '~/types'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 
 export function PathTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsModel)
     const { filter, filtersLoading } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
+    const { filledFilters: properties } = useValues(propertyFilterLogic({ pageKey: 'insight-path' }))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
@@ -24,7 +26,13 @@ export function PathTabHorizontal({ annotationsToCreate }: BaseTabProps): JSX.El
         <Row gutter={16}>
             <Col md={16} xs={24}>
                 <InsightTitle
-                    actionBar={<InsightActionBar filters={filter} annotations={annotationsToCreate} insight="PATHS" />}
+                    actionBar={
+                        <InsightActionBar
+                            filters={{ ...filter, properties }}
+                            annotations={annotationsToCreate}
+                            insight="PATHS"
+                        />
+                    }
                 />
                 <Row gutter={8} align="middle" className="mt">
                     <Col>Showing paths from</Col>

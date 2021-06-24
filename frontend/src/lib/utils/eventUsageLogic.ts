@@ -29,6 +29,8 @@ export enum DashboardEventSource {
     Toast = 'toast',
     Browser = 'browser',
     AddDescription = 'add_description',
+    MainNavigation = 'main_nav',
+    DashboardsList = 'dashboards_list',
 }
 
 export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
@@ -76,7 +78,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             dateFrom,
             dateTo,
         }),
-        reportDashboardPinToggled: (pinned: boolean, source: 'more_dropdown' | 'main_nav' | 'dashboards_list') => ({
+        reportDashboardPinToggled: (pinned: boolean, source: DashboardEventSource) => ({
             pinned,
             source,
         }),

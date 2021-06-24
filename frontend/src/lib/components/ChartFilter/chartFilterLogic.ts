@@ -1,23 +1,24 @@
 import { kea } from 'kea'
-import { ACTIONS_TABLE, FUNNEL_VIZ } from '~/lib/constants'
 import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { chartFilterLogicType } from './chartFilterLogicType'
+import { ChartDisplayType } from '~/types'
 
-export const chartFilterLogic = kea({
+export const chartFilterLogic = kea<chartFilterLogicType>({
     actions: () => ({
-        setChartFilter: (filter) => ({ filter }),
+        setChartFilter: (filter: ChartDisplayType) => ({ filter }),
     }),
-    reducers: ({ actions }) => ({
+    reducers: {
         chartFilter: [
-            false,
+            null as null | ChartDisplayType,
             {
-                [actions.setChartFilter]: (_, { filter }) => filter,
+                setChartFilter: (_, { filter }) => filter,
             },
         ],
-    }),
-    listeners: ({ actions, values }) => ({
-        [actions.setChartFilter]: () => {
+    },
+    listeners: ({ values }) => ({
+        setChartFilter: () => {
             const { display, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
 
@@ -29,13 +30,13 @@ export const chartFilterLogic = kea({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, { display, insight }) => {
+        '/insights': (_: Record<string, string>, { display, insight }: Record<string, any>) => {
             if (display) {
                 actions.setChartFilter(display)
             } else if (insight === ViewType.RETENTION) {
-                actions.setChartFilter(ACTIONS_TABLE)
+                actions.setChartFilter(ChartDisplayType.ActionsTable)
             } else if (insight === ViewType.FUNNELS) {
-                actions.setChartFilter(FUNNEL_VIZ)
+                actions.setChartFilter(ChartDisplayType.FunnelViz)
             }
         },
     }),
