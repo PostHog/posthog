@@ -14,7 +14,7 @@ export function SeriesLetter({ hasBreakdown, seriesIndex, seriesColor }: SeriesL
 
     return (
         <span
-            className="graph-series-letter"
+            className="graph-series-glyph"
             style={
                 !hasBreakdown
                     ? {
