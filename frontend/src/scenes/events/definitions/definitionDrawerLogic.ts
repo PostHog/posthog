@@ -2,42 +2,91 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { definitionDrawerLogicType } from './definitionDrawerLogicType'
 import { IndexedTrendResult } from 'scenes/trends/trendsLogic'
-import { EventDefinition, EventFormattedType, EventOrPropType } from '~/types'
+import { EventDefinition, EventOrPropType, EventType, PropertyDefinition, UserBasicType } from '~/types'
 import { errorToast, toParams, uniqueBy } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { valueType } from 'antd/lib/statistic/utils'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
     actions: () => ({
         openDrawer: (type: string, id: string) => ({ type, id }),
-        setType: (type: string) => ({ type }),
-        setDefinition: (definition: EventOrPropType) => ({ definition }),
-        updateDefinition: (payload: Partial<EventOrPropType>) => ({ payload }),
-        saveNewTag: (tag: string) => ({ tag }),
-        deleteTag: (tag: string) => ({ tag }),
-        setDefinitionLoading: (loading: boolean) => ({ loading }),
-        changeOwner: (ownerId: valueType) => ({ ownerId }),
+        setDrawerType: (type: string) => ({ type }),
         setDescription: (description: string) => ({ description }),
-        setDescriptionEditing: (editing: boolean) => ({ editing }),
+        setNewTag: (tag: string) => ({ tag }),
+        deleteTag: (tag: string) => ({ tag }),
+        changeOwner: (owner: UserBasicType) => ({ owner }),
+        setDefinition: (definition: Partial<EventOrPropType>) => ({ definition }),
+        setNewEventPropertyTag: (tag: string, currentTags?: string[], id?: string) => ({ tag, currentTags, id }),
+        deleteEventPropertyTag: (tag: string, currentTags?: string[], id?: string) => ({ tag, currentTags, id }),
+        setEventPropertyDescription: (description: string, id: string) => ({ description, id }),
+        setEventPropertyDefinition: (propertyDefinition: Partial<PropertyDefinition>, id?: string) => ({
+            propertyDefinition,
+            id,
+        }),
+        setEventPropertyDefinitionUpdateList: (id?: string) => ({ id }),
+        closeDrawer: true,
+        setTagLoading: (loading: boolean) => ({ loading }),
+        saveAll: true,
         setGraphResults: (results: any) => ({ results }),
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
-        closeDrawer: true,
-        cancelDescription: true,
-        saveDescription: true,
     }),
-    loaders: () => ({
-        eventsSnippet: [
-            [] as EventFormattedType[],
+    loaders: ({ actions, values }) => ({
+        definition: [
+            null as EventOrPropType | null,
             {
-                loadEventsSnippet: async (definition: EventOrPropType) => {
-                    const urlParams = toParams({
-                        properties: {},
-                        ...{ event: definition.name },
+                loadDefinition: async ({ type, id }) => {
+                    const definition = await api.get(`api/projects/@current/${type}_definitions/${id}`)
+                    return definition
+                },
+                saveDefinition: async ({ definition, type }) => {
+                    if (type === 'event') {
+                        definition.owner = definition.owner.user?.id || null
+                        definition.description = values.description
+                    }
+                    if (type === 'property' && values.type === 'property') {
+                        definition.description = values.description
+                    }
+                    const updatedDefinition = await api.update(
+                        `api/projects/@current/${type}_definitions/${definition.id}`,
+                        definition
+                    )
+                    actions.saveDefinitionSuccess(updatedDefinition)
+                    return updatedDefinition
+                },
+            },
+        ],
+        eventsSnippet: [
+            [] as EventType[],
+            {
+                loadEventsSnippet: async (definition: EventOrPropType | null) => {
+                    const properties =
+                        values.type === 'property'
+                            ? [{ key: definition?.name, value: 'is_set', operator: 'is_set', type: 'event' }]
+                            : {}
+                    const event = values.type === 'event' ? definition?.name : null
+                    const eventsParams = toParams({
+                        properties: properties,
+                        ...{ event },
                         orderBy: ['-timestamp'],
                         limit: 5,
                     })
-                    const events = await api.get(`api/event/?${urlParams}`)
+                    const events = await api.get(`api/event/?${eventsParams}`)
+                    if (values.type === 'property') {
+                        actions.loadEventsSnippetSuccess(events.results)
+                    }
                     return events.results
+                },
+            },
+        ],
+        eventPropertiesDefinitions: [
+            [] as PropertyDefinition[],
+            {
+                loadEventPropertiesDefinitions: async (propertyNames) => {
+                    const propertyDefinitions = await api.get(
+                        `api/projects/@current/property_definitions/?properties=${propertyNames}`
+                    )
+                    return propertyDefinitions.results
                 },
             },
         ],
@@ -50,34 +99,50 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
                 closeDrawer: () => false,
             },
         ],
-        definition: [
-            null as EventOrPropType | null,
-            {
-                setDefinition: (_, { definition }) => definition,
-            },
-        ],
         description: [
             '',
             {
                 setDescription: (_, { description }) => description,
             },
         ],
+        definition: [
+            null as EventOrPropType | null,
+            {
+                setDefinition: (state, { definition }) => {
+                    return { ...state, ...definition } as EventOrPropType
+                },
+            },
+        ],
+        tagLoading: [
+            false,
+            {
+                setTagLoading: (_, { loading }) => loading,
+            },
+        ],
         type: [
             '',
             {
-                setType: (_, { type }) => type,
+                setDrawerType: (_, { type }) => type,
             },
         ],
-        editing: [
-            false,
+        eventPropertiesDefinitions: [
+            [] as PropertyDefinition[],
             {
-                setDescriptionEditing: (_, { editing }) => editing,
+                setEventPropertyDefinition: (state, { propertyDefinition, id }) => {
+                    const newDefinitions = state.map((p) => (p.id === id ? { ...p, ...propertyDefinition } : p))
+                    return newDefinitions
+                },
             },
         ],
-        definitionLoading: [
-            false,
+        editedEventPropertyDefinitions: [
+            [] as string[],
             {
-                setDefinitionLoading: (_, { loading }) => loading,
+                setEventPropertyDefinitionUpdateList: (state, { id }) => {
+                    if (id && !state.includes(id)) {
+                        return [...state, id]
+                    }
+                    return [...state]
+                },
             },
         ],
         graphResults: [
@@ -99,53 +164,94 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
     selectors: () => ({
         eventDefinitionTags: [
             () => [eventDefinitionsModel.selectors.eventDefinitions],
-            (definitions: EventDefinition[]): string[] => {
-                const allTags = definitions
-                    .flatMap(({ tags }) => tags)
-                    .filter((a) => typeof a !== 'undefined') as string[]
+            (definitions): string[] => {
+                const allTags = definitions.flatMap(({ tags }) => tags).filter((a) => !!a) as string[]
+                return uniqueBy(allTags, (item) => item).sort()
+            },
+        ],
+        eventPropertiesDefinitionTags: [
+            (selectors) => [selectors.eventPropertiesDefinitions],
+            (properties): string[] => {
+                const allTags = properties.flatMap(({ tags }) => tags).filter((a) => !!a) as string[]
+                return uniqueBy(allTags, (item) => item).sort()
+            },
+        ],
+        propertyDefinitionTags: [
+            () => [propertyDefinitionsModel.selectors.propertyDefinitions],
+            (definitions): string[] => {
+                const allTags = definitions.flatMap(({ tags }) => tags).filter((a) => !!a) as string[]
                 return uniqueBy(allTags, (item) => item).sort()
             },
         ],
     }),
     listeners: ({ actions, values }) => ({
-        openDrawer: async ({ type, id }) => {
-            const definitionType = type === 'event' ? 'event_definitions' : 'property_definitions'
-            actions.setType(definitionType)
-            const response = await api.get(`api/projects/@current/${definitionType}/${id}`)
-            actions.setDefinition(response)
-            actions.setDescription(response.description)
-            actions.loadEventsSnippet(response)
+        openDrawer: ({ type, id }) => {
+            actions.setDrawerType(type)
+            actions.loadDefinition({ type, id })
         },
-        saveNewTag: ({ tag }) => {
+        loadDefinitionSuccess: ({ definition }) => {
+            actions.loadEventsSnippet(definition)
+            actions.setDescription(definition?.description || '')
+        },
+        loadEventsSnippetSuccess: ({ eventsSnippet }) => {
+            const propertyNames = Object.keys(eventsSnippet[0].properties).filter((key) => !keyMapping.event[key])
+            actions.loadEventPropertiesDefinitions(propertyNames)
+        },
+        saveDefinitionSuccess: ({ definition }) => {
+            if (values.type === 'event') {
+                eventDefinitionsModel.actions.updateEventDefinition(definition as EventDefinition)
+            } else {
+                propertyDefinitionsModel.actions.updatePropertyDefinition(definition as PropertyDefinition)
+            }
+        },
+        setNewTag: async ({ tag }, breakpoint) => {
+            actions.setTagLoading(true)
             if (values.definition?.tags?.includes(tag)) {
                 errorToast('Oops! This tag is already set', 'This event already includes the proposed tag.')
                 return
             }
-            const currentTags = values.definition?.tags || []
-            actions.updateDefinition({ tags: [...currentTags, tag] })
+            const currentTags = values.definition?.tags ? [...values.definition.tags, tag] : [tag]
+            actions.setDefinition({ tags: currentTags })
+            await breakpoint(100)
+            actions.setTagLoading(false)
         },
         deleteTag: async ({ tag }, breakpoint) => {
             await breakpoint(100)
             const tags = values.definition?.tags?.filter((_tag: string) => _tag !== tag) || []
-            actions.updateDefinition({ tags })
+            actions.setDefinition({ tags })
         },
-        changeOwner: ({ ownerId }) => {
-            actions.updateDefinition({ owner: ownerId })
+        changeOwner: ({ owner }) => {
+            actions.setDefinition({ owner })
         },
-        cancelDescription: () => {
-            actions.setDescription(values.definition?.description || '')
-            actions.setDescriptionEditing(false)
+        setNewEventPropertyTag: async ({ tag, currentTags, id }, breakpoint) => {
+            actions.setTagLoading(true)
+            if (currentTags?.includes(tag)) {
+                errorToast('Oops! This tag is already set', 'This event already includes the proposed tag.')
+                return
+            }
+            const tags = currentTags ? [...currentTags, tag] : []
+            await breakpoint(100)
+            actions.setTagLoading(false)
+            actions.setEventPropertyDefinitionUpdateList(id)
+            actions.setEventPropertyDefinition({ tags }, id)
         },
-        saveDescription: () => {
-            actions.setDescriptionEditing(false)
-            actions.updateDefinition({ description: values.description })
+        deleteEventPropertyTag: async ({ tag, currentTags, id }, breakpoint) => {
+            await breakpoint(100)
+            const tags = currentTags?.filter((_tag: string) => _tag !== tag)
+            actions.setEventPropertyDefinitionUpdateList(id)
+            actions.setEventPropertyDefinition({ tags }, id)
         },
-        updateDefinition: async ({ payload }) => {
-            actions.setDefinitionLoading(true)
-            const response = await api.update(`api/projects/@current/${values.type}/${values.definition?.id}/`, payload)
-            actions.setDefinition(response)
-            actions.setDefinitionLoading(false)
-            eventDefinitionsModel.actions.setEventDefinitions(response)
+        setEventPropertyDescription: ({ description, id }) => {
+            actions.setEventPropertyDefinition({ description }, id)
+            actions.setEventPropertyDefinitionUpdateList(id)
+        },
+        saveAll: () => {
+            actions.saveDefinition({ definition: { ...values.definition }, type: values.type })
+            values.editedEventPropertyDefinitions.forEach((id) => {
+                const property = values.eventPropertiesDefinitions.find((prop) => prop.id === id)
+                actions.saveDefinition({ definition: { ...property }, type: 'property' })
+            })
+            actions.closeDrawer()
         },
     }),
 })

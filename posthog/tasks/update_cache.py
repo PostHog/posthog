@@ -19,6 +19,7 @@ from posthog.constants import (
     INSIGHT_SESSIONS,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
+    TRENDS_LINEAR,
     TRENDS_STICKINESS,
 )
 from posthog.decorators import CacheType
@@ -151,7 +152,10 @@ def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, 
     dashboard_items.update(refreshing=True)
 
     if is_clickhouse_enabled():
-        insight_class = import_from("ee.clickhouse.queries.clickhouse_funnel", "ClickhouseFunnel")
+        if filter.display == TRENDS_LINEAR:
+            insight_class = import_from("ee.clickhouse.queries.funnels.funnel_trends", "ClickhouseFunnelTrends")
+        else:
+            insight_class = import_from("ee.clickhouse.queries.funnels.funnel", "ClickhouseFunnel")
     else:
         insight_class = import_from("posthog.queries.funnel", "Funnel")
 

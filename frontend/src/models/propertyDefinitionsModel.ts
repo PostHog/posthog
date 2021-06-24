@@ -16,6 +16,9 @@ interface PropertyDefinitionStorage {
 export const propertyDefinitionsModel = kea<
     propertyDefinitionsModelType<PropertyDefinitionStorage, PropertySelectOption>
 >({
+    actions: () => ({
+        updatePropertyDefinition: (property: PropertyDefinition) => ({ property }),
+    }),
     loaders: ({ values }) => ({
         propertyStorage: [
             { results: [], next: null, count: 0 } as PropertyDefinitionStorage,
@@ -34,6 +37,18 @@ export const propertyDefinitionsModel = kea<
                         next: propertyStorage.next,
                     }
                 },
+            },
+        ],
+    }),
+    reducers: () => ({
+        propertyStorage: [
+            { results: [], next: null, count: 0 } as PropertyDefinitionStorage,
+            {
+                updatePropertyDefinition: (state, { property }) => ({
+                    count: state.count,
+                    results: state.results.map((p) => (property.id === p.id ? property : p)),
+                    next: state.next,
+                }),
             },
         ],
     }),
