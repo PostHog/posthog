@@ -314,7 +314,6 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
 def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:
     events: Union[EventManager, QuerySet] = Event.objects.none()
-    print("filter", filter, entity, team, filter.session)
     if filter.session:
         events = Event.objects.filter(team=team).filter(base.filter_events(team.pk, filter)).add_person_id(team.pk)
     else:
