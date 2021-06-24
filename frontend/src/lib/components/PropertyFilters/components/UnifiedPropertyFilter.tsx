@@ -233,7 +233,13 @@ export function UnifiedPropertyFilter({ index, onComplete }: PropertyFilterInter
                         data-attr={'property-select-toggle-' + index}
                     >
                         <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                            {key ? <PropertyKeyInfo value={key} /> : 'Add filter'}
+                            {key ? (
+                                <PropertyKeyInfo
+                                    value={type === 'cohort' ? cohorts?.find((c) => c.id === value)?.name || key : key}
+                                />
+                            ) : (
+                                'Add filter'
+                            )}
                         </span>
                         {key && <DownOutlined style={{ fontSize: 10 }} />}
                     </Button>
@@ -248,7 +254,12 @@ export function UnifiedPropertyFilter({ index, onComplete }: PropertyFilterInter
                                 setOpen(false)
                             }}
                             onSelect={(itemType, _, name) => {
-                                setThisFilter(name, undefined, operator, itemType)
+                                if (itemType === 'cohort') {
+                                    const val = cohorts.find((c) => c.name === name)
+                                    setThisFilter('id', val?.id, operator, itemType)
+                                } else {
+                                    setThisFilter(name, undefined, operator, itemType)
+                                }
                                 setOpen(false)
                             }}
                             items={selectBoxItems}
