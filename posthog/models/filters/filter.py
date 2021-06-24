@@ -62,7 +62,7 @@ class Filter(
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
         if request:
-            properties = {}
+            properties = data.get("properties", {})
             if request.GET.get(PROPERTIES):
                 try:
                     properties = json.loads(request.GET[PROPERTIES])
