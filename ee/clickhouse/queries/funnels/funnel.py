@@ -70,7 +70,7 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
                 cols.append(f"latest_{i}")
             else:
                 duplicate_event = 0
-                if i > 0 and self._filter.entities[i].id == self._filter.entities[i - 1].id:
+                if i > 0 and self._filter.entities[i].equals(self._filter.entities[i - 1]):
                     duplicate_event = 1
                 cols.append(
                     f"min(latest_{i}) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
