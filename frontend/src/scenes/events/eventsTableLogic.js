@@ -181,7 +181,6 @@ export const eventsTableLogic = kea({
 
     actionToUrl: ({ values }) => ({
         setProperties: () => {
-            console.log('eventstable url', window.location.hash)
             return [
                 router.values.location.pathname,
                 {

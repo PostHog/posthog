@@ -371,8 +371,6 @@ def calculate_people(team: Team, events: QuerySet, filter: Filter, use_offset: b
         id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],
     )
 
-    print("people", people, events)
-
     people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return people
 

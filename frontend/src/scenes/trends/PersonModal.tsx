@@ -24,8 +24,6 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
     const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    console.log('people', people, filters, peopleModalURL)
-
     const title =
         filters.shown_as === 'Stickiness'
             ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`

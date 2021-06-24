@@ -282,7 +282,6 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         filter = SessionsFilter(request=request)
 
         sessions, pagination = SessionsList.run(filter=filter, team=self.team)
-        print("sessions", sessions, pagination)
         return Response({"result": sessions, "pagination": pagination})
 
     @action(methods=["GET"], detail=False)

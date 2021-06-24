@@ -178,8 +178,6 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         },
     ]
 
-    console.log('default expanded sessions', defaultExpandedSessions, sessions)
-
     return (
         <div className="events" data-attr="events-table">
             <Space className="mb-05">

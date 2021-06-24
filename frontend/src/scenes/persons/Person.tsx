@@ -30,7 +30,6 @@ export function Person(): JSX.Element {
     const { person, personLoading, deletedPersonLoading, hasNewKeys, activeTab } = useValues(personsLogic)
     const { deletePerson, setPerson, editProperty, navigateToTab } = useActions(personsLogic)
 
-    console.log('ACTIVE tab', activeTab)
     const ids = (
         <Menu>
             {person?.distinct_ids.map((distinct_id: string) => (

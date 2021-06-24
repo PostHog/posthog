@@ -23,7 +23,7 @@ interface PersonsTableType {
     loadPrevious?: () => void
     loadNext?: () => void
     allColumns?: boolean // whether to show all columns or not
-    backTo?: string // text to display next to `back to` arrow
+    backTo?: string // text to display next to `back to` arrow. if "Insights," deep link to Persons > Sessions
     filters?: FilterType[] // contains context relevant to all items in table
 }
 
@@ -38,9 +38,8 @@ export function PersonsTable({
     backTo = 'Persons',
     filters = [],
 }: PersonsTableType): JSX.Element {
-    console.log('Person table', filters)
-    const deepLinkToPerson = (person: PersonType): string => {
-        return buildUrl(
+    const deepLinkToPerson = (person: PersonType): string =>
+        buildUrl(
             `/person/${encodeURIComponent(person.distinct_ids[0])}`,
             { filters },
             {
@@ -49,7 +48,6 @@ export function PersonsTable({
                 activeTab: backTo === 'Insights' ? PersonsTabType.SESSIONS : PersonsTabType.EVENTS,
             }
         )
-    }
 
     const topRef = useRef<HTMLSpanElement>(null)
 

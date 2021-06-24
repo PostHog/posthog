@@ -4,7 +4,7 @@ import dayjs, { Dayjs } from 'dayjs'
 import equal from 'fast-deep-equal'
 import { toParams } from 'lib/utils'
 import { sessionsTableLogicType } from './sessionsTableLogicType'
-import { EventType, FilterType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
+import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 
@@ -15,7 +15,6 @@ interface Params {
     properties?: any
     sessionRecordingId?: SessionRecordingId
     filters?: Array<SessionsPropertyFilter>
-    highlightFilters?: Partial<FilterType>
 }
 
 export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionRecordingId>>({
@@ -147,7 +146,6 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionReco
         applyFilters: () => {
             actions.setPagination(null)
             actions.loadSessions(true)
-            console.log('LISTENER setlastfilter', values.filters)
             actions.setLastAppliedFilters(values.filters)
         },
         setFilters: () => {

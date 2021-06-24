@@ -20,7 +20,6 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     },
     actions: {
         setListFilters: (payload) => ({ payload }),
-        setHighlightFilters: (payload) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         setHasNewKeys: true,
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
@@ -43,12 +42,6 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             PersonsTabType.EVENTS as PersonsTabType,
             {
                 navigateToTab: (_, { tab }) => tab,
-            },
-        ],
-        highlightFilters: [
-            {},
-            {
-                setHighlightFilters: (state, { payload }) => ({ ...state, ...payload }),
             },
         ],
     },
@@ -215,14 +208,11 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 _: string
             },
             _searchParams: Record<string, string>,
-            { activeTab, highlightFilters }: Record<string, any>
+            { activeTab }: Record<string, any>
         ) => {
             if (activeTab && values.activeTab !== activeTab) {
-                console.log('set active tab to', activeTab)
                 actions.navigateToTab(activeTab as PersonsTabType)
             }
-            console.log('highlights', highlightFilters, activeTab, values.activeTab)
-            // actions.setHighlights(sessions, events, recordings)
             actions.loadPerson(_) // underscore contains the wildcard
         },
     }),
