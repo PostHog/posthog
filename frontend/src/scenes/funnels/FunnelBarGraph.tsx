@@ -90,9 +90,13 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
     const steps = stepsParam.sort((a, b) => a.order - b.order)
     const referenceStep = steps[0] // Compare values to first step, i.e. total
 
+    function calcPercentage(numerator: number, denominator: number): number {
+        return (numerator / denominator) * 100 || 0
+    }
+
     return layout === 'horizontal' ? (
         <div>
-            {steps.map((step) => (
+            {steps.map((step, i) => (
                 <section key={step.order} className="funnel-step">
                     <header>
                         <div className="funnel-step-title">
@@ -111,9 +115,21 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                     </header>
                     <Bar
                         order={step.order}
-                        percentage={(step.count / referenceStep.count) * 100 || 0}
+                        percentage={calcPercentage(step.count, referenceStep.count)}
                         name={step.name}
                     />
+                    {step.order !== 0 && steps[i - 1].count > step.count && (
+                        <footer>
+                            <div className="funnel-step-metadata">
+                                <ValueInspectorButton icon={<UserOutlined /> /* TODO */} onClick={() => {}}>
+                                    {steps[i - 1].count - step.count} dropped off
+                                </ValueInspectorButton>
+                                <span>
+                                    ({100 - calcPercentage(step.count, steps[i - 1].count)}% from previous step)
+                                </span>
+                            </div>
+                        </footer>
+                    )}
                 </section>
             ))}
         </div>
