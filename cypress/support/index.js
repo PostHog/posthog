@@ -42,7 +42,3 @@ afterEach(() => {
         unmount()
     }
 })
-
-Cypress.on('uncaught:exception', () => {
-    return false
-})
