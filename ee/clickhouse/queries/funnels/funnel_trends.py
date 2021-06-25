@@ -1,5 +1,5 @@
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, cast
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Tuple, Union, cast
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -146,7 +146,6 @@ class ClickhouseFunnelTrendsNew(ClickhouseFunnelNew):
 
     def get_query(self, format_properties) -> str:
         breakdown_prop = self._get_breakdown_select_prop()  # TODO: allow breakdown
-
         steps_per_person_query = self._get_steps_per_person_query()
         num_intervals, seconds_in_interval, round_interval = get_time_diff(
             self._filter.interval or "day", self._filter.date_from, self._filter.date_to, team_id=self._team.pk
@@ -162,27 +161,27 @@ class ClickhouseFunnelTrendsNew(ClickhouseFunnelNew):
         query = f"""
             SELECT
                 {interval_method}(toDateTime('{self._filter.date_from.strftime(TIMESTAMP_FORMAT)}') + number * {seconds_in_interval}) AS period,
-                total,
-                completed,
-                percentage,
-                person_ids_total,
-                person_ids_completed
+                started_count,
+                ended_count,
+                percent_ended,
+                person_ids_started,
+                person_ids_ended
             FROM numbers({num_intervals}) AS period_offsets
             LEFT OUTER JOIN (
                 SELECT
                     period,
-                    start_step + end_step AS total,
-                    end_step AS completed,
-                    completed / total AS percentage,
-                    person_ids_total,
-                    person_ids_completed
+                    start_step + end_step AS started_count,
+                    end_step AS ended_count,
+                    round(end_step / start_step * 100, 2) AS percent_ended,
+                    person_ids_started,
+                    person_ids_ended
                 FROM (
                     SELECT
                         period,
                         countIf({start_step_condition}) AS start_step,
                         countIf({end_step_condition}) AS end_step,
-                        groupArray(person_id) AS person_ids_total,
-                        groupArrayIf(person_id, {end_step_condition}) AS person_ids_completed
+                        groupArray(DISTINCT person_id) AS person_ids_started,
+                        groupArrayIf(DISTINCT person_id, {end_step_condition}) AS person_ids_ended
                     FROM (
                         SELECT
                             person_id,
@@ -201,19 +200,19 @@ class ClickhouseFunnelTrendsNew(ClickhouseFunnelNew):
         return query
 
     def _summarize_data(self, results):
-        summarized_results = [
+        summary = [
             {
                 "timestamp": period_row[0],
-                "total": period_row[1],
-                "completed_funnels": period_row[2],
-                "percent_complete": period_row[3],
-                "is_complete": self._determine_complete(period_row[0]),
-                "cohort": period_row[4],
-                "cohort_completed": period_row[5],
+                "started_count": period_row[1],
+                "ended_count": period_row[2],
+                "percent_ended": period_row[3],
+                "is_period_final": self._is_period_final(period_row[0]),
+                "person_ids_started": period_row[4],
+                "person_ids_ended": period_row[5],
             }
             for period_row in results
         ]
-        return summarized_results
+        return summary
 
     @staticmethod
     def _get_ui_response(summary):
@@ -223,18 +222,18 @@ class ClickhouseFunnelTrendsNew(ClickhouseFunnelNew):
         labels = []
 
         for row in summary:
-            data.append(row["percent_complete"])
+            data.append(row["percent_ended"])
             days.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
             labels.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
 
         return [{"count": count, "data": data, "days": days, "labels": labels,}]
 
-    def _determine_complete(self, timestamp):
+    def _is_period_final(self, timestamp: Union[datetime, date]):
         # difference between current date and timestamp greater than window
         now = datetime.utcnow().date()
         days_to_subtract = self._filter.funnel_window_days * -1
         delta = timedelta(days=days_to_subtract)
         completed_end = now + delta
         compare_timestamp = timestamp.date() if type(timestamp) is datetime else timestamp
-        is_incomplete = compare_timestamp > completed_end
-        return not is_incomplete
+        is_final = compare_timestamp <= completed_end
+        return is_final
