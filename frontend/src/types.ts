@@ -336,7 +336,7 @@ export interface CohortGroupType {
     label?: string
     count?: number
     count_operator?: string
-    properties?: Record<string, any>
+    properties?: AnyPropertyFilter[]
     matchType: MatchType
 }
 

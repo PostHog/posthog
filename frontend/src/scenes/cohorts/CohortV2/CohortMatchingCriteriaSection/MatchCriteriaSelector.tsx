@@ -3,7 +3,7 @@ import { Select, Row, Button, Input, Col } from 'antd'
 import { CohortEntityFilterBox } from './CohortEntityFilterBox'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectDownIcon } from 'lib/components/SelectDownIcon'
-import { CohortGroupType, PropertyFilter, MatchType } from '~/types'
+import { CohortGroupType, MatchType } from '~/types'
 import { ACTION_TYPE, EVENT_TYPE, ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { DeleteOutlined } from '@ant-design/icons'
@@ -74,10 +74,10 @@ function PropertyCriteriaRow({
                 <PropertyFilters
                     endpoint="person"
                     pageKey={group.id}
-                    onChange={(properties: PropertyFilter[]) => {
+                    onChange={(properties) => {
                         onPropertyCriteriaChange({ properties })
                     }}
-                    propertyFilters={group.properties || {}}
+                    propertyFilters={group.properties}
                     style={{ margin: '1rem 0 0' }}
                     popoverPlacement="bottomRight"
                 />
