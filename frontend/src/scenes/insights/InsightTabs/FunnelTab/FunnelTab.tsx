@@ -66,7 +66,7 @@ export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
                 <PropertyFilters
                     pageKey={`EditFunnel-property`}
                     propertyFilters={filters.properties || []}
-                    onChange={(anyProperties): void => {
+                    onChange={(anyProperties) => {
                         setFilters({
                             properties: anyProperties.filter(isValidPropertyFilter).map(toNullishFilter),
                         })
