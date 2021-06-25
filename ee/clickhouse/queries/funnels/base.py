@@ -44,7 +44,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         for step in reversed(self._filter.entities):
             # Clickhouse step order starts at one, hence the +1
-            # TODO(nk): Check if all steps coming in always have an order. This gets borked if not
             result_step = [x for x in results if step.order + 1 == x[0]]
             if len(result_step) > 0:
                 total_people += result_step[0][1]
