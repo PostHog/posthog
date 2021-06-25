@@ -12,7 +12,7 @@ import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { BaseTabProps } from 'scenes/insights/Insights'
 import { InsightTitle } from '../InsightTitle'
 import { PropertyFilter } from '~/types'
-import { isFilledPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 interface FunnelTabProps extends BaseTabProps {
     newUI: boolean
@@ -68,7 +68,7 @@ export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
                     propertyFilters={filters.properties || []}
                     onChange={(anyProperties): void => {
                         setFilters({
-                            properties: anyProperties.filter(isFilledPropertyFilter).map(toNullishFilter),
+                            properties: anyProperties.filter(isValidPropertyFilter).map(toNullishFilter),
                         })
                     }}
                 />
