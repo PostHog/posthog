@@ -64,6 +64,8 @@ export function Insights(): JSX.Element {
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
+    const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
+
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
@@ -218,7 +220,7 @@ export function Insights(): JSX.Element {
                     </Col>
                 ) : (
                     <>
-                        <Col span={24}>
+                        <Col span={24} lg={verticalLayout ? 7 : undefined}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
@@ -284,7 +286,7 @@ export function Insights(): JSX.Element {
                                 </Card>
                             )}
                         </Col>
-                        <Col span={24}>
+                        <Col span={24} lg={verticalLayout ? 17 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/* These are filters that are reused between insight features. They
                                 each have generic logic that updates the url
