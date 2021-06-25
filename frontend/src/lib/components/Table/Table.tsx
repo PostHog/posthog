@@ -2,13 +2,20 @@ import React from 'react'
 import { uniqueBy } from 'lib/utils'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { TZLabel } from './TimezoneAware'
+import { TZLabel } from '../TimezoneAware'
+import { normalizeColumnTitle } from 'lib/components/Table/utils'
 
 export function createdAtColumn(): Record<string, any> {
     return {
-        title: 'Created',
+        title: normalizeColumnTitle('Created'),
         render: function RenderCreatedAt(_: any, item: Record<string, any>): JSX.Element | undefined | '' {
-            return item.created_at && <TZLabel time={item.created_at} />
+            return (
+                item.created_at && (
+                    <div style={{ whiteSpace: 'nowrap' }}>
+                        <TZLabel time={item.created_at} />
+                    </div>
+                )
+            )
         },
         sorter: (a: Record<string, any>, b: Record<string, any>) =>
             new Date(a.created_at) > new Date(b.created_at) ? 1 : -1,
@@ -18,9 +25,13 @@ export function createdAtColumn(): Record<string, any> {
 export function createdByColumn(items: Record<string, any>[]): Record<string, any> {
     const { user } = useValues(userLogic)
     return {
-        title: 'Created by',
+        title: normalizeColumnTitle('Created by'),
         render: function Render(_: any, item: any) {
-            return item.created_by ? item.created_by.first_name || item.created_by.email : '-'
+            return (
+                <div style={{ maxWidth: 250, width: 'auto' }}>
+                    {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
+                </div>
+            )
         },
         filters: uniqueBy(
             items.map((item: Record<string, any>) => {

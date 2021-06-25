@@ -79,7 +79,7 @@ function filterClientSideParams(filters: Partial<FilterType>): Partial<FilterTyp
     return newFilters
 }
 
-function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
+export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
     const { action, date_from, date_to, breakdown_value, ...restParams } = peopleParams
     const params = filterClientSideParams({
         ...filters,
