@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { humanizeNumber, pluralize } from 'lib/utils'
 import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -6,6 +6,7 @@ import { Button } from 'antd'
 
 import './FunnelBarGraph.scss'
 import { ClockCircleOutlined, UserOutlined } from '@ant-design/icons'
+import { useResizeObserver } from 'lib/utils/responsiveUtils'
 
 interface FunnelBarGraphProps {
     layout?: 'horizontal' | 'vertical'
@@ -39,16 +40,10 @@ function Bar({ percentage, name }: BarProps): JSX.Element {
         setLabelPosition('inside')
     }
 
-    const resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
-        entries.forEach(() => decideLabelPosition())
+    useResizeObserver({
+        callback: decideLabelPosition,
+        element: barRef,
     })
-
-    useEffect(() => {
-        if (barRef.current) {
-            resizeObserver.observe(barRef.current)
-            decideLabelPosition()
-        }
-    }, [percentage])
 
     return (
         <div className="funnel-bar-wrapper">
