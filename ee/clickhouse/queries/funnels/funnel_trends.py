@@ -135,6 +135,15 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
 
 
 class ClickhouseFunnelTrendsNew(ClickhouseFunnelNew):
+    def run(self, *args, **kwargs):
+        if len(self._filter.entities) == 0:
+            return []
+
+        return self._get_ui_response(self.perform_query())
+
+    def perform_query(self):
+        return self._summarize_data(self._exec_query())
+
     def get_query(self, format_properties) -> str:
         breakdown_prop = self._get_breakdown_select_prop()  # TODO: allow breakdown
 
@@ -144,8 +153,15 @@ class ClickhouseFunnelTrendsNew(ClickhouseFunnelNew):
         )
         interval_method = get_trunc_func_ch(self._filter.interval)
 
+        steps_from = 1  # How many steps must have been done to count for the denominator
+        steps_to = len(self._filter.entities)  # How many steps must have been done to count for the numerator
+
+        start_step_condition = f"steps_completed = {steps_from}"
+        end_step_condition = f"steps_completed = {steps_to}"
+
         query = f"""
-            SELECT {interval_method}(toDateTime('{self._filter.date_from.strftime(TIMESTAMP_FORMAT)}') + number * {seconds_in_interval}) AS period,
+            SELECT
+                {interval_method}(toDateTime('{self._filter.date_from.strftime(TIMESTAMP_FORMAT)}') + number * {seconds_in_interval}) AS period,
                 total,
                 completed,
                 percentage,
@@ -153,15 +169,72 @@ class ClickhouseFunnelTrendsNew(ClickhouseFunnelNew):
                 person_ids_completed
             FROM numbers({num_intervals}) AS period_offsets
             LEFT OUTER JOIN (
-                SELECT period, start_step + final_step AS total, final_step AS completed, completed / total AS percentage, person_ids_total, person_ids_completed FROM (
-                    SELECT period, countIf(furthest = 1) AS start_step, countIf(furthest={len(self._filter.entities)}) AS final_step, groupArray(person_id) AS person_ids_total, groupArray(person_id_completed) AS person_ids_completed FROM (
-                        SELECT person_id, if(furthest = {len(self._filter.entities)-1}, person_id, NULL) AS person_id_completed, {interval_method}(timestamp) AS period, max(steps) AS furthest FROM (
+                SELECT
+                    period,
+                    start_step + end_step AS total,
+                    end_step AS completed,
+                    completed / total AS percentage,
+                    person_ids_total,
+                    person_ids_completed
+                FROM (
+                    SELECT
+                        period,
+                        countIf({start_step_condition}) AS start_step,
+                        countIf({end_step_condition}) AS end_step,
+                        groupArray(person_id) AS person_ids_total,
+                        groupArrayIf(person_id, {end_step_condition}) AS person_ids_completed
+                    FROM (
+                        SELECT
+                            person_id,
+                            {interval_method}(timestamp) AS period,
+                            max(steps) AS steps_completed
+                        FROM (
                             {steps_per_person_query}
                         ) GROUP BY person_id, period
                     ) GROUP BY period
-                ) 
+                )
             ) data
-            ON data.period = period 
+            ON data.period = period
             ORDER BY period ASC
             SETTINGS allow_experimental_window_functions = 1"""
+
         return query
+
+    def _summarize_data(self, results):
+        summarized_results = [
+            {
+                "timestamp": period_row[0],
+                "total": period_row[1],
+                "completed_funnels": period_row[2],
+                "percent_complete": period_row[3],
+                "is_complete": self._determine_complete(period_row[0]),
+                "cohort": period_row[4],
+                "cohort_completed": period_row[5],
+            }
+            for period_row in results
+        ]
+        return summarized_results
+
+    @staticmethod
+    def _get_ui_response(summary):
+        count = len(summary)
+        data = []
+        days = []
+        labels = []
+
+        for row in summary:
+            data.append(row["percent_complete"])
+            days.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
+            labels.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
+
+        return [{"count": count, "data": data, "days": days, "labels": labels,}]
+
+    def _determine_complete(self, timestamp):
+        # difference between current date and timestamp greater than window
+        now = datetime.utcnow().date()
+        days_to_subtract = self._filter.funnel_window_days * -1
+        delta = timedelta(days=days_to_subtract)
+        completed_end = now + delta
+        compare_timestamp = timestamp.date() if type(timestamp) is datetime else timestamp
+        is_incomplete = compare_timestamp > completed_end
+        return not is_incomplete
