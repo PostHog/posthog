@@ -74,9 +74,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="step two", distinct_id="user_eight", team=self.team, timestamp=today)
         _create_event(event="step three", distinct_id="user_eight", team=self.team, timestamp=today)
 
-    def test_milliseconds_from_days_conversion(self):
-        self.assertEqual(FunnelWindowDaysMixin.milliseconds_from_days(1), 86400000)
-
     # minute, hour, day, week, month
     def test_hour_interval(self):
         filter = Filter(
