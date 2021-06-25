@@ -10,6 +10,7 @@ import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { InsightTitle } from '../InsightTitle'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
@@ -49,11 +50,11 @@ export function FunnelTab(): JSX.Element {
                 <PropertyFilters
                     pageKey={`EditFunnel-property`}
                     propertyFilters={filters.properties || []}
-                    onChange={(properties: Record<string, any>): void =>
+                    onChange={(anyProperties) => {
                         setFilters({
-                            properties,
+                            properties: anyProperties.filter(isValidPropertyFilter),
                         })
-                    }
+                    }}
                 />
                 <TestAccountFilter filters={filters} onChange={setFilters} />
                 <hr />
