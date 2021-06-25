@@ -58,15 +58,9 @@ class Entity(PropertyMixin):
         if self.type != other.type:
             return False
 
-        if self.math != other.math:
-            return False
-
-        if self.math_property != other.math_property:
-            return False
-
-        if json.dumps(sorted(self.properties_to_dict().items())) != json.dumps(
-            sorted(other.properties_to_dict().items())
-        ):
+        self_properties = sorted([str(prop) for prop in self.properties])
+        other_properties = sorted([str(prop) for prop in other.properties])
+        if self_properties != other_properties:
             return False
 
         return True
