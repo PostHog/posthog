@@ -1,5 +1,5 @@
-from datetime import datetime
-from typing import cast
+from datetime import datetime, timedelta
+from pprint import pprint
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
@@ -11,17 +11,6 @@ from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
-
-TIME_0 = "2021-06-03 13:42:00"
-TIME_1 = "2021-06-07 00:00:00"
-TIME_3 = "2021-06-07 19:00:00"
-TIME_4 = "2021-06-08 02:00:00"
-TIME_99 = "2021-06-13 23:59:59"
-
-STEP_1_EVENT = "step one"
-STEP_2_EVENT = "step two"
-STEP_3_EVENT = "step three"
-USER_A_DISTINCT_ID = "user a"
 
 
 def _create_person(**kwargs):
@@ -38,77 +27,211 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def test_no_event_in_period(self):
-        _create_person(distinct_ids=[USER_A_DISTINCT_ID], team=self.team)
+        _create_person(distinct_ids=["user a"], team=self.team)
 
-        _create_event(event=STEP_1_EVENT, distinct_id=USER_A_DISTINCT_ID, team=self.team, timestamp=TIME_0)
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-06 21:00:00")
 
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
                 "interval": "day",
-                "date_from": TIME_1,
-                "date_to": TIME_99,
+                "date_from": "2021-06-07 00:00:00",
+                "date_to": "2021-06-13 23:59:59",
                 "funnel_window_days": 7,
                 "events": [
-                    {"id": STEP_1_EVENT, "order": 0},
-                    {"id": STEP_2_EVENT, "order": 1},
-                    {"id": STEP_3_EVENT, "order": 2},
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
                 ],
             }
         )
 
         funnel_trends = ClickhouseFunnelTrendsNew(filter, self.team)
-        results = funnel_trends.run()
+        results = funnel_trends.perform_query()
 
-        self.assertListEqual(
-            cast(list, results),
-            [
-                (datetime(2021, 5, 31, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 1, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 2, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 3, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 4, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 5, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 6, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 7, 0, 0), 0, 0, 0.0),
-            ],
-        )
+        self.assertEqual(len(results), 7)
 
     def test_only_one_user_reached_one_step(self):
-        _create_person(distinct_ids=[USER_A_DISTINCT_ID], team=self.team)
+        _create_person(distinct_ids=["user a"], team=self.team)
 
-        _create_event(event=STEP_1_EVENT, distinct_id=USER_A_DISTINCT_ID, team=self.team, timestamp=TIME_3)
-
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-07 19:00:00")
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
                 "interval": "day",
-                "date_from": TIME_1,
-                "date_to": TIME_99,
+                "date_from": "2021-06-07 00:00:00",
+                "date_to": "2021-06-13 23:59:59",
                 "funnel_window_days": 7,
                 "events": [
-                    {"id": STEP_1_EVENT, "order": 0},
-                    {"id": STEP_2_EVENT, "order": 1},
-                    {"id": STEP_3_EVENT, "order": 2},
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
                 ],
             }
         )
 
         funnel_trends = ClickhouseFunnelTrendsNew(filter, self.team)
-        results = funnel_trends.run()
+        results = funnel_trends.perform_query()
+        self.assertEqual(len(results), 7)
 
-        self.assertListEqual(
-            cast(list, results),
-            [
-                (datetime(2021, 5, 31, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 1, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 2, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 3, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 4, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 5, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 6, 0, 0), 0, 0, 0.0),
-                (datetime(2021, 6, 7, 0, 0), 1, 0, 0.0),
-            ],
+        day_1, day_2, day_3, day_4, day_5, day_6, day_7 = results
+
+        self.assertEqual(day_1["started_count"], 1)
+        self.assertEqual(day_1["ended_count"], 0)
+        self.assertEqual(day_1["percent_ended"], 0)
+        self.assertEqual(len(day_1["person_ids_started"]), 1)  # ignoring values since they are random UUIDs
+        self.assertEqual(len(day_1["person_ids_ended"]), 0)
+        self.assertEqual(day_1["timestamp"], datetime(2021, 6, 7, 0, 0))
+        self.assertEqual(day_1["is_period_final"], True)
+
+        self.assertDictEqual(
+            day_2,
+            {
+                "ended_count": 0,
+                "is_period_final": True,
+                "percent_ended": 0.0,
+                "person_ids_ended": [],
+                "person_ids_started": [],
+                "started_count": 0,
+                "timestamp": datetime(2021, 6, 8, 0, 0),
+            },
         )
+        self.assertDictEqual(
+            day_3,
+            {
+                "ended_count": 0,
+                "is_period_final": True,
+                "percent_ended": 0.0,
+                "person_ids_ended": [],
+                "person_ids_started": [],
+                "started_count": 0,
+                "timestamp": datetime(2021, 6, 9, 0, 0),
+            },
+        )
+        self.assertDictEqual(
+            day_4,
+            {
+                "ended_count": 0,
+                "is_period_final": True,
+                "percent_ended": 0.0,
+                "person_ids_ended": [],
+                "person_ids_started": [],
+                "started_count": 0,
+                "timestamp": datetime(2021, 6, 10, 0, 0),
+            },
+        )
+        self.assertDictEqual(
+            day_5,
+            {
+                "ended_count": 0,
+                "is_period_final": True,
+                "percent_ended": 0.0,
+                "person_ids_ended": [],
+                "person_ids_started": [],
+                "started_count": 0,
+                "timestamp": datetime(2021, 6, 11, 0, 0),
+            },
+        )
+        self.assertDictEqual(
+            day_6,
+            {
+                "ended_count": 0,
+                "is_period_final": True,
+                "percent_ended": 0.0,
+                "person_ids_ended": [],
+                "person_ids_started": [],
+                "started_count": 0,
+                "timestamp": datetime(2021, 6, 12, 0, 0),
+            },
+        )
+        self.assertDictEqual(
+            day_7,
+            {
+                "ended_count": 0,
+                "is_period_final": True,
+                "percent_ended": 0.0,
+                "person_ids_ended": [],
+                "person_ids_started": [],
+                "started_count": 0,
+                "timestamp": datetime(2021, 6, 13, 0, 0),
+            },
+        )
+
+    # minute, hour, day, week, month
+    def test_hour_interval(self):
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "hour",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        self.assertEqual(len(results), 145)
+
+    def test_day_interval(self):
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        self.assertEqual(len(results), 7)
+
+    def test_week_interval(self):
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "week",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        self.assertEqual(2, len(results))
+
+    def test_month_interval(self):
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "month",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        self.assertEqual(len(results), 1)
