@@ -1,4 +1,4 @@
-from posthog.constants import FUNNEL_WINDOW_DAYS
+from posthog.constants import FUNNEL_STEP, FUNNEL_WINDOW_DAYS
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 
@@ -22,3 +22,17 @@ class FunnelWindowDaysMixin(BaseParamMixin):
     def microseconds_from_days(days):
         microseconds = 1000
         return microseconds * FunnelWindowDaysMixin.milliseconds_from_days(days)
+
+
+class FunnelStep(BaseParamMixin):
+
+    # first step is 0
+    # -1 means dropoff into step 1
+    @cached_property
+    def funnel_step(self) -> int:
+        _step = int(self._data.get(FUNNEL_STEP, 1))
+        return _step
+
+    @include_dict
+    def funnel_step_to_dict(self):
+        return {FUNNEL_STEP: self.funnel_step} if self.funnel_step else {}
