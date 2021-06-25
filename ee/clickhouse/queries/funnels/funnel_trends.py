@@ -154,6 +154,7 @@ class ClickhouseFunnelTrendsNew(ClickhouseFunnelNew):
 
         steps_from = 1  # How many steps must have been done to count for the denominator
         steps_to = len(self._filter.entities)  # How many steps must have been done to count for the numerator
+        persons_page_size = 100
 
         start_step_condition = f"steps_completed = {steps_from}"
         end_step_condition = f"steps_completed = {steps_to}"
@@ -164,8 +165,8 @@ class ClickhouseFunnelTrendsNew(ClickhouseFunnelNew):
                 started_count,
                 ended_count,
                 percent_ended,
-                person_ids_started,
-                person_ids_ended
+                person_ids_started_initial_page,
+                person_ids_ended_initial_page
             FROM numbers({num_intervals}) AS period_offsets
             LEFT OUTER JOIN (
                 SELECT
@@ -173,15 +174,15 @@ class ClickhouseFunnelTrendsNew(ClickhouseFunnelNew):
                     start_step + end_step AS started_count,
                     end_step AS ended_count,
                     round(end_step / start_step * 100, 2) AS percent_ended,
-                    person_ids_started,
-                    person_ids_ended
+                    person_ids_started_initial_page,
+                    person_ids_ended_initial_page
                 FROM (
                     SELECT
                         period,
                         countIf({start_step_condition}) AS start_step,
                         countIf({end_step_condition}) AS end_step,
-                        groupArray(DISTINCT person_id) AS person_ids_started,
-                        groupArrayIf(DISTINCT person_id, {end_step_condition}) AS person_ids_ended
+                        groupArray({persons_page_size})(DISTINCT person_id) AS person_ids_started_initial_page,
+                        groupArrayIf({persons_page_size})(DISTINCT person_id, {end_step_condition}) AS person_ids_ended_initial_page
                     FROM (
                         SELECT
                             person_id,
@@ -234,6 +235,6 @@ class ClickhouseFunnelTrendsNew(ClickhouseFunnelNew):
         days_to_subtract = self._filter.funnel_window_days * -1
         delta = timedelta(days=days_to_subtract)
         completed_end = now + delta
-        compare_timestamp = timestamp.date() if type(timestamp) is datetime else timestamp
+        compare_timestamp = timestamp.date() if isinstance(timestamp, datetime) else timestamp
         is_final = compare_timestamp <= completed_end
         return is_final
