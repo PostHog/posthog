@@ -108,7 +108,7 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                                     {pluralize(step.average_time, 'hour')}
                                 </ValueInspectorButton>
                             ) : null}
-                            <ValueInspectorButton icon={<UserOutlined />} onClick={() => {}}>
+                            <ValueInspectorButton icon={<UserOutlined />} onClick={() => {}} disabled /* TODO */>
                                 {step.count} completed
                             </ValueInspectorButton>
                         </div>
@@ -121,7 +121,7 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                     {step.order !== 0 && steps[i - 1].count > step.count && (
                         <footer>
                             <div className="funnel-step-metadata">
-                                <ValueInspectorButton icon={<UserOutlined /> /* TODO */} onClick={() => {}}>
+                                <ValueInspectorButton icon={<UserOutlined /> /* TODO */} onClick={() => {}} disabled>
                                     {steps[i - 1].count - step.count} dropped off
                                 </ValueInspectorButton>
                                 <span>
