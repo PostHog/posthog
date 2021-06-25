@@ -24,6 +24,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             ),
             "properties": json.dumps([]),
             "funnel_window_days": 14,
+            "funnel_step": 1,
             "filter_test_accounts": "false",
             "new_entity": json.dumps([]),
             "date_from": "2021-05-01",

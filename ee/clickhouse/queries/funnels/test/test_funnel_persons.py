@@ -164,6 +164,7 @@ class TestFunnel(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(259200000000, three_days)
 
     def test_basic_conversion_window(self):
+        self._create_sample_data()
         data = {
             "insight": INSIGHT_FUNNELS,
             "interval": "day",
