@@ -10,6 +10,7 @@ import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { InsightTitle } from '../InsightTitle'
+import { SaveOutlined } from '@ant-design/icons'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 export function FunnelTab(): JSX.Element {
@@ -58,28 +59,28 @@ export function FunnelTab(): JSX.Element {
                 />
                 <TestAccountFilter filters={filters} onChange={setFilters} />
                 <hr />
-                <Row justify="space-between">
-                    <Row justify="start">
-                        <Button
-                            style={{ marginRight: 4 }}
-                            type="primary"
-                            htmlType="submit"
-                            disabled={isStepsEmpty}
-                            data-attr="save-funnel-button"
-                        >
-                            Calculate
-                        </Button>
-                        {!isStepsEmpty && (
-                            <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
-                                Clear
-                            </Button>
-                        )}
-                    </Row>
+                <Row style={{ justifyContent: 'flex-end' }}>
                     {!isStepsEmpty && Array.isArray(stepsWithCount) && !!stepsWithCount.length && (
-                        <Button type="primary" onClick={showModal}>
-                            Save
+                        <div style={{ flexGrow: 1 }}>
+                            <Button type="primary" onClick={showModal} icon={<SaveOutlined />}>
+                                Save
+                            </Button>
+                        </div>
+                    )}
+                    {!isStepsEmpty && (
+                        <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
+                            Clear
                         </Button>
                     )}
+                    <Button
+                        style={{ marginLeft: 4 }}
+                        type="primary"
+                        htmlType="submit"
+                        disabled={isStepsEmpty}
+                        data-attr="save-funnel-button"
+                    >
+                        Calculate
+                    </Button>
                 </Row>
             </form>
             <SaveModal
