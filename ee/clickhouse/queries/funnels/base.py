@@ -91,7 +91,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
         }
 
         query = self.get_query(format_properties)
-        print("I have params: ", self.params)
         return sync_execute(query, self.params)
 
     def _get_inner_event_query(self, entities=[], entity_name="events") -> str:

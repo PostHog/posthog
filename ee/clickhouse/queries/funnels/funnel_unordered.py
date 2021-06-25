@@ -1,3 +1,4 @@
+from itertools import combinations
 from typing import List
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
@@ -17,7 +18,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelNew):
 
         breakdown_prop = self._get_breakdown_prop()
         partition_select = self.get_partition_cols(1, max_steps)
-        sorting_condition = self._get_sorting_condition(max_steps, max_steps)
+        sorting_condition = self._get_sorting_condition(max_steps)
 
         for i in range(max_steps):
             inner_query = f"""
@@ -51,7 +52,6 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelNew):
     def _format_results(self, results):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
 
-        print(results)
         steps = []
         relevant_people = []
         total_people = 0
@@ -66,15 +66,20 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelNew):
 
         return steps[::-1]  #  reverse
 
-    # TODO: not ok yet. Need more couplings
-    def _get_sorting_condition(self, curr_index: int, max_steps: int):
+    def _get_sorting_condition(self, max_steps: int):
+        def sorting_condition_helper(current_index: int):
+            if current_index == 1:
+                return "1"
 
-        if curr_index == 1:
-            return "1"
+            condition_combinations = [
+                f"({' AND '.join(combination)})" for combination in combinations(basic_conditions, current_index - 1)
+            ]
+            return f"if({' OR '.join(condition_combinations)}, {current_index}, {sorting_condition_helper(current_index - 1)})"
 
-        conditions: List[str] = []
-        for i in range(1, curr_index):
-            conditions.append(f"latest_0 < latest_{i}")
-            conditions.append(f"latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY")
+        basic_conditions: List[str] = []
+        for i in range(1, max_steps):
+            basic_conditions.append(
+                f"latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY"
+            )
 
-        return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
+        return sorting_condition_helper(max_steps)
