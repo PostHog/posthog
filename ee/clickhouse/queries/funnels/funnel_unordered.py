@@ -1,4 +1,3 @@
-from itertools import combinations
 from typing import List
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
@@ -46,19 +45,11 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         """
 
     def get_sorting_condition(self, max_steps: int):
-        def sorting_condition_helper(current_index: int):
-            if current_index == 1:
-                return "1"
-
-            condition_combinations = [
-                f"({' AND '.join(combination)})" for combination in combinations(basic_conditions, current_index - 1)
-            ]
-            return f"if({' OR '.join(condition_combinations)}, {current_index}, {sorting_condition_helper(current_index - 1)})"
 
         basic_conditions: List[str] = []
         for i in range(1, max_steps):
             basic_conditions.append(
-                f"latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY"
+                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY, 1, 0)"
             )
 
-        return sorting_condition_helper(max_steps)
+        return f"arraySum([{','.join(basic_conditions)}, 1])"
