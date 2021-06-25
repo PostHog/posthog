@@ -11,7 +11,6 @@ import { funnelCommandLogic } from './funnelCommandLogic'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { BaseTabProps } from 'scenes/insights/Insights'
 import { InsightTitle } from '../InsightTitle'
-import { PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 interface FunnelTabProps extends BaseTabProps {
@@ -29,14 +28,6 @@ export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
     const onSubmit = (input: string): void => {
         saveFunnelInsight(input)
         closeModal()
-    }
-
-    const toNullishFilter = (filter: PropertyFilter): PropertyFilter => {
-        return {
-            ...filter,
-            operator: filter.operator || null,
-            type: filter.type || '',
-        }
     }
 
     return (
@@ -68,7 +59,7 @@ export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
                     propertyFilters={filters.properties || []}
                     onChange={(anyProperties) => {
                         setFilters({
-                            properties: anyProperties.filter(isValidPropertyFilter).map(toNullishFilter),
+                            properties: anyProperties.filter(isValidPropertyFilter),
                         })
                     }}
                 />
