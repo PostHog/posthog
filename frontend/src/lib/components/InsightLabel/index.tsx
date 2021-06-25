@@ -5,7 +5,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
 import './InsightLabel.scss'
 import { MATHS } from 'lib/constants'
-import { SeriesLetter } from '../SeriesLetter'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 // InsightsLabel pretty prints the action (or event) returned from /insights
 interface InsightsLabelProps {

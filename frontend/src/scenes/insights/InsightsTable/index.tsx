@@ -111,7 +111,7 @@ function InsightsTableV1({ isLegend = true, showTotalCount = false }: InsightsTa
 
     if (indexedResults && indexedResults.length > 0) {
         const valueColumns = indexedResults[0].data.map(({}, index: number) => ({
-            title: indexedResults[0].labels[index],
+            title: (indexedResults[0].labels || indexedResults[0].dates || indexedResults[0].days)[index],
             render: function RenderPeriod({}, item: IndexedTrendResult) {
                 return maybeAddCommasToInteger(item.data[index])
             },

@@ -7,33 +7,47 @@ import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined, DisconnectOutlined } from '@ant-design/icons'
 import { PageHeader } from 'lib/components/PageHeader'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { router } from 'kea-router'
 import { LinkButton } from 'lib/components/LinkButton'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
 
 export function FeatureFlags(): JSX.Element {
     const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags } = useActions(featureFlagsLogic)
     const { push } = useActions(router)
+    const { tableScrollX } = useIsTableScrolling('lg')
 
     const BackTo = '#backTo=Feature Flags&backToURL=/feature_flags'
 
     const columns = [
         {
-            title: 'Key',
+            title: normalizeColumnTitle('Key'),
             dataIndex: 'key',
             className: 'ph-no-capture',
+            fixed: 'left',
+            width: '15%',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
             render: function Render(_: string, featureFlag: FeatureFlagType) {
+                if (!featureFlag.active) {
+                    return (
+                        <Tooltip title="This feature flag is disabled.">
+                            <DisconnectOutlined style={{ marginRight: 4 }} />
+                        </Tooltip>
+                    )
+                }
+
                 return (
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                        {!featureFlag.active && (
-                            <Tooltip title="This feature flag is disabled.">
-                                <DisconnectOutlined style={{ marginRight: 4 }} />
-                            </Tooltip>
-                        )}
+                    <div
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            maxWidth: 210,
+                            width: 'auto',
+                        }}
+                    >
                         <div onClick={(e) => e.stopPropagation()}>
                             <CopyToClipboardInline
                                 iconStyle={{ color: 'var(--primary)' }}
@@ -47,8 +61,21 @@ export function FeatureFlags(): JSX.Element {
             },
         },
         {
-            title: 'Description',
-            dataIndex: 'name',
+            title: normalizeColumnTitle('Description'),
+            render: function Render(_: string, featureFlag: FeatureFlagType) {
+                return (
+                    <div
+                        style={{
+                            wordWrap: 'break-word',
+                            maxWidth: 450,
+                            width: 'auto',
+                            whiteSpace: 'break-spaces',
+                        }}
+                    >
+                        {featureFlag.name}
+                    </div>
+                )
+            },
             className: 'ph-no-capture',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.name).localeCompare(b.name),
         },
@@ -68,6 +95,8 @@ export function FeatureFlags(): JSX.Element {
         },
         {
             title: 'Enabled',
+            width: 90,
+            align: 'right',
             render: function RenderActive(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <Switch
@@ -81,7 +110,9 @@ export function FeatureFlags(): JSX.Element {
             },
         },
         {
-            title: 'Usage',
+            title: normalizeColumnTitle('Usage'),
+            width: 100,
+            align: 'right',
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <Link
@@ -100,7 +131,9 @@ export function FeatureFlags(): JSX.Element {
             },
         },
         {
-            title: 'Actions',
+            title: normalizeColumnTitle('Actions'),
+            width: 100,
+            align: 'right',
             render: function Render(_: string, featureFlag: FeatureFlagType) {
                 return (
                     <>
@@ -152,6 +185,7 @@ export function FeatureFlags(): JSX.Element {
                 size="small"
                 rowClassName="cursor-pointer"
                 data-attr="feature-flag-table"
+                scroll={{ x: tableScrollX }}
             />
         </div>
     )
