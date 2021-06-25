@@ -45,7 +45,7 @@ export function CohortMatchingCriteriaSection({
                 ))}
             </div>
             <span id="add" />
-            {addButton}
+            {!!cohort.groups.length && addButton}
         </Col>
     )
 }

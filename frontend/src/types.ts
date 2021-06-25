@@ -6,11 +6,14 @@ import {
     ShownAsValue,
     RETENTION_RECURRING,
     RETENTION_FIRST_TIME,
+    ENTITY_MATCH_TYPE,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { Dayjs } from 'dayjs'
+import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { UploadFile } from 'antd/lib/upload/interface'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -340,7 +343,7 @@ export interface CohortGroupType {
     matchType: MatchType
 }
 
-export type MatchType = 'entities' | 'properties'
+export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
 
 export interface CohortType {
     count?: number
@@ -353,7 +356,7 @@ export interface CohortType {
     last_calculation?: string
     is_static?: boolean
     name?: string
-    csv?: File
+    csv?: UploadFile
     groups: CohortGroupType[]
 }
 

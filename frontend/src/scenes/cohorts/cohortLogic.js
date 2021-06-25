@@ -1,3 +1,4 @@
+// DEPRECATED in favor of CohortV2/cohortLogic.tsx
 import React from 'react'
 import { kea } from 'kea'
 import { toast } from 'react-toastify'
@@ -9,8 +10,7 @@ import { Link } from 'lib/components/Link'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 
 function formatGroupPayload(group) {
-    const { id, matchType, ...restGroup } = group
-    return restGroup
+    return { ...group, id: undefined, matchType: undefined }
 }
 
 function addLocalCohortGroupId(group) {
