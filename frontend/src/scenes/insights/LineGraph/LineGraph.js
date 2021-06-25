@@ -403,7 +403,7 @@ export function LineGraph({
             scaleShowHorizontalLines: false,
             tooltips: tooltipOptions,
             plugins:
-                newUI && type !== 'horizontalBar'
+                newUI && type !== 'horizontalBar' && !datasets[0].status
                     ? {
                           crosshair: {
                               snap: {

@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { FUNNEL_VIZ, FEATURE_FLAGS, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE } from 'lib/constants'
+import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -25,7 +25,6 @@ import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
@@ -63,13 +62,9 @@ export function Insights(): JSX.Element {
         controlsCollapsed,
     } = useValues(insightLogic)
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
-
-    const newUI = featureFlags[FEATURE_FLAGS.QUERY_UX_V2]
-    const horizontalUI = newUI && activeView !== ViewType.FUNNELS
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -101,7 +96,7 @@ export function Insights(): JSX.Element {
     })
 
     return (
-        <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>
+        <div className="insights-page">
             <PageHeader title="Insights" />
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
@@ -216,38 +211,33 @@ export function Insights(): JSX.Element {
             </Row>
             <Row gutter={16}>
                 {activeView === ViewType.HISTORY ? (
-                    <Col xs={24} xl={24}>
+                    <Col span={24}>
                         <Card className="" style={{ overflow: 'visible' }}>
                             <InsightHistoryPanel />
                         </Card>
                     </Col>
                 ) : (
                     <>
-                        <Col xs={24} xl={horizontalUI ? 24 : 7}>
+                        <Col span={24}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
                             >
-                                {horizontalUI && (
-                                    <>
-                                        <div
-                                            role="button"
-                                            title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
-                                            className="collapse-control"
-                                            onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
-                                        >
-                                            {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
-                                        </div>
-                                        {controlsCollapsed && (
-                                            <div>
-                                                <h3 className="l3">Query definition</h3>
-                                                <span className="text-small text-muted">
-                                                    Click here to view and change the query events, filters and other
-                                                    settings.
-                                                </span>
-                                            </div>
-                                        )}
-                                    </>
+                                <div
+                                    role="button"
+                                    title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
+                                    className="collapse-control"
+                                    onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
+                                >
+                                    {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
+                                </div>
+                                {controlsCollapsed && (
+                                    <div>
+                                        <h3 className="l3">Query definition</h3>
+                                        <span className="text-small text-muted">
+                                            Click here to view and change the query events, filters and other settings.
+                                        </span>
+                                    </div>
                                 )}
                                 <div className="tabs-inner">
                                     {/* These are insight specific filters. They each have insight specific logics */}
@@ -274,9 +264,7 @@ export function Insights(): JSX.Element {
                                             [`${ViewType.SESSIONS}`]: (
                                                 <SessionTab annotationsToCreate={annotationsToCreate} />
                                             ),
-                                            [`${ViewType.FUNNELS}`]: (
-                                                <FunnelTab annotationsToCreate={annotationsToCreate} newUI={newUI} />
-                                            ),
+                                            [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                             [`${ViewType.RETENTION}`]: (
                                                 <RetentionTab annotationsToCreate={annotationsToCreate} />
                                             ),
@@ -296,7 +284,7 @@ export function Insights(): JSX.Element {
                                 </Card>
                             )}
                         </Col>
-                        <Col xs={24} xl={horizontalUI ? 24 : 17}>
+                        <Col span={24}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/* These are filters that are reused between insight features. They
                                 each have generic logic that updates the url
@@ -308,7 +296,6 @@ export function Insights(): JSX.Element {
                                         allFilters={allFilters}
                                         annotationsToCreate={annotationsToCreate}
                                         clearAnnotationsToCreate={clearAnnotationsToCreate}
-                                        horizontalUI={horizontalUI}
                                     />
                                 }
                                 data-attr="insights-graph"
