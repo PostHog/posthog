@@ -10,7 +10,7 @@ import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { InsightTitle } from '../InsightTitle'
-import { AnyPropertyFilter, PropertyFilter } from '~/types'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
@@ -23,18 +23,6 @@ export function FunnelTab(): JSX.Element {
     const onSubmit = (input: string): void => {
         saveFunnelInsight(input)
         closeModal()
-    }
-
-    const isValidPropertyFilter = (filter: AnyPropertyFilter): boolean => {
-        return Boolean(filter.key) && Boolean(filter.value)
-    }
-
-    const toNullishFilter = (filter: AnyPropertyFilter & { key: string; value: string }): PropertyFilter => {
-        return {
-            ...filter,
-            operator: filter.operator || null,
-            type: filter.type || '',
-        }
     }
 
     return (
@@ -62,12 +50,9 @@ export function FunnelTab(): JSX.Element {
                 <PropertyFilters
                     pageKey={`EditFunnel-property`}
                     propertyFilters={filters.properties || []}
-                    onChange={(anyProperties): void => {
-                        const properties = (anyProperties.filter(isValidPropertyFilter) as Array<
-                            AnyPropertyFilter & { key: string; value: string }
-                        >).map(toNullishFilter)
+                    onChange={(anyProperties) => {
                         setFilters({
-                            properties,
+                            properties: anyProperties.filter(isValidPropertyFilter),
                         })
                     }}
                 />
