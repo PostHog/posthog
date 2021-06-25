@@ -2,11 +2,9 @@ from itertools import combinations
 from typing import List
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
-from posthog.models import Person
 
 
-class ClickhouseFunnelUnordered(ClickhouseFunnelNew):
+class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     def get_query(self, format_properties):
         return self.get_step_counts_query()
 
@@ -16,9 +14,8 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelNew):
         union_queries = []
         entities_to_use = list(self._filter.entities)
 
-        breakdown_prop = self._get_breakdown_prop()
         partition_select = self.get_partition_cols(1, max_steps)
-        sorting_condition = self._get_sorting_condition(max_steps)
+        sorting_condition = self.get_sorting_condition(max_steps)
 
         for i in range(max_steps):
             inner_query = f"""
@@ -26,7 +23,6 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelNew):
                 person_id,
                 timestamp,
                 {partition_select}
-                {breakdown_prop}
                 FROM ({self._get_inner_event_query(entities_to_use, f"events_{i}")})
             """
 
@@ -42,31 +38,14 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelNew):
         union_formatted_query = " UNION ALL ".join(union_queries)
 
         return f"""
-        SELECT furthest, count(1), groupArray(100)(person_id) {breakdown_prop} FROM (
-            SELECT person_id, max(steps) AS furthest {breakdown_prop} FROM (
+        SELECT furthest, count(1), groupArray(100)(person_id) FROM (
+            SELECT person_id, max(steps) AS furthest FROM (
                 {union_formatted_query}
-            ) GROUP BY person_id {breakdown_prop}
-        ) GROUP BY furthest {breakdown_prop} SETTINGS allow_experimental_window_functions = 1
+            ) GROUP BY person_id
+        ) GROUP BY furthest SETTINGS allow_experimental_window_functions = 1
         """
 
-    def _format_results(self, results):
-        # Format of this is [step order, person count (that reached that step), array of person uuids]
-
-        steps = []
-        relevant_people = []
-        total_people = 0
-
-        for step in reversed(self._filter.entities):
-            # Clickhouse step order starts at one, hence the +1
-            result_step = [x for x in results if step.order + 1 == x[0]]
-            if len(result_step) > 0:
-                total_people += result_step[0][1]
-                relevant_people += result_step[0][2]
-            steps.append(self._serialize_step(step, total_people, relevant_people[0:100]))
-
-        return steps[::-1]  #  reverse
-
-    def _get_sorting_condition(self, max_steps: int):
+    def get_sorting_condition(self, max_steps: int):
         def sorting_condition_helper(current_index: int):
             if current_index == 1:
                 return "1"
