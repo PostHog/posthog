@@ -47,7 +47,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
 
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
             eventUsageLogic.actions.reportCreatedDashboardFromModal()
-            actions.setDashboardId(dashboard!.id)
+            actions.setDashboardId(dashboard.id)
         },
     }),
 })

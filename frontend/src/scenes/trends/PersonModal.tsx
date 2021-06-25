@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
@@ -9,7 +9,6 @@ import { Link } from 'lib/components/Link'
 import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { toParams } from 'lib/utils'
 
 interface Props {
     visible: boolean
@@ -78,14 +77,16 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                     <div className="text-right">
                         <Button
                             icon={<DownloadOutlined />}
-                            href={`/api/action/people.csv?/?${toParams({
-                                ...(filters || {}),
-                                entity_id: people.action.id,
-                                entity_type: people.action.type,
-                                date_from: people.day,
-                                date_to: people.day,
-                                label: people.label,
-                            })}`}
+                            href={`/api/action/people.csv?/?${parsePeopleParams(
+                                {
+                                    label: people.label,
+                                    action: people.action,
+                                    date_from: people.day,
+                                    date_to: people.day,
+                                    breakdown_value: people.breakdown_value,
+                                },
+                                filters
+                            )})}`}
                             style={{ marginBottom: '1rem' }}
                             title="Download CSV"
                         />

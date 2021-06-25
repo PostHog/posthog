@@ -803,7 +803,6 @@ export interface PropertyDefinition {
     tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
-    owner?: UserBasicType | null
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition

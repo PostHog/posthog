@@ -10,11 +10,12 @@ import { annotationScopeToName } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
-import { createdByColumn } from 'lib/components/Table'
+import { createdByColumn } from 'lib/components/Table/Table'
 import { AnnotationType, AnnotationScope } from '~/types'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
+import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 const { TextArea } = Input
@@ -27,49 +28,48 @@ export function Annotations(): JSX.Element {
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null as AnnotationType | null)
+    const { tableScrollX } = useIsTableScrolling('lg')
 
     const columns = [
         {
-            title: 'Annotation',
+            title: normalizeColumnTitle('Annotation'),
             key: 'annotation',
+            fixed: true,
             render: function RenderAnnotation(annotation: AnnotationType): JSX.Element {
                 return (
-                    <span
+                    <div
                         className="ph-no-capture"
                         style={{
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            maxWidth: 200,
+                            width: 'auto',
+                            maxWidth: 250,
                         }}
                     >
                         {annotation.content}
-                    </span>
+                    </div>
                 )
             },
-            ellipsis: true,
         },
         createdByColumn(annotations),
         {
-            title: 'Date Marker',
+            title: normalizeColumnTitle('Date Marker'),
             render: function RenderDateMarker(annotation: AnnotationType): JSX.Element {
                 return <span>{dayjs(annotation.date_marker).format('YYYY-MM-DD')}</span>
             },
         },
         {
-            title: 'Last Updated',
+            title: normalizeColumnTitle('Last Updated'),
             render: function RenderLastUpdated(annotation: AnnotationType): JSX.Element {
                 return <span>{humanFriendlyDetailedTime(annotation.updated_at)}</span>
             },
         },
         {
-            title: 'Status',
+            title: normalizeColumnTitle('Status'),
             render: function RenderStatus(annotation: AnnotationType): JSX.Element {
                 return annotation.deleted ? <Tag color="red">Deleted</Tag> : <Tag color="green">Active</Tag>
             },
         },
         {
-            title: 'Type',
+            title: normalizeColumnTitle('Type'),
             render: function RenderType(annotation: AnnotationType): JSX.Element {
                 return annotation.scope !== 'dashboard_item' ? (
                     <Tag color="blue">Global</Tag>
@@ -118,6 +118,7 @@ export function Annotations(): JSX.Element {
                             setOpen(true)
                         },
                     })}
+                    scroll={{ x: tableScrollX }}
                 />
                 <div
                     style={{
