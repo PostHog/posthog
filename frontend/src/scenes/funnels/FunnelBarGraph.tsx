@@ -13,15 +13,13 @@ interface FunnelBarGraphProps {
 }
 
 interface BarProps {
-    order: number
     percentage: number
     name?: string
 }
 
 type LabelPosition = 'inside' | 'outside'
 
-function Bar({ percentage, order, name }: BarProps): JSX.Element {
-    console.log(order)
+function Bar({ percentage, name }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
@@ -48,9 +46,9 @@ function Bar({ percentage, order, name }: BarProps): JSX.Element {
     useEffect(() => {
         if (barRef.current) {
             resizeObserver.observe(barRef.current)
+            decideLabelPosition()
         }
-        decideLabelPosition()
-    }, [])
+    }, [percentage])
 
     return (
         <div className="funnel-bar-wrapper">
@@ -113,11 +111,7 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                             </ValueInspectorButton>
                         </div>
                     </header>
-                    <Bar
-                        order={step.order}
-                        percentage={calcPercentage(step.count, referenceStep.count)}
-                        name={step.name}
-                    />
+                    <Bar percentage={calcPercentage(step.count, referenceStep.count)} name={step.name} />
                     {step.order !== 0 && steps[i - 1].count > step.count && (
                         <footer>
                             <div className="funnel-step-metadata">
