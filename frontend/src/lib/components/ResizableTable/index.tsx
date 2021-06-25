@@ -4,9 +4,10 @@ import { ColumnType } from 'antd/lib/table'
 import { ResizableProps } from 'react-resizable'
 import ResizeObserver from 'resize-observer-polyfill'
 import { RenderedCell } from 'rc-table/lib/interface'
-import { getActiveBreakpoint, getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from './responsiveUtils'
+import { getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from '../../utils/responsiveUtils'
 import VirtualTableHeader from './VirtualTableHeader'
 import { TableConfig as _TableConfig } from './TableConfig'
+import { useBreakpoint } from 'lib/hooks/useBreakpoint'
 
 import './index.scss'
 
@@ -43,7 +44,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
     components,
     ...props
 }: ResizableTableProps<RecordType>): JSX.Element {
-    const breakpoint = getActiveBreakpoint()
+    const breakpoint = useBreakpoint()
     const minColumnWidth = getMinColumnWidth(breakpoint)
     const [columns, setColumns] = useState(() => {
         const lastIndex = initialColumns.length

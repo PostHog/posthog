@@ -322,7 +322,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     size="small"
                     key={columnConfig === 'DEFAULT' ? 'default' : columnConfig}
                     className="ph-no-capture"
-                    scroll={{ x: true }}
                     locale={{
                         emptyText: (
                             <span>

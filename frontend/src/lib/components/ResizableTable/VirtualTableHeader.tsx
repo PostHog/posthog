@@ -69,7 +69,6 @@ function VirtualTableHeader<RecordType>({
     minColumnWidth: defaultMinColumnWidth,
     expandable,
 }: VirtualTableHeaderProps<RecordType>): JSX.Element {
-    const defaultMaxColumnWidth = defaultMinColumnWidth * 12
     const height = 60
     useLayoutEffect(() => (typeof layoutEffect === 'function' ? layoutEffect() : undefined))
     return (
@@ -77,7 +76,7 @@ function VirtualTableHeader<RecordType>({
             {expandable && <div className="left-spacer" style={{ width: ANTD_EXPAND_BUTTON_WIDTH }} />}
             {columns.map(({ title, width, widthConstraints }, index) => {
                 const minColumnWidth = widthConstraints?.length ? widthConstraints[0] : defaultMinColumnWidth
-                const maxColumnWidth = widthConstraints?.length ? widthConstraints[1] : defaultMaxColumnWidth
+                const maxColumnWidth = widthConstraints?.length ? widthConstraints[1] : Infinity
                 return (
                     <ResizableTitle
                         key={index}

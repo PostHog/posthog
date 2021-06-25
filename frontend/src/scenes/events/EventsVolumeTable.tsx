@@ -3,8 +3,9 @@ import { useValues } from 'kea'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { UsageDisabledWarning, VolumeTable } from './VolumeTable'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { UsageDisabledWarning } from './UsageDisabledWarning'
+import { VolumeTable } from './VolumeTable'
 
 export function EventsVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
