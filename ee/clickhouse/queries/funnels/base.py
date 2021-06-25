@@ -114,7 +114,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             person_id,
             timestamp,
             {self.get_partition_cols(1, max_steps)}
-            FROM ({super()._get_inner_event_query()})
+            FROM ({self._get_inner_event_query()})
             """
         else:
             return f"""
