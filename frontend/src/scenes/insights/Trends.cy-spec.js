@@ -46,6 +46,7 @@ describe('<Insights /> trends', () => {
     it('loads default trends', () => {
         mountAndCheckAPI()
 
+        cy.get('.insights-page').should('be.visible')
         cy.get('[data-attr="trend-line-graph"]').should('be.visible')
     })
 
