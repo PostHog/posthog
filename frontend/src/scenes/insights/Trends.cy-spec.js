@@ -23,7 +23,7 @@ describe('<Insights /> trends', () => {
         cy.intercept('/api/action/', { fixture: 'api/action/actions' })
         cy.intercept('/api/cohort/', { fixture: 'api/cohort/cohorts' })
         cy.intercept('/api/person/properties/', { fixture: 'api/person/properties' })
-        // cy.interceptLazy('/api/insight/', () => ({ fixture: 'api/insight/trends' })).as('api_insight')
+        cy.interceptLazy('/api/insight/', () => ({ fixture: 'api/insight/trends' })).as('api_insight')
 
         helpers.mockPosthog()
     })
@@ -44,7 +44,7 @@ describe('<Insights /> trends', () => {
     }))
 
     it('loads default trends', () => {
-        mount()
+        mountAndCheckAPI()
 
         cy.get('.insights-page').should('be.visible')
         cy.get('[data-attr="trend-line-graph"]').should('be.visible')
