@@ -2,6 +2,19 @@ import { getChartColors } from 'lib/colors'
 import { alphabet, hexToRGBA } from 'lib/utils'
 import React from 'react'
 
+interface SeriesGlyphProps {
+    children: React.ReactNode
+    style?: React.CSSProperties
+}
+
+export function SeriesGlyph({ style, children }: SeriesGlyphProps): JSX.Element {
+    return (
+        <span className="graph-series-glyph" style={style}>
+            {children}
+        </span>
+    )
+}
+
 interface SeriesLetterProps {
     hasBreakdown: boolean
     seriesIndex: number
@@ -13,8 +26,7 @@ export function SeriesLetter({ hasBreakdown, seriesIndex, seriesColor }: SeriesL
     const color = seriesColor || colorList[seriesIndex % colorList.length]
 
     return (
-        <span
-            className="graph-series-letter"
+        <SeriesGlyph
             style={
                 !hasBreakdown
                     ? {
@@ -26,6 +38,6 @@ export function SeriesLetter({ hasBreakdown, seriesIndex, seriesColor }: SeriesL
             }
         >
             {alphabet[seriesIndex]}
-        </span>
+        </SeriesGlyph>
     )
 }

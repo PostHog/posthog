@@ -19,10 +19,8 @@
 }
 
 .add-action-event-button {
-    &.new-ui {
-        border-color: $border_dark;
-        color: $primary;
-        padding-left: $default_spacing * 2.5;
-        padding-right: $default_spacing * 2.5;
-    }
+    border-color: $border_dark;
+    color: $primary;
+    padding-left: $default_spacing * 2.5;
+    padding-right: $default_spacing * 2.5;
 }
