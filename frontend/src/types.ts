@@ -597,6 +597,7 @@ export interface FilterType {
     people_action?: any
     formula?: any
     filter_test_accounts?: boolean
+    from_dashboard?: boolean
 }
 
 export interface SystemStatusSubrows {
@@ -670,6 +671,24 @@ export interface TrendResult {
 
 export interface TrendResultWithAggregate extends TrendResult {
     aggregated_value: number
+}
+
+export interface FunnelStep {
+    action_id: string
+    average_time: number
+    count: number
+    name: string
+    order: number
+    people: string[]
+    type: string
+    labels?: string[]
+}
+
+export interface FunnelResult {
+    is_cached: boolean
+    last_refresh: string | null
+    result: FunnelStep[]
+    type: 'Funnel'
 }
 
 export interface ChartParams {
