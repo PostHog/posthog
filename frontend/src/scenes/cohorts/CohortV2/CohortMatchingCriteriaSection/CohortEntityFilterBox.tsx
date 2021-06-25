@@ -6,7 +6,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { ActionType } from '~/types'
 import { EntityTypes } from '~/types'
 import { ActionInfo } from 'scenes/insights/ActionFilter/ActionFilterRow/ActionFilterDropdown'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
 export function CohortEntityFilterBox({
     open = false,
@@ -15,7 +15,7 @@ export function CohortEntityFilterBox({
     open: boolean
     onSelect: (type: any, id: string | number, name: string) => void
 }): JSX.Element | null {
-    const { eventDefinitions } = useValues(eventDefinitionsLogic)
+    const { eventDefinitions } = useValues(eventDefinitionsModel)
     const { actions } = useValues(actionsModel)
 
     if (!open) {
@@ -24,6 +24,7 @@ export function CohortEntityFilterBox({
 
     const groups: Array<SelectBoxItem> = [
         {
+            key: 'actions',
             name: 'Actions',
             header: function actionHeader(label) {
                 return (
@@ -45,6 +46,7 @@ export function CohortEntityFilterBox({
             getLabel: (item: SelectedItem) => item.action?.name || '',
         },
         {
+            key: 'events',
             name: 'Events',
             header: function eventHeader(label) {
                 return (

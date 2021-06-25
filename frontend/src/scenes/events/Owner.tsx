@@ -1,5 +1,5 @@
+import { ProfilePicture } from 'lib/components/ProfilePicture'
 import React from 'react'
-import { ProfilePicture } from '~/layout/navigation/TopNavigation'
 import { UserBasicType } from '~/types'
 
 export function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
@@ -7,7 +7,7 @@ export function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
         <>
             {user?.uuid ? (
                 <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-                    <ProfilePicture name={user.first_name} email={user.email} small={true} />
+                    <ProfilePicture name={user.first_name} email={user.email} size="sm" />
                     <span style={{ paddingLeft: 8 }}>{user.first_name}</span>
                 </div>
             ) : (
