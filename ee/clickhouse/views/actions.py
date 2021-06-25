@@ -8,6 +8,7 @@ from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
@@ -94,6 +95,21 @@ class ClickhouseActionsViewSet(ActionViewSet):
                 )
         else:
             next_url = None
+
+        if request.accepted_renderer.format == "csv":
+            csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
+            content = [
+                {
+                    "Name": person.get("properties", {}).get("name"),
+                    "Distinct ID": person.get("distinct_ids", [""])[0],
+                    "Internal ID": person.get("id"),
+                    "Email": person.get("properties", {}).get("email"),
+                    "Properties": person.get("properties", {}),
+                }
+                for person in serialized_people
+            ]
+            return Response(content)
+
         return Response(
             {
                 "results": [{"people": serialized_people[0:100], "count": len(serialized_people[0:99])}],
