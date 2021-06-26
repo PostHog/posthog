@@ -4,7 +4,7 @@ import { Loading, humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import './FunnelViz.scss'
 import { funnelLogic } from './funnelLogic'
-import { ACTIONS_LINE_GRAPH_LINEAR, FUNNEL_VIZ, FUNNEL_BAR_VIZ } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, FUNNEL_VIZ, FEATURE_FLAGS } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
 import { FunnelBarGraph } from './FunnelBarGraph'
 import { router } from 'kea-router'
@@ -12,6 +12,7 @@ import { IllustrationDanger } from 'lib/components/icons'
 import { InputNumber } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ChartParams, FunnelStep } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface FunnelVizProps extends Omit<ChartParams, 'view'> {
     steps: FunnelStep[]
@@ -32,6 +33,7 @@ export function FunnelViz({
     const { loadResults: loadFunnel, loadConversionWindow } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     function buildFlowChart(): void {
         // Build and mount graph for default "flow" visualization
@@ -148,7 +150,7 @@ export function FunnelViz({
         ) : null
     }
 
-    if (filters.display === FUNNEL_BAR_VIZ) {
+    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
         return <FunnelBarGraph layout="horizontal" steps={steps} />
     }
 

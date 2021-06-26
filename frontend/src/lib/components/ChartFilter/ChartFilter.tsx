@@ -59,16 +59,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             ? [
                   {
                       value: ChartDisplayType.FunnelViz,
-                      label: <Label icon={<OrderedListOutlined />}>Flow</Label>,
-                  },
-                  {
-                      value: ChartDisplayType.FunnelBarViz,
-                      label: (
-                          <Label icon={<BarChartOutlined />}>
-                              Bar
-                              <WarningTag>BETA</WarningTag>
-                          </Label>
-                      ),
+                      label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
                   },
                   {
                       value: ChartDisplayType.ActionsLineGraphLinear,

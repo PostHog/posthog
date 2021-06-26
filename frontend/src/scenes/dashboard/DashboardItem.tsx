@@ -132,19 +132,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
             ).url
         },
     },
-    FunnelBarViz: {
-        className: 'funnel',
-        element: FunnelViz,
-        icon: FunnelPlotOutlined,
-        viewText: 'View funnel',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
-            return combineUrl(
-                `/insights`,
-                { insight: ViewType.FUNNELS, ...filters },
-                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
-            ).url
-        },
-    },
     RetentionContainer: {
         className: 'retention',
         element: RetentionContainer,

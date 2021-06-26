@@ -11,7 +11,6 @@ export const ACTIONS_BAR_CHART = 'ActionsBar'
 export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
 export const PATHS_VIZ = 'PathsViz'
 export const FUNNEL_VIZ = 'FunnelViz'
-export const FUNNEL_BAR_VIZ = 'FunnelBarViz'
 
 export enum OrganizationMembershipLevel {
     Member = 1,
@@ -231,6 +230,7 @@ export const FEATURE_FLAGS: Record<string, string> = {
     NPS_PROMPT: '4562-nps',
     INGESTION_TAXONOMY: '4267-event-property-taxonomy',
     NEW_TOOLTIPS: '4156-tooltips-legends',
+    FUNNEL_BAR_VIZ: '4535-funnel-bar-viz',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
