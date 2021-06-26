@@ -5,7 +5,7 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { FilterType, PersonsTabType, PersonType } from '~/types'
+import { PersonsTabType, PersonType, SessionsPropertyFilter } from '~/types'
 import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -24,7 +24,8 @@ interface PersonsTableType {
     loadNext?: () => void
     allColumns?: boolean // whether to show all columns or not
     backTo?: string // text to display next to `back to` arrow. if "Insights," deep link to Persons > Sessions
-    filters?: FilterType[] // contains context relevant to all items in table
+    sessionsFilters?: Partial<SessionsPropertyFilter>[] // sessions filters from trends graphs
+    date?: string
 }
 
 export function PersonsTable({
@@ -36,12 +37,13 @@ export function PersonsTable({
     loadNext,
     allColumns,
     backTo = 'Persons',
-    filters = [],
+    sessionsFilters = [],
+    date = undefined,
 }: PersonsTableType): JSX.Element {
-    const deepLinkToPerson = (person: PersonType): string =>
+    const deepLinkToPersonSessions = (person: PersonType): string =>
         buildUrl(
             `/person/${encodeURIComponent(person.distinct_ids[0])}`,
-            { filters },
+            { filters: sessionsFilters, date },
             {
                 backTo,
                 backToURL: window.location.pathname + window.location.search + window.location.hash,
@@ -58,7 +60,7 @@ export function PersonsTable({
             span: 6,
             render: function Render(person: PersonType) {
                 return (
-                    <Link to={deepLinkToPerson(person)} data-attr="goto-person-email">
+                    <Link to={deepLinkToPersonSessions(person)} data-attr="goto-person-email">
                         <PersonHeader person={person} />
                     </Link>
                 )
@@ -106,8 +108,7 @@ export function PersonsTable({
             return (
                 <>
                     <Link
-                        to={deepLinkToPerson(person)}
-                        // context={{}}
+                        to={deepLinkToPersonSessions(person)}
                         data-attr={'goto-person-arrow-' + index}
                         data-test-goto-person
                     >

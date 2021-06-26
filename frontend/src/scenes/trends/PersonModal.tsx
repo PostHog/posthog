@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { TrendPeople, trendsLogic } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
@@ -10,6 +10,24 @@ import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { toParams } from 'lib/utils'
+import { EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter } from '~/types'
+import { ACTION_TYPE, EVENT_TYPE } from 'lib/constants'
+
+// Utility function to handle filter conversion required for deeplinking to person -> sessions
+const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
+    if (!people?.action) {
+        return []
+    }
+    return [
+        {
+            key: 'id',
+            value: people.action.id,
+            label: people.action.name as string,
+            type: people.action.type === EntityTypes.ACTIONS ? ACTION_TYPE : EVENT_TYPE,
+            properties: [...people.action.properties, ...(filters?.properties || [])] as EventPropertyFilter[], // combine global properties into action/event filter
+        },
+    ]
+}
 
 interface Props {
     visible: boolean
@@ -31,6 +49,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
             ? `"${people?.label}"`
             : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
     const closeModal = (): void => setShowingPeople(false)
+
     return (
         <Modal
             title={title}
@@ -93,7 +112,8 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                     <PersonsTable
                         loading={!people?.people}
                         people={people.people}
-                        filters={[filters]}
+                        sessionsFilters={convertToSessionFilters(people, filters)}
+                        date={people?.day ? dayjs(people.day).format('YYYY-MM-DD') : undefined}
                         backTo="Insights"
                     />
                     <div

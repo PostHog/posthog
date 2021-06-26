@@ -216,11 +216,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionReco
             }
 
             if (JSON.stringify(params.filters || {}) !== JSON.stringify(values.filters)) {
-                const nextFilters = params.filters || []
-
-                // set last applied filters on url driven filter change
-                actions.setAllFilters(nextFilters)
-
+                actions.setAllFilters(params.filters || [])
                 actions.applyFilters()
             }
         }
