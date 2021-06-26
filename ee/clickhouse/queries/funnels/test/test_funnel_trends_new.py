@@ -10,6 +10,7 @@ from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
+FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
 
 
 def _create_person(**kwargs):
@@ -414,23 +415,24 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, len(friday["person_ids_entered"]))
 
     def test_period_not_final(self):
-        utcnow = datetime.utcnow()
-        yesterday = utcnow - timedelta(days=1)
-        tomorrow = utcnow + timedelta(days=1)
-        utcnow_string = utcnow.strftime(FORMAT_TIME)
+        today = datetime.utcnow()
+        yesterday = today - timedelta(1)
+        today_string = today.strftime(FORMAT_TIME)
+        today_end_string = today.strftime(FORMAT_TIME_DAY_END)
+        yesterday_string = yesterday.strftime(FORMAT_TIME)
 
         _create_person(distinct_ids=["user_eight"], team=self.team)
-        _create_event(event="step one", distinct_id="user_eight", team=self.team, timestamp=utcnow_string)
-        _create_event(event="step two", distinct_id="user_eight", team=self.team, timestamp=utcnow_string)
-        _create_event(event="step three", distinct_id="user_eight", team=self.team, timestamp=utcnow_string)
+        _create_event(event="step one", distinct_id="user_eight", team=self.team, timestamp=today_string)
+        _create_event(event="step two", distinct_id="user_eight", team=self.team, timestamp=today_string)
+        _create_event(event="step three", distinct_id="user_eight", team=self.team, timestamp=today_string)
 
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
                 "interval": "day",
-                "date_from": yesterday.strftime(FORMAT_TIME),
-                "date_to": tomorrow.strftime(FORMAT_TIME),
+                "date_from": yesterday_string,
+                "date_to": today_end_string,
                 "funnel_window_days": 1,
                 "events": [
                     {"id": "step one", "order": 0},
@@ -441,7 +443,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         )
         results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
 
-        self.assertEqual(len(results), 3)
+        self.assertEqual(len(results), 2)
 
         day = results[0]  # yesterday
         self.assertEqual(day["entered_count"], 0)
@@ -449,7 +451,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["conversion_rate"], 0)
         self.assertEqual(len(day["person_ids_entered"]), 0)
         self.assertEqual(len(day["person_ids_completed"]), 0)
-        self.assertEqual(day["timestamp"], datetime(utcnow.year, utcnow.month, utcnow.day) - timedelta(1))
+        self.assertEqual(day["timestamp"], datetime(today.year, today.month, today.day) - timedelta(1))
         self.assertEqual(day["is_period_final"], True)  # this window can't be affected anymore
 
         day = results[1]  # today
@@ -458,7 +460,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["conversion_rate"], 100)
         self.assertEqual(len(day["person_ids_entered"]), 1)  # ignoring values since they are random UUIDs
         self.assertEqual(len(day["person_ids_completed"]), 1)
-        self.assertEqual(day["timestamp"], datetime(utcnow.year, utcnow.month, utcnow.day))
+        self.assertEqual(day["timestamp"], datetime(today.year, today.month, today.day))
         self.assertEqual(day["is_period_final"], False)  # events coming in now may stil affect this
 
     def test_two_runs_by_single_user_in_one_period(self):
