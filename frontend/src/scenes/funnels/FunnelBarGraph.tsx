@@ -3,10 +3,11 @@ import { humanizeNumber, pluralize } from 'lib/utils'
 import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button } from 'antd'
-
-import './FunnelBarGraph.scss'
 import { ClockCircleOutlined, UserOutlined } from '@ant-design/icons'
 import { useResizeObserver } from 'lib/utils/responsiveUtils'
+import { SeriesGlyph } from 'lib/components/SeriesGlyph'
+
+import './FunnelBarGraph.scss'
 
 interface FunnelBarGraphProps {
     layout?: 'horizontal' | 'vertical'
@@ -87,10 +88,21 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
         return (numerator / denominator) * 100 || 0
     }
 
+    function humanizeOrder(order: number): number {
+        return order + 1
+    }
+
     return layout === 'horizontal' ? (
         <div>
             {steps.map((step, i) => (
                 <section key={step.order} className="funnel-step">
+                    <div className="funnel-series-container">
+                        <div className={`funnel-series-linebox ${steps[i - 1] ? 'before' : ''}`} />
+                        <SeriesGlyph style={{ backgroundColor: '#fff', zIndex: 2 }}>
+                            {humanizeOrder(step.order)}
+                        </SeriesGlyph>
+                        <div className={`funnel-series-linebox ${steps[i + 1] ? 'after' : ''}`} />
+                    </div>
                     <header>
                         <div className="funnel-step-title">
                             <PropertyKeyInfo value={step.name} />

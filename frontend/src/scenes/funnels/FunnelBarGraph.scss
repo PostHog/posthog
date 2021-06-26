@@ -1,6 +1,49 @@
 @import '~/vars';
 
+$label_position_offset: 8px;
+$series_container_width: 3rem;
+$glyph_margin_top: 10px;
+$glyph_height: 22px;
+
 .funnel-step {
+    position: relative;
+    padding-left: $series_container_width;
+
+    .funnel-series-container {
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        width: $series_container_width;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+
+        .graph-series-glyph {
+            margin-top: $glyph_margin_top;
+            user-select: none;
+        }
+
+        .funnel-series-linebox {
+            position: absolute;
+            left: 0;
+            width: calc(#{$series_container_width} / 2 + 1px);
+            box-sizing: border-box;
+            border-right: 2px solid #c5c9d7;
+
+            &.before {
+                top: 0;
+                height: calc(#{$glyph_margin_top} + #{$glyph_height} / 2);
+            }
+
+            &.after {
+                bottom: 0;
+                top: calc(#{$glyph_margin_top} + #{$glyph_height} / 2);
+                height: calc(100% - #{$glyph_margin_top} + #{$glyph_height} / 2);
+            }
+        }
+    }
+
     .funnel-step-metadata {
         display: flex;
         flex-grow: 1;
@@ -77,8 +120,6 @@
         }
     }
 }
-
-$label_position_offset: 8px;
 
 .funnel-bar-wrapper {
     height: 32px;
