@@ -1,8 +1,5 @@
 from datetime import datetime, timedelta
-from pprint import pprint
 from uuid import uuid4
-
-from django.utils.timezone import utc
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrendsNew
@@ -473,9 +470,9 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
 
         # 2nd full run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 13:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 14:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 15:00:00")
 
         filter = Filter(
             data={

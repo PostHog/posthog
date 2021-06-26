@@ -1,11 +1,11 @@
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Tuple, Union, cast
+from typing import Union
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
-from ee.clickhouse.queries.util import format_ch_timestamp, get_time_diff, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import NULL_SQL_FUNNEL_TRENDS
 from ee.clickhouse.sql.funnels.funnel_trend import FUNNEL_TREND_SQL
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
