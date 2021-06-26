@@ -415,24 +415,30 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, len(friday["person_ids_entered"]))
 
     def test_period_not_final(self):
-        today = datetime.utcnow()
-        yesterday = today - timedelta(1)
-        today_string = today.strftime(FORMAT_TIME)
-        today_end_string = today.strftime(FORMAT_TIME_DAY_END)
-        yesterday_string = yesterday.strftime(FORMAT_TIME)
+        now = datetime.now()
 
         _create_person(distinct_ids=["user_eight"], team=self.team)
-        _create_event(event="step one", distinct_id="user_eight", team=self.team, timestamp=today_string)
-        _create_event(event="step two", distinct_id="user_eight", team=self.team, timestamp=today_string)
-        _create_event(event="step three", distinct_id="user_eight", team=self.team, timestamp=today_string)
+        _create_event(event="step one", distinct_id="user_eight", team=self.team, timestamp=now.strftime(FORMAT_TIME))
+        _create_event(
+            event="step two",
+            distinct_id="user_eight",
+            team=self.team,
+            timestamp=(now + timedelta(minutes=1)).strftime(FORMAT_TIME),
+        )
+        _create_event(
+            event="step three",
+            distinct_id="user_eight",
+            team=self.team,
+            timestamp=(now + timedelta(minutes=2)).strftime(FORMAT_TIME),
+        )
 
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
                 "interval": "day",
-                "date_from": yesterday_string,
-                "date_to": today_end_string,
+                "date_from": (now - timedelta(1)).strftime(FORMAT_TIME),
+                "date_to": now.strftime(FORMAT_TIME_DAY_END),
                 "funnel_window_days": 1,
                 "events": [
                     {"id": "step one", "order": 0},
@@ -451,7 +457,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["conversion_rate"], 0)
         self.assertEqual(len(day["person_ids_entered"]), 0)
         self.assertEqual(len(day["person_ids_completed"]), 0)
-        self.assertEqual(day["timestamp"], datetime(today.year, today.month, today.day) - timedelta(1))
+        self.assertEqual(day["timestamp"], datetime(now.year, now.month, now.day) - timedelta(1))
         self.assertEqual(day["is_period_final"], True)  # this window can't be affected anymore
 
         day = results[1]  # today
@@ -460,7 +466,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["conversion_rate"], 100)
         self.assertEqual(len(day["person_ids_entered"]), 1)  # ignoring values since they are random UUIDs
         self.assertEqual(len(day["person_ids_completed"]), 1)
-        self.assertEqual(day["timestamp"], datetime(today.year, today.month, today.day))
+        self.assertEqual(day["timestamp"], datetime(now.year, now.month, now.day))
         self.assertEqual(day["is_period_final"], False)  # events coming in now may stil affect this
 
     def test_two_runs_by_single_user_in_one_period(self):
