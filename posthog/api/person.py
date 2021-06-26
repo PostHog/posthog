@@ -232,13 +232,16 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
 
         limit = int(request.GET.get("limit", 100))
-
         next_url: Optional[str] = request.get_full_path()
         people = self.lifecycle_class().get_people(
-            target_date=target_date_parsed, filter=filter, team_id=team.pk, lifecycle_type=lifecycle_type, limit=limit,
+            target_date=target_date_parsed,
+            filter=filter,
+            team_id=team.pk,
+            lifecycle_type=lifecycle_type,
+            request=request,
+            limit=limit,
         )
         next_url = paginated_result(people, request, filter.offset)
-
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
     @action(methods=["GET"], detail=False)
@@ -275,7 +278,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         target_entity = get_target_entity(request)
 
-        people = self.stickiness_class().people(target_entity, filter, team)
+        people = self.stickiness_class().people(target_entity, filter, team, request)
         next_url = paginated_result(people, request, filter.offset)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 

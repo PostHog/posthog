@@ -436,7 +436,7 @@ class LifecycleTrend:
         return res
 
     def get_people(
-        self, filter: Filter, team_id: int, target_date: datetime, lifecycle_type: str, limit: int = 100,
+        self, filter: Filter, team_id: int, target_date: datetime, lifecycle_type: str, request, limit: int = 100,
     ):
         entity = filter.entities[0]
         period = filter.interval or "day"
@@ -494,9 +494,10 @@ class LifecycleTrend:
             pids = cursor.fetchall()
 
             people = Person.objects.filter(team_id=team_id, id__in=[p[0] for p in pids],)
-            people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+            from posthog.api.person import PersonSerializer, PersonViewSet
 
-            from posthog.api.person import PersonSerializer
+            people = PersonViewSet._filter_request(PersonViewSet, request, people)
+            people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
             return PersonSerializer(people, many=True).data
 

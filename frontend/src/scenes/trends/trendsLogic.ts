@@ -196,13 +196,22 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
-        loadPeople: (action, label, date_from, date_to, breakdown_value, saveOriginal?: boolean) => ({
+        loadPeople: (
+            action,
+            label,
+            date_from,
+            date_to,
+            breakdown_value,
+            saveOriginal?: boolean,
+            searchTerm?: string
+        ) => ({
             action,
             label,
             date_from,
             date_to,
             breakdown_value,
             saveOriginal,
+            searchTerm,
         }),
         saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
@@ -434,29 +443,34 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 errorToast(undefined, "We couldn't create your cohort:")
             }
         },
-        loadPeople: async ({ label, action, date_from, date_to, breakdown_value, saveOriginal }, breakpoint) => {
+        loadPeople: async (
+            { label, action, date_from, date_to, breakdown_value, saveOriginal, searchTerm },
+            breakpoint
+        ) => {
             let people = []
+            const searchTermParam = searchTerm ? `&search=${searchTerm}` : ''
+
             if (values.filters.insight === ViewType.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
                     { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                     values.filters
                 )
                 actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
-                people = await api.get(`api/person/lifecycle/?${filterParams}`)
+                people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
             } else if (values.filters.insight === ViewType.STICKINESS) {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
                     values.filters
                 )
                 actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
-                people = await api.get(`api/person/stickiness/?${filterParams}`)
+                people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
             } else {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
                     values.filters
                 )
                 actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
-                people = await api.get(`api/action/people/?${filterParams}`)
+                people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)
             }
             breakpoint()
             actions.setPeople(
@@ -558,26 +572,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             const { label, action, day, breakdown_value } = people
             const date_from = day
             const date_to = day
-            const propertySearchFilter = searchTerm.match(/(?<=has:).*/)?.[0]
-            const properties = (propertySearchFilter
-                ? [{ key: `${propertySearchFilter}`, value: 'is_set', operator: 'is_set', type: 'person' }]
-                : []) as PropertyFilter[]
-            const filterParams = parsePeopleParams(
-                { label, action, date_from, date_to, breakdown_value },
-                { ...values.filters, properties }
-            )
-            const filteredPeople = await api.get(
-                `api/action/people/?${filterParams}${propertySearchFilter ? '' : `&search=${searchTerm}`}`
-            )
-            actions.setPeople(
-                filteredPeople.results[0]?.people,
-                filteredPeople.results[0]?.count,
-                action,
-                label,
-                date_from,
-                breakdown_value,
-                filteredPeople.next
-            )
+            actions.loadPeople(action, label, date_from, date_to, breakdown_value, false, searchTerm)
         },
     }),
 
