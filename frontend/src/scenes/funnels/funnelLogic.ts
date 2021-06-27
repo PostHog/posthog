@@ -253,7 +253,7 @@ export const funnelLogic = kea<funnelLogicType>({
         },
     }),
     urlToAction: ({ actions, values, props }) => ({
-        '/insights': (_: unknown, searchParams: Record<string, any>) => {
+        '/insights': (_, searchParams) => {
             if (props.dashboardItemId) {
                 return
             }
