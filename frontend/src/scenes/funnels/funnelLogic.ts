@@ -185,16 +185,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 return isStepsEmpty(filters)
             },
         ],
-        propertiesForUrl: [
-            () => [selectors.filters],
-            (filters: FilterType) => {
-                const result = {
-                    insight: ViewType.FUNNELS,
-                    ...cleanFunnelParams(filters),
-                }
-                return result
-            },
-        ],
+        propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
         isValidFunnel: [
             () => [selectors.stepsWithCount],
             (stepsWithCount: FunnelStep[]) => {
