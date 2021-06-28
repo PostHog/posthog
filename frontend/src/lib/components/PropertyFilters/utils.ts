@@ -19,7 +19,7 @@ export function parseProperties(
 }
 
 /** Checks if the AnyPropertyFilter is a filled PropertyFilter */
-export function isFilledPropertyFilter(filter: AnyPropertyFilter): filter is PropertyFilter {
+export function isValidPropertyFilter(filter: AnyPropertyFilter): filter is PropertyFilter {
     return (
         !!filter && // is not falsy
         'key' in filter && // has a "key" property

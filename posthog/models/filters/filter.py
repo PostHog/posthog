@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, Optional
 
-from django.http import HttpRequest
+from rest_framework import request
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES
@@ -61,7 +61,9 @@ class Filter(
     funnel_id: Optional[int] = None
     _data: Dict
 
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
+    def __init__(
+        self, data: Optional[Dict[str, Any]] = None, request: Optional[request.Request] = None, **kwargs
+    ) -> None:
         if request:
             properties = {}
             if request.GET.get(PROPERTIES):
@@ -69,6 +71,9 @@ class Filter(
                     properties = json.loads(request.GET[PROPERTIES])
                 except json.decoder.JSONDecodeError:
                     raise ValidationError("Properties are unparsable!")
+            elif request.data and request.data.get(PROPERTIES):
+                properties = request.data[PROPERTIES]
+
             data = {
                 **request.GET.dict(),
                 **(data if data else {}),

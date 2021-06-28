@@ -1,10 +1,14 @@
 import uuid
+from datetime import datetime
 
+from dateutil.relativedelta import relativedelta
 from django.db import connection
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from posthog.models import EventDefinition, Person, Team
+
+UTC_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 class GenerateLocal:
@@ -56,6 +60,13 @@ class GenerateLocal:
         sync_execute(sql)
 
     def _insert_events(self):
+        self._insert_many_events("2010-01-01 00:00:00")
+        self._insert_hours_events("2011-01-01 00:00:00")
+        self._insert_days_events("2012-01-01 00:00:00")
+        self._insert_weeks_events("2013-01-01 00:00:00")
+        self._insert_months_events("2015-01-01 00:00:00")
+
+    def _insert_many_events(self, start_date):
         step_one = self.number + 1
         step_two = round(step_one / 2)
         step_three = round(step_one / 3)
@@ -63,12 +74,77 @@ class GenerateLocal:
         step_five = round(step_one / 5)
 
         for i in range(1, step_one):
-            create_event(uuid.uuid4(), "step one", self.team, f"user_{i}", "2021-05-01 00:00:00")
+            create_event(uuid.uuid4(), "step one", self.team, f"user_{i}", start_date)
         for i in range(1, step_two):
-            create_event(uuid.uuid4(), "step two", self.team, f"user_{i}", "2021-05-03 00:00:00")
+            create_event(uuid.uuid4(), "step two", self.team, f"user_{i}", self._add_interval("days", 1, start_date))
         for i in range(1, step_three):
-            create_event(uuid.uuid4(), "step three", self.team, f"user_{i}", "2021-05-05 00:00:00")
+            create_event(uuid.uuid4(), "step three", self.team, f"user_{i}", self._add_interval("days", 2, start_date))
         for i in range(1, step_four):
-            create_event(uuid.uuid4(), "step four", self.team, f"user_{i}", "2021-05-07 00:00:00")
+            create_event(uuid.uuid4(), "step four", self.team, f"user_{i}", self._add_interval("days", 3, start_date))
         for i in range(1, step_five):
-            create_event(uuid.uuid4(), "step five", self.team, f"user_{i}", "2021-05-09 00:00:00")
+            create_event(uuid.uuid4(), "step five", self.team, f"user_{i}", self._add_interval("days", 4, start_date))
+
+    def _insert_hours_events(self, start_date):
+        self._case_correct_order("hours", "user_1", start_date)
+        self._case_reverse_order("hours", "user_2", start_date)
+        self._case_out_of_order_complete("hours", "user_3", start_date)
+
+    def _insert_days_events(self, start_date):
+        self._case_correct_order("days", "user_11", start_date)
+        self._case_reverse_order("days", "user_12", start_date)
+        self._case_out_of_order_complete("days", "user_13", start_date)
+
+    def _insert_weeks_events(self, start_date):
+        self._case_correct_order("weeks", "user_21", start_date)
+        self._case_reverse_order("weeks", "user_22", start_date)
+        self._case_out_of_order_complete("weeks", "user_23", start_date)
+
+    def _insert_months_events(self, start_date):
+        self._case_correct_order("months", "user_31", start_date)
+        self._case_reverse_order("months", "user_32", start_date)
+        self._case_out_of_order_complete("months", "user_33", start_date)
+
+    def _case_correct_order(self, interval, user, start_date):
+        create_event(uuid.uuid4(), "step one", self.team, user, start_date)
+        create_event(uuid.uuid4(), "step two", self.team, user, self._add_interval(interval, 1, start_date))
+        create_event(uuid.uuid4(), "step three", self.team, user, self._add_interval(interval, 2, start_date))
+        create_event(uuid.uuid4(), "step four", self.team, user, self._add_interval(interval, 3, start_date))
+        create_event(uuid.uuid4(), "step five", self.team, user, self._add_interval(interval, 4, start_date))
+
+    def _case_reverse_order(self, interval, user, start_date):
+        create_event(uuid.uuid4(), "step five", self.team, user, start_date)
+        create_event(uuid.uuid4(), "step four", self.team, user, self._add_interval(interval, 1, start_date))
+        create_event(uuid.uuid4(), "step three", self.team, user, self._add_interval(interval, 2, start_date))
+        create_event(uuid.uuid4(), "step two", self.team, user, self._add_interval(interval, 3, start_date))
+        create_event(uuid.uuid4(), "step one", self.team, user, self._add_interval(interval, 4, start_date))
+
+    def _case_out_of_order_complete(self, interval, user, start_date):
+        create_event(uuid.uuid4(), "step one", self.team, user, start_date)
+        create_event(uuid.uuid4(), "step three", self.team, user, self._add_interval(interval, 1, start_date))
+        create_event(uuid.uuid4(), "step two", self.team, user, self._add_interval(interval, 1, start_date))
+        create_event(uuid.uuid4(), "step three", self.team, user, self._add_interval(interval, 2, start_date))
+        create_event(uuid.uuid4(), "step five", self.team, user, self._add_interval(interval, 3, start_date))
+        create_event(uuid.uuid4(), "step four", self.team, user, self._add_interval(interval, 3, start_date))
+        create_event(uuid.uuid4(), "step five", self.team, user, self._add_interval(interval, 4, start_date))
+
+    def _add_interval(self, interval, delta, date_time_string):
+        dt = datetime.strptime(date_time_string, UTC_FORMAT)
+
+        if interval == "months":
+            delta = relativedelta(months=delta)
+            new_dt = dt + delta
+            return new_dt.strftime(UTC_FORMAT)
+        elif interval == "weeks":
+            delta = relativedelta(weeks=delta)
+            new_dt = dt + delta
+            return new_dt.strftime(UTC_FORMAT)
+        elif interval == "days":
+            delta = relativedelta(days=delta)
+            new_dt = dt + delta
+            return new_dt.strftime(UTC_FORMAT)
+        elif interval == "hours":
+            delta = relativedelta(hours=delta)
+            new_dt = dt + delta
+            return new_dt.strftime(UTC_FORMAT)
+        else:
+            return date_time_string

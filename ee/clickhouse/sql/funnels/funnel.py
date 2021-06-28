@@ -55,7 +55,6 @@ offset {offset}
 ;
 """
 
-
 FUNNEL_PERSONS_BY_STEP_SQL = """
 SELECT person_id
 FROM
