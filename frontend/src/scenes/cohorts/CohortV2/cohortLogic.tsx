@@ -48,6 +48,7 @@ export const cohortLogic = kea<cohortLogicType>({
         setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
         setLastSavedAt: (lastSavedAt: string | false) => ({ lastSavedAt }),
         checkIfFinishedCalculating: (cohort: CohortType) => ({ cohort }),
+        setSubmitted: (submitted: boolean) => ({ submitted }),
     }),
 
     reducers: ({ props }) => ({
@@ -69,6 +70,13 @@ export const cohortLogic = kea<cohortLogicType>({
                 setLastSavedAt: (_, { lastSavedAt }) => lastSavedAt,
             },
         ],
+        submitted: [
+            // Indicates the form has been submitted at least once. Used to display validation errors if applicable.
+            false,
+            {
+                setSubmitted: (_, { submitted }) => submitted,
+            },
+        ],
     }),
 
     listeners: ({ actions, values, key }) => ({
@@ -77,7 +85,22 @@ export const cohortLogic = kea<cohortLogicType>({
             const cohortFormData = new FormData()
             for (const [itemKey, value] of Object.entries(cohort as CohortType)) {
                 if (itemKey === 'groups') {
+                    for (const _group of value) {
+                        if (_group.matchType === PROPERTY_MATCH_TYPE && !_group.properties?.length) {
+                            // Match group should have at least one property
+                            actions.setSubmitted(true)
+                            return
+                        }
+
+                        if (_group.matchType === ENTITY_MATCH_TYPE && !(_group.action_id || _group.event_id)) {
+                            // Match group should have an event or action set
+                            actions.setSubmitted(true)
+                            return
+                        }
+                    }
+
                     const formattedGroups = value.map((group: CohortGroupType) => formatGroupPayload(group))
+
                     if (!cohort.csv) {
                         cohortFormData.append(itemKey, JSON.stringify(formattedGroups))
                     } else {
@@ -113,6 +136,7 @@ export const cohortLogic = kea<cohortLogicType>({
                 return
             }
 
+            actions.setSubmitted(false)
             cohort.is_calculating = true // this will ensure there is always a polling period to allow for backend calculation task to run
             breakpoint()
             delete cohort['csv']

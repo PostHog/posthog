@@ -17,7 +17,7 @@ import { UploadFile } from 'antd/lib/upload/interface'
 export function CohortV2(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
     const { setCohort } = useActions(logic)
-    const { cohort } = useValues(logic)
+    const { cohort, submitted } = useValues(logic)
 
     const onNameChange = (name: string): void => {
         setCohort({
@@ -139,6 +139,7 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
                     cohort={cohort}
                     onAddGroup={onAddGroup}
                     onRemoveGroup={onRemoveGroup}
+                    showErrors={submitted}
                 />
             )}
 

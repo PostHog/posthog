@@ -14,10 +14,12 @@ export function MatchCriteriaSelector({
     onCriteriaChange,
     group,
     onRemove,
+    showErrors,
 }: {
     onCriteriaChange: (group: Partial<CohortGroupType>) => void
     group: CohortGroupType
     onRemove: () => void
+    showErrors?: boolean
 }): JSX.Element {
     const onMatchTypeChange = (input: MatchType): void => {
         onCriteriaChange({
@@ -25,8 +27,20 @@ export function MatchCriteriaSelector({
         })
     }
 
+    const errored =
+        showErrors &&
+        ((group.matchType === ENTITY_MATCH_TYPE && !group.properties?.length) ||
+            (group.matchType === PROPERTY_MATCH_TYPE && !(group.action_id || group.event_id)))
+
     return (
-        <div style={{ padding: 15, border: '1px solid rgba(0, 0, 0, 0.1)', borderRadius: 4, width: '100%' }}>
+        <div
+            style={{
+                padding: 15,
+                border: errored ? '1px solid var(--danger)' : '1px solid rgba(0, 0, 0, 0.1)',
+                borderRadius: 4,
+                width: '100%',
+            }}
+        >
             <Row align="middle" justify="space-between">
                 <div>
                     Match users who
@@ -41,6 +55,15 @@ export function MatchCriteriaSelector({
                     </Select>
                 </div>
                 <DeleteOutlined onClick={() => onRemove()} style={{ cursor: 'pointer' }} />
+            </Row>
+            <Row>
+                {errored && (
+                    <div style={{ color: 'var(--danger)', marginTop: 16 }}>
+                        {group.matchType === ENTITY_MATCH_TYPE
+                            ? 'Please select an event or action.'
+                            : 'Please select at least one property or remove this match group.'}
+                    </div>
+                )}
             </Row>
             <Row align="middle">
                 {group.matchType === ENTITY_MATCH_TYPE ? (

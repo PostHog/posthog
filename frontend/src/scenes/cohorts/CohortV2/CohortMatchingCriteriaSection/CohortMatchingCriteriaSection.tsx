@@ -9,11 +9,13 @@ export function CohortMatchingCriteriaSection({
     cohort,
     onAddGroup,
     onRemoveGroup,
+    showErrors,
 }: {
     onCriteriaChange: (group: Partial<CohortGroupType>, id: string) => void
     cohort: CohortType
     onAddGroup: () => void
     onRemoveGroup: (index: number) => void
+    showErrors?: boolean
 }): JSX.Element {
     const addButton = (
         <div style={{ marginTop: 8, marginBottom: 8 }}>
@@ -38,6 +40,7 @@ export function CohortMatchingCriteriaSection({
                                 onCriteriaChange={(newGroup) => onCriteriaChange(newGroup, group.id)}
                                 onRemove={() => onRemoveGroup(index)}
                                 group={group}
+                                showErrors={showErrors}
                             />
                             {index < cohort.groups.length - 1 && <div className="stateful-badge or mt mb">OR</div>}
                         </div>
