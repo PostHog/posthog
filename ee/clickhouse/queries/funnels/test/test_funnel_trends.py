@@ -430,7 +430,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["completed_count"], 0)
         self.assertEqual(day["conversion_rate"], 0)
         self.assertEqual(
-            day["timestamp"], (datetime(now.year, now.month, now.day) - timedelta(1)).replace(tzinfo=pytz.UTC)
+            day["timestamp"].replace(tzinfo=pytz.UTC),
+            (datetime(now.year, now.month, now.day) - timedelta(1)).replace(tzinfo=pytz.UTC),
         )
         self.assertEqual(day["is_period_final"], True)  # this window can't be affected anymore
 
@@ -438,7 +439,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["entered_count"], 1)
         self.assertEqual(day["completed_count"], 1)
         self.assertEqual(day["conversion_rate"], 100)
-        self.assertEqual(day["timestamp"], datetime(now.year, now.month, now.day).replace(tzinfo=pytz.UTC))
+        self.assertEqual(
+            day["timestamp"].replace(tzinfo=pytz.UTC), datetime(now.year, now.month, now.day).replace(tzinfo=pytz.UTC)
+        )
         self.assertEqual(day["is_period_final"], False)  # events coming in now may stil affect this
 
     def test_two_runs_by_single_user_in_one_period(self):
