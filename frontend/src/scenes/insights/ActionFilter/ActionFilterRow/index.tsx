@@ -14,7 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { pluralize } from 'lib/utils'
 import './index.scss'
-import { SeriesLetter } from 'lib/components/SeriesLetter'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
@@ -247,7 +247,7 @@ export function ActionFilterRow({
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
-                        onChange={(properties: PropertyFilter[]) => updateFilterProperty({ properties, index })}
+                        onChange={(properties) => updateFilterProperty({ properties, index })}
                         disablePopover={horizontalUI}
                         style={{ marginBottom: 0 }}
                     />

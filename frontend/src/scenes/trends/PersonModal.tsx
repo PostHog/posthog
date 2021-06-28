@@ -1,13 +1,12 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { toParams } from 'lib/utils'
 interface Props {
     visible: boolean
     view: ViewType
@@ -120,14 +119,16 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                     <div className="text-right">
                         <Button
                             icon={<DownloadOutlined />}
-                            href={`/api/action/people.csv?/?${toParams({
-                                ...(filters || {}),
-                                entity_id: people.action.id,
-                                entity_type: people.action.type,
-                                date_from: people.day,
-                                date_to: people.day,
-                                label: people.label,
-                            })}`}
+                            href={`/api/action/people.csv?/?${parsePeopleParams(
+                                {
+                                    label: people.label,
+                                    action: people.action,
+                                    date_from: people.day,
+                                    date_to: people.day,
+                                    breakdown_value: people.breakdown_value,
+                                },
+                                filters
+                            )})}`}
                             style={{ marginBottom: '1rem' }}
                             title="Download CSV"
                         />

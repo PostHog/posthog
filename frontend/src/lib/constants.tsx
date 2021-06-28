@@ -1,6 +1,8 @@
 import React from 'react'
 import { AnnotationScope } from '../types'
 
+// Sync these with the ChartDisplayType enum in types.ts
+// ... and remove once all files have migrated to TypeScript
 export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraph'
 export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
 export const ACTIONS_TABLE = 'ActionsTable'
@@ -224,7 +226,6 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS: Record<string, string> = {
     INGESTION_GRID: 'ingestion-grid-exp-3',
     PROJECT_HOME: 'project-home-exp-5',
-    QUERY_UX_V2: '4050-query-ui-optB',
     EVENT_COLUMN_CONFIG: '4141-event-columns',
     NPS_PROMPT: '4562-nps',
     INGESTION_TAXONOMY: '4267-event-property-taxonomy',
