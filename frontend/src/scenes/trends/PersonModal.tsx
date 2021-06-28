@@ -7,6 +7,7 @@ import { Modal, Button, Spin, Input } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 interface Props {
     visible: boolean
     view: ViewType
@@ -65,47 +66,51 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                 </b>{' '}
                                 persons
                             </span>
-                            <Input.Search
-                                allowClear
-                                enterButton
-                                placeholder="search person by email, name, or ID"
-                                style={{ width: '100%', flexGrow: 1 }}
-                                onChange={(e) => {
-                                    setSearchTerm(e.target.value)
-                                    if (!e.target.value) {
-                                        setPeople(
-                                            firstLoadedPeople?.people,
-                                            firstLoadedPeople?.count,
-                                            people.action,
-                                            people.label,
-                                            people.day,
-                                            people.breakdown_value,
-                                            people.next
-                                        )
-                                    }
-                                }}
-                                value={searchTerm}
-                                onSearch={() => {
-                                    if (!searchTerm) {
-                                        const { count, action, label, day, breakdown_value, next } = people
-                                        setPeople(
-                                            firstLoadedPeople?.people,
-                                            count,
-                                            action,
-                                            label,
-                                            day,
-                                            breakdown_value,
-                                            next
-                                        )
-                                    } else {
-                                        setPersonsModalFilters(searchTerm, people)
-                                    }
-                                }}
-                            />
-                            <div className="text-muted text-small">
-                                You can also filter persons that have a certain property set (e.g.{' '}
-                                <code>has:email</code> or <code>has:name</code>)
-                            </div>
+                            {featureFlags[FEATURE_FLAGS.PERSONS_MODAL_FILTERING] && (
+                                <>
+                                    <Input.Search
+                                        allowClear
+                                        enterButton
+                                        placeholder="search person by email, name, or ID"
+                                        style={{ width: '100%', flexGrow: 1 }}
+                                        onChange={(e) => {
+                                            setSearchTerm(e.target.value)
+                                            if (!e.target.value) {
+                                                setPeople(
+                                                    firstLoadedPeople?.people,
+                                                    firstLoadedPeople?.count,
+                                                    people.action,
+                                                    people.label,
+                                                    people.day,
+                                                    people.breakdown_value,
+                                                    people.next
+                                                )
+                                            }
+                                        }}
+                                        value={searchTerm}
+                                        onSearch={() => {
+                                            if (!searchTerm) {
+                                                const { count, action, label, day, breakdown_value, next } = people
+                                                setPeople(
+                                                    firstLoadedPeople?.people,
+                                                    count,
+                                                    action,
+                                                    label,
+                                                    day,
+                                                    breakdown_value,
+                                                    next
+                                                )
+                                            } else {
+                                                setPersonsModalFilters(searchTerm, people)
+                                            }
+                                        }}
+                                    />
+                                    <div className="text-muted text-small">
+                                        You can also filter persons that have a certain property set (e.g.{' '}
+                                        <code>has:email</code> or <code>has:name</code>)
+                                    </div>
+                                </>
+                            )}
                             {featureFlags['save-cohort-on-modal'] &&
                                 (view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
                                     <div>
