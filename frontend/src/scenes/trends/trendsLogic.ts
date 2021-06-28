@@ -35,7 +35,7 @@ interface TrendPeople {
     people: PersonType[]
     breakdown_value?: string
     count: number | null
-    day: string | number
+    day?: string | number
     next?: string
     label: string
     action: ActionFilter | string
@@ -200,8 +200,8 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         loadPeople: (
             action: ActionFilter | string,
             label: string,
-            date_from: string | number,
-            date_to: string | number,
+            date_from?: string | number,
+            date_to?: string | number,
             breakdown_value?: string,
             saveOriginal?: boolean,
             searchTerm?: string
@@ -224,7 +224,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             count: number | null,
             action: ActionFilter | string,
             label: string,
-            day: string | number,
+            day?: string | number,
             breakdown_value?: string,
             next?: string
         ) => ({
@@ -248,7 +248,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             count: number,
             action: ActionFilter | string,
             label: string,
-            day: string | number,
+            day?: string | number,
             breakdown_value?: string,
             next?: string
         ) => ({
