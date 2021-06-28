@@ -243,6 +243,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             breakdown_value,
             next,
         }),
+        setFirstLoadedPeople: (firstLoadedPeople: TrendPeople | null) => ({ firstLoadedPeople }),
     }),
 
     reducers: ({ props }) => ({
@@ -267,6 +268,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             {
                 setFilters: () => null,
                 setPeople: (_, people) => people,
+                setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
             },
         ],
         firstLoadedPeople: [

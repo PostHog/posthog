@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
@@ -8,6 +8,7 @@ import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { personsModalLogic } from './personsModalLogic'
 interface Props {
     visible: boolean
     view: ViewType
@@ -19,9 +20,12 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
         trendsLogic({ dashboardItemId: null, view })
     )
     const { setPersonsModalFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
-    const { setShowingPeople, loadMorePeople, setPeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
+    const { setShowingPeople, loadMorePeople, setFirstLoadedPeople } = useActions(
+        trendsLogic({ dashboardItemId: null, view })
+    )
+    const { searchTerm } = useValues(personsModalLogic)
+    const { setSearchTerm } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const [searchTerm, setSearchTerm] = useState('')
     const title =
         filters.shown_as === 'Stickiness'
             ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
@@ -74,34 +78,15 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                         onChange={(e) => {
                                             setSearchTerm(e.target.value)
                                             if (!e.target.value) {
-                                                setPeople(
-                                                    firstLoadedPeople?.people,
-                                                    firstLoadedPeople?.count,
-                                                    people.action,
-                                                    people.label,
-                                                    people.day,
-                                                    people.breakdown_value,
-                                                    people.next
-                                                )
+                                                setFirstLoadedPeople(firstLoadedPeople)
                                             }
                                         }}
                                         value={searchTerm}
-                                        onSearch={() => {
-                                            if (!searchTerm) {
-                                                const { count, action, label, day, breakdown_value, next } = people
-                                                setPeople(
-                                                    firstLoadedPeople?.people,
-                                                    count,
-                                                    action,
-                                                    label,
-                                                    day,
-                                                    breakdown_value,
-                                                    next
-                                                )
-                                            } else {
-                                                setPersonsModalFilters(searchTerm, people)
-                                            }
-                                        }}
+                                        onSearch={(term) =>
+                                            term
+                                                ? setPersonsModalFilters(term, people)
+                                                : setFirstLoadedPeople(firstLoadedPeople)
+                                        }
                                     />
                                     <div className="text-muted text-small">
                                         You can also filter persons that have a certain property set (e.g.{' '}
