@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrendsNew
+from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
 from posthog.models.filters import Filter
@@ -23,7 +23,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
+class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_sample_data(self):
@@ -87,7 +87,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        funnel_trends = ClickhouseFunnelTrendsNew(filter, self.team)
+        funnel_trends = ClickhouseFunnelTrends(filter, self.team)
         results = funnel_trends.perform_query()
 
         self.assertEqual(len(results), 7)
@@ -112,7 +112,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        funnel_trends = ClickhouseFunnelTrendsNew(filter, self.team)
+        funnel_trends = ClickhouseFunnelTrends(filter, self.team)
         results = funnel_trends.perform_query()
         self.assertEqual(len(results), 7)
 
@@ -121,8 +121,6 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_1["entered_count"], 1)
         self.assertEqual(day_1["completed_count"], 0)
         self.assertEqual(day_1["conversion_rate"], 0)
-        self.assertEqual(len(day_1["person_ids_entered"]), 1)  # ignoring values since they are random UUIDs
-        self.assertEqual(len(day_1["person_ids_completed"]), 0)
         self.assertEqual(day_1["timestamp"], datetime(2021, 6, 7, 0, 0))
         self.assertEqual(day_1["is_period_final"], True)
 
@@ -132,8 +130,6 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 "completed_count": 0,
                 "is_period_final": True,
                 "conversion_rate": 0,
-                "person_ids_completed": [],
-                "person_ids_entered": [],
                 "entered_count": 0,
                 "timestamp": datetime(2021, 6, 8, 0, 0),
             },
@@ -144,8 +140,6 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 "completed_count": 0,
                 "is_period_final": True,
                 "conversion_rate": 0,
-                "person_ids_completed": [],
-                "person_ids_entered": [],
                 "entered_count": 0,
                 "timestamp": datetime(2021, 6, 9, 0, 0),
             },
@@ -156,8 +150,6 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 "completed_count": 0,
                 "is_period_final": True,
                 "conversion_rate": 0,
-                "person_ids_completed": [],
-                "person_ids_entered": [],
                 "entered_count": 0,
                 "timestamp": datetime(2021, 6, 10, 0, 0),
             },
@@ -168,8 +160,6 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 "completed_count": 0,
                 "is_period_final": True,
                 "conversion_rate": 0,
-                "person_ids_completed": [],
-                "person_ids_entered": [],
                 "entered_count": 0,
                 "timestamp": datetime(2021, 6, 11, 0, 0),
             },
@@ -180,8 +170,6 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 "completed_count": 0,
                 "is_period_final": True,
                 "conversion_rate": 0,
-                "person_ids_completed": [],
-                "person_ids_entered": [],
                 "entered_count": 0,
                 "timestamp": datetime(2021, 6, 12, 0, 0),
             },
@@ -192,8 +180,6 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 "completed_count": 0,
                 "is_period_final": True,
                 "conversion_rate": 0,
-                "person_ids_completed": [],
-                "person_ids_entered": [],
                 "entered_count": 0,
                 "timestamp": datetime(2021, 6, 13, 0, 0),
             },
@@ -216,7 +202,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
         self.assertEqual(len(results), 145)
 
     def test_day_interval(self):
@@ -235,7 +221,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
         self.assertEqual(len(results), 7)
 
     def test_week_interval(self):
@@ -254,7 +240,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
         self.assertEqual(2, len(results))
 
     def test_month_interval(self):
@@ -273,7 +259,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
         self.assertEqual(len(results), 1)
 
     def test_all_results_for_day_interval(self):
@@ -294,56 +280,49 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
 
         saturday = results[0]  # 5/1
         self.assertEqual(3, saturday["completed_count"])
         self.assertEqual(3, saturday["entered_count"])
         self.assertEqual(100, saturday["conversion_rate"])
         self.assertEqual(True, saturday["is_period_final"])
-        self.assertEqual(3, len(saturday["person_ids_entered"]))
 
         sunday = results[1]  # 5/2
         self.assertEqual(0, sunday["completed_count"])
         self.assertEqual(2, sunday["entered_count"])
         self.assertEqual(0, sunday["conversion_rate"])
         self.assertEqual(True, sunday["is_period_final"])
-        self.assertEqual(2, len(sunday["person_ids_entered"]))
 
         monday = results[2]  # 5/3
         self.assertEqual(0, monday["completed_count"])
         self.assertEqual(0, monday["entered_count"])
         self.assertEqual(0, monday["conversion_rate"])
         self.assertEqual(True, monday["is_period_final"])
-        self.assertEqual(0, len(monday["person_ids_entered"]))
 
         tuesday = results[3]  # 5/4
         self.assertEqual(0, tuesday["completed_count"])
         self.assertEqual(0, tuesday["entered_count"])
         self.assertEqual(0, tuesday["conversion_rate"])
         self.assertEqual(True, tuesday["is_period_final"])
-        self.assertEqual(0, len(tuesday["person_ids_entered"]))
 
         wednesday = results[4]  # 5/5
         self.assertEqual(0, wednesday["completed_count"])
         self.assertEqual(0, wednesday["entered_count"])
         self.assertEqual(0, wednesday["conversion_rate"])
         self.assertEqual(True, wednesday["is_period_final"])
-        self.assertEqual(0, len(wednesday["person_ids_entered"]))
 
         thursday = results[5]  # 5/6
         self.assertEqual(0, thursday["completed_count"])
         self.assertEqual(1, thursday["entered_count"])
         self.assertEqual(0, thursday["conversion_rate"])
         self.assertEqual(True, thursday["is_period_final"])
-        self.assertEqual(1, len(thursday["person_ids_entered"]))
 
         friday = results[6]  # 5/7
         self.assertEqual(0, friday["completed_count"])
         self.assertEqual(0, friday["entered_count"])
         self.assertEqual(0, friday["conversion_rate"])
         self.assertEqual(True, friday["is_period_final"])
-        self.assertEqual(0, len(friday["person_ids_entered"]))
 
     def test_window_size_one_day(self):
         self._create_sample_data()
@@ -363,56 +342,49 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
 
         saturday = results[0]  # 5/1
         self.assertEqual(1, saturday["completed_count"])
         self.assertEqual(3, saturday["entered_count"])
         self.assertEqual(33.33, saturday["conversion_rate"])
         self.assertEqual(True, saturday["is_period_final"])
-        self.assertEqual(3, len(saturday["person_ids_entered"]))
 
         sunday = results[1]  # 5/2
         self.assertEqual(0, sunday["completed_count"])
         self.assertEqual(2, sunday["entered_count"])
         self.assertEqual(0, sunday["conversion_rate"])
         self.assertEqual(True, sunday["is_period_final"])
-        self.assertEqual(2, len(sunday["person_ids_entered"]))
 
         monday = results[2]  # 5/3
         self.assertEqual(0, monday["completed_count"])
         self.assertEqual(0, monday["entered_count"])
         self.assertEqual(0, monday["conversion_rate"])
         self.assertEqual(True, monday["is_period_final"])
-        self.assertEqual(0, len(monday["person_ids_entered"]))
 
         tuesday = results[3]  # 5/4
         self.assertEqual(0, tuesday["completed_count"])
         self.assertEqual(0, tuesday["entered_count"])
         self.assertEqual(0, tuesday["conversion_rate"])
         self.assertEqual(True, tuesday["is_period_final"])
-        self.assertEqual(0, len(tuesday["person_ids_entered"]))
 
         wednesday = results[4]  # 5/5
         self.assertEqual(0, wednesday["completed_count"])
         self.assertEqual(0, wednesday["entered_count"])
         self.assertEqual(0, wednesday["conversion_rate"])
         self.assertEqual(True, wednesday["is_period_final"])
-        self.assertEqual(0, len(wednesday["person_ids_entered"]))
 
         thursday = results[5]  # 5/6
         self.assertEqual(0, thursday["completed_count"])
         self.assertEqual(1, thursday["entered_count"])
         self.assertEqual(0, thursday["conversion_rate"])
         self.assertEqual(True, thursday["is_period_final"])
-        self.assertEqual(1, len(thursday["person_ids_entered"]))
 
         friday = results[6]  # 5/7
         self.assertEqual(0, friday["completed_count"])
         self.assertEqual(0, friday["entered_count"])
         self.assertEqual(0, friday["conversion_rate"])
         self.assertEqual(True, friday["is_period_final"])
-        self.assertEqual(0, len(friday["person_ids_entered"]))
 
     def test_period_not_final(self):
         now = datetime.now()
@@ -447,7 +419,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
 
         self.assertEqual(len(results), 2)
 
@@ -455,8 +427,6 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["entered_count"], 0)
         self.assertEqual(day["completed_count"], 0)
         self.assertEqual(day["conversion_rate"], 0)
-        self.assertEqual(len(day["person_ids_entered"]), 0)
-        self.assertEqual(len(day["person_ids_completed"]), 0)
         self.assertEqual(day["timestamp"], datetime(now.year, now.month, now.day) - timedelta(1))
         self.assertEqual(day["is_period_final"], True)  # this window can't be affected anymore
 
@@ -464,8 +434,6 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["entered_count"], 1)
         self.assertEqual(day["completed_count"], 1)
         self.assertEqual(day["conversion_rate"], 100)
-        self.assertEqual(len(day["person_ids_entered"]), 1)  # ignoring values since they are random UUIDs
-        self.assertEqual(len(day["person_ids_completed"]), 1)
         self.assertEqual(day["timestamp"], datetime(now.year, now.month, now.day))
         self.assertEqual(day["is_period_final"], False)  # events coming in now may stil affect this
 
@@ -497,7 +465,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
 
         self.assertEqual(len(results), 1)
 
@@ -505,8 +473,6 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["entered_count"], 1)
         self.assertEqual(day["completed_count"], 1)
         self.assertEqual(day["conversion_rate"], 100)
-        self.assertEqual(len(day["person_ids_entered"]), 1)
-        self.assertEqual(len(day["person_ids_completed"]), 1)
         self.assertEqual(day["is_period_final"], True)
 
     def test_steps_performed_in_period_but_in_reverse(self):
@@ -531,7 +497,7 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrendsNew(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
 
         self.assertEqual(len(results), 1)
 
@@ -539,6 +505,4 @@ class TestFunnelTrendsNew(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_1["entered_count"], 1)
         self.assertEqual(day_1["completed_count"], 0)
         self.assertEqual(day_1["conversion_rate"], 0)
-        self.assertEqual(len(day_1["person_ids_entered"]), 1)
-        self.assertEqual(len(day_1["person_ids_completed"]), 0)
         self.assertEqual(day_1["is_period_final"], True)
