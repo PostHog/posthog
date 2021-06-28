@@ -177,10 +177,16 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 
-    def _get_inner_event_query(self) -> str:
-        event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query()
+    def _get_inner_event_query(self, skip_entity_filter=False, skip_step_filter=False) -> str:
+        event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query(
+            skip_entity_filter=skip_entity_filter
+        )
         self.params.update(params)
-        steps_conditions = self._get_steps_conditions(length=len(self._filter.entities))
+
+        if skip_step_filter:
+            steps_conditions = "1=1"
+        else:
+            steps_conditions = self._get_steps_conditions(length=len(self._filter.entities))
 
         all_step_cols: List[str] = []
         for index, entity in enumerate(self._filter.entities):
