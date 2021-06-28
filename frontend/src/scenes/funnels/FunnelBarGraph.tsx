@@ -9,6 +9,13 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 
 import './FunnelBarGraph.scss'
 
+function calcPercentage(numerator: number, denominator: number): number {
+    return (numerator / denominator) * 100 || 0
+}
+
+function humanizeOrder(order: number): number {
+    return order + 1
+}
 interface FunnelBarGraphProps {
     layout?: 'horizontal' | 'vertical'
     steps: FunnelStep[]
@@ -81,23 +88,15 @@ function ValueInspectorButton({ icon, onClick, children, disabled = false }: Val
 }
 
 export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
-    const steps = stepsParam.sort((a, b) => a.order - b.order)
+    const steps = [...stepsParam].sort((a, b) => a.order - b.order)
     const referenceStep = steps[0] // Compare values to first step, i.e. total
-
-    function calcPercentage(numerator: number, denominator: number): number {
-        return (numerator / denominator) * 100 || 0
-    }
-
-    function humanizeOrder(order: number): number {
-        return order + 1
-    }
 
     return layout === 'horizontal' ? (
         <div>
             {steps.map((step, i) => (
                 <section key={step.order} className="funnel-step">
                     <div className="funnel-series-container">
-                        <div className={`funnel-series-linebox ${steps[i - 1] ? 'before' : ''}`} />
+                        <div className={`funnel-series-linebox ${i > 0 ? 'before' : ''}`} />
                         <SeriesGlyph style={{ backgroundColor: '#fff', zIndex: 2 }}>
                             {humanizeOrder(step.order)}
                         </SeriesGlyph>
@@ -119,7 +118,7 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                         </div>
                     </header>
                     <Bar percentage={calcPercentage(step.count, referenceStep.count)} name={step.name} />
-                    {step.order !== 0 && steps[i - 1]?.count > step.count && (
+                    {i > 0 && step.order > 0 && steps[i - 1]?.count > step.count && (
                         <footer>
                             <div className="funnel-step-metadata">
                                 <ValueInspectorButton icon={<UserOutlined /> /* TODO */} onClick={() => {}} disabled>

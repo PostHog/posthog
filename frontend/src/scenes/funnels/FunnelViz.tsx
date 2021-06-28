@@ -146,7 +146,7 @@ export function FunnelViz({
     }
 
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
-        return <FunnelBarGraph layout="horizontal" steps={steps} />
+        return steps && steps.length > 0 ? <FunnelBarGraph layout="horizontal" steps={steps} /> : null
     }
 
     return !funnelLoading ? (
