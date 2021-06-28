@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 
+import pytz
+
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -9,7 +11,7 @@ from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
-FORMAT_TIME = "%Y-%m-%d 00:00:00"
+FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
 
 
@@ -427,14 +429,16 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["entered_count"], 0)
         self.assertEqual(day["completed_count"], 0)
         self.assertEqual(day["conversion_rate"], 0)
-        self.assertEqual(day["timestamp"], datetime(now.year, now.month, now.day) - timedelta(1))
+        self.assertEqual(
+            day["timestamp"], (datetime(now.year, now.month, now.day) - timedelta(1)).replace(tzinfo=pytz.UTC)
+        )
         self.assertEqual(day["is_period_final"], True)  # this window can't be affected anymore
 
         day = results[1]  # today
         self.assertEqual(day["entered_count"], 1)
         self.assertEqual(day["completed_count"], 1)
         self.assertEqual(day["conversion_rate"], 100)
-        self.assertEqual(day["timestamp"], datetime(now.year, now.month, now.day))
+        self.assertEqual(day["timestamp"], datetime(now.year, now.month, now.day).replace(tzinfo=pytz.UTC))
         self.assertEqual(day["is_period_final"], False)  # events coming in now may stil affect this
 
     def test_two_runs_by_single_user_in_one_period(self):
