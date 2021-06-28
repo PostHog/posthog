@@ -90,7 +90,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
         }
 
         query = self.get_query(format_properties)
-        print(query)
         return sync_execute(query, self.params)
 
     def _get_steps_per_person_query(self):
