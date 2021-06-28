@@ -46,6 +46,14 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
         )
     }
 
+    function WarningTag({ children = null }: { children: React.ReactNode }): JSX.Element {
+        return (
+            <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
+                {children}
+            </Tag>
+        )
+    }
+
     const options =
         filters.insight === ViewType.FUNNELS
             ? [
@@ -58,9 +66,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                       label: (
                           <Label icon={<LineChartOutlined />}>
                               Trends
-                              <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
-                                  BETA
-                              </Tag>
+                              <WarningTag>BETA</WarningTag>
                           </Label>
                       ),
                   },
