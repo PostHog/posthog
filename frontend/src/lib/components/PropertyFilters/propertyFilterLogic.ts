@@ -5,7 +5,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 import { propertyFilterLogicType } from './propertyFilterLogicType'
 import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter, PropertyFilterValue } from '~/types'
-import { isFilledPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
+import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 
 export const propertyFilterLogic = kea<propertyFilterLogicType>({
     props: {} as {
@@ -66,7 +66,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         },
         remove: () => actions.update(),
         update: () => {
-            const cleanedFilters = [...values.filters].filter(isFilledPropertyFilter)
+            const cleanedFilters = [...values.filters].filter(isValidPropertyFilter)
 
             // If the last item has a key, we need to add a new empty filter so the button appears
             if ('key' in values.filters[values.filters.length - 1]) {
@@ -115,7 +115,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
 
     selectors: {
         filtersLoading: [() => [propertyDefinitionsModel.selectors.loaded], (loaded) => !loaded],
-        filledFilters: [(s) => [s.filters], (filters) => filters.filter(isFilledPropertyFilter)],
+        filledFilters: [(s) => [s.filters], (filters) => filters.filter(isValidPropertyFilter)],
     },
 
     events: ({ actions }) => ({

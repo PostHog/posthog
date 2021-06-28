@@ -1,3 +1,6 @@
+from datetime import date, datetime, timedelta
+from typing import Union
+
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
 
@@ -108,6 +111,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelNew):
                 "entered_count": period_row[1],
                 "completed_count": period_row[2],
                 "conversion_rate": period_row[3],
+                "is_period_final": self._is_period_final(period_row[0]),
             }
             for period_row in results
         ]
@@ -126,3 +130,13 @@ class ClickhouseFunnelTrends(ClickhouseFunnelNew):
             labels.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
 
         return [{"count": count, "data": data, "days": days, "labels": labels,}]
+
+    def _is_period_final(self, timestamp: Union[datetime, date]):
+        # difference between current date and timestamp greater than window
+        now = datetime.utcnow().date()
+        days_to_subtract = self._filter.funnel_window_days * -1
+        delta = timedelta(days=days_to_subtract)
+        completed_end = now + delta
+        compare_timestamp = timestamp.date() if isinstance(timestamp, datetime) else timestamp
+        is_final = compare_timestamp <= completed_end
+        return is_final
