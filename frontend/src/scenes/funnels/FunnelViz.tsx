@@ -4,7 +4,7 @@ import { Loading, humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import './FunnelViz.scss'
 import { funnelLogic } from './funnelLogic'
-import { ACTIONS_LINE_GRAPH_LINEAR, FUNNEL_VIZ, FEATURE_FLAGS } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
 import { FunnelBarGraph } from './FunnelBarGraph'
 import { router } from 'kea-router'
@@ -70,13 +70,8 @@ export function FunnelViz({
 
     function buildChart(): void {
         // Build chart only for the selected display view
-        switch (filters.display) {
-            case FUNNEL_BAR_VIZ:
-                return
-            case FUNNEL_VIZ:
-            case ACTIONS_LINE_GRAPH_LINEAR:
-            default:
-                return buildFlowChart()
+        if (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
+            return buildFlowChart()
         }
     }
 
