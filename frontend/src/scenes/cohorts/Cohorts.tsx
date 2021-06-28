@@ -24,6 +24,17 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 dayjs.extend(relativeTime)
 
+const NEW_COHORT: CohortType = {
+    id: 'new',
+    groups: [
+        {
+            id: Math.random().toString().substr(2, 5),
+            matchType: PROPERTY_MATCH_TYPE,
+            properties: [],
+        },
+    ],
+}
+
 const cohortsUrlLogic = kea<cohortsUrlLogicType>({
     actions: {
         setOpenCohort: (cohort: CohortType | null) => ({ cohort }),
@@ -44,6 +55,8 @@ const cohortsUrlLogic = kea<cohortsUrlLogicType>({
             if (cohortId && cohortId !== 'new' && Number(cohortId) !== values.openCohort?.id) {
                 const cohort = await api.get('api/cohort/' + cohortId)
                 actions.setOpenCohort(cohort)
+            } else if (cohortId === 'new') {
+                actions.setOpenCohort(NEW_COHORT)
             }
         },
     }),
@@ -173,18 +186,7 @@ export function Cohorts(): JSX.Element {
                     <Button
                         type="primary"
                         data-attr="create-cohort"
-                        onClick={() =>
-                            setOpenCohort({
-                                id: 'new',
-                                groups: [
-                                    {
-                                        id: Math.random().toString().substr(2, 5),
-                                        matchType: PROPERTY_MATCH_TYPE,
-                                        properties: [],
-                                    },
-                                ],
-                            })
-                        }
+                        onClick={() => setOpenCohort(NEW_COHORT)}
                         icon={<PlusOutlined />}
                     >
                         New Cohort
