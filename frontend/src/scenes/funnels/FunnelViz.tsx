@@ -35,9 +35,15 @@ export function FunnelViz({
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    function buildFlowChart(): void {
-        // Build and mount graph for default "flow" visualization
-        if (!steps || steps.length === 0) {
+    function buildChart(): void {
+        // Build and mount graph for default "flow" visualization.
+        // If steps are empty, new bargraph view is active, or linechart is visible, don't render flow graph.
+        if (
+            !steps ||
+            steps.length === 0 ||
+            featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ||
+            filters.display === ACTIONS_LINE_GRAPH_LINEAR
+        ) {
             return
         }
         if (container.current) {
@@ -65,13 +71,6 @@ export function FunnelViz({
         if (graph.container) {
             graph.container.appendChild(graph.graphContainer)
             graph.draw()
-        }
-    }
-
-    function buildChart(): void {
-        // Build chart only for the selected display view
-        if (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
-            return buildFlowChart()
         }
     }
 

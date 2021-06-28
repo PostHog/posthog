@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react'
-import { humanizeNumber, pluralize } from 'lib/utils'
+import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button } from 'antd'
@@ -60,7 +60,7 @@ function Bar({ percentage, name }: BarProps): JSX.Element {
                     ref={labelRef}
                     className={`funnel-bar-percentage ${labelPosition}`}
                     title={name ? `Users who did ${name}` : undefined}
-                    aria-role="progressbar"
+                    role="progressbar"
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-valuenow={percentage}
@@ -107,9 +107,9 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                             <PropertyKeyInfo value={step.name} />
                         </div>
                         <div className="funnel-step-metadata">
-                            {step.average_time >= 0 + Number.EPSILON && step.order !== 0 ? (
+                            {step.average_time >= 0 + Number.EPSILON ? (
                                 <ValueInspectorButton icon={<ClockCircleOutlined />} onClick={() => {}} disabled>
-                                    {pluralize(step.average_time, 'hour')}
+                                    {humanFriendlyDuration(step.average_time)}
                                 </ValueInspectorButton>
                             ) : null}
                             <ValueInspectorButton icon={<UserOutlined />} onClick={() => {}} disabled /* TODO */>
