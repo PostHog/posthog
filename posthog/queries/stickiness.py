@@ -14,7 +14,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person import Person
 from posthog.queries import base
 
-from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
+from .base import BaseQuery, filter_events, filter_persons, handle_compare, process_entity_for_events
 
 
 def execute_custom_sql(query, params):
@@ -96,13 +96,13 @@ class Stickiness(BaseQuery):
         return results
 
     def _retrieve_people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request) -> ReturnDict:
-        from posthog.api.person import PersonSerializer, PersonViewSet
+        from posthog.api.person import PersonSerializer
 
         events = stickiness_process_entity_type(target_entity, team, filter)
         events = stickiness_format_intervals(events, filter)
         people = stickiness_fetch_people(events, team, filter)
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-        people = PersonViewSet._filter_request(PersonViewSet, request, people)
+        people = filter_persons(team.id, request, people)
 
         return PersonSerializer(people, many=True).data
 

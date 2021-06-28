@@ -20,7 +20,7 @@ from posthog.models import Cohort, Event, Filter, Person, User
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.queries.base import properties_to_Q
+from posthog.queries.base import filter_persons, properties_to_Q
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
@@ -98,35 +98,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
-        if request.GET.get("id"):
-            ids = request.GET["id"].split(",")
-            queryset = queryset.filter(id__in=ids)
-        if request.GET.get("uuid"):
-            uuids = request.GET["uuid"].split(",")
-            queryset = queryset.filter(uuid__in=uuids)
-        if request.GET.get("search"):
-            parts = request.GET["search"].split(" ")
-            contains = []
-            for part in parts:
-                if ":" in part:
-                    matcher, key = part.split(":")
-                    if matcher == "has":
-                        # Matches for example has:email or has:name
-                        queryset = queryset.filter(properties__has_key=key)
-                else:
-                    contains.append(part)
-            queryset = queryset.filter(
-                Q(properties__icontains=" ".join(contains))
-                | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
-            ).distinct("id")
-        if request.GET.get("cohort"):
-            queryset = queryset.filter(cohort__id=request.GET["cohort"])
-        if request.GET.get("properties"):
-            filter = Filter(data={"properties": json.loads(request.GET["properties"])})
-            queryset = queryset.filter(properties_to_Q(filter.properties, team_id=self.team_id))
-
-        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-        return queryset
+        return filter_persons(self.team_id, request, queryset)
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:

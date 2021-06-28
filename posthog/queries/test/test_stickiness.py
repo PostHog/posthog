@@ -11,6 +11,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.abstract_test.test_compare import AbstractCompareTest
 from posthog.queries.stickiness import Stickiness
 from posthog.test.base import APIBaseTest
+from rest_framework.test import APIRequestFactory
 
 
 # parameterize tests to reuse in EE
@@ -304,7 +305,9 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 get_earliest_timestamp=get_earliest_timestamp,
             )
             target_entity = Entity({"id": watched_movie.id, "type": "actions"})
-            people = stickiness().people(target_entity, filter, self.team)
+            factory = APIRequestFactory()
+            request = factory.get("/person/stickiness")
+            people = stickiness().people(target_entity, filter, self.team, request)
 
             all_people_ids = [str(person["id"]) for person in people]
             self.assertListEqual(sorted(all_people_ids), sorted([str(person1.pk), str(person4.pk)]))

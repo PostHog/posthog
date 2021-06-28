@@ -11,7 +11,7 @@ from posthog.models.entity import Entity
 from posthog.models.event import Event
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.queries.base import TIME_IN_SECONDS, filter_events
+from posthog.queries.base import TIME_IN_SECONDS, filter_events, filter_persons
 from posthog.utils import queryset_to_named_query
 
 LIFECYCLE_SQL = """
@@ -29,10 +29,10 @@ SELECT array_agg(day_start ORDER BY day_start ASC), array_agg(counts ORDER BY da
                       FROM unnest(ARRAY ['new', 'returning', 'resurrecting', 'dormant']) status
                   ) as sec
              UNION ALL
-             SELECT subsequent_day, 
+             SELECT subsequent_day,
                         CASE WHEN status = 'dormant' THEN count(DISTINCT person_id) * -1
-                        ELSE count(DISTINCT person_id) 
-                        END as counts, 
+                        ELSE count(DISTINCT person_id)
+                        END as counts,
                         status
              FROM (
                                SELECT e.person_id,
@@ -494,9 +494,9 @@ class LifecycleTrend:
             pids = cursor.fetchall()
 
             people = Person.objects.filter(team_id=team_id, id__in=[p[0] for p in pids],)
-            from posthog.api.person import PersonSerializer, PersonViewSet
+            from posthog.api.person import PersonSerializer
 
-            people = PersonViewSet._filter_request(PersonViewSet, request, people)
+            people = filter_persons(team_id, request, people)  # type: ignore
             people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
             return PersonSerializer(people, many=True).data

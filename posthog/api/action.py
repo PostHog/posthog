@@ -370,9 +370,7 @@ def calculate_people(team: Team, events: QuerySet, filter: Filter, request, use_
         team=team,
         id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],
     )
-    from posthog.api.person import PersonViewSet
-
-    people = PersonViewSet._filter_request(PersonViewSet, request, people)
+    people = base.filter_persons(team.id, request, people)  # type: ignore
     people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return people
 

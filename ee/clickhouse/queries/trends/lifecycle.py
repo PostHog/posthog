@@ -101,7 +101,7 @@ class ClickhouseLifecycle(LifecycleTrend):
         return _parse
 
     def get_people(
-        self, filter: Filter, team_id: int, target_date: datetime, lifecycle_type: str, limit: int = 100,
+        self, filter: Filter, team_id: int, target_date: datetime, lifecycle_type: str, request, limit: int = 100,
     ):
         entity = filter.entities[0]
         date_from = filter.date_from
