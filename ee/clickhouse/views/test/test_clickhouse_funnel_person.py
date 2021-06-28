@@ -42,8 +42,8 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "funnel_step": 1,
             "filter_test_accounts": "false",
             "new_entity": json.dumps([]),
-            "date_from": "2010-01-01",
-            "date_to": "2010-01-10",
+            "date_from": "2021-05-01",
+            "date_to": "2021-05-10",
         }
 
         response = self.client.get("/api/person/funnel/", data=request_data)
