@@ -28,6 +28,7 @@ export function createConfig(serverConfig: PluginsServerConfig, filename: string
         resourceLimits: {
             stackSizeMb: 10,
         },
+        useAtomics: serverConfig.PISCINA_USE_ATOMICS,
     }
 
     if (serverConfig.WORKER_CONCURRENCY && serverConfig.WORKER_CONCURRENCY > 0) {

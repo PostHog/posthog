@@ -97,6 +97,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     STALENESS_RESTART_SECONDS: number
     CAPTURE_INTERNAL_METRICS: boolean
     PLUGIN_SERVER_ACTION_MATCHING: 0 | 1 | 2
+    PISCINA_USE_ATOMICS: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
