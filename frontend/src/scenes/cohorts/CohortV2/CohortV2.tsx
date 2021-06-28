@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { CohortNameInput } from './CohortNameInput'
 import { CohortDescriptionInput } from './CohortDescriptionInput'
 import { CohortTypeSelector, DYNAMIC, STATIC } from './CohortTypeSelector'
-import { Button, Col, Divider, Row } from 'antd'
+import { Button, Col, Divider, Row, Spin } from 'antd'
 import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
 import { CohortGroupType, CohortType } from '~/types'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { InboxOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons'
+import { InboxOutlined, DeleteOutlined, SaveOutlined, LoadingOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
@@ -148,10 +148,16 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
                     <div>
                         <h3 className="l3">Matched Users</h3>
                         <span>List of users that currently match the criteria defined</span>
-                        {/* TODO: Calculating */}
-                        <div style={{ marginTop: 15 }}>
-                            <Persons cohort={cohort} />
-                        </div>
+                        {cohort.is_calculating ? (
+                            <div className="cohort-recalculating">
+                                <Spin indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} /> We're
+                                recalculating who belongs to this cohort. This could take up to a couple of minutes.
+                            </div>
+                        ) : (
+                            <div style={{ marginTop: 15 }}>
+                                <Persons cohort={cohort} />
+                            </div>
+                        )}
                     </div>
                 </>
             )}
