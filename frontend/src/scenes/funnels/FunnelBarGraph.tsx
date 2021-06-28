@@ -119,7 +119,7 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                         </div>
                     </header>
                     <Bar percentage={calcPercentage(step.count, referenceStep.count)} name={step.name} />
-                    {step.order !== 0 && steps[i - 1].count > step.count && (
+                    {step.order !== 0 && steps[i - 1]?.count > step.count && (
                         <footer>
                             <div className="funnel-step-metadata">
                                 <ValueInspectorButton icon={<UserOutlined /> /* TODO */} onClick={() => {}} disabled>
