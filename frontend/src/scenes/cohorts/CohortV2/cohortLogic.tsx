@@ -7,6 +7,7 @@ import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 
 import { cohortLogicType } from './cohortLogicType'
 import { CohortGroupType, CohortType, MatchType } from '~/types'
+import { errorToast } from 'lib/utils'
 
 function formatGroupPayload(group: CohortGroupType): Partial<CohortGroupType> {
     return { ...group, id: undefined, matchType: undefined }
@@ -88,16 +89,30 @@ export const cohortLogic = kea<cohortLogicType>({
                 }
             }
 
-            if (cohort.id !== 'new') {
-                cohort = await api.update(
-                    'api/cohort/' + cohort.id + (filterParams ? '?' + filterParams : ''),
-                    cohortFormData
+            try {
+                if (cohort.id !== 'new') {
+                    cohort = await api.update(
+                        'api/cohort/' + cohort.id + (filterParams ? '?' + filterParams : ''),
+                        cohortFormData
+                    )
+
+                    cohortsModel.actions.updateCohort(cohort)
+                } else {
+                    cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortFormData)
+                    cohortsModel.actions.createCohort(cohort)
+                }
+            } catch (error) {
+                errorToast(
+                    'Error saving your cohort',
+                    'Attempting to save this cohort returned an error:',
+                    error.status !== 0
+                        ? error.detail
+                        : "Check your internet connection and make sure you don't have an extension blocking our requests.",
+                    error.code
                 )
-                cohortsModel.actions.updateCohort(cohort)
-            } else {
-                cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortFormData)
-                cohortsModel.actions.createCohort(cohort)
+                return
             }
+
             cohort.is_calculating = true // this will ensure there is always a polling period to allow for backend calculation task to run
             breakpoint()
             delete cohort['csv']
@@ -137,7 +152,6 @@ export const cohortLogic = kea<cohortLogicType>({
     events: ({ values, actions, props }) => ({
         afterMount: async () => {
             if (!props.cohort.id) {
-                // TODO: router.values.location.pathname.indexOf('cohorts/new') > -1 ? [{}] :
                 actions.setCohort({ groups: [], id: 'new' })
             }
         },
