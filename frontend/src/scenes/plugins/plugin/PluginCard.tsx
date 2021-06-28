@@ -27,6 +27,8 @@ import { endWithPunctation } from '../../../lib/utils'
 import { canInstallPlugins } from '../access'
 import { LinkButton } from '../../../lib/components/LinkButton'
 import { PluginUpdateButton } from './PluginUpdateButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -89,6 +91,8 @@ export function PluginCard({
     } = useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <Col
@@ -197,7 +201,8 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
-                                    {Object.keys(plugin.metrics || {}).length > 0 ? (
+                                    {featureFlags[FEATURE_FLAGS.PLUGIN_METRICS] &&
+                                    Object.keys(plugin.metrics || {}).length > 0 ? (
                                         <Space>
                                             <Tooltip title="Metrics">
                                                 <Button onClick={() => showPluginMetrics(pluginId)}>
