@@ -5,6 +5,7 @@ from dateutil.relativedelta import relativedelta
 from django.db import connection
 from django.db.models.query import Prefetch
 from django.utils import timezone
+from rest_framework.request import Request
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
@@ -436,7 +437,13 @@ class LifecycleTrend:
         return res
 
     def get_people(
-        self, filter: Filter, team_id: int, target_date: datetime, lifecycle_type: str, request, limit: int = 100,
+        self,
+        filter: Filter,
+        team_id: int,
+        target_date: datetime,
+        lifecycle_type: str,
+        request: Request,
+        limit: int = 100,
     ):
         entity = filter.entities[0]
         period = filter.interval or "day"

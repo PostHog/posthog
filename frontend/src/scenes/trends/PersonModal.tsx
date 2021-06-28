@@ -28,9 +28,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
             : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie'
             ? `"${people?.label}"`
             : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
-    const closeModal = (): void => {
-        setShowingPeople(false)
-    }
+    const closeModal = (): void => setShowingPeople(false)
 
     return (
         <Modal

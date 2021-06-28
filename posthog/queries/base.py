@@ -195,7 +195,7 @@ def entity_to_Q(entity: Entity, team_id: int) -> Q:
     return result
 
 
-def filter_persons(team_id, request: request.Request, queryset: QuerySet) -> QuerySet:
+def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -> QuerySet:
     if request.GET.get("id"):
         ids = request.GET["id"].split(",")
         queryset = queryset.filter(id__in=ids)
