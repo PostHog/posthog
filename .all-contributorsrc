@@ -1356,6 +1356,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "marcopchen",
+      "name": "Marco Chen",
+      "avatar_url": "https://avatars.githubusercontent.com/u/33271308?v=4",
+      "profile": "https://www.marcopchen.com/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
