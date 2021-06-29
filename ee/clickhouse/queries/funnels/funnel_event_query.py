@@ -22,7 +22,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
 
         if skip_entity_filter:
             entity_query = ""
-            entity_params = {}
+            entity_params: Dict[str, Any] = {}
         else:
             entity_query, entity_params = self._get_entity_query()
 
