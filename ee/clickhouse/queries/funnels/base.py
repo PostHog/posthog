@@ -23,6 +23,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def __init__(self, filter: Filter, team: Team) -> None:
         self._filter = filter
+
+        # handle default if window isn't provided
+        if not self._filter.funnel_window_days:
+            self._filter = self._filter.with_data({"funnel_window_days": 14})
+
         self._team = team
         self.params = {
             "team_id": self._team.pk,
