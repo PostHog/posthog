@@ -5,6 +5,7 @@ from typing import Dict, Optional, Tuple, Union
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
     DISTINCT_ID_FILTER,
@@ -138,7 +139,7 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
         elif period == "Day":
             return timedelta(days=total_intervals), timedelta(days=1)
         else:
-            raise ValueError(f"Period {period} is unsupported.")
+            raise ValidationError(f"Period {period} is unsupported.")
 
 
 class EntitiesDerivedMixin(EntitiesMixin):

@@ -6,6 +6,7 @@ from django.db import connection
 from django.db.models.query import Prefetch
 from django.utils import timezone
 from rest_framework.request import Request
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
@@ -335,7 +336,7 @@ def get_interval(period: str) -> Union[timedelta, relativedelta]:
     elif period == "month":
         return relativedelta(months=1)
     else:
-        raise ValueError("{} not supported".format(period))
+        raise ValidationError("{} not supported".format(period))
 
 
 def get_time_diff(
@@ -373,7 +374,7 @@ def get_trunc_func(period: str) -> Tuple[str, str]:
     elif period == "month":
         return "month", "day"
     else:
-        raise ValueError(f"Period {period} is unsupported.")
+        raise ValidationError(f"Period {period} is unsupported.")
 
 
 class LifecycleTrend:
