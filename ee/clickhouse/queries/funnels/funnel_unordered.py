@@ -24,7 +24,11 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     """
 
     def get_query(self, format_properties):
-        return self.get_step_counts_query()
+        return f"""
+        SELECT steps, count(1), groupArray(100)(person_id) FROM (
+            {self.get_step_counts_query()}
+        ) GROUP BY steps SETTINGS allow_experimental_window_functions = 1
+        """
 
     def get_step_counts_query(self):
 
@@ -56,11 +60,9 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         union_formatted_query = " UNION ALL ".join(union_queries)
 
         return f"""
-        SELECT furthest, count(1), groupArray(100)(person_id) FROM (
-            SELECT person_id, max(steps) AS furthest FROM (
+        SELECT person_id, max(steps) AS steps FROM (
                 {union_formatted_query}
-            ) GROUP BY person_id
-        ) GROUP BY furthest SETTINGS allow_experimental_window_functions = 1
+        ) GROUP BY person_id
         """
 
     def get_sorting_condition(self, max_steps: int):

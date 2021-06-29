@@ -259,6 +259,17 @@ class ClickhouseFunnelBase(ABC, Funnel):
             return prop_filters
         return ""
 
+    def _get_funnel_person_step_condition(self):
+        step_num = self._filter.funnel_step
+        max_steps = len(self._filter.entities)
+
+        if step_num >= 0:
+            self.params.update({"step_num": [i for i in range(step_num, max_steps + 1)]})
+            return "steps IN %(step_num)s"
+        else:
+            self.params.update({"step_num": abs(step_num) - 1})
+            return "steps = %(step_num)s"
+
     @abstractmethod
     def get_query(self, format_properties):
         pass

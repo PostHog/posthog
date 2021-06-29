@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
+from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedPersons
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
@@ -89,6 +89,20 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[1]["name"], "$pageview")
         self.assertEqual(result[2]["name"], "insight viewed")
         self.assertEqual(result[0]["count"], 8)
+
+        person_filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "events": [
+                    {"id": "user signed up", "order": 0},
+                    {"id": "$pageview", "order": 1},
+                    {"id": "insight viewed", "order": 2},
+                ],
+                "funnel_step": 1,
+            }
+        )
+        # TO Continue from here - update funnelUnordered as well
+        # write tests for person model - I made significant changes there
 
         self.assertCountEqual(
             result[0]["people"],
