@@ -40,6 +40,7 @@ export interface ActionFilterRowProps {
     showSeriesIndicator?: boolean // Show series badge
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     horizontalUI?: boolean
+    fullWidth?: boolean
     filterCount: number
     customRowPrefix?: string | JSX.Element // Custom prefix element to show in each row
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
@@ -56,6 +57,7 @@ export function ActionFilterRow({
     showSeriesIndicator,
     seriesIndicatorType = 'alpha',
     horizontalUI = false,
+    fullWidth = false,
     filterCount,
     customRowPrefix,
     hasBreakdown,
@@ -119,7 +121,7 @@ export function ActionFilterRow({
     const orLabel = <div className="stateful-badge or width-locked">OR</div>
 
     return (
-        <div className={horizontalUI ? 'action-row-striped' : ''}>
+        <div className={horizontalUI ? 'action-row-striped' : ''} style={{ flexBasis: fullWidth ? '100%' : undefined }}>
             {!horizontalUI && index > 0 && showOr && (
                 <Row align="middle" style={{ marginTop: 12 }}>
                     {orLabel}
@@ -149,12 +151,21 @@ export function ActionFilterRow({
                     </Col>
                 )}
                 {customRowPrefix ? <Col>{customRowPrefix}</Col> : <>{horizontalUI && <Col>Showing</Col>}</>}
-                <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
+                <Col
+                    style={fullWidth ? {} : { maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}
+                    flex="auto"
+                >
                     <Button
                         data-attr={'trend-element-subject-' + index}
                         ref={node}
                         onClick={onClick}
-                        style={{ maxWidth: '100%', display: 'flex', alignItems: 'center' }}
+                        block={fullWidth}
+                        style={{
+                            maxWidth: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                        }}
                     >
                         <span className="text-overflow" style={{ maxWidth: '100%' }}>
                             <PropertyKeyInfo value={name || 'Select action'} />
