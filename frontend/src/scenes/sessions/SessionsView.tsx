@@ -52,6 +52,10 @@ function SessionPlayerDrawer({ isPersonPage = false }: { isPersonPage: boolean }
     )
 }
 
+function getSessionRecordingsDurationSum(session: SessionType): number {
+    return session.session_recordings.map(({ recording_duration }) => recording_duration).reduce((a, b) => a + b, 0)
+}
+
 export function SessionsView({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
     const {
@@ -106,6 +110,10 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         {
             title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
+                if (session.session_recordings.length > 0) {
+                    const seconds = getSessionRecordingsDurationSum(session)
+                    return <span>{humanFriendlyDuration(Math.max(seconds, session.length))}</span>
+                }
                 return <span>{humanFriendlyDuration(session.length)}</span>
             },
             span: 2,
@@ -120,6 +128,15 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         {
             title: 'End Time',
             render: function RenderEndTime(session: SessionType) {
+                if (session.session_recordings.length > 0) {
+                    const seconds = getSessionRecordingsDurationSum(session)
+                    if (seconds > session.length) {
+                        return (
+                            <span>{humanFriendlyDetailedTime(dayjs(session.start_time).add(seconds, 'seconds'))}</span>
+                        )
+                    }
+                }
+
                 return <span>{humanFriendlyDetailedTime(session.end_time)}</span>
             },
             span: 3,
@@ -215,7 +232,11 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             </div>
 
             <ResizableTable
-                locale={{ emptyText: 'No Sessions on ' + dayjs(selectedDate).format('YYYY-MM-DD') }}
+                locale={{
+                    emptyText: selectedDate
+                        ? `No Sessions on ${selectedDate.year() == dayjs().year() ? 'MMM D' : 'MMM D, YYYY'}`
+                        : 'No Sessions',
+                }}
                 data-attr="sessions-table"
                 size="small"
                 rowKey="global_session_id"

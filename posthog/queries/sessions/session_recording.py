@@ -131,7 +131,17 @@ def collect_matching_recordings(
 ) -> Generator[Dict, None, None]:
     for recording in session_recordings:
         if matches(session, recording, filter, viewed):
-            yield {"id": recording["session_id"], "viewed": recording["session_id"] in viewed}
+            if isinstance(recording["duration"], datetime.timedelta):
+                # postgres
+                recording_duration = recording["duration"].total_seconds()
+            else:
+                # clickhouse
+                recording_duration = recording["duration"]
+            yield {
+                "id": recording["session_id"],
+                "recording_duration": recording_duration or 0,
+                "viewed": recording["session_id"] in viewed,
+            }
 
 
 def matches(session: Any, session_recording: Any, filter: SessionsFilter, viewed: Set[str]) -> bool:

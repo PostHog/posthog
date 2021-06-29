@@ -9,14 +9,11 @@ import { useState } from 'react'
 import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
-import { BaseTabProps } from 'scenes/insights/Insights'
 import { InsightTitle } from '../InsightTitle'
+import { SaveOutlined } from '@ant-design/icons'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
-interface FunnelTabProps extends BaseTabProps {
-    newUI: boolean
-}
-
-export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
+export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic())
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
@@ -31,11 +28,9 @@ export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
 
     return (
         <div data-attr="funnel-tab">
-            {newUI && (
-                <Row>
-                    <InsightTitle />
-                </Row>
-            )}
+            <Row>
+                <InsightTitle />
+            </Row>
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
@@ -56,36 +51,36 @@ export function FunnelTab({ newUI }: FunnelTabProps): JSX.Element {
                 <PropertyFilters
                     pageKey={`EditFunnel-property`}
                     propertyFilters={filters.properties || []}
-                    onChange={(properties: Record<string, any>): void =>
+                    onChange={(anyProperties) => {
                         setFilters({
-                            properties,
+                            properties: anyProperties.filter(isValidPropertyFilter),
                         })
-                    }
+                    }}
                 />
                 <TestAccountFilter filters={filters} onChange={setFilters} />
                 <hr />
-                <Row justify="space-between">
-                    <Row justify="start">
-                        <Button
-                            style={{ marginRight: 4 }}
-                            type="primary"
-                            htmlType="submit"
-                            disabled={isStepsEmpty}
-                            data-attr="save-funnel-button"
-                        >
-                            Calculate
-                        </Button>
-                        {!isStepsEmpty && (
-                            <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
-                                Clear
-                            </Button>
-                        )}
-                    </Row>
+                <Row style={{ justifyContent: 'flex-end' }}>
                     {!isStepsEmpty && Array.isArray(stepsWithCount) && !!stepsWithCount.length && (
-                        <Button type="primary" onClick={showModal}>
-                            Save
+                        <div style={{ flexGrow: 1 }}>
+                            <Button type="primary" onClick={showModal} icon={<SaveOutlined />}>
+                                Save
+                            </Button>
+                        </div>
+                    )}
+                    {!isStepsEmpty && (
+                        <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
+                            Clear
                         </Button>
                     )}
+                    <Button
+                        style={{ marginLeft: 4 }}
+                        type="primary"
+                        htmlType="submit"
+                        disabled={isStepsEmpty}
+                        data-attr="save-funnel-button"
+                    >
+                        Calculate
+                    </Button>
                 </Row>
             </form>
             <SaveModal

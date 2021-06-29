@@ -17,7 +17,7 @@ interface Params {
     filters?: Array<SessionsPropertyFilter>
 }
 
-export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionRecordingId>>({
+export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>>({
     key: (props) => props.personIds || 'global',
     props: {} as {
         personIds?: string[]

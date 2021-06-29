@@ -6,12 +6,13 @@ import { SelectGradientOverflow } from '../SelectGradientOverflow'
 
 interface ObjectTagsInterface {
     tags: string[]
-    onTagSave?: (tag: string) => void
-    onTagDelete?: (tag: string) => void
+    onTagSave?: (tag: string, tags?: string[], id?: string) => void
+    onTagDelete?: (tag: string, tags?: string[], id?: string) => void
     tagsAvailable?: string[] // list of all tags that already exist
     saving?: boolean
     style?: CSSProperties
     staticOnly?: boolean // whether tags can be added or removed
+    id?: string
 }
 
 const COLOR_OVERRIDES: Record<string, string> = {
@@ -29,14 +30,15 @@ export function ObjectTags({
     tagsAvailable,
     style,
     staticOnly,
+    id, // For pages that allow multiple object tags
 }: ObjectTagsInterface): JSX.Element {
     const [addingNewTag, setAddingNewTag] = useState(false)
     const [newTag, setNewTag] = useState('')
     const [deletedTags, setDeletedTags] = useState<string[]>([]) // we use this state var to remove items immediately from UI while API requests are processed
 
-    const handleDelete = (tag: string): void => {
+    const handleDelete = (tag: string, currentTags?: string[], propertyId?: string): void => {
         setDeletedTags([...deletedTags, tag])
-        onTagDelete && onTagDelete(tag)
+        onTagDelete && onTagDelete(tag, currentTags, propertyId)
     }
 
     useEffect(() => {
@@ -57,13 +59,16 @@ export function ObjectTags({
                             (deletedTags.includes(tag) ? (
                                 <SyncOutlined spin />
                             ) : (
-                                <CloseOutlined style={{ cursor: 'pointer' }} onClick={() => handleDelete(tag)} />
+                                <CloseOutlined
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={() => handleDelete(tag, tags, id)}
+                                />
                             ))}
                     </Tag>
                 )
             })}
             {!staticOnly && onTagSave && saving !== undefined && (
-                <span style={{ display: 'inline-flex' }}>
+                <span style={{ display: 'inline-flex', fontWeight: 400 }}>
                     <Tag
                         onClick={() => setAddingNewTag(true)}
                         data-attr="button-add-tag"
@@ -88,7 +93,7 @@ export function ObjectTags({
                             showSearch
                             style={{ width: 160 }}
                             onChange={(value) => {
-                                onTagSave(value)
+                                onTagSave(value, tags, id)
                             }}
                             disabled={saving}
                             loading={saving}
@@ -99,7 +104,7 @@ export function ObjectTags({
                         >
                             {newTag ? (
                                 <Select.Option
-                                    key={newTag}
+                                    key={`${newTag}_${id}`}
                                     value={newTag}
                                     className="ph-no-capture"
                                     data-attr="new-tag-option"
