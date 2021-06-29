@@ -187,7 +187,7 @@ export function PropertyValue({
                                 className="ph-no-capture"
                                 title={name}
                             >
-                                {name}
+                                {name === '' ? '(empty string)' : name}
                             </Select.Option>
                         )
                     })}
