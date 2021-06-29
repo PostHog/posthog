@@ -11,7 +11,7 @@ class FunnelTrendsMixin(BaseParamMixin):
 
     @cached_property
     def funnel_to_step(self) -> int:
-        to_step = int(self._data.get(FUNNEL_TO_STEP, len(self.entities)))
+        to_step = int(self._data.get(FUNNEL_TO_STEP, len(self.entities)))  # type: ignore
         return to_step
 
     @include_dict
