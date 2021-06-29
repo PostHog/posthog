@@ -9,7 +9,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 interface Props {
-    variant: 'header' | 'sidebar' // Header view shows labels on some viewports; sidebar always hides them
+    variant?: 'header' | 'sidebar' // Header view shows labels on some viewports; sidebar always hides them
     filters: FilterType
     annotations?: any[] // TODO: Type properly
     insight?: InsightType
