@@ -12,7 +12,7 @@ from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter, Team
-from posthog.models.filters.mixins.funnel_window_days import FunnelWindowDaysMixin
+from posthog.models.filters.mixins.funnel import FunnelWindowDaysMixin
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
 
@@ -90,7 +90,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
         }
 
         query = self.get_query(format_properties)
-
         return sync_execute(query, self.params)
 
     def _get_steps_per_person_query(self):
@@ -102,10 +101,20 @@ class ClickhouseFunnelBase(ABC, Funnel):
             formatted_query = self._get_inner_event_query()
 
         return f"""
-        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps FROM (
+        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {self._get_step_times(max_steps)} FROM (
             {formatted_query}
         ) WHERE step_0 = 1
         """
+
+    def _get_step_times(self, max_steps: int):
+        conditions: List[str] = []
+        for i in range(1, max_steps):
+            conditions.append(
+                f"if(isNotNull(latest_{i}), dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_average_conversion_time"
+            )
+
+        formatted = ", ".join(conditions)
+        return f", {formatted}" if formatted else ""
 
     def build_step_subquery(self, level_index: int, max_steps: int):
         if level_index >= max_steps:

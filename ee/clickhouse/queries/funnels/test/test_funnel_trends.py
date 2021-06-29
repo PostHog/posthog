@@ -120,8 +120,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         day_1, day_2, day_3, day_4, day_5, day_6, day_7 = results
 
-        self.assertEqual(day_1["entered_count"], 1)
-        self.assertEqual(day_1["completed_count"], 0)
+        self.assertEqual(day_1["reached_from_step_count"], 1)
+        self.assertEqual(day_1["reached_to_step_count"], 0)
         self.assertEqual(day_1["conversion_rate"], 0)
         self.assertEqual(day_1["timestamp"], datetime(2021, 6, 7, 0, 0))
         self.assertEqual(day_1["is_period_final"], True)
@@ -129,60 +129,60 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertDictEqual(
             day_2,
             {
-                "completed_count": 0,
+                "reached_to_step_count": 0,
                 "is_period_final": True,
                 "conversion_rate": 0,
-                "entered_count": 0,
+                "reached_from_step_count": 0,
                 "timestamp": datetime(2021, 6, 8, 0, 0),
             },
         )
         self.assertDictEqual(
             day_3,
             {
-                "completed_count": 0,
+                "reached_to_step_count": 0,
                 "is_period_final": True,
                 "conversion_rate": 0,
-                "entered_count": 0,
+                "reached_from_step_count": 0,
                 "timestamp": datetime(2021, 6, 9, 0, 0),
             },
         )
         self.assertDictEqual(
             day_4,
             {
-                "completed_count": 0,
+                "reached_to_step_count": 0,
                 "is_period_final": True,
                 "conversion_rate": 0,
-                "entered_count": 0,
+                "reached_from_step_count": 0,
                 "timestamp": datetime(2021, 6, 10, 0, 0),
             },
         )
         self.assertDictEqual(
             day_5,
             {
-                "completed_count": 0,
+                "reached_to_step_count": 0,
                 "is_period_final": True,
                 "conversion_rate": 0,
-                "entered_count": 0,
+                "reached_from_step_count": 0,
                 "timestamp": datetime(2021, 6, 11, 0, 0),
             },
         )
         self.assertDictEqual(
             day_6,
             {
-                "completed_count": 0,
+                "reached_to_step_count": 0,
                 "is_period_final": True,
                 "conversion_rate": 0,
-                "entered_count": 0,
+                "reached_from_step_count": 0,
                 "timestamp": datetime(2021, 6, 12, 0, 0),
             },
         )
         self.assertDictEqual(
             day_7,
             {
-                "completed_count": 0,
+                "reached_to_step_count": 0,
                 "is_period_final": True,
                 "conversion_rate": 0,
-                "entered_count": 0,
+                "reached_from_step_count": 0,
                 "timestamp": datetime(2021, 6, 13, 0, 0),
             },
         )
@@ -285,44 +285,44 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         results = ClickhouseFunnelTrends(filter, self.team).perform_query()
 
         saturday = results[0]  # 5/1
-        self.assertEqual(3, saturday["completed_count"])
-        self.assertEqual(3, saturday["entered_count"])
+        self.assertEqual(3, saturday["reached_to_step_count"])
+        self.assertEqual(3, saturday["reached_from_step_count"])
         self.assertEqual(100, saturday["conversion_rate"])
         self.assertEqual(True, saturday["is_period_final"])
 
         sunday = results[1]  # 5/2
-        self.assertEqual(0, sunday["completed_count"])
-        self.assertEqual(2, sunday["entered_count"])
+        self.assertEqual(0, sunday["reached_to_step_count"])
+        self.assertEqual(2, sunday["reached_from_step_count"])
         self.assertEqual(0, sunday["conversion_rate"])
         self.assertEqual(True, sunday["is_period_final"])
 
         monday = results[2]  # 5/3
-        self.assertEqual(0, monday["completed_count"])
-        self.assertEqual(0, monday["entered_count"])
+        self.assertEqual(0, monday["reached_to_step_count"])
+        self.assertEqual(0, monday["reached_from_step_count"])
         self.assertEqual(0, monday["conversion_rate"])
         self.assertEqual(True, monday["is_period_final"])
 
         tuesday = results[3]  # 5/4
-        self.assertEqual(0, tuesday["completed_count"])
-        self.assertEqual(0, tuesday["entered_count"])
+        self.assertEqual(0, tuesday["reached_to_step_count"])
+        self.assertEqual(0, tuesday["reached_from_step_count"])
         self.assertEqual(0, tuesday["conversion_rate"])
         self.assertEqual(True, tuesday["is_period_final"])
 
         wednesday = results[4]  # 5/5
-        self.assertEqual(0, wednesday["completed_count"])
-        self.assertEqual(0, wednesday["entered_count"])
+        self.assertEqual(0, wednesday["reached_to_step_count"])
+        self.assertEqual(0, wednesday["reached_from_step_count"])
         self.assertEqual(0, wednesday["conversion_rate"])
         self.assertEqual(True, wednesday["is_period_final"])
 
         thursday = results[5]  # 5/6
-        self.assertEqual(0, thursday["completed_count"])
-        self.assertEqual(1, thursday["entered_count"])
+        self.assertEqual(0, thursday["reached_to_step_count"])
+        self.assertEqual(1, thursday["reached_from_step_count"])
         self.assertEqual(0, thursday["conversion_rate"])
         self.assertEqual(True, thursday["is_period_final"])
 
         friday = results[6]  # 5/7
-        self.assertEqual(0, friday["completed_count"])
-        self.assertEqual(0, friday["entered_count"])
+        self.assertEqual(0, friday["reached_to_step_count"])
+        self.assertEqual(0, friday["reached_from_step_count"])
         self.assertEqual(0, friday["conversion_rate"])
         self.assertEqual(True, friday["is_period_final"])
 
@@ -347,44 +347,44 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         results = ClickhouseFunnelTrends(filter, self.team).perform_query()
 
         saturday = results[0]  # 5/1
-        self.assertEqual(1, saturday["completed_count"])
-        self.assertEqual(3, saturday["entered_count"])
+        self.assertEqual(1, saturday["reached_to_step_count"])
+        self.assertEqual(3, saturday["reached_from_step_count"])
         self.assertEqual(33.33, saturday["conversion_rate"])
         self.assertEqual(True, saturday["is_period_final"])
 
         sunday = results[1]  # 5/2
-        self.assertEqual(0, sunday["completed_count"])
-        self.assertEqual(2, sunday["entered_count"])
+        self.assertEqual(0, sunday["reached_to_step_count"])
+        self.assertEqual(2, sunday["reached_from_step_count"])
         self.assertEqual(0, sunday["conversion_rate"])
         self.assertEqual(True, sunday["is_period_final"])
 
         monday = results[2]  # 5/3
-        self.assertEqual(0, monday["completed_count"])
-        self.assertEqual(0, monday["entered_count"])
+        self.assertEqual(0, monday["reached_to_step_count"])
+        self.assertEqual(0, monday["reached_from_step_count"])
         self.assertEqual(0, monday["conversion_rate"])
         self.assertEqual(True, monday["is_period_final"])
 
         tuesday = results[3]  # 5/4
-        self.assertEqual(0, tuesday["completed_count"])
-        self.assertEqual(0, tuesday["entered_count"])
+        self.assertEqual(0, tuesday["reached_to_step_count"])
+        self.assertEqual(0, tuesday["reached_from_step_count"])
         self.assertEqual(0, tuesday["conversion_rate"])
         self.assertEqual(True, tuesday["is_period_final"])
 
         wednesday = results[4]  # 5/5
-        self.assertEqual(0, wednesday["completed_count"])
-        self.assertEqual(0, wednesday["entered_count"])
+        self.assertEqual(0, wednesday["reached_to_step_count"])
+        self.assertEqual(0, wednesday["reached_from_step_count"])
         self.assertEqual(0, wednesday["conversion_rate"])
         self.assertEqual(True, wednesday["is_period_final"])
 
         thursday = results[5]  # 5/6
-        self.assertEqual(0, thursday["completed_count"])
-        self.assertEqual(1, thursday["entered_count"])
+        self.assertEqual(0, thursday["reached_to_step_count"])
+        self.assertEqual(1, thursday["reached_from_step_count"])
         self.assertEqual(0, thursday["conversion_rate"])
         self.assertEqual(True, thursday["is_period_final"])
 
         friday = results[6]  # 5/7
-        self.assertEqual(0, friday["completed_count"])
-        self.assertEqual(0, friday["entered_count"])
+        self.assertEqual(0, friday["reached_to_step_count"])
+        self.assertEqual(0, friday["reached_from_step_count"])
         self.assertEqual(0, friday["conversion_rate"])
         self.assertEqual(True, friday["is_period_final"])
 
@@ -426,8 +426,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 2)
 
         day = results[0]  # yesterday
-        self.assertEqual(day["entered_count"], 0)
-        self.assertEqual(day["completed_count"], 0)
+        self.assertEqual(day["reached_from_step_count"], 0)
+        self.assertEqual(day["reached_to_step_count"], 0)
         self.assertEqual(day["conversion_rate"], 0)
         self.assertEqual(
             day["timestamp"].replace(tzinfo=pytz.UTC),
@@ -436,8 +436,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["is_period_final"], True)  # this window can't be affected anymore
 
         day = results[1]  # today
-        self.assertEqual(day["entered_count"], 1)
-        self.assertEqual(day["completed_count"], 1)
+        self.assertEqual(day["reached_from_step_count"], 1)
+        self.assertEqual(day["reached_to_step_count"], 1)
         self.assertEqual(day["conversion_rate"], 100)
         self.assertEqual(
             day["timestamp"].replace(tzinfo=pytz.UTC), datetime(now.year, now.month, now.day).replace(tzinfo=pytz.UTC)
@@ -477,8 +477,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 1)
 
         day = results[0]  # 2021-05-01
-        self.assertEqual(day["entered_count"], 1)
-        self.assertEqual(day["completed_count"], 1)
+        self.assertEqual(day["reached_from_step_count"], 1)
+        self.assertEqual(day["reached_to_step_count"], 1)
         self.assertEqual(day["conversion_rate"], 100)
         self.assertEqual(day["is_period_final"], True)
 
@@ -509,7 +509,71 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 1)
 
         day_1 = results[0]  # 2021-05-01
-        self.assertEqual(day_1["entered_count"], 1)
-        self.assertEqual(day_1["completed_count"], 0)
+        self.assertEqual(day_1["reached_from_step_count"], 1)
+        self.assertEqual(day_1["reached_to_step_count"], 0)
         self.assertEqual(day_1["conversion_rate"], 0)
         self.assertEqual(day_1["is_period_final"], True)
+
+    def test_one_person_in_multiple_periods_and_windows(self):
+        _create_person(distinct_ids=["user_one"], team=self.team)
+        _create_person(distinct_ids=["user_two"], team=self.team)
+
+        # 1st user's 1st complete run
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 03:00:00")
+
+        # 1st user's incomplete run
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-03 01:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-03 02:00:00")
+
+        # 2nd user's incomplete run
+        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-04 18:00:00")
+
+        # 1st user's 2nd complete run
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-04 11:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-04 12:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-04 13:00:00")
+
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-04 23:59:59",
+                "funnel_window_days": 1,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+
+        self.assertEqual(len(results), 4)
+
+        day_1 = results[0]  # 2021-05-01
+        self.assertEqual(day_1["reached_from_step_count"], 1)
+        self.assertEqual(day_1["reached_to_step_count"], 1)
+        self.assertEqual(day_1["conversion_rate"], 100)
+        self.assertEqual(day_1["is_period_final"], True)
+
+        day_2 = results[1]  # 2021-05-02
+        self.assertEqual(day_2["reached_from_step_count"], 0)
+        self.assertEqual(day_2["reached_to_step_count"], 0)
+        self.assertEqual(day_2["conversion_rate"], 0)
+        self.assertEqual(day_2["is_period_final"], True)
+
+        day_3 = results[2]  # 2021-05-03
+        self.assertEqual(day_3["reached_from_step_count"], 1)
+        self.assertEqual(day_3["reached_to_step_count"], 0)
+        self.assertEqual(day_3["conversion_rate"], 0)
+        self.assertEqual(day_3["is_period_final"], True)
+
+        day_4 = results[3]  # 2021-05-04
+        self.assertEqual(day_4["reached_from_step_count"], 2)
+        self.assertEqual(day_4["reached_to_step_count"], 1)
+        self.assertEqual(day_4["conversion_rate"], 50)
+        self.assertEqual(day_4["is_period_final"], True)

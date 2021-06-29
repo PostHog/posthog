@@ -86,6 +86,7 @@ ENTITY_ID = "entity_id"
 ENTITY_TYPE = "entity_type"
 ENTITY_MATH = "entity_math"
 FUNNEL_WINDOW_DAYS = "funnel_window_days"
+FUNNEL_STEP = "funnel_step"
 
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"
