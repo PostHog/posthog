@@ -37,12 +37,12 @@ interface TrendPeople {
     day?: string | number
     next?: string
     label: string
-    action: ActionFilter | string
+    action: ActionFilter | 'session'
     loadingMore?: boolean
 }
 
 interface PeopleParamType {
-    action: ActionFilter | string
+    action: ActionFilter | 'session'
     label: string
     date_to?: string | number
     date_from?: string | number
@@ -82,10 +82,9 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     const { action, date_from, date_to, breakdown_value, ...restParams } = peopleParams
     const params = filterClientSideParams({
         ...filters,
-        entity_id: (typeof action !== 'string' && action.id) || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
-        entity_type:
-            (typeof action !== 'string' && action.type) || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
-        entity_math: (typeof action !== 'string' && action.math) || undefined,
+        entity_id: (action !== 'session' && action.id) || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
+        entity_type: (action !== 'session' && action.type) || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
+        entity_math: (action !== 'session' && action.math) || undefined,
         breakdown_value,
     })
 
@@ -110,7 +109,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
             { key: params.breakdown, value: breakdown_value, type: 'event' } as PropertyFilter,
         ]
     }
-    if (typeof action !== 'string' && action.properties) {
+    if (action !== 'session' && action.properties) {
         params.properties = [...(params.properties || []), ...action.properties]
     }
 
@@ -197,7 +196,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
         loadPeople: (
-            action: ActionFilter | string,
+            action: ActionFilter | 'session', // todo, refactor this session string param out
             label: string,
             date_from?: string | number,
             date_to?: string | number,
@@ -221,7 +220,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         setPeople: (
             people: PersonType[],
             count: number,
-            action: ActionFilter | string,
+            action: ActionFilter | 'session',
             label: string,
             day?: string | number,
             breakdown_value?: string,
@@ -245,7 +244,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         saveFirstLoadedPeople: (
             people: PersonType[],
             count: number,
-            action: ActionFilter | string,
+            action: ActionFilter | 'session',
             label: string,
             day?: string | number,
             breakdown_value?: string,
@@ -375,10 +374,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 }
 
                 const { action, day, breakdown_value } = people
-                const properties = [
-                    ...(filters.properties || []),
-                    ...(typeof action !== 'string' ? action.properties : []),
-                ]
+                const properties = [...(filters.properties || []), ...(action !== 'session' ? action.properties : [])]
                 if (filters.breakdown && filters.breakdown_type && breakdown_value) {
                     properties.push({
                         key: filters.breakdown,
@@ -395,11 +391,11 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                     date: day,
                     filters: [
                         {
-                            type: typeof action !== 'string' && action.type === 'actions' ? ACTION_TYPE : EVENT_TYPE,
+                            type: action !== 'session' && action.type === 'actions' ? ACTION_TYPE : EVENT_TYPE,
                             key: 'id',
-                            value: typeof action !== 'string' && action['id'],
+                            value: action !== 'session' && action['id'],
                             properties: eventProperties,
-                            label: typeof action !== 'string' && action.name,
+                            label: action !== 'session' && action.name,
                         },
                         ...personProperties,
                     ],
