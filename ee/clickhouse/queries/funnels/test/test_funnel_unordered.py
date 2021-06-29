@@ -85,8 +85,6 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         result = funnel.run()
 
-        # TODO(nk): Find better names for response. This should be did 1 step, 2 step, and 3 step
-        # instead of the name of the event
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[1]["name"], "$pageview")
         self.assertEqual(result[2]["name"], "insight viewed")
@@ -189,8 +187,6 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         result = funnel.run()
 
-        # TODO(nk): Find better names for response. This should be did 1 step, 2 step, and 3 step
-        # instead of the name of the event
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[1]["name"], "$pageview")
         self.assertEqual(result[2]["name"], "insight viewed")
