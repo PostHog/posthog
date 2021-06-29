@@ -155,16 +155,6 @@ export const eventsTableLogic = kea({
     }),
 
     selectors: ({ selectors, props }) => ({
-        propertiesForUrl: [
-            () => [selectors.properties],
-            (properties) => {
-                if (Object.keys(properties).length > 0) {
-                    return { properties }
-                } else {
-                    return ''
-                }
-            },
-        ],
         eventsFormatted: [
             () => [selectors.events, selectors.newEvents],
             (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),

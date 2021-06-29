@@ -120,12 +120,10 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<Params, SessionReco
         ],
         filtersDirty: [
             (selectors) => [selectors.filters, selectors.lastAppliedFilters],
-            (filters, lastFilters): boolean => !equal(filters, lastFilters),
-        ],
-        defaultExpandedSessions: [
-            (selectors) => [selectors.sessions],
-            (sessions: SessionType[]): string[] =>
-                sessions.filter((s) => s?.matching_events?.length > 0).map((s) => s.global_session_id),
+            (filters, lastFilters): boolean => {
+                console.log('FILTERS', filters, lastFilters)
+                return !equal(filters, lastFilters)
+            },
         ],
     },
     listeners: ({ values, actions, props }) => ({

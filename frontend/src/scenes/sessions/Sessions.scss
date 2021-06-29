@@ -192,9 +192,26 @@
     }
 }
 
-.sessions-event-highlighted,
-.sessions-highlighted {
+.sessions-event-highlighted {
     background-color: #fdedc9;
+}
+
+.sessions-matching-events-icon {
+    color: $bg_navy;
+
+    .badge-text {
+        background-color: $yellow_50;
+        height: 1.15rem;
+        min-width: 1.15rem;
+        line-height: 1.15rem;
+        font-weight: 600;
+        white-space: nowrap;
+        text-align: center;
+        border-radius: 10px;
+        box-shadow: 0 0 0 2px $bg_light;
+        padding: 0 4px;
+        font-size: 10px;
+    }
 }
 
 @media (max-width: $md) {

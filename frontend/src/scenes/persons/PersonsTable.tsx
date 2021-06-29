@@ -1,5 +1,6 @@
 import React, { useRef } from 'react'
 import { Button } from 'antd'
+import { combineUrl } from 'kea-router'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
@@ -9,7 +10,7 @@ import { PersonsTabType, PersonType, SessionsPropertyFilter } from '~/types'
 import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { buildUrl, midEllipsis } from 'lib/utils'
+import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
 
@@ -41,7 +42,7 @@ export function PersonsTable({
     date = undefined,
 }: PersonsTableType): JSX.Element {
     const deepLinkToPersonSessions = (person: PersonType): string =>
-        buildUrl(
+        combineUrl(
             `/person/${encodeURIComponent(person.distinct_ids[0])}`,
             { filters: sessionsFilters, date },
             {
@@ -49,7 +50,7 @@ export function PersonsTable({
                 backToURL: window.location.pathname + window.location.search + window.location.hash,
                 activeTab: backTo === 'Insights' ? PersonsTabType.SESSIONS : PersonsTabType.EVENTS,
             }
-        )
+        ).url
 
     const topRef = useRef<HTMLSpanElement>(null)
 

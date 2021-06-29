@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
-import { Button, Spin, Space, Tooltip } from 'antd'
+import { Button, Spin, Space, Tooltip, Badge } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -28,6 +28,8 @@ import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
 import { ResizableTable, ResizableColumnType } from 'lib/components/ResizableTable'
 import { teamLogic } from 'scenes/teamLogic'
+import { IconEventsShort } from 'lib/components/icons'
+import ExpandIcon from 'lib/components/ExpandIcon'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
@@ -61,7 +63,6 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         properties,
         sessionRecordingId,
         firstRecordingId,
-        defaultExpandedSessions,
     } = useValues(logic)
     const { fetchNextSessions, previousDay, nextDay, setFilters, applyFilters } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
@@ -229,7 +230,27 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     expandedRowRender: function renderExpand(session) {
                         return <SessionDetails key={session.global_session_id} session={session} />
                     },
-                    expandedRowKeys: defaultExpandedSessions,
+                    expandIcon: function _renderExpandIcon(expandProps) {
+                        const { record: session } = expandProps
+                        return (
+                            <ExpandIcon {...expandProps}>
+                                {session?.matching_events?.length > 0 ? (
+                                    <Tooltip title={`${session.matching_events.length} matching events`}>
+                                        <Badge
+                                            className="sessions-matching-events-icon cursor-pointer"
+                                            count={<span className="badge-text">{session.matching_events.length}</span>}
+                                            offset={[0, 26]}
+                                            size="small"
+                                        >
+                                            <IconEventsShort size={26} />
+                                        </Badge>
+                                    </Tooltip>
+                                ) : (
+                                    <></>
+                                )}
+                            </ExpandIcon>
+                        )
+                    },
                     rowExpandable: () => true,
                     expandRowByClick: true,
                 }}

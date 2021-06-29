@@ -71,6 +71,11 @@ style files without adding already imported styles. */
     font-size: 10px;
 }
 
+.text-xxs {
+    @extend .text-default;
+    font-size: 8px;
+}
+
 .page-title-row {
     margin-top: 16px;
 }

@@ -33,13 +33,6 @@ export function isObjectEmpty(obj: Record<string, any>): boolean {
     return obj && Object.keys(obj).length === 0 && obj.constructor === Object
 }
 
-// Builds url with base + search params + hash params
-export function buildUrl(base: string, searchParams: Record<string, any>, hashParams: Record<string, any>): string {
-    const search = !isObjectEmpty(searchParams) ? `?${toParams(searchParams)}` : ''
-    const hash = !isObjectEmpty(hashParams) ? `#${toParams(hashParams)}` : ''
-    return `${base.replace(/\/$/, '')}${search}${hash}`
-}
-
 export function toParams(obj: Record<string, any>): string {
     function handleVal(val: any): string {
         if (dayjs.isDayjs(val)) {

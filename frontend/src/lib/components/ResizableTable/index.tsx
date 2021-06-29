@@ -31,7 +31,7 @@ export interface InternalColumnType<RecordType> extends ResizableColumnType<Reco
 
 export type ResizeHandler = Exclude<ResizableProps['onResize'], undefined>
 
-export const ANTD_EXPAND_BUTTON_WIDTH = 48
+export const ANTD_EXPAND_BUTTON_WIDTH = 80
 
 interface ResizableTableProps<RecordType> extends TableProps<RecordType> {
     columns: ResizableColumnType<RecordType>[]
