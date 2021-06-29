@@ -39,7 +39,7 @@ class TestFunnel(ClickhouseTestMixin, APIBaseTest):
             _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
             _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
 
-        for i in range(15, 30):
+        for i in range(15, 35):
             _create_person(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
 
@@ -60,7 +60,7 @@ class TestFunnel(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
-        self.assertEqual(30, len(results))
+        self.assertEqual(35, len(results))
 
     def test_last_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -98,7 +98,7 @@ class TestFunnel(ClickhouseTestMixin, APIBaseTest):
         }
         filter = Filter(data=data)
         results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
-        self.assertEqual(15, len(results))
+        self.assertEqual(20, len(results))
 
     def test_last_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
