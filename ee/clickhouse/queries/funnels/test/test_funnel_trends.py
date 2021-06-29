@@ -621,14 +621,14 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 2)
 
         day_1 = results[0]  # 2021-05-01
-        self.assertEqual(day_1["entered_count"], 1)
-        self.assertEqual(day_1["completed_count"], 1)
+        self.assertEqual(day_1["reached_from_step_count"], 1)
+        self.assertEqual(day_1["reached_to_step_count"], 1)
         self.assertEqual(day_1["conversion_rate"], 100)
         self.assertEqual(day_1["is_period_final"], True)
 
         day_2 = results[1]  # 2021-05-02
-        self.assertEqual(day_2["entered_count"], 1)
-        self.assertEqual(day_2["completed_count"], 0)
+        self.assertEqual(day_2["reached_from_step_count"], 1)
+        self.assertEqual(day_2["reached_to_step_count"], 0)
         self.assertEqual(day_2["conversion_rate"], 0)
         self.assertEqual(day_2["is_period_final"], True)
 
@@ -675,13 +675,13 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 2)
 
         day_1 = results[0]  # 2021-05-01
-        self.assertEqual(day_1["entered_count"], 2)
-        self.assertEqual(day_1["completed_count"], 1)
+        self.assertEqual(day_1["reached_from_step_count"], 2)
+        self.assertEqual(day_1["reached_to_step_count"], 1)
         self.assertEqual(day_1["conversion_rate"], 50)
         self.assertEqual(day_1["is_period_final"], True)
 
         day_2 = results[1]  # 2021-05-02
-        self.assertEqual(day_2["entered_count"], 1)
-        self.assertEqual(day_2["completed_count"], 1)
+        self.assertEqual(day_2["reached_from_step_count"], 1)
+        self.assertEqual(day_2["reached_to_step_count"], 1)
         self.assertEqual(day_2["conversion_rate"], 100)
         self.assertEqual(day_2["is_period_final"], True)
