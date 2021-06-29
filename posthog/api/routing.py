@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional, cast
 
-from rest_framework.exceptions import AuthenticationFailed, NotFound
+from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework_extensions.mixins import NestedViewSetMixin
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
@@ -86,7 +86,7 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                 raise AuthenticationFailed()
             project = self.request.user.team
             if project is None:
-                raise NotFound("Current project not found.")
+                raise ValidationError("This endpoint requires a project.")
             return {"team_id": project.id}
         result = {}
         # process URL paremetrs (here called kwargs), such as organization_id in /api/organizations/:organization_id/
