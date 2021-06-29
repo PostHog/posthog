@@ -21,7 +21,7 @@ export const annotationsLogic = kea<annotationsLogicType>({
         ) => ({
             content,
             date_marker,
-            created_at: dayjs(),
+            created_at: dayjs() as Dayjs,
             scope,
         }),
         createAnnotationNow: (

@@ -210,7 +210,7 @@ export const insightLogic = kea<insightLogicType<ViewType>>({
         },
     }),
     actionToUrl: ({ actions, values }) => ({
-        setActiveView: ({ type }) => {
+        setActiveView: ({ type }: { type: ViewType }) => {
             const params = fromParams()
             const { properties, ...restParams } = params
 

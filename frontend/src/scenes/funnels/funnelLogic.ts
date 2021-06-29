@@ -185,7 +185,16 @@ export const funnelLogic = kea<funnelLogicType>({
                 return isStepsEmpty(filters)
             },
         ],
-        propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
+        propertiesForUrl: [
+            () => [selectors.filters],
+            (filters: FilterType) => {
+                const result = {
+                    insight: ViewType.FUNNELS,
+                    ...cleanFunnelParams(filters),
+                }
+                return result
+            },
+        ],
         isValidFunnel: [
             () => [selectors.stepsWithCount],
             (stepsWithCount: FunnelStep[]) => {
@@ -244,7 +253,7 @@ export const funnelLogic = kea<funnelLogicType>({
         },
     }),
     urlToAction: ({ actions, values, props }) => ({
-        '/insights': (_, searchParams) => {
+        '/insights': (_: unknown, searchParams: Record<string, any>) => {
             if (props.dashboardItemId) {
                 return
             }

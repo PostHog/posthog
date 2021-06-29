@@ -46,7 +46,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, { interval, date_from }) => {
+        '/insights': (_: Record<string, string>, { interval, date_from }: Record<string, any>) => {
             if (interval) {
                 actions.setIntervalFilter(interval)
             }

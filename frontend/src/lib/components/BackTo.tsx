@@ -24,7 +24,17 @@ const backToLogic = kea<backToLogicType<IBackTo>>({
         ],
     },
     urlToAction: ({ actions }) => ({
-        '*': ({}, {}, { backTo, backToURL }) => {
+        '*': (
+            {},
+            {},
+            {
+                backTo,
+                backToURL,
+            }: {
+                backTo: string | null
+                backToURL: string | null
+            }
+        ) => {
             if (!backTo || !backToURL) {
                 actions.setBackTo(null)
             } else {
