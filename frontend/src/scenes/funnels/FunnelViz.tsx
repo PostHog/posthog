@@ -4,13 +4,15 @@ import { Loading, humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import './FunnelViz.scss'
 import { funnelLogic } from './funnelLogic'
-import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
+import { FunnelBarGraph } from './FunnelBarGraph'
 import { router } from 'kea-router'
 import { IllustrationDanger } from 'lib/components/icons'
 import { InputNumber } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ChartParams, FunnelStep } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface FunnelVizProps extends Omit<ChartParams, 'view'> {
     steps: FunnelStep[]
@@ -31,9 +33,17 @@ export function FunnelViz({
     const { loadResults: loadFunnel, loadConversionWindow } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     function buildChart(): void {
-        if (!steps || steps.length === 0) {
+        // Build and mount graph for default "flow" visualization.
+        // If steps are empty, new bargraph view is active, or linechart is visible, don't render flow graph.
+        if (
+            !steps ||
+            steps.length === 0 ||
+            featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ||
+            filters.display === ACTIONS_LINE_GRAPH_LINEAR
+        ) {
             return
         }
         if (container.current) {
@@ -132,6 +142,10 @@ export function FunnelViz({
                 />
             </>
         ) : null
+    }
+
+    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
+        return steps && steps.length > 0 ? <FunnelBarGraph layout="horizontal" steps={steps} /> : null
     }
 
     return !funnelLoading ? (

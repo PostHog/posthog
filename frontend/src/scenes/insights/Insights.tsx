@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE } from 'lib/constants'
+import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -35,6 +35,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -385,10 +386,17 @@ export function Insights(): JSX.Element {
 }
 
 function FunnelInsight(): JSX.Element {
-    const { stepsWithCount, isValidFunnel, stepsWithCountLoading } = useValues(funnelLogic({}))
+    const {
+        stepsWithCount,
+        isValidFunnel,
+        stepsWithCountLoading,
+        filters: { display },
+    } = useValues(funnelLogic({}))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const fluidHeight = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display === FUNNEL_VIZ
 
     return (
-        <div style={{ height: 300, position: 'relative' }}>
+        <div style={fluidHeight ? {} : { height: 300, position: 'relative' }}>
             {stepsWithCountLoading && <Loading />}
             {isValidFunnel ? (
                 <FunnelViz steps={stepsWithCount} />
