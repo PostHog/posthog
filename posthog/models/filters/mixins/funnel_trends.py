@@ -15,7 +15,7 @@ class FunnelTrendsMixin(BaseParamMixin):
         return to_step
 
     @include_dict
-    def funnel_window_days_to_dict(self):
+    def funnel_trends_to_dict(self):
         dict_part = {}
         if self.funnel_from_step:
             dict_part[FUNNEL_FROM_STEP] = self.funnel_from_step
