@@ -200,7 +200,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
     }),
 
     urlToAction: ({ actions }) => ({
-        '/dashboard/:id': ({ id }: Record<string, string>) => actions.setLastDashboardId(parseInt(id)),
+        '/dashboard/:id': ({ id }) => {
+            if (id) {
+                actions.setLastDashboardId(parseInt(id))
+            }
+        },
     }),
 })
 
