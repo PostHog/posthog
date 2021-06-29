@@ -13,8 +13,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { pluralize } from 'lib/utils'
+import { SeriesLetter, SeriesGlyph } from 'lib/components/SeriesGlyph'
 import './index.scss'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
@@ -37,7 +37,8 @@ export interface ActionFilterRowProps {
     hidePropertySelector?: boolean // DEPRECATED: Out of use in the new horizontal UI
     singleFilter?: boolean
     showOr?: boolean
-    showLetters?: boolean
+    showSeriesIndicator?: boolean // Show series badge
+    seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     horizontalUI?: boolean
     filterCount: number
     customRowPrefix?: string | JSX.Element // Custom prefix element to show in each row
@@ -52,7 +53,8 @@ export function ActionFilterRow({
     hidePropertySelector,
     singleFilter,
     showOr,
-    showLetters,
+    showSeriesIndicator,
+    seriesIndicatorType = 'alpha',
     horizontalUI = false,
     filterCount,
     customRowPrefix,
@@ -137,9 +139,13 @@ export function ActionFilterRow({
                         />
                     </Col>
                 )}
-                {showLetters && (
+                {showSeriesIndicator && (
                     <Col className="action-row-letter">
-                        <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
+                        {seriesIndicatorType === 'numeric' ? (
+                            <SeriesGlyph>{index + 1}</SeriesGlyph>
+                        ) : (
+                            <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
+                        )}
                     </Col>
                 )}
                 {customRowPrefix ? <Col>{customRowPrefix}</Col> : <>{horizontalUI && <Col>Showing</Col>}</>}
@@ -165,7 +171,7 @@ export function ActionFilterRow({
                 {!hideMathSelector && (
                     <>
                         {horizontalUI && <Col>counted by</Col>}
-                        <Col style={{ maxWidth: `calc(50% - 16px${showLetters ? ' - 32px' : ''})` }}>
+                        <Col style={{ maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})` }}>
                             <MathSelector
                                 math={math}
                                 index={index}
@@ -177,7 +183,7 @@ export function ActionFilterRow({
                         {MATHS[math || '']?.onProperty && (
                             <>
                                 {horizontalUI && <Col>on property</Col>}
-                                <Col style={{ maxWidth: `calc(50% - 16px${showLetters ? ' - 32px' : ''})` }}>
+                                <Col style={{ maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})` }}>
                                     <MathPropertySelector
                                         name={name}
                                         math={math}
