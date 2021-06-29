@@ -102,10 +102,20 @@ class ClickhouseFunnelBase(ABC, Funnel):
             formatted_query = self._get_inner_event_query()
 
         return f"""
-        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps FROM (
+        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {self._get_step_times(max_steps)} FROM (
             {formatted_query}
         ) WHERE step_0 = 1
         """
+
+    def _get_step_times(self, max_steps: int):
+        conditions: List[str] = []
+        for i in range(1, max_steps):
+            conditions.append(
+                f"if(isNotNull(latest_{i}), dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_average_conversion_time"
+            )
+
+        formatted = ", ".join(conditions)
+        return f", {formatted}" if formatted else ""
 
     def build_step_subquery(self, level_index: int, max_steps: int):
         if level_index >= max_steps:
