@@ -117,6 +117,7 @@ export const commandPaletteLogic = kea<
         CommandRegistrations,
         CommandResult,
         CommandResultDisplayable,
+        CommandResultTemplate,
         RegExpCommandPairs
     >
 >({
