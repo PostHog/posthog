@@ -22,6 +22,7 @@
         "start-http": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack serve",
         "start-https": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack serve --https",
         "start-docker": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack serve --host 0.0.0.0",
+        "start-ch-dev": "concurrently -n DOCKER,WEBPACK,TYPEGEN -c red,blue,green \"CH_WEB_SCRIPT=./ee/bin/docker-ch-dev-backend docker-compose -f ee/docker-compose.ch.yml up\" \"yarn run start-http --host 0.0.0.0\" \"yarn run typegen:watch\"",
         "build": "echo \"Building Webpack\" && NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts",
         "prettier": "prettier --write \"./frontend/src/**/*.{js,ts,tsx,json,yaml,yml,css,scss}\"",
         "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yaml,yml,css,scss}\"",
