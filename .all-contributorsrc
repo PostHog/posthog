@@ -1347,6 +1347,15 @@
         "doc",
         "ideas"
       ]
+    },
+    {
+      "login": "smallbrownbike",
+      "name": "Eli Kinsey",
+      "avatar_url": "https://avatars.githubusercontent.com/u/28248250?v=4",
+      "profile": "http://ekinsey.dev",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
