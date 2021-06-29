@@ -3,13 +3,13 @@ import { personsModalLogicType } from './personsModalLogicType'
 
 export const personsModalLogic = kea<personsModalLogicType>({
     actions: () => ({
-        setSearchTerm: (term: string) => term,
+        setSearchTerm: (term: string) => ({ term }),
     }),
     reducers: () => ({
         searchTerm: [
             '',
             {
-                setSearchTerm: (_, term) => term,
+                setSearchTerm: (_, { term }) => term,
             },
         ],
     }),

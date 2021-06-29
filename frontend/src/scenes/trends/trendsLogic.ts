@@ -14,7 +14,6 @@ import {
 } from 'lib/constants'
 import { ViewType, insightLogic, defaultFilterTestAccounts, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
-import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
 import { ActionFilter, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes, PathType } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
@@ -406,16 +405,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                     ],
                 }
             },
-        ],
-        peopleModalURL: [
-            (selectors) => [selectors.sessionsPageParams],
-            (params) => ({
-                sessions: `/sessions?${toAPIParams(params)}`,
-                recordings: `/sessions?${toAPIParams({
-                    ...params,
-                    filters: [...(params.filters || []), SESSIONS_WITH_RECORDINGS_FILTER],
-                })}`,
-            }),
         ],
         numberOfSeries: [
             (selectors) => [selectors.filters],
