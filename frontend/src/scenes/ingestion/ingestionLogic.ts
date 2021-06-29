@@ -95,24 +95,24 @@ export const ingestionLogic = kea<ingestionLogicType>({
 
     urlToAction: ({ actions }) => ({
         '/ingestion': () => actions.setState(null, null, false),
-        '/ingestion/verify': (_: any, { platform, framework }) => {
+        '/ingestion/verify': (_: any, { platform, framework }: Record<string, string>) => {
             actions.setState(
                 platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
                 framework,
                 true
             )
         },
-        '/ingestion/api': (_: any, { platform }) => {
+        '/ingestion/api': (_: any, { platform }: Record<string, string>) => {
             actions.setState(
                 platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
                 API,
                 false
             )
         },
-        '/ingestion(/:platform)(/:framework)': ({ platform, framework }) => {
+        '/ingestion(/:platform)(/:framework)': ({ platform, framework }: Record<string, string>) => {
             actions.setState(
                 platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
-                framework as Framework,
+                framework,
                 false
             )
         },
@@ -132,7 +132,7 @@ export const ingestionLogic = kea<ingestionLogicType>({
     }),
 })
 
-function getUrl(values: ingestionLogicType['values']): string | [string, Record<string, undefined | string>] {
+function getUrl(values: typeof ingestionLogic['values']): string | [string, Record<string, undefined | string>] {
     const { platform, framework, verify } = values
 
     let url = '/ingestion'

@@ -21,7 +21,7 @@ const NEW_FLAG = {
 
 export const featureFlagLogic = kea<featureFlagLogicType>({
     actions: {
-        setFeatureFlagId: (id: number | 'new') => ({ id }),
+        setFeatureFlagId: (id) => ({ id }),
         addMatchGroup: true,
         removeMatchGroup: (index: number) => ({ index }),
         updateMatchGroup: (
@@ -128,10 +128,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         },
     },
     urlToAction: ({ actions }) => ({
-        '/feature_flags/*': ({ _: id }) => {
-            if (id) {
-                actions.setFeatureFlagId(parseInt(id))
-            }
+        '/feature_flags/*': ({ _: id }: { _: number | 'new' }) => {
+            actions.setFeatureFlagId(id)
             actions.loadFeatureFlag()
         },
     }),

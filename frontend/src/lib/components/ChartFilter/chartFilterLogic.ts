@@ -30,7 +30,7 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, { display, insight }) => {
+        '/insights': (_: Record<string, string>, { display, insight }: Record<string, any>) => {
             if (display) {
                 actions.setChartFilter(display)
             } else if (insight === ViewType.RETENTION) {

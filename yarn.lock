@@ -7525,22 +7525,22 @@ kea-loaders@^0.4.0:
   resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.4.0.tgz#4639dda7b213e45fe1276ec63f53fb4e8b4ee9fc"
   integrity sha512-pIBGVdf25BxlZWK5gEa44DxM4GwRdtb4WTGYTcDUBeqSDsoaR0SE432C3Uio1xBxXPuty4B6Hfn+ShKeWo7uXw==
 
-kea-localstorage@^1.1.1:
-  version "1.1.1"
-  resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-1.1.1.tgz#6edf69476779e002708fb10f2360e48333707406"
-  integrity sha512-YijSF33Y1QpfHAq1hGvulWWoGC9Kckd4lVa+XStHar4t7GfoaDa1aWnTeJxzz9bWnJovfk+MnG8ekP4rWIqINA==
+kea-localstorage@^1.0.2:
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-1.0.2.tgz#2ff78abcea3ffcd2c8ce8affec09f87a9ae72fbb"
+  integrity sha512-/HtVHJdyjdrX35LbvCBzF8ZNqUy9+nF7HpW/+T8vWOqjA9YCRL1p40cCZSEWoSiDVVqkx9hlpTA3SnIhNReUbg==
 
-kea-router@^0.5.3:
-  version "0.5.3"
-  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-0.5.3.tgz#f0f2719b1be4c661ad62312a6249067429d51731"
-  integrity sha512-adXb8oQcoR70Q8JegsauCawAsj63+/n9MeacKOa7/kbCZQYAlrjfcG83CcuRLe99MI/PSaEfeFX2doOG4Ir4xA==
+kea-router@^0.5.2:
+  version "0.5.2"
+  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-0.5.2.tgz#268a5ff34d6f833c9773c88c565a00ce323c24a1"
+  integrity sha512-uEujoF+Au89/zVydwSQrsCT8qEZJNtYmxPcoKQ+raG8ZLh1p4qMmzUQv65pz/SsSUTrv7Qdybf30TIFPk/kHEQ==
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^1.0.4:
-  version "1.0.4"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.0.4.tgz#75f69585d07838b9148b50c3bf91ae7faa6064c5"
-  integrity sha512-HsOsVC350hQiHRv1ec8nZyhjgxJryyMPygYhVb65b5NUuYsh+Dild8rWzkTeicV1pGWchioLTLW4cTPgwxLc7A==
+kea-typegen@^0.8.0-beta.6:
+  version "0.8.0-beta.6"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.8.0-beta.6.tgz#7dc3c24fc7c1291eba2c08270eca878181ffec1a"
+  integrity sha512-uD+DjjMD/gqQHF1C7wYHKq4RjzRL/onG2Z9kqzzaRst2UKTDbcqLxK5QIMPONWaBRL5o2/fDkq1aF8KkQylsMg==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.19"
     diff "^5.0.0"
@@ -7552,10 +7552,10 @@ kea-window-values@^0.0.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
   integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
 
-kea@^2.4.3:
-  version "2.4.4"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.4.4.tgz#94f7aa3266af980e8d2f5e0e71b033255aac95ef"
-  integrity sha512-gq5+jcC6w0FJVWkipA31s0WfmRSjIxTIvLtaApc/EPd0ACxKUhrApmC6Ldg9Au9Cu0ddC4g5wijoOUEmn0YyQA==
+kea@^2.3.8:
+  version "2.3.8"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.3.8.tgz#c4d1433afd4457e8301ea01aa3031fa661e03d10"
+  integrity sha512-TzSaLGgq8EORQ66vjpJvFKvIY6spL42jqW0kQoOSwNoYReC/HfTb3cz9okq0p0r7emg5bLmXNKDA6UPtezdABQ==
 
 killable@^1.0.1:
   version "1.0.1"
@@ -9293,9 +9293,9 @@ prettier@^2.1.1:
   integrity sha512-16c7K+x4qVlJg9rEbXl7HEGmQyZlG4R9AgP+oHKRMsMsuk8s+ATStlf1NpDqyBI1HpVyfjLOeMhH2LvuNvV5Vg==
 
 prettier@^2.3.1:
-  version "2.3.2"
-  resolved "https://registry.yarnpkg.com/prettier/-/prettier-2.3.2.tgz#ef280a05ec253712e486233db5c6f23441e7342d"
-  integrity sha512-lnJzDfJ66zkMy58OL5/NY5zp70S7Nz6KqcKkXYzn2tMVrNxvbqaBpg7H3qHaLxCJ5lNMsGuM8+ohS7cZrthdLQ==
+  version "2.3.1"
+  resolved "https://registry.yarnpkg.com/prettier/-/prettier-2.3.1.tgz#76903c3f8c4449bc9ac597acefa24dc5ad4cbea6"
+  integrity sha512-p+vNbgpLjif/+D+DwAZAbndtRrR0md0MwfmOVN9N+2RgyACMT+7tfaRnT+WDPkqnuVwleyuBIG2XBxKDme3hPA==
 
 pretty-error@^2.1.1:
   version "2.1.2"
