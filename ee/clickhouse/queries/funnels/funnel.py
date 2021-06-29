@@ -37,15 +37,14 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
     def _format_results(self, results):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
-        relevant_people = []
         total_people = 0
 
         for step in reversed(self._filter.entities):
 
             if results[0] and len(results[0]) > 0:
                 total_people += results[0][step.order]
-                relevant_people = []
-            serialized_result = self._serialize_step(step, total_people, relevant_people)
+
+            serialized_result = self._serialize_step(step, total_people, [])
             if step.order > 0:
                 serialized_result.update(
                     {"average_conversion_time": results[0][step.order + len(self._filter.entities) - 1]}
