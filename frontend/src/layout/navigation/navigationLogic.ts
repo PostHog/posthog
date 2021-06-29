@@ -152,8 +152,17 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             null as string | null,
             {
                 loadLatestVersion: async () => {
-                    const versions = await api.get('https://update.posthog.com/versions')
-                    return versions[0].version
+                    let retries = 0
+                    while (retries < 3) {
+                        const versions = await api.get('https://update.posthog.com/versions')
+                        if (!versions?.length || !versions[0]?.version) {
+                            retries++
+                            await setTimeout(() => {}, 150)
+                            continue
+                        }
+                        return versions[0].version
+                    }
+                    return null
                 },
             },
         ],
