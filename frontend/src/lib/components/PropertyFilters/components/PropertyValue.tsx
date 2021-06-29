@@ -146,7 +146,7 @@ export function PropertyValue({
             }
             if (!isMultiSelect && e.key === 'Enter') {
                 // We have not explicitly selected a dropdown item by pressing the up/down keys
-                if (autoCompleteRef.current?.querySelectorAll('.ant-select-item-option-active')?.length === 0) {
+                if (autoCompleteRef.current?.querySelectorAll?.('.ant-select-item-option-active')?.length === 0) {
                     setValue(input)
                 }
             }

@@ -70,7 +70,7 @@ services:
             - kafka:kafka
     web:
         <<: *worker
-        command: ./ee/bin/docker-ch-dev-web
+        command: '${CH_WEB_SCRIPT:-./ee/bin/docker-ch-dev-web}'
         ports:
             - '8000:8000'
             - '8234:8234'

@@ -175,15 +175,17 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/persons': ({}, searchParams: Record<string, string>) => {
+        '/persons': ({}, searchParams) => {
             actions.setListFilters(searchParams)
             if (!values.persons.results.length && !values.personsLoading) {
                 // Initial load
                 actions.loadPersons()
             }
         },
-        '/person/*': ({ _ }: { _: string }) => {
-            actions.loadPerson(_) // underscore contains the wildcard
+        '/person/*': ({ _: person }) => {
+            if (person) {
+                actions.loadPerson(person) // underscore contains the wildcard
+            }
         },
     }),
 })
