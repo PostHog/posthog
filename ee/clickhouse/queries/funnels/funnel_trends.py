@@ -28,7 +28,8 @@ class ClickhouseFunnelTrends(ClickhouseFunnelNew):
 
     Now, our time series is based on a sequence of {entrance_period}s, each starting at {entrance_period_start}
     and ending _right before the next_ {entrance_period_start}, and a person can only be counted once
-    towards a single {entrance_period}'s numbers (hich is reflected in the time series).
+    towards a single {entrance_period}'s numbers (which is reflected in the time series). But a person may be a part of
+    multiple entrance periods. (i.e. the person performs the {from_step} in separate {entrance_period}s)
 
     ### What is {conversion_rate}?
 
