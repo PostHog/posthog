@@ -14,6 +14,7 @@ import { SaveOutlined } from '@ant-design/icons'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
@@ -34,6 +35,12 @@ export function FunnelTab(): JSX.Element {
             <Row>
                 <InsightTitle />
             </Row>
+            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && (
+                <div style={{ paddingBottom: '1rem' }}>
+                    <h4 className="secondary">Graph Type</h4>
+                    <ToggleButtonChartFilter />
+                </div>
+            )}
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
@@ -47,7 +54,7 @@ export function FunnelTab(): JSX.Element {
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
                     buttonCopy="Add funnel step"
-                    showSeriesIndicator={!isStepsEmpty}
+                    showSeriesIndicator={!isStepsEmpty && featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
                     seriesIndicatorType="numeric"
                     fullWidth={featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
                     sortable
