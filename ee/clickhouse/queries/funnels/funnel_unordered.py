@@ -4,6 +4,25 @@ from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
 
 class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
+    """
+    Unordered Funnel is a funnel where the order of steps doesn't matter.
+
+    ## Query Intuition
+
+    Imagine a funnel with three events: A, B, and C.
+    This query splits the problem into two parts:
+    1. Given the first event is A, find the furthest everyone went starting from A.
+       This finds any B's and C's that happen after A (without ordering them)
+    2. Repeat the above, assuming first event to be B, and then C.
+    
+    Then, the outer query unions the result of (2) and takes the maximum of these.
+
+    ## Results
+
+    The result format is the same as the basic funnel, i.e. [step, count].
+    Here, `step_i` (0 indexed) signifies the number of people that did at least `i+1` steps.
+    """
+
     def get_query(self, format_properties):
         return self.get_step_counts_query()
 
