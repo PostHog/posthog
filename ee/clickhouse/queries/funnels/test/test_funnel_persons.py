@@ -6,7 +6,7 @@ from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_FUNNEL
 from posthog.models import Filter
-from posthog.models.filters.mixins.funnel_window_days import FunnelWindowDaysMixin
+from posthog.models.filters.mixins.funnel import FunnelWindowDaysMixin
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
@@ -27,9 +27,97 @@ def _create_event(**kwargs):
 
 
 class TestFunnel(ClickhouseTestMixin, APIBaseTest):
-    def setUp(self):
-        self._create_sample_data()
-        super().setUp()
+    def _create_sample_data_multiple_dropoffs(self):
+        for i in range(5):
+            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+
+        for i in range(5, 15):
+            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
+
+        for i in range(15, 35):
+            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+
+    def test_first_step(self):
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_days": 7,
+            "funnel_step": 1,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        filter = Filter(data=data)
+        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        self.assertEqual(35, len(results))
+
+    def test_last_step(self):
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_days": 7,
+            "funnel_step": 3,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        filter = Filter(data=data)
+        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        self.assertEqual(5, len(results))
+
+    def test_second_step_dropoff(self):
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_days": 7,
+            "funnel_step": -2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        filter = Filter(data=data)
+        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        self.assertEqual(20, len(results))
+
+    def test_last_step_dropoff(self):
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_days": 7,
+            "funnel_step": -3,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        filter = Filter(data=data)
+        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        self.assertEqual(10, len(results))
 
     def _create_sample_data(self):
         for i in range(250):
@@ -39,13 +127,14 @@ class TestFunnel(ClickhouseTestMixin, APIBaseTest):
             _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
 
     def test_basic_offset(self):
+        self._create_sample_data()
         data = {
             "insight": INSIGHT_FUNNELS,
-            "display": TRENDS_FUNNEL,
             "interval": "day",
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
             "funnel_window_days": 7,
+            "funnel_step": 1,
             "events": [
                 {"id": "step one", "order": 0},
                 {"id": "step two", "order": 1},
@@ -79,13 +168,14 @@ class TestFunnel(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(one_day, 86_400_000)
 
     def test_basic_conversion_window(self):
+        self._create_sample_data()
         data = {
             "insight": INSIGHT_FUNNELS,
-            "display": TRENDS_FUNNEL,
             "interval": "day",
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
             "funnel_window_days": 7,
+            "funnel_step": 1,
             "events": [
                 {"id": "step one", "order": 0},
                 {"id": "step two", "order": 1},

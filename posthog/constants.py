@@ -88,6 +88,7 @@ ENTITY_MATH = "entity_math"
 FUNNEL_WINDOW_DAYS = "funnel_window_days"
 FUNNEL_FROM_STEP = "funnel_from_step"
 FUNNEL_TO_STEP = "funnel_to_step"
+FUNNEL_STEP = "funnel_step"
 
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"

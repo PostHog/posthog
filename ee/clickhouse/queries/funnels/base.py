@@ -12,7 +12,7 @@ from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter, Team
-from posthog.models.filters.mixins.funnel_window_days import FunnelWindowDaysMixin
+from posthog.models.filters.mixins.funnel import FunnelWindowDaysMixin
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
 
@@ -90,7 +90,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
         }
 
         query = self.get_query(format_properties)
-
         return sync_execute(query, self.params)
 
     def _get_steps_per_person_query(self):

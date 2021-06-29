@@ -47,6 +47,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                 {"id": "user signed up", "type": "events", "order": 1},
             ],
             "insight": INSIGHT_FUNNELS,
+            "funnel_window_days": 14,
         }
 
         filter = Filter(data=filters)
@@ -76,6 +77,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                 {"id": "$pageview", "type": "events", "order": 4},
             ],
             "insight": INSIGHT_FUNNELS,
+            "funnel_window_days": 14,
         }
 
         filter = Filter(data=filters)
@@ -135,6 +137,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                 {"id": "$pageview", "type": "events", "order": 4},
             ],
             "insight": INSIGHT_FUNNELS,
+            "funnel_window_days": 14,
         }
 
         filter = Filter(data=filters)
@@ -212,6 +215,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                 {"id": sign_up_action.id, "math": "wau", "order": 1},
             ],
             "insight": INSIGHT_FUNNELS,
+            "funnel_window_days": 14,
         }
 
         filter = Filter(data=filters)
@@ -249,6 +253,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                 {"id": sign_up_action.id, "math": "wau", "order": 3},
             ],
             "insight": INSIGHT_FUNNELS,
+            "funnel_window_days": 14,
         }
 
         filter = Filter(data=filters)
@@ -302,6 +307,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                 },  # TODO(nk): does this supercede the above event? i.e. order 3 is subset of order 4? doesn't make sense to allow this in a funnel
             ],
             "insight": INSIGHT_FUNNELS,
+            "funnel_window_days": 14,
         }
 
         filter = Filter(data=filters)

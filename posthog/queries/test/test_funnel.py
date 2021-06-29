@@ -38,6 +38,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 filters = {
                     "events": [{"id": "user signed up", "type": "events", "order": 0},],
                     "insight": INSIGHT_FUNNELS,
+                    "funnel_window_days": 14,
                 }
 
             if properties is not None:
@@ -61,6 +62,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         {"id": action_credit_card.pk, "type": "actions", "order": 1},
                         {"id": action_play_movie.pk, "type": "actions", "order": 2},
                     ],
+                    "funnel_window_days": 14,
                 }
 
             if properties is not None:
@@ -225,6 +227,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "properties": [{"key": "$browser", "value": "Firefox"}],
                     },
                 ],
+                "funnel_window_days": 14,
             }
             funnel = self._basic_funnel(filters=filters)
 
@@ -275,6 +278,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     {"id": action_credit_card.pk, "type": "actions", "order": 1,},
                     {"id": action_play_movie.pk, "type": "actions", "order": 2,},
                 ],
+                "funnel_window_days": 14,
             }
             funnel = self._basic_funnel(filters=filters)
 
@@ -314,6 +318,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "events": [{"id": "event1", "order": 0}],
                         "actions": [{"id": action1.pk, "order": 1,}, {"id": action2.pk, "order": 2,},],
                         "insight": INSIGHT_FUNNELS,
+                        "funnel_window_days": 14,
                     }
                 ),
                 team=self.team,
@@ -333,6 +338,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "events": [{"id": "event1", "order": 0}],
                         "insight": INSIGHT_FUNNELS,
                         FILTER_TEST_ACCOUNTS: True,
+                        "funnel_window_days": 14,
                     }
                 ),
                 team=self.team,
