@@ -16,7 +16,6 @@ initKea()
 ;(window as any)['ph_load_editor'] = function (editorParams: EditorProps) {
     const container = document.createElement('div')
     document.body.appendChild(container)
-    console.log('hello gang 2')
 
     ReactDOM.render(
         <Provider store={getContext().store}>
