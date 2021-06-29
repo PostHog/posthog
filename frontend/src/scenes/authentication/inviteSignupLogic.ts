@@ -21,7 +21,7 @@ interface AcceptInvitePayloadInterface {
     email_opt_in: boolean
 }
 
-export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadInterface, ErrorInterface>>({
+export const inviteSignupLogic = kea<inviteSignupLogicType<AcceptInvitePayloadInterface, ErrorCodes, ErrorInterface>>({
     actions: {
         setError: (payload: ErrorInterface) => ({ payload }),
     },
