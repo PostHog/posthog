@@ -1,8 +1,31 @@
 from typing import Optional
 
-from posthog.constants import FUNNEL_STEP, FUNNEL_WINDOW_DAYS
+from posthog.constants import FUNNEL_FROM_STEP, FUNNEL_STEP, FUNNEL_TO_STEP, FUNNEL_WINDOW_DAYS
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
+
+
+class FunnelFromToStepsMixin(BaseParamMixin):
+    @cached_property
+    def funnel_from_step(self) -> Optional[int]:
+        if self._data.get(FUNNEL_FROM_STEP):
+            return int(self._data[FUNNEL_FROM_STEP])
+        return None
+
+    @cached_property
+    def funnel_to_step(self) -> Optional[int]:
+        if self._data.get(FUNNEL_TO_STEP):
+            return int(self._data[FUNNEL_TO_STEP])
+        return None
+
+    @include_dict
+    def funnel_from_to_steps_to_dict(self):
+        dict_part = {}
+        if self.funnel_from_step:
+            dict_part[FUNNEL_FROM_STEP] = self.funnel_from_step
+        if self.funnel_to_step:
+            dict_part[FUNNEL_TO_STEP] = self.funnel_to_step
+        return dict_part
 
 
 class FunnelWindowDaysMixin(BaseParamMixin):
