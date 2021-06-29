@@ -27,8 +27,8 @@ class ClickhouseFunnelTrends(ClickhouseFunnelNew):
     In the default case, {from_step} is the first step of the funnel, meaning entrance from the very beginning.
 
     Now, our time series is based on a sequence of {entrance_period}s, each starting at {entrance_period_start}
-    and ending _right before the next_ {entrance_period_start}, and a person having entered the funnel
-    is only counted towards a single {entrance_period}'s numbers (hich is reflected in the time series).
+    and ending _right before the next_ {entrance_period_start}, and a person can only be counted once
+    towards a single {entrance_period}'s numbers (hich is reflected in the time series).
 
     ### What is {conversion_rate}?
 
