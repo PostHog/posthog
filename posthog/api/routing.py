@@ -84,7 +84,10 @@ class StructuredViewSetMixin(NestedViewSetMixin):
         if self.legacy_team_compatibility:
             if not self.request.user.is_authenticated:
                 raise AuthenticationFailed()
-            return {"team_id": self.request.user.team.id}
+            project = self.request.user.team
+            if project is None:
+                raise NotFound("Current project not found.")
+            return {"team_id": project.id}
         result = {}
         # process URL paremetrs (here called kwargs), such as organization_id in /api/organizations/:organization_id/
         for kwarg_name, kwarg_value in self.kwargs.items():
