@@ -14,10 +14,10 @@ interface ExpandIconProps {
 }
 
 function ExpandIcon({ prefixCls, onExpand, record, expanded, expandable, children }: ExpandIconProps): JSX.Element {
-    console.log('Record', record)
     const iconPrefix = `${prefixCls}-row-expand-icon`
     return (
         <div
+            style={{ display: 'flex', alignItems: 'center' }}
             onClick={(e) => {
                 onExpand(record, e!)
                 e.stopPropagation()
@@ -25,7 +25,7 @@ function ExpandIcon({ prefixCls, onExpand, record, expanded, expandable, childre
         >
             <button
                 type="button"
-                className={clsx(iconPrefix, {
+                className={clsx(iconPrefix, 'mr-05', {
                     [`${iconPrefix}-spaced`]: !expandable,
                     [`${iconPrefix}-expanded`]: expandable && expanded,
                     [`${iconPrefix}-collapsed`]: expandable && !expanded,

@@ -26,7 +26,7 @@ import { Drawer } from 'lib/components/Drawer'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
-import { ResizableTable, ResizableColumnType } from 'lib/components/ResizableTable'
+import { ResizableTable, ResizableColumnType, ANTD_EXPAND_BUTTON_WIDTH } from 'lib/components/ResizableTable'
 import { teamLogic } from 'scenes/teamLogic'
 import { IconEventsShort } from 'lib/components/icons'
 import ExpandIcon from 'lib/components/ExpandIcon'
@@ -55,6 +55,8 @@ function SessionPlayerDrawer({ isPersonPage = false }: { isPersonPage: boolean }
 function getSessionRecordingsDurationSum(session: SessionType): number {
     return session.session_recordings.map(({ recording_duration }) => recording_duration).reduce((a, b) => a + b, 0)
 }
+
+const MATCHING_EVENT_ICON_SIZE = 26
 
 export function SessionsView({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
@@ -260,10 +262,10 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                                         <Badge
                                             className="sessions-matching-events-icon cursor-pointer"
                                             count={<span className="badge-text">{session.matching_events.length}</span>}
-                                            offset={[0, 26]}
+                                            offset={[0, MATCHING_EVENT_ICON_SIZE]}
                                             size="small"
                                         >
-                                            <IconEventsShort size={26} />
+                                            <IconEventsShort size={MATCHING_EVENT_ICON_SIZE} />
                                         </Badge>
                                     </Tooltip>
                                 ) : (
@@ -272,6 +274,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                             </ExpandIcon>
                         )
                     },
+                    columnWidth: ANTD_EXPAND_BUTTON_WIDTH + MATCHING_EVENT_ICON_SIZE,
                     rowExpandable: () => true,
                     expandRowByClick: true,
                 }}
