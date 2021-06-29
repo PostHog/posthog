@@ -65,14 +65,6 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
-        # check ordering of people in first step
-        self.assertCountEqual(
-            result[0]["people"], [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
-        )
-
-        self.assertCountEqual(
-            result[1]["people"], [person1_stopped_after_two_signups.uuid],
-        )
 
     def test_advanced_funnel_with_repeat_steps(self):
         filters = {
@@ -132,44 +124,6 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         self.assertEqual(result[1]["name"], "$pageview")
         self.assertEqual(result[4]["name"], "$pageview")
         self.assertEqual(result[0]["count"], 5)
-        # check ordering of people in every step
-        self.assertCountEqual(
-            result[0]["people"],
-            [
-                person1_stopped_after_signup.uuid,
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
-            ],
-        )
-
-        self.assertCountEqual(
-            result[1]["people"],
-            [
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
-            ],
-        )
-
-        self.assertCountEqual(
-            result[2]["people"],
-            [
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
-            ],
-        )
-
-        self.assertCountEqual(
-            result[3]["people"], [person4_stopped_after_three_pageview.uuid, person5_stopped_after_many_pageview.uuid],
-        )
-
-        self.assertCountEqual(
-            result[4]["people"], [person5_stopped_after_many_pageview.uuid],
-        )
 
     def test_advanced_funnel_with_repeat_steps_out_of_order_events(self):
         filters = {
@@ -243,39 +197,6 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         self.assertEqual(result[1]["name"], "$pageview")
         self.assertEqual(result[4]["name"], "$pageview")
         self.assertEqual(result[0]["count"], 5)
-        # check ordering of people in every step
-        self.assertCountEqual(
-            result[0]["people"],
-            [
-                person1_stopped_after_signup.uuid,
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
-            ],
-        )
-
-        self.assertCountEqual(
-            result[1]["people"],
-            [
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
-            ],
-        )
-
-        self.assertCountEqual(
-            result[2]["people"], [person5_stopped_after_many_pageview.uuid],
-        )
-
-        self.assertCountEqual(
-            result[3]["people"], [person5_stopped_after_many_pageview.uuid],
-        )
-
-        self.assertCountEqual(
-            result[4]["people"], [person5_stopped_after_many_pageview.uuid],
-        )
 
     def test_funnel_with_actions(self):
 
@@ -309,14 +230,6 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
 
         self.assertEqual(result[0]["name"], "sign up")
         self.assertEqual(result[0]["count"], 2)
-        # check ordering of people in first step
-        self.assertCountEqual(
-            result[0]["people"], [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
-        )
-
-        self.assertCountEqual(
-            result[1]["people"], [person1_stopped_after_two_signups.uuid],
-        )
 
     def test_funnel_with_actions_and_events(self):
 
@@ -371,23 +284,6 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
             result = funnel.run()
 
         self.assertEqual(result[0]["name"], "user signed up")
-        # check ordering of people in steps
-        self.assertCountEqual(
-            result[0]["people"],
-            [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid, person3.uuid, person4.uuid],
-        )
-
-        self.assertCountEqual(
-            result[1]["people"],
-            [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid, person3.uuid, person4.uuid],
-        )
-
-        self.assertCountEqual(
-            result[2]["people"],
-            [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid, person3.uuid,],
-        )
-
-        self.assertCountEqual(result[3]["people"], [person1_stopped_after_two_signups.uuid,])
 
     def test_funnel_with_matching_properties(self):
         filters = {
@@ -511,41 +407,84 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         self.assertEqual(result[1]["name"], "$pageview")
         self.assertEqual(result[4]["name"], "$pageview")
         self.assertEqual(result[0]["count"], 5)
-        # check ordering of people in every step
-        self.assertCountEqual(
-            result[0]["people"],
-            [
-                person1_stopped_after_signup.uuid,
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
-            ],
+
+    def test_funnel_step_conversion_times(self):
+
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelNew(filter, self.team)
+
+        # event
+        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            properties={"key": "val"},
+            timestamp="2020-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person1",
+            properties={"key": "val"},
+            timestamp="2020-01-01T13:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="buy",
+            distinct_id="person1",
+            properties={"key": "val"},
+            timestamp="2020-01-01T15:00:00Z",
         )
 
-        self.assertCountEqual(
-            result[1]["people"],
-            [
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
-            ],
+        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            properties={"key": "val"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person2",
+            properties={"key": "val"},
+            timestamp="2020-01-02T16:00:00Z",
         )
 
-        self.assertCountEqual(
-            result[2]["people"],
-            [
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
-            ],
+        person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person3",
+            properties={"key": "val"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person3",
+            properties={"key": "val"},
+            timestamp="2020-01-02T16:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="buy",
+            distinct_id="person3",
+            properties={"key": "val"},
+            timestamp="2020-01-02T17:00:00Z",
         )
 
-        self.assertCountEqual(
-            result[3]["people"], [person4_stopped_after_three_pageview.uuid, person5_stopped_after_many_pageview.uuid],
-        )
-
-        self.assertCountEqual(
-            result[4]["people"], [],
-        )
+        result = funnel.run()
+        self.assertEqual(result[0]["average_conversion_time"], None)
+        self.assertEqual(result[1]["average_conversion_time"], 6000)
+        self.assertEqual(result[2]["average_conversion_time"], 5400)
