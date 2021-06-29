@@ -1,7 +1,7 @@
 import { EmptyPropertyFilter, PropertyFilter, PropertyOperator } from '../../../types'
-import { isFilledPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
-describe('isFilledPropertyFilter()', () => {
+describe('isValidPropertyFilter()', () => {
     it('returns values correctly', () => {
         const emptyProperty: EmptyPropertyFilter = {}
         const realProperty: PropertyFilter = {
@@ -10,12 +10,12 @@ describe('isFilledPropertyFilter()', () => {
             type: 'cohort',
             operator: PropertyOperator.LessThan,
         }
-        expect(isFilledPropertyFilter(emptyProperty)).toEqual(false)
-        expect(isFilledPropertyFilter(realProperty)).toEqual(true)
-        expect(isFilledPropertyFilter(undefined as any)).toEqual(false)
-        expect(isFilledPropertyFilter(null as any)).toEqual(false)
-        expect(isFilledPropertyFilter({ bla: 'true' } as any)).toEqual(false)
-        expect(isFilledPropertyFilter({ key: undefined })).toEqual(false)
-        expect(isFilledPropertyFilter({ key: 'cohort', value: 123 })).toEqual(true)
+        expect(isValidPropertyFilter(emptyProperty)).toEqual(false)
+        expect(isValidPropertyFilter(realProperty)).toEqual(true)
+        expect(isValidPropertyFilter(undefined as any)).toEqual(false)
+        expect(isValidPropertyFilter(null as any)).toEqual(false)
+        expect(isValidPropertyFilter({ bla: 'true' } as any)).toEqual(false)
+        expect(isValidPropertyFilter({ key: undefined })).toEqual(false)
+        expect(isValidPropertyFilter({ key: 'cohort', value: 123 })).toEqual(true)
     })
 })
