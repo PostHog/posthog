@@ -60,6 +60,7 @@ SELECT person_id
 FROM
 ({steps_per_person_query})
 WHERE {persons_steps}
+ORDER BY person_id
 LIMIT 100
 OFFSET {offset}
 SETTINGS allow_experimental_window_functions = 1
