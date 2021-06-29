@@ -63,8 +63,10 @@ class ClickhouseFunnelTrends(ClickhouseFunnelNew):
         )
         interval_method = get_trunc_func_ch(self._filter.interval)
 
-        from_step = self._filter.funnel_from_step  # How many steps must have been done to count for the denominator
-        to_step = self._filter.funnel_to_step  # How many steps must have been done to count for the numerator
+        # How many steps must have been done to count for the denominator
+        from_step = self._filter.funnel_from_step or 1
+        # How many steps must have been done to count for the numerator
+        to_step = self._filter.funnel_to_step or len(self._filter.entities)
 
         reached_from_step_count_condition = f"steps_completed >= {from_step}"
         reached_to_step_count_condition = f"steps_completed >= {to_step}"

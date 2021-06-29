@@ -35,8 +35,7 @@ class TestFilter(BaseTest):
             }
         )
         self.assertCountEqual(
-            list(filter.to_dict().keys()),
-            ["events", "display", "compare", "insight", "date_from", "funnel_from_step", "funnel_to_step"],
+            list(filter.to_dict().keys()), ["events", "display", "compare", "insight", "date_from"],
         )
 
 

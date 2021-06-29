@@ -7,14 +7,16 @@ from posthog.models.filters.mixins.utils import cached_property, include_dict
 
 class FunnelFromToStepsMixin(BaseParamMixin):
     @cached_property
-    def funnel_from_step(self) -> int:
-        from_step = int(self._data.get(FUNNEL_FROM_STEP, 1))
-        return from_step
+    def funnel_from_step(self) -> Optional[int]:
+        if self._data.get(FUNNEL_FROM_STEP):
+            return int(self._data[FUNNEL_FROM_STEP])
+        return None
 
     @cached_property
-    def funnel_to_step(self) -> int:
-        to_step = int(self._data.get(FUNNEL_TO_STEP, len(self.entities)))  # type: ignore
-        return to_step
+    def funnel_to_step(self) -> Optional[int]:
+        if self._data.get(FUNNEL_TO_STEP):
+            return int(self._data[FUNNEL_TO_STEP])
+        return None
 
     @include_dict
     def funnel_from_to_steps_to_dict(self):
