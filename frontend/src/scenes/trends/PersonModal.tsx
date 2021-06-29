@@ -64,7 +64,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                             <span style={{ paddingBottom: 12 }}>
                                 Showing{' '}
                                 <b>
-                                    {people.count || 0 > 99 ? '99' : people.count} of {people.count}
+                                    {people.count > 99 ? '99' : people.count} of {people.count}
                                 </b>{' '}
                                 persons
                             </span>

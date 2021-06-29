@@ -34,7 +34,7 @@ export interface IndexedTrendResult extends TrendResult {
 interface TrendPeople {
     people: PersonType[]
     breakdown_value?: string
-    count: number | null
+    count: number
     day?: string | number
     next?: string
     label: string
@@ -221,7 +221,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         setShowingPeople: (isShowing) => ({ isShowing }),
         setPeople: (
             people: PersonType[],
-            count: number | null,
+            count: number,
             action: ActionFilter | string,
             label: string,
             day?: string | number,
@@ -477,27 +477,27 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                     { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                     values.filters
                 )
-                actions.setPeople([], null, action, label, date_from, breakdown_value, '')
+                actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
                 people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
             } else if (values.filters.insight === ViewType.STICKINESS) {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
                     values.filters
                 )
-                actions.setPeople([], null, action, label, date_from, breakdown_value, '')
+                actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
                 people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
             } else {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
                     values.filters
                 )
-                actions.setPeople([], null, action, label, date_from, breakdown_value, '')
+                actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
                 people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)
             }
             breakpoint()
             actions.setPeople(
                 people.results[0]?.people,
-                people.results[0]?.count,
+                people.results[0]?.count || 0,
                 action,
                 label,
                 date_from,
@@ -507,7 +507,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             if (saveOriginal) {
                 actions.saveFirstLoadedPeople(
                     people.results[0]?.people,
-                    people.results[0]?.count,
+                    people.results[0]?.count || 0,
                     action,
                     label,
                     date_from,
