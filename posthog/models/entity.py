@@ -3,8 +3,6 @@ from typing import Any, Dict, List, Optional, Union
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.filters.mixins.property import PropertyMixin
 
-from .property import Property
-
 
 class Entity(PropertyMixin):
     """
@@ -48,3 +46,20 @@ class Entity(PropertyMixin):
             "math_property": self.math_property,
             "properties": [prop.to_dict() for prop in self.properties],
         }
+
+    def equals(self, other) -> bool:
+        """ Checks if two entities are semantically equal."""
+        # Not using __eq__ since that affects hashability
+
+        if self.id != other.id:
+            return False
+
+        if self.type != other.type:
+            return False
+
+        self_properties = sorted([str(prop) for prop in self.properties])
+        other_properties = sorted([str(prop) for prop in other.properties])
+        if self_properties != other_properties:
+            return False
+
+        return True
