@@ -121,7 +121,10 @@ export function ActionFilterRow({
     const orLabel = <div className="stateful-badge or width-locked">OR</div>
 
     return (
-        <div className={horizontalUI ? 'action-row-striped' : ''} style={{ flexBasis: fullWidth ? '100%' : undefined }}>
+        <div
+            className={`${horizontalUI ? 'action-row-striped' : ''} ${fullWidth ? 'full-width' : ''}`}
+            style={{ flexBasis: fullWidth ? '100%' : undefined }}
+        >
             {!horizontalUI && index > 0 && showOr && (
                 <Row align="middle" style={{ marginTop: 12 }}>
                     {orLabel}
@@ -153,7 +156,7 @@ export function ActionFilterRow({
                 {customRowPrefix ? <Col>{customRowPrefix}</Col> : <>{horizontalUI && <Col>Showing</Col>}</>}
                 <Col
                     style={fullWidth ? {} : { maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}
-                    flex="auto"
+                    flex={fullWidth ? 'auto' : undefined}
                 >
                     <Button
                         data-attr={'trend-element-subject-' + index}
@@ -209,7 +212,7 @@ export function ActionFilterRow({
                         )}
                     </>
                 )}
-                {horizontalUI && (
+                {(horizontalUI || fullWidth) && (
                     <Col>
                         <Button
                             type="link"
@@ -218,7 +221,7 @@ export function ActionFilterRow({
                                     ? setEntityFilterVisibility(filter.order, !visible)
                                     : undefined
                             }}
-                            className={`row-action-btn show-filters${filter.properties?.length ? ' visible' : ''}`}
+                            className={`row-action-btn show-filters${visible ? ' visible' : ''}`}
                             data-attr={'show-prop-filter-' + index}
                             title="Show filters"
                         >
@@ -242,25 +245,27 @@ export function ActionFilterRow({
                 )}
                 {horizontalUI && filterCount > 1 && index < filterCount - 1 && showOr && orLabel}
             </Row>
-            {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) && !horizontalUI && (
-                <div style={{ paddingTop: 6 }}>
-                    <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
-                    <Button
-                        className="ant-btn-md"
-                        onClick={() =>
-                            typeof filter.order === 'number'
-                                ? setEntityFilterVisibility(filter.order, !visible)
-                                : undefined
-                        }
-                        data-attr={'show-prop-filter-' + index}
-                    >
-                        {determineFilterLabel(visible, filter)}
-                    </Button>
-                </div>
-            )}
+            {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) &&
+                !horizontalUI &&
+                !fullWidth && (
+                    <div style={{ paddingTop: 6 }}>
+                        <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
+                        <Button
+                            className="ant-btn-md"
+                            onClick={() =>
+                                typeof filter.order === 'number'
+                                    ? setEntityFilterVisibility(filter.order, !visible)
+                                    : undefined
+                            }
+                            data-attr={'show-prop-filter-' + index}
+                        >
+                            {determineFilterLabel(visible, filter)}
+                        </Button>
+                    </div>
+                )}
 
             {visible && (
-                <div className="ml">
+                <div className="ml" style={{ maxWidth: '100%', overflow: 'hidden' }}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
