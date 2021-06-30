@@ -6,7 +6,7 @@ describe('Dashboards Premium Features', () => {
 
     it('Tag dashboard', () => {
         const newTag = `test-${Math.floor(Math.random() * 10000)}`
-        cy.get('[data-attr=dashboard-name]').contains('My App Dashboard').click()
+        cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
         cy.get('[data-attr=button-add-tag]').click()
         cy.focused().type(newTag)
         cy.get('[data-attr=new-tag-option]').click()
@@ -21,7 +21,7 @@ describe('Dashboards Premium Features', () => {
 
     it('Cannot add duplicate tags', () => {
         const newTag = `test2-${Math.floor(Math.random() * 10000)}`
-        cy.get('[data-attr=dashboard-name]').contains('My App Dashboard').click()
+        cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
         cy.get('[data-attr=button-add-tag]').click()
         cy.focused().type(newTag)
         cy.get('[data-attr=new-tag-option]').click()

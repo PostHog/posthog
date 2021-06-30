@@ -22,13 +22,31 @@ def format_next_url(request: request.Request, offset: int, page_size: int):
     if not next_url:
         return None
 
+    new_offset = str(offset + page_size)
+
     if "offset" in next_url:
         next_url = next_url[1:]
-        next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + page_size))
+        next_url = next_url.replace(f"offset={str(offset)}", f"offset={new_offset}")
     else:
         next_url = request.build_absolute_uri(
             "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + page_size)
         )
+    return next_url
+
+
+def format_next_absolute_url(request: request.Request, offset: int, page_size: int):
+    next_url = request.get_raw_uri()
+
+    if not next_url:
+        return None
+
+    new_offset = str(offset + page_size)
+
+    if "offset" in next_url:
+        next_url = next_url.replace(f"offset={str(offset)}", f"offset={new_offset}")
+    else:
+        next_url = next_url + ("&" if "?" in next_url else "?") + f"offset={new_offset}"
+
     return next_url
 
 

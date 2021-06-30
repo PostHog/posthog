@@ -150,6 +150,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, LocalFilt
         removeLocalFilter: async ({ index }) => {
             eventUsageLogic.actions.reportInsightFilterRemoved(index)
             actions.setFilters(values.localFilters.filter((_, i) => i !== index))
+            actions.setLocalFilters({ filters: values.localFilters.filter((_, i) => i !== index) } as FilterType)
         },
         addFilter: async () => {
             const previousLength = values.localFilters.length

@@ -39,8 +39,10 @@ const insightRouterLogic = kea<insightRouterLogicType>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/i/:id': ({ id }: { id: string }) => {
-            actions.loadInsight(id)
+        '/i/:id': ({ id }) => {
+            if (id) {
+                actions.loadInsight(id)
+            }
         },
     }),
 })

@@ -125,18 +125,20 @@ else:
         with ch_pool.get_client() as client:
             start_time = time()
             tags = {}
+            if app_settings.SHELL_PLUS_PRINT_SQL:
+                print()
+                print(format_sql(query, args))
             try:
                 sql, tags = _annotate_tagged_query(query, args)
                 result = client.execute(sql, args, settings=settings, with_column_types=with_column_types)
             except Exception as e:
                 tags["failed"] = True
-                tags["reason"] = str(e)
+                tags["reason"] = type(e).__name__
                 raise e
             finally:
                 execution_time = time() - start_time
                 timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
                 if app_settings.SHELL_PLUS_PRINT_SQL:
-                    print(format_sql(query, args))
                     print("Execution time: %.6fs" % (execution_time,))
                 if _request_information is not None and _request_information.get("save", False):
                     save_query(query, args, execution_time)

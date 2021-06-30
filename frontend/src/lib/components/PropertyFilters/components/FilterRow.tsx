@@ -10,7 +10,7 @@ import 'scenes/actions/Actions.scss'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TooltipPlacement } from 'antd/lib/tooltip'
-import { isFilledPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 interface FilterRowProps {
     item: AnyPropertyFilter
@@ -40,7 +40,7 @@ export const FilterRow = React.memo(function FilterRow({
     const { key } = item
 
     const handleVisibleChange = (visible: boolean): void => {
-        if (!visible && isFilledPropertyFilter(item) && !item.key) {
+        if (!visible && isValidPropertyFilter(item) && !item.key) {
             remove(index)
         }
         setOpen(visible)
@@ -106,7 +106,7 @@ export const FilterRow = React.memo(function FilterRow({
                             />
                         }
                     >
-                        {isFilledPropertyFilter(item) ? (
+                        {isValidPropertyFilter(item) ? (
                             <PropertyFilterButton
                                 onClick={() => setOpen(!open)}
                                 item={item as PropertyFilterType /* not EmptyPropertyFilter */}

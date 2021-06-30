@@ -1,20 +1,27 @@
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.queries.clickhouse_funnel import ClickhouseFunnel
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.api.insight import InsightViewSet
-from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_SESSIONS, INSIGHT_STICKINESS, TRENDS_STICKINESS
+from posthog.constants import (
+    INSIGHT_FUNNELS,
+    INSIGHT_PATHS,
+    INSIGHT_SESSIONS,
+    INSIGHT_STICKINESS,
+    TRENDS_LINEAR,
+    TRENDS_STICKINESS,
+)
 from posthog.decorators import cached_function
-from posthog.models import Event
 from posthog.models.filters import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -64,7 +71,11 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def calculate_funnel(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, data={**request.data, "insight": INSIGHT_FUNNELS})
-        return {"result": ClickhouseFunnel(team=team, filter=filter).run()}
+
+        if filter.display == TRENDS_LINEAR:
+            return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run()}
+        else:
+            return {"result": ClickhouseFunnel(team=team, filter=filter).run()}
 
     @cached_function()
     def calculate_retention(self, request: Request) -> Dict[str, Any]:
