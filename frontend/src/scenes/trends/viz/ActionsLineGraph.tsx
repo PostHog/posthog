@@ -46,7 +46,7 @@ export function ActionsLineGraph({
                         : (point) => {
                               const { dataset, day } = point
                               loadPeople(
-                                  dataset.action,
+                                  dataset.action || 'session',
                                   dataset.label,
                                   day,
                                   day,
