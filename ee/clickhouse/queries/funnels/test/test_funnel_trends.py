@@ -577,3 +577,111 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_4["reached_to_step_count"], 1)
         self.assertEqual(day_4["conversion_rate"], 50)
         self.assertEqual(day_4["is_period_final"], True)
+
+    def test_from_second_step(self):
+        _create_person(distinct_ids=["user_one"], team=self.team)
+        _create_person(distinct_ids=["user_two"], team=self.team)
+        _create_person(distinct_ids=["user_three"], team=self.team)
+        _create_person(distinct_ids=["user_four"], team=self.team)
+
+        # 1st user's complete run - should fall into the 2021-05-01 bucket even though counting only from 2nd step
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-02 02:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-02 03:00:00")
+
+        # 2nd user's incomplete run - should not count at all since not reaching 2nd step
+        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-01 01:00:00")
+
+        # 3rd user's incomplete run - should not count at all since reaching 2nd step BUT not the 1st one
+        _create_event(event="step two", distinct_id="user_three", team=self.team, timestamp="2021-05-02 02:00:00")
+        _create_event(event="step three", distinct_id="user_three", team=self.team, timestamp="2021-05-02 03:00:00")
+
+        # 4th user's incomplete run - should fall into the 2021-05-02 bucket as entered but not completed
+        _create_event(event="step one", distinct_id="user_four", team=self.team, timestamp="2021-05-02 01:00:00")
+        _create_event(event="step two", distinct_id="user_four", team=self.team, timestamp="2021-05-02 02:00:00")
+
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-02 23:59:59",
+                "funnel_window_days": 3,
+                "funnel_from_step": 2,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+
+        self.assertEqual(len(results), 2)
+
+        day_1 = results[0]  # 2021-05-01
+        self.assertEqual(day_1["reached_from_step_count"], 1)
+        self.assertEqual(day_1["reached_to_step_count"], 1)
+        self.assertEqual(day_1["conversion_rate"], 100)
+        self.assertEqual(day_1["is_period_final"], True)
+
+        day_2 = results[1]  # 2021-05-02
+        self.assertEqual(day_2["reached_from_step_count"], 1)
+        self.assertEqual(day_2["reached_to_step_count"], 0)
+        self.assertEqual(day_2["conversion_rate"], 0)
+        self.assertEqual(day_2["is_period_final"], True)
+
+    def test_to_second_step(self):
+        _create_person(distinct_ids=["user_one"], team=self.team)
+        _create_person(distinct_ids=["user_two"], team=self.team)
+        _create_person(distinct_ids=["user_three"], team=self.team)
+        _create_person(distinct_ids=["user_four"], team=self.team)
+
+        # 1st user's complete run - should fall into the 2021-05-01 bucket
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-02 02:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-02 03:00:00")
+
+        # 2nd user's incomplete run - should count as incomplete
+        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-01 01:00:00")
+
+        # 3rd user's incomplete run - should not count at all since reaching 2nd step BUT not the 1st one
+        _create_event(event="step two", distinct_id="user_three", team=self.team, timestamp="2021-05-02 02:00:00")
+        _create_event(event="step three", distinct_id="user_three", team=self.team, timestamp="2021-05-02 03:00:00")
+
+        # 4th user's incomplete run - should fall into the 2021-05-02 bucket as entered and completed
+        _create_event(event="step one", distinct_id="user_four", team=self.team, timestamp="2021-05-02 01:00:00")
+        _create_event(event="step two", distinct_id="user_four", team=self.team, timestamp="2021-05-02 02:00:00")
+
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-02 23:59:59",
+                "funnel_window_days": 3,
+                "funnel_to_step": 2,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+
+        self.assertEqual(len(results), 2)
+
+        day_1 = results[0]  # 2021-05-01
+        self.assertEqual(day_1["reached_from_step_count"], 2)
+        self.assertEqual(day_1["reached_to_step_count"], 1)
+        self.assertEqual(day_1["conversion_rate"], 50)
+        self.assertEqual(day_1["is_period_final"], True)
+
+        day_2 = results[1]  # 2021-05-02
+        self.assertEqual(day_2["reached_from_step_count"], 1)
+        self.assertEqual(day_2["reached_to_step_count"], 1)
+        self.assertEqual(day_2["conversion_rate"], 100)
+        self.assertEqual(day_2["is_period_final"], True)

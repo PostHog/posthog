@@ -14,37 +14,36 @@ HUMAN_READABLE_TIMESTAMP_FORMAT = "%a. %-d %b"
 
 class ClickhouseFunnelTrends(ClickhouseFunnelNew):
     """
-    ## Assumptions for funnel trends
+    ## Funnel trends assumptions
 
     Funnel trends are a graph of conversion over time – meaning a Y ({conversion_rate}) for each X ({entrance_period}).
 
     ### What is {entrance_period}?
 
-    Let's start by defining a funnel _entrance_:
     A funnel is considered entered by a user when they have performed its first step.
     When that happens, we consider that an entrance of funnel.
 
     Now, our time series is based on a sequence of {entrance_period}s, each starting at {entrance_period_start}
     and ending _right before the next_ {entrance_period_start}. A person is then counted at most once in each
-    {entrance_period} in which they enter the funnel.
+    {entrance_period}.
 
     ### What is {conversion_rate}?
 
     Each time a funnel is entered by a person, they have exactly {funnel_window_days} days to go
-    through the funnel's steps. Events after that time are just not taken into account.
+    through the funnel's steps. Later events are just not taken into account.
 
     For {conversion_rate}, we need to know reference steps: {from_step} and {to_step}.
     By default they are respectively the first and the last steps of the funnel.
-    
+
     Then for each {entrance_period} we calculate {reached_from_step_count} – the number of persons
     who entered the funnel and reached step {from_step} (along with all the steps leading up to it, if there any).
     Similarly we calculate {reached_to_step_count}, which is the number of persons from {reached_from_step_count}
     who also reached step {to_step} (along with all the steps leading up to it, including of course step {from_step}).
 
-    So {conversion_rate} is simply {reached_to_step_count} divided by {reached_from_step_count},
+    {conversion_rate} is simply {reached_to_step_count} divided by {reached_from_step_count},
     multiplied by 100 to be a percentage.
 
-    If no people have reached step {to_step} in the period, {conversion_rate} is zero.
+    If no people have reached step {from_step} in the period, {conversion_rate} is zero.
     """
 
     def run(self, *args, **kwargs):
@@ -63,8 +62,10 @@ class ClickhouseFunnelTrends(ClickhouseFunnelNew):
         )
         interval_method = get_trunc_func_ch(self._filter.interval)
 
-        from_step = 1  # How many steps must have been done to count for the denominator
-        to_step = len(self._filter.entities)  # How many steps must have been done to count for the numerator
+        # How many steps must have been done to count for the denominator
+        from_step = self._filter.funnel_from_step or 1
+        # How many steps must have been done to count for the numerator
+        to_step = self._filter.funnel_to_step or len(self._filter.entities)
 
         reached_from_step_count_condition = f"steps_completed >= {from_step}"
         reached_to_step_count_condition = f"steps_completed >= {to_step}"
