@@ -2,7 +2,8 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedPersons
+from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
+from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedPersons
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
@@ -23,6 +24,11 @@ def _create_event(**kwargs):
 
 
 class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
+    def _get_people_at_step(self, filter, funnel_step):
+        person_filter = filter.with_data({"funnel_step": funnel_step})
+        result = ClickhouseFunnelUnorderedPersons(person_filter, self.team)._exec_query()
+        return [row[0] for row in result]
+
     def test_basic_unordered_funnel(self):
         filter = Filter(
             data={
@@ -86,26 +92,14 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         result = funnel.run()
 
         self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[1]["name"], "$pageview")
-        self.assertEqual(result[2]["name"], "insight viewed")
         self.assertEqual(result[0]["count"], 8)
-
-        person_filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "events": [
-                    {"id": "user signed up", "order": 0},
-                    {"id": "$pageview", "order": 1},
-                    {"id": "insight viewed", "order": 2},
-                ],
-                "funnel_step": 1,
-            }
-        )
-        # TO Continue from here - update funnelUnordered as well
-        # write tests for person model - I made significant changes there
+        self.assertEqual(result[1]["name"], "$pageview")
+        self.assertEqual(result[1]["count"], 5)
+        self.assertEqual(result[2]["name"], "insight viewed")
+        self.assertEqual(result[2]["count"], 3)
 
         self.assertCountEqual(
-            result[0]["people"],
+            self._get_people_at_step(filter, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -119,7 +113,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            result[1]["people"],
+            self._get_people_at_step(filter, 2),
             [
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_insight_view.uuid,
@@ -130,12 +124,22 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            result[2]["people"],
+            self._get_people_at_step(filter, -2),
+            [person1_stopped_after_signup.uuid, person6_did_only_insight_view.uuid, person7_did_only_pageview.uuid,],
+        )
+
+        self.assertCountEqual(
+            self._get_people_at_step(filter, 3),
             [
                 person3_stopped_after_insight_view.uuid,
                 person4_stopped_after_insight_view_reverse_order.uuid,
                 person5_stopped_after_insight_view_random.uuid,
             ],
+        )
+
+        self.assertCountEqual(
+            self._get_people_at_step(filter, -3),
+            [person2_stopped_after_one_pageview.uuid, person8_didnot_signup.uuid,],
         )
 
     def test_big_multi_step_unordered_funnel(self):
@@ -202,13 +206,16 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         result = funnel.run()
 
         self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[1]["name"], "$pageview")
-        self.assertEqual(result[2]["name"], "insight viewed")
-        self.assertEqual(result[3]["name"], "crying")
         self.assertEqual(result[0]["count"], 8)
+        self.assertEqual(result[1]["name"], "$pageview")
+        self.assertEqual(result[1]["count"], 5)
+        self.assertEqual(result[2]["name"], "insight viewed")
+        self.assertEqual(result[2]["count"], 3)
+        self.assertEqual(result[3]["name"], "crying")
+        self.assertEqual(result[3]["count"], 1)
 
         self.assertCountEqual(
-            result[0]["people"],
+            self._get_people_at_step(filter, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -222,7 +229,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            result[1]["people"],
+            self._get_people_at_step(filter, 2),
             [
                 person2_stopped_after_one_pageview.uuid,
                 person3_stopped_after_insight_view.uuid,
@@ -233,7 +240,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            result[2]["people"],
+            self._get_people_at_step(filter, 3),
             [
                 person3_stopped_after_insight_view.uuid,
                 person4_stopped_after_insight_view_reverse_order.uuid,
@@ -242,5 +249,5 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            result[3]["people"], [person5_stopped_after_insight_view_random.uuid,],
+            self._get_people_at_step(filter, 4), [person5_stopped_after_insight_view_random.uuid,],
         )

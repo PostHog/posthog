@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 from typing import Union
 
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
+from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
 
 DAY_START = 0
@@ -12,7 +12,7 @@ TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%a. %-d %b"
 
 
-class ClickhouseFunnelTrends(ClickhouseFunnelNew):
+class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     """
     ## Funnel trends assumptions
 

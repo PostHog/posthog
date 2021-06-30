@@ -11,26 +11,30 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
 class ClickhouseFunnelNew(ClickhouseFunnelBase):
     def get_query(self, format_properties):
-        return self.get_step_counts_query()
 
-    def get_step_counts_query(self):
-
-        steps_per_person_query = self._get_steps_per_person_query()
+        steps_per_person_query = self.get_step_counts_query()
         max_steps = len(self._filter.entities)
 
         return f"""
         SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} FROM (
-            SELECT person_id, max(steps) AS furthest {self._get_step_time_avgs(max_steps)} FROM (
                 {steps_per_person_query}
-            ) GROUP BY person_id
         ) SETTINGS allow_experimental_window_functions = 1
+        """
+
+    def get_step_counts_query(self):
+        steps_per_person_query = self._get_steps_per_person_query()
+        max_steps = len(self._filter.entities)
+
+        return f"""SELECT person_id, max(steps) AS steps {self._get_step_time_avgs(max_steps)} FROM (
+            {steps_per_person_query}
+        ) GROUP BY person_id
         """
 
     def _get_count_columns(self, max_steps: int):
         cols: List[str] = []
 
         for i in range(max_steps):
-            cols.append(f"countIf(furthest = {i + 1}) step_{i + 1}")
+            cols.append(f"countIf(steps = {i + 1}) step_{i + 1}")
 
         return ", ".join(cols)
 
