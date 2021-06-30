@@ -81,7 +81,6 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
 
-        print(response["result"])
         self.assertEqual(len(response["result"]), 1)
         self.assertEqual(response["result"][0]["count"], 7)
         self.assertEqual(response["result"][0]["data"], [100, 100, 0, 0, 0, 0, 0])

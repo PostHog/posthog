@@ -71,7 +71,7 @@ class FunnelPersonsStepMixin(BaseParamMixin):
 
 class FunnelTypeMixin(BaseParamMixin):
     @cached_property
-    def funnel_type(self) -> FunnelType:
+    def funnel_type(self) -> Optional[FunnelType]:
         return self._data.get(FUNNEL_TYPE)
 
     @include_dict

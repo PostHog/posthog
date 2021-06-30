@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Callable, Dict, Tuple, Union
 
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -36,17 +36,15 @@ class ClickhousePersonViewSet(PersonViewSet):
         return Response(data={"results": results, "next": next_url})
 
     @cached_function()
-    def calculate_funnel_persons(self, request: Request) -> Dict[list, str]:
+    def calculate_funnel_persons(self, request: Request) -> Dict[str, Tuple[list, str]]:
         team = request.user.team
-        filter = Filter(request=request, data={**request.data})
-        funnel_class = None
+        filter = Filter(request=request)
+        funnel_class: Callable = ClickhouseFunnelPersons
 
         if filter.funnel_type == FunnelType.TRENDS:
             funnel_class = ClickhouseFunnelTrendsPersons
         # elif filter.funnel_type == FunnelType.UNORDERED:
         #     funnel_class = ClickhouseFunnelUnorderedPersons
-        else:
-            funnel_class = ClickhouseFunnelPersons
 
         results = funnel_class(filter, team).run()
         next_url = format_next_absolute_url(request, filter.offset, 100) if len(results) > 99 else None
