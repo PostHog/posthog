@@ -4,6 +4,7 @@ from uuid import uuid4
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_insight import insight_test_factory
+from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
@@ -43,6 +44,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "funnel_window_days": 14,
                 "funnel_type": "unordered",
+                "insight": INSIGHT_FUNNELS,
             },
         ).json()
 
@@ -77,6 +79,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-07 23:59:59",
                 "funnel_type": "trends",
+                "insight": INSIGHT_FUNNELS,
             },
         ).json()
 
