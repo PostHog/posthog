@@ -190,7 +190,7 @@ class ClickhouseTrendsBreakdown:
         return params, breakdown_filter, breakdown_filter_params, "value"
 
     def _breakdown_person_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
-        values_arr = BreakdownProps(filter, entity, aggregate_operation, team_id).get_person_prop_params()
+        values_arr = BreakdownProps(filter, entity, aggregate_operation, team_id).get_person_prop_values()
         breakdown_filter_params = {
             "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
         }

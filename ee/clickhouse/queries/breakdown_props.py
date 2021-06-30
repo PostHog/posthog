@@ -16,18 +16,20 @@ class BreakdownProps:
     _team_id: int
     _entity: Entity
     _aggregate_operation: str
+    _limit: int
 
-    def __init__(self, filter: Filter, entity: Entity, aggregate_operation: str, team_id: int) -> None:
+    def __init__(self, filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25) -> None:
         self._filter = filter
         self._team_id = team_id
         self._entity = entity
         self._aggregate_operation = aggregate_operation
+        self._limit = limit
 
     def _get_top_elements(self, query: str, params: Dict = {}) -> List:
         # use limit of 25 to determine if there are more than 20
         element_params = {
             "key": self._filter.breakdown,
-            "limit": 25,
+            "limit": self._limit,
             "team_id": self._team_id,
             "offset": self._filter.offset,
             **params,
@@ -41,7 +43,7 @@ class BreakdownProps:
 
         return top_elements_array
 
-    def get_person_prop_params(self):
+    def get_person_prop_values(self):
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=self._filter, team_id=self._team_id)
         prop_filters, prop_filter_params = parse_prop_clauses(
             self._filter.properties,
@@ -70,10 +72,7 @@ class BreakdownProps:
             **entity_format_params
         )
         top_elements_array = self._get_top_elements(
-            elements_query,
-            self._filter,
-            self._team_id,
-            params={**prop_filter_params, **person_prop_params, **entity_params},
+            elements_query, params={**prop_filter_params, **person_prop_params, **entity_params},
         )
 
         return top_elements_array
@@ -96,8 +95,6 @@ class BreakdownProps:
             aggregate_operation=self._aggregate_operation,
             **entity_format_params
         )
-        top_elements_array = self._get_top_elements(
-            elements_query, self._filter, self._team_id, params={**prop_filter_params, **entity_params}
-        )
+        top_elements_array = self._get_top_elements(elements_query, params={**prop_filter_params, **entity_params})
 
         return top_elements_array
