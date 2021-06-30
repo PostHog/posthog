@@ -455,7 +455,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             breakpoint
         ) => {
             let people = []
-            const searchTermParam = searchTerm ? `&search=${searchTerm}` : ''
+            const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
 
             if (values.filters.insight === ViewType.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
