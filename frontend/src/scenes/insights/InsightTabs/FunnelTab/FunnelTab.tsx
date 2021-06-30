@@ -16,12 +16,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { InsightActionBar } from '../InsightActionBar'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic())
     const { featureFlags } = useValues(featureFlagLogic)
-    const autoCalculate = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]
+    const { preflight } = useValues(preflightLogic)
+    const autoCalculate = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled // Query performance is suboptimal on psql
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
     const [savingModal, setSavingModal] = useState<boolean>(false)
 

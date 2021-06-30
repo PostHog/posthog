@@ -10,6 +10,7 @@ import { funnelLogicType } from './funnelLogicType'
 import { FilterType, FunnelResult, FunnelStep, PersonType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
@@ -69,7 +70,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
     connect: {
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
     },
 
     loaders: ({ props, values, actions }) => ({
@@ -206,7 +207,10 @@ export const funnelLogic = kea<funnelLogicType>({
         },
         setFilters: ({ refresh }) => {
             // FUNNEL_BAR_VIZ removes the Calculate button
-            if (refresh || values.featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
+            // Query performance is suboptimal on psql
+            const autoCalculate =
+                values.featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && values.preflight?.is_clickhouse_enabled
+            if (refresh || autoCalculate) {
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
