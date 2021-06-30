@@ -4,12 +4,12 @@ import {
     SortableElement as sortableElement,
     SortableHandle as sortableHandle,
 } from 'react-sortable-hoc'
-import { EllipsisOutlined } from '@ant-design/icons'
+import { SortableDragIcon } from 'lib/components/SortableDragIcon'
 import { ActionFilterRow, ActionFilterRowProps } from './ActionFilterRow'
 
 const DragHandle = sortableHandle(() => (
     <span className="action-filter-drag-handle">
-        <EllipsisOutlined />
+        <SortableDragIcon />
     </span>
 ))
 
