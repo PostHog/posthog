@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Dict
 
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -31,12 +31,12 @@ class ClickhousePersonViewSet(PersonViewSet):
         if request.user.is_anonymous or not request.user.team:
             return Response(data=[])
 
-        results, next_url = self.calculate_funnel_persons(request)
+        results, next_url = self.calculate_funnel_persons(request)["result"]
 
         return Response(data={"results": results, "next": next_url})
 
     @cached_function()
-    def calculate_funnel_persons(self, request: Request) -> Dict[str, Any]:
+    def calculate_funnel_persons(self, request: Request) -> Dict[list, str]:
         team = request.user.team
         filter = Filter(request=request, data={**request.data})
         funnel_class = None
@@ -51,7 +51,8 @@ class ClickhousePersonViewSet(PersonViewSet):
         results = funnel_class(filter, team).run()
         next_url = format_next_absolute_url(request, filter.offset, 100) if len(results) > 99 else None
 
-        return results, next_url
+        # cached_function expects a dict with the key result
+        return {"result": (results, next_url)}
 
     def destroy(self, request: Request, pk=None, **kwargs):  # type: ignore
         try:

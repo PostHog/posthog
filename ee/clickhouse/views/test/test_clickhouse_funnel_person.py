@@ -68,6 +68,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "new_entity": json.dumps([]),
             "date_from": "2021-05-01",
             "date_to": "2021-05-10",
+            "refresh": "true",  # disable caching
         }
 
         response = self.client.get("/api/person/funnel/", data=request_data)
