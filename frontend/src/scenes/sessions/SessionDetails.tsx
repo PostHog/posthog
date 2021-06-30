@@ -65,7 +65,6 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
             },
         },
     ]
-    console.log('sessions', session, events)
     return (
         <Table
             columns={columns}

@@ -196,8 +196,6 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         }
     }, [])
 
-    console.log('onlyshowmatches')
-
     return (
         <div className="events" data-attr="events-table">
             <Space className="mb-05">
