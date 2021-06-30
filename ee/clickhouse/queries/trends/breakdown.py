@@ -194,9 +194,12 @@ class ClickhouseTrendsBreakdown:
         breakdown_filter_params = {
             "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
         }
+        params = {
+            "values": [*values_arr, "none"],
+        }
 
         return (
-            [*values_arr, "none"],
+            params,
             BREAKDOWN_PERSON_PROP_JOIN_SQL,
             breakdown_filter_params,
             "value",
@@ -205,8 +208,11 @@ class ClickhouseTrendsBreakdown:
 
     def _breakdown_prop_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
         values_arr = BreakdownProps(filter, entity, aggregate_operation, team_id).get_event_prop_values()
+        params = {
+            "values": [*values_arr, "none"],
+        }
         return (
-            [*values_arr, "none"],
+            params,
             BREAKDOWN_PROP_JOIN_SQL,
             {},
             "JSONExtractRaw(properties, %(key)s)",
