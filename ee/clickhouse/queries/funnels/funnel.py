@@ -43,7 +43,7 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
         if self._filter.breakdown:
             return [self._format_single_funnel(res, with_breakdown=True) for res in results]
         else:
-            return self._format_single_funnel(results)
+            return self._format_single_funnel(results[0])
 
     def _format_single_funnel(self, result, with_breakdown=False):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
