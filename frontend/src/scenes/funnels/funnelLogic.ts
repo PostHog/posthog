@@ -58,7 +58,11 @@ export const funnelLogic = kea<funnelLogicType>({
     actions: () => ({
         setSteps: (steps: FunnelStep[]) => ({ steps }),
         clearFunnel: true,
-        setFilters: (filters: FilterType, refresh: boolean = false) => ({ filters, refresh }),
+        setFilters: (filters: FilterType, refresh = false, mergeWithExisting = true) => ({
+            filters,
+            refresh,
+            mergeWithExisting,
+        }),
         saveFunnelInsight: (name: string) => ({ name }),
         setStepsWithCountLoading: (stepsWithCountLoading: boolean) => ({ stepsWithCountLoading }),
         loadConversionWindow: (days: number) => ({ days }),
@@ -132,7 +136,8 @@ export const funnelLogic = kea<funnelLogicType>({
         filters: [
             (props.filters || {}) as FilterType,
             {
-                setFilters: (state, { filters }) => ({ ...state, ...filters }),
+                setFilters: (state, { filters, mergeWithExisting }) =>
+                    mergeWithExisting ? { ...state, ...filters } : filters,
                 clearFunnel: (state) => ({ new_entity: state.new_entity }),
             },
         ],
@@ -268,7 +273,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
 
                 if (!objectsEqual(_filters, paramsToCheck)) {
-                    actions.setFilters(cleanFunnelParams(searchParams), !isStepsEmpty(paramsToCheck))
+                    actions.setFilters(cleanFunnelParams(searchParams), !isStepsEmpty(paramsToCheck), false)
                 }
             }
         },
