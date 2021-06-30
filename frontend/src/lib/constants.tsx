@@ -232,6 +232,7 @@ export const FEATURE_FLAGS: Record<string, string> = {
     NEW_TOOLTIPS: '4156-tooltips-legends',
     PERSONS_MODAL_FILTERING: '4819-persons-modal-updates',
     FUNNEL_BAR_VIZ: '4535-funnel-bar-viz',
+    TAXONOMIC_PROPERTY_FILTER: '4267-taxonomic-property-filter',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'

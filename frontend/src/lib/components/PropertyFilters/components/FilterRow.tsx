@@ -11,6 +11,7 @@ import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilt
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface FilterRowProps {
     item: AnyPropertyFilter
@@ -53,7 +54,7 @@ export const FilterRow = React.memo(function FilterRow({
         selectProps: {},
     }
 
-    const filterVariant = featureFlags['4267-taxonomic-property-filter']
+    const filterVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER]
         ? 'taxonomic'
         : disablePopover
         ? 'unified'
