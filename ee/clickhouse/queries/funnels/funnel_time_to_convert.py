@@ -1,15 +1,4 @@
-from datetime import date, datetime, timedelta
-from typing import Union
-
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
-from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
-
-DAY_START = 0
-TOTAL_COMPLETED_FUNNELS = 1
-ALL_FUNNELS_ENTRIES = 2
-PERSON_IDS = 3
-TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
-HUMAN_READABLE_TIMESTAMP_FORMAT = "%a. %-d %b"
 
 
 class ClickhouseFunnelTimeToConvert(ClickhouseFunnelNew):
