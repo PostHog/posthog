@@ -15,13 +15,12 @@ import { ViewType } from '../insightLogic'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
     allFilters: FilterType
     activeView: ViewType
-    annotationsToCreate: Record<string, any>[] // TODO: Annotate properly
+    annotationsToCreate?: Record<string, any>[] // TODO: Annotate properly
 }
 
 const showIntervalFilter = function (activeView: ViewType, filter: FilterType): boolean {
@@ -83,7 +82,6 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
 export function InsightDisplayConfig({
     allFilters,
     activeView,
-    annotationsToCreate,
     clearAnnotationsToCreate,
 }: InsightDisplayConfigProps): JSX.Element {
     const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
@@ -125,17 +123,6 @@ export function InsightDisplayConfig({
                 )}
 
                 {showComparePrevious[activeView] && <CompareFilter />}
-
-                {activeView === ViewType.FUNNELS && (
-                    <SaveToDashboard
-                        item={{
-                            entity: {
-                                filters: allFilters,
-                                annotations: annotationsToCreate,
-                            },
-                        }}
-                    />
-                )}
             </div>
         </div>
     )
