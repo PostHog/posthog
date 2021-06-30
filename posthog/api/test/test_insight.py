@@ -183,7 +183,8 @@ def insight_test_factory(event_factory, person_factory):
                     "events": [
                         {"id": "user signed up", "type": "events", "order": 0},
                         {"id": "user did things", "type": "events", "order": 1},
-                    ]
+                    ],
+                    "funnel_window_days": 14,
                 },
             ).json()
 
@@ -200,7 +201,7 @@ def insight_test_factory(event_factory, person_factory):
             event_factory(team=self.team, event="user signed up", distinct_id="1")
             event_factory(team=self.team, event="user did things", distinct_id="1")
             response = self.client.get(
-                "/api/insight/funnel/?events={}".format(
+                "/api/insight/funnel/?funnel_window_days=14&events={}".format(
                     json.dumps(
                         [
                             {"id": "user signed up", "type": "events", "order": 0},

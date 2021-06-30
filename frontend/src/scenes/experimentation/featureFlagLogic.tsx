@@ -21,7 +21,7 @@ const NEW_FLAG = {
 
 export const featureFlagLogic = kea<featureFlagLogicType>({
     actions: {
-        setFeatureFlagId: (id) => ({ id }),
+        setFeatureFlagId: (id: number | 'new') => ({ id }),
         addMatchGroup: true,
         removeMatchGroup: (index: number) => ({ index }),
         updateMatchGroup: (
@@ -80,30 +80,27 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         ],
     },
     loaders: ({ values }) => ({
-        featureFlag: [
-            null,
-            {
-                loadFeatureFlag: async () => {
-                    if (values.featureFlagId && values.featureFlagId !== 'new') {
-                        return await api.get(`api/feature_flag/${values.featureFlagId}`)
-                    }
-                    return NEW_FLAG
-                },
-                saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
-                    if (!updatedFlag.id) {
-                        return await api.create('api/feature_flag', {
-                            ...updatedFlag,
-                            id: undefined,
-                        })
-                    } else {
-                        return await api.update(`api/feature_flag/${updatedFlag.id}`, {
-                            ...updatedFlag,
-                            id: undefined,
-                        })
-                    }
-                },
+        featureFlag: {
+            loadFeatureFlag: async () => {
+                if (values.featureFlagId && values.featureFlagId !== 'new') {
+                    return await api.get(`api/feature_flag/${values.featureFlagId}`)
+                }
+                return NEW_FLAG
             },
-        ],
+            saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
+                if (!updatedFlag.id) {
+                    return await api.create('api/feature_flag', {
+                        ...updatedFlag,
+                        id: undefined,
+                    })
+                } else {
+                    return await api.update(`api/feature_flag/${updatedFlag.id}`, {
+                        ...updatedFlag,
+                        id: undefined,
+                    })
+                }
+            },
+        },
     }),
     listeners: {
         saveFeatureFlagSuccess: () => {
@@ -131,8 +128,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         },
     },
     urlToAction: ({ actions }) => ({
-        '/feature_flags/*': ({ _: id }: { _: number | 'new' }) => {
-            actions.setFeatureFlagId(id)
+        '/feature_flags/*': ({ _: id }) => {
+            if (id) {
+                actions.setFeatureFlagId(parseInt(id))
+            }
             actions.loadFeatureFlag()
         },
     }),

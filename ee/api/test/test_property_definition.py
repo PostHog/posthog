@@ -72,3 +72,18 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertEqual(response.json()["detail"], "This is an Enterprise feature.")
+
+    def test_filter_property_definitions(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="plan")
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="purchase")
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="app_rating")
+
+        response = self.client.get("/api/projects/@current/property_definitions/?properties=plan,app_rating")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(response.json()["count"], 2)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["plan", "app_rating"])

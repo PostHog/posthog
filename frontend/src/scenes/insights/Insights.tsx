@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { FUNNEL_VIZ, FEATURE_FLAGS, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE } from 'lib/constants'
+import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -25,7 +25,6 @@ import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
@@ -36,6 +35,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -63,13 +63,11 @@ export function Insights(): JSX.Element {
         controlsCollapsed,
     } = useValues(insightLogic)
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
-    const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
+    const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
-    const newUI = featureFlags[FEATURE_FLAGS.QUERY_UX_V2]
-    const horizontalUI = newUI && activeView !== ViewType.FUNNELS
+    const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -101,7 +99,7 @@ export function Insights(): JSX.Element {
     })
 
     return (
-        <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>
+        <div className="insights-page">
             <PageHeader title="Insights" />
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
@@ -175,8 +173,8 @@ export function Insights(): JSX.Element {
                                 placement="bottom"
                                 title={
                                     <>
-                                        Stickiness shows you how many days users performed an action repeteadely within
-                                        a timeframe.
+                                        Stickiness shows you how many days users performed an action repeatedly within a
+                                        timeframe.
                                         <br />
                                         <br />
                                         <i>
@@ -216,38 +214,33 @@ export function Insights(): JSX.Element {
             </Row>
             <Row gutter={16}>
                 {activeView === ViewType.HISTORY ? (
-                    <Col xs={24} xl={24}>
+                    <Col span={24}>
                         <Card className="" style={{ overflow: 'visible' }}>
                             <InsightHistoryPanel />
                         </Card>
                     </Col>
                 ) : (
                     <>
-                        <Col xs={24} xl={horizontalUI ? 24 : 7}>
+                        <Col span={24} lg={verticalLayout ? 7 : undefined}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
                             >
-                                {horizontalUI && (
-                                    <>
-                                        <div
-                                            role="button"
-                                            title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
-                                            className="collapse-control"
-                                            onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
-                                        >
-                                            {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
-                                        </div>
-                                        {controlsCollapsed && (
-                                            <div>
-                                                <h3 className="l3">Query definition</h3>
-                                                <span className="text-small text-muted">
-                                                    Click here to view and change the query events, filters and other
-                                                    settings.
-                                                </span>
-                                            </div>
-                                        )}
-                                    </>
+                                <div
+                                    role="button"
+                                    title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
+                                    className="collapse-control"
+                                    onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
+                                >
+                                    {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
+                                </div>
+                                {controlsCollapsed && (
+                                    <div>
+                                        <h3 className="l3">Query definition</h3>
+                                        <span className="text-small text-muted">
+                                            Click here to view and change the query events, filters and other settings.
+                                        </span>
+                                    </div>
                                 )}
                                 <div className="tabs-inner">
                                     {/* These are insight specific filters. They each have insight specific logics */}
@@ -274,9 +267,7 @@ export function Insights(): JSX.Element {
                                             [`${ViewType.SESSIONS}`]: (
                                                 <SessionTab annotationsToCreate={annotationsToCreate} />
                                             ),
-                                            [`${ViewType.FUNNELS}`]: (
-                                                <FunnelTab annotationsToCreate={annotationsToCreate} newUI={newUI} />
-                                            ),
+                                            [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                             [`${ViewType.RETENTION}`]: (
                                                 <RetentionTab annotationsToCreate={annotationsToCreate} />
                                             ),
@@ -296,7 +287,7 @@ export function Insights(): JSX.Element {
                                 </Card>
                             )}
                         </Col>
-                        <Col xs={24} xl={horizontalUI ? 24 : 17}>
+                        <Col span={24} lg={verticalLayout ? 17 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/* These are filters that are reused between insight features. They
                                 each have generic logic that updates the url
@@ -308,7 +299,6 @@ export function Insights(): JSX.Element {
                                         allFilters={allFilters}
                                         annotationsToCreate={annotationsToCreate}
                                         clearAnnotationsToCreate={clearAnnotationsToCreate}
-                                        horizontalUI={horizontalUI}
                                     />
                                 }
                                 data-attr="insights-graph"
@@ -396,10 +386,17 @@ export function Insights(): JSX.Element {
 }
 
 function FunnelInsight(): JSX.Element {
-    const { stepsWithCount, isValidFunnel, stepsWithCountLoading } = useValues(funnelLogic({}))
+    const {
+        stepsWithCount,
+        isValidFunnel,
+        stepsWithCountLoading,
+        filters: { display },
+    } = useValues(funnelLogic({}))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const fluidHeight = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display === FUNNEL_VIZ
 
     return (
-        <div style={{ height: 300, position: 'relative' }}>
+        <div style={fluidHeight ? {} : { height: 300, position: 'relative' }}>
             {stepsWithCountLoading && <Loading />}
             {isValidFunnel ? (
                 <FunnelViz steps={stepsWithCount} />

@@ -385,11 +385,18 @@ export interface SessionType {
     length: number
     start_time: string
     end_time: string
-    session_recordings: Array<{ id: string; viewed: boolean }>
+    session_recordings: SessionTypeSessionRecording[]
     start_url?: string
     end_url?: string
     email?: string
     matching_events: Array<number | string>
+}
+
+export interface SessionTypeSessionRecording {
+    id: string
+    viewed: boolean
+    /** Length of recording in seconds */
+    recording_duration: number
 }
 
 export interface BillingType {
@@ -590,6 +597,7 @@ export interface FilterType {
     people_action?: any
     formula?: any
     filter_test_accounts?: boolean
+    from_dashboard?: boolean
 }
 
 export interface SystemStatusSubrows {
@@ -663,6 +671,24 @@ export interface TrendResult {
 
 export interface TrendResultWithAggregate extends TrendResult {
     aggregated_value: number
+}
+
+export interface FunnelStep {
+    action_id: string
+    average_time: number
+    count: number
+    name: string
+    order: number
+    people: string[]
+    type: string
+    labels?: string[]
+}
+
+export interface FunnelResult {
+    is_cached: boolean
+    last_refresh: string | null
+    result: FunnelStep[]
+    type: 'Funnel'
 }
 
 export interface ChartParams {
@@ -803,7 +829,6 @@ export interface PropertyDefinition {
     tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
-    owner?: UserBasicType | null
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition

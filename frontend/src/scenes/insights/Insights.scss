@@ -9,6 +9,10 @@
         .ant-btn-loading-icon {
             display: none;
         }
+
+        .ant-tabs-tab {
+            padding: 0; // More compact tabs to save vertical space
+        }
     }
 
     hr {
@@ -34,6 +38,12 @@
     .insight-controls {
         overflow: visible;
         position: relative;
+        margin-bottom: $default_spacing / 2;
+        border: 1px solid $border_light;
+
+        .ant-card-body {
+            padding: $default_spacing * 0.8 $default_spacing;
+        }
 
         .collapse-control {
             position: absolute;
@@ -59,50 +69,28 @@
 
     .insights-graph-container {
         .ant-card-head {
-            background-color: #f9f9f9;
             border-bottom: 1px solid #e4e4e4;
-        }
-    }
 
-    &.horizontal-ui {
-        .top-bar {
-            .ant-tabs-tab {
-                padding: 0; // More compact tabs to save vertical space
-            }
-        }
-
-        .insight-controls {
-            margin-bottom: $default_spacing / 2;
+            min-height: unset;
+            @extend .mixin-elevated;
+            background-color: rgba(0, 0, 0, 0.02);
             border: 1px solid $border_light;
-            .ant-card-body {
-                padding: $default_spacing * 0.8 $default_spacing;
+            padding-right: $default_spacing / 4;
+
+            @media screen and (max-width: $md) {
+                padding-left: $default_spacing / 4;
+            }
+
+            .ant-card-head-title {
+                padding: $default_spacing / 2 0;
             }
         }
+        .display-config-inner {
+            display: flex;
+            align-items: center;
 
-        .insights-graph-container {
-            .ant-card-head {
-                min-height: unset;
-                @extend .mixin-elevated;
-                background-color: rgba(0, 0, 0, 0.02);
-                border: 1px solid $border_light;
-                padding-right: $default_spacing / 4;
-
-                @media screen and (max-width: $md) {
-                    padding-left: $default_spacing / 4;
-                }
-
-                .ant-card-head-title {
-                    padding: $default_spacing / 2 0;
-                }
-            }
-
-            .display-config-inner {
-                display: flex;
-                align-items: center;
-
-                @media screen and (max-width: $md) {
-                    overflow-x: auto;
-                }
+            @media screen and (max-width: $md) {
+                overflow-x: auto;
             }
         }
     }

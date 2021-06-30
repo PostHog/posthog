@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Tuple
 from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
 from ee.clickhouse.queries.util import parse_timestamps
-from posthog.models import Cohort, Entity, Filter, Property, Team
+from posthog.models import Cohort, Filter, Property, Team
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -14,7 +14,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
     _PERSON_PROPERTIES_ALIAS = "person_props"
     _filter: Filter
-    _entity: Entity
     _team_id: int
     _should_join_distinct_ids = False
     _should_join_persons = False
