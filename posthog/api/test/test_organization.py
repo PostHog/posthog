@@ -555,6 +555,7 @@ class TestInviteSignup(APIBaseTest):
                 "new_onboarding_enabled": False,
                 "signup_backend_processor": "OrganizationInviteSignupSerializer",
                 "signup_social_provider": "",
+                "realm": "hosted",
             },
         )
 
