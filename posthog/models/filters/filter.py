@@ -83,6 +83,7 @@ class Filter(
 
             data = {
                 **request.GET.dict(),
+                **request.data,
                 **(data if data else {}),
                 **({PROPERTIES: properties}),
             }
