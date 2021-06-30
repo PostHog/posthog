@@ -133,7 +133,7 @@ else:
                 result = client.execute(sql, args, settings=settings, with_column_types=with_column_types)
             except Exception as e:
                 tags["failed"] = True
-                tags["reason"] = str(e)
+                tags["reason"] = type(e).__name__
                 raise e
             finally:
                 execution_time = time() - start_time
