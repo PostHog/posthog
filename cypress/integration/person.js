@@ -30,12 +30,3 @@ describe('Person Show All Distinct Checks', () => {
         cy.get('[data-cy="show-more-distinct-id"]').should('not.exist')
     })
 })
-
-describe('Person Deeplink Checks', () => {
-    beforeEach(() => {
-        cy.clickNavMenu('insights')
-        cy.get('.ant-spin-spinning').should('not.exist') // Wait until initial table load
-    })
-
-    it('Should have highlighted matching events', () => {})
-})

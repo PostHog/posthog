@@ -87,7 +87,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                             return newEventsRender(item, columnConfig === 'DEFAULT' ? 7 : columnConfig.length)
                         }
                         const { event } = item
-                        return <PropertyKeyInfo value={eventToName(event)} />
+                        return <PropertyKeyInfo value={eventToName(event)} ellipsis={false} />
                     },
                     ellipsis: true,
                 },
