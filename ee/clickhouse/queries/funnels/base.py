@@ -300,7 +300,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                     self._filter, first_entity, "count(*)", self._team.pk, limit=limit
                 ).get_event_prop_values()
             self.params.update({"breakdown_values": values})
-            print(values)
+
             return "prop IN %(breakdown_values)s"
         else:
             return ""
