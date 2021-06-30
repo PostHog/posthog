@@ -12,8 +12,8 @@ class ClickhouseFunnelUnorderedPersons(ClickhouseFunnelUnordered):
         )
 
     def _format_results(self, results):
-        formatted_results = []
-        for row in results:
-            distinct_ids, email = Person.get_distinct_ids_and_email_by_id(row[0])
-            formatted_results.append({"max_step": row[1], "distinct_ids": distinct_ids, "email": email})
-        return formatted_results
+        people = Person.objects.filter(team_id=self._team.pk, uuid__in=[val[0] for val in results])
+
+        from posthog.api.person import PersonSerializer
+
+        return PersonSerializer(people, many=True).data

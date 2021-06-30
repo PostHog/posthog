@@ -173,8 +173,8 @@ export function Insights(): JSX.Element {
                                 placement="bottom"
                                 title={
                                     <>
-                                        Stickiness shows you how many days users performed an action repeteadely within
-                                        a timeframe.
+                                        Stickiness shows you how many days users performed an action repeatedly within a
+                                        timeframe.
                                         <br />
                                         <br />
                                         <i>
