@@ -194,7 +194,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/persons': ({}, searchParams: Record<string, string>) => {
+        '/persons': ({}, searchParams) => {
             actions.setListFilters(searchParams)
             if (!values.persons.results.length && !values.personsLoading) {
                 // Initial load
@@ -203,7 +203,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         },
         '/person/*': (
             {
-                _,
+                _: person,
             }: {
                 _: string
             },
@@ -213,7 +213,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             if (activeTab && values.activeTab !== activeTab) {
                 actions.navigateToTab(activeTab as PersonsTabType)
             }
-            actions.loadPerson(_) // underscore contains the wildcard
+            if (person) {
+                actions.loadPerson(person) // underscore contains the wildcard
+            }
         },
     }),
 })
