@@ -4,37 +4,52 @@ import { Loading, humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import './FunnelViz.scss'
 import { funnelLogic } from './funnelLogic'
-import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
+import { FunnelBarGraph } from './FunnelBarGraph'
 import { router } from 'kea-router'
 import { IllustrationDanger } from 'lib/components/icons'
 import { InputNumber } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { ChartParams, FunnelStep } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+interface FunnelVizProps extends Omit<ChartParams, 'view'> {
+    steps: FunnelStep[]
+}
 
 export function FunnelViz({
     steps: stepsParam,
-    filters: defaultFilters = undefined,
-    dashboardItemId = undefined,
-    cachedResults = undefined,
-    inSharedMode = undefined,
+    filters: defaultFilters,
+    dashboardItemId,
+    cachedResults,
+    inSharedMode,
     color = 'white',
-}) {
-    const container = useRef(null)
+}: FunnelVizProps): JSX.Element | null {
+    const container = useRef<HTMLDivElement | null>(null)
     const [steps, setSteps] = useState(stepsParam)
     const logic = funnelLogic({ dashboardItemId, cachedResults, filters: defaultFilters })
     const { results: stepsResult, resultsLoading: funnelLoading, filters, conversionWindowInDays } = useValues(logic)
     const { loadResults: loadFunnel, loadConversionWindow } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    function buildChart() {
-        if (!steps || steps.length === 0) {
+    function buildChart(): void {
+        // Build and mount graph for default "flow" visualization.
+        // If steps are empty, new bargraph view is active, or linechart is visible, don't render flow graph.
+        if (
+            !steps ||
+            steps.length === 0 ||
+            featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ||
+            filters.display === ACTIONS_LINE_GRAPH_LINEAR
+        ) {
             return
         }
         if (container.current) {
             container.current.innerHTML = ''
         }
-        let graph = new FunnelGraph({
+        const graph = new FunnelGraph({
             container: '.funnel-graph',
             data: {
                 labels: steps.map(
@@ -86,7 +101,7 @@ export function FunnelViz({
     }, [stepsResult, funnelLoading])
 
     if (filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
-        if (filters.events?.length + filters.actions?.length == 1) {
+        if ((filters.events?.length || 0) + (filters.actions?.length || 0) == 1) {
             return (
                 <div className="insight-empty-state error-message">
                     <div className="illustration-main">
@@ -107,7 +122,7 @@ export function FunnelViz({
                                 min={1}
                                 max={365}
                                 defaultValue={conversionWindowInDays}
-                                onChange={(days) => loadConversionWindow(days)}
+                                onChange={(days) => loadConversionWindow(Number(days))}
                             />
                             &nbsp;days =&nbsp;
                         </>
@@ -115,7 +130,6 @@ export function FunnelViz({
                     % converted from first to last step
                 </div>
                 <LineGraph
-                    pageKey="trends-annotations"
                     data-attr="trend-line-graph-funnel"
                     type="line"
                     color={color}
@@ -128,6 +142,10 @@ export function FunnelViz({
                 />
             </>
         ) : null
+    }
+
+    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
+        return steps && steps.length > 0 ? <FunnelBarGraph layout="horizontal" steps={steps} /> : null
     }
 
     return !funnelLoading ? (

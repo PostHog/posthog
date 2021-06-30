@@ -14,7 +14,6 @@ import {
 } from 'lib/constants'
 import { ViewType, insightLogic, defaultFilterTestAccounts, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
-import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
 import { ActionFilter, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes, PathType } from '~/types'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
@@ -35,20 +34,20 @@ interface TrendPeople {
     people: PersonType[]
     breakdown_value?: string
     count: number
-    day: string | number
+    day?: string | number
     next?: string
     label: string
-    action: ActionFilter
+    action: ActionFilter | 'session'
     loadingMore?: boolean
 }
 
 interface PeopleParamType {
-    action: ActionFilter
+    action: ActionFilter | 'session'
     label: string
     date_to?: string | number
     date_from?: string | number
     breakdown_value?: string
-    target_date?: number
+    target_date?: number | string
     lifecycle_type?: string
 }
 
@@ -83,9 +82,9 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     const { action, date_from, date_to, breakdown_value, ...restParams } = peopleParams
     const params = filterClientSideParams({
         ...filters,
-        entity_id: action.id || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
-        entity_type: action.type || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
-        entity_math: action.math || undefined,
+        entity_id: (action !== 'session' && action.id) || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
+        entity_type: (action !== 'session' && action.type) || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
+        entity_math: (action !== 'session' && action.math) || undefined,
         breakdown_value,
     })
 
@@ -110,7 +109,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
             { key: params.breakdown, value: breakdown_value, type: 'event' } as PropertyFilter,
         ]
     }
-    if (action.properties) {
+    if (action !== 'session' && action.properties) {
         params.properties = [...(params.properties || []), ...action.properties]
     }
 
@@ -196,20 +195,37 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
-
-        loadPeople: (action, label, date_from, date_to, breakdown_value) => ({
+        loadPeople: (
+            action: ActionFilter | 'session', // todo, refactor this session string param out
+            label: string,
+            date_from?: string | number,
+            date_to?: string | number,
+            breakdown_value?: string,
+            saveOriginal?: boolean,
+            searchTerm?: string
+        ) => ({
             action,
             label,
             date_from,
             date_to,
             breakdown_value,
+            saveOriginal,
+            searchTerm,
         }),
         saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
         refreshCohort: true,
         setLoadingMorePeople: (status) => ({ status }),
         setShowingPeople: (isShowing) => ({ isShowing }),
-        setPeople: (people, count, action, label, day, breakdown_value, next) => ({
+        setPeople: (
+            people: PersonType[],
+            count: number,
+            action: ActionFilter | 'session',
+            label: string,
+            day?: string | number,
+            breakdown_value?: string,
+            next?: string
+        ) => ({
             people,
             count,
             action,
@@ -224,6 +240,25 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
+        setPersonsModalFilters: (searchTerm: string, people: TrendPeople) => ({ searchTerm, people }),
+        saveFirstLoadedPeople: (
+            people: PersonType[],
+            count: number,
+            action: ActionFilter | 'session',
+            label: string,
+            day?: string | number,
+            breakdown_value?: string,
+            next?: string
+        ) => ({
+            people,
+            count,
+            action,
+            label,
+            day,
+            breakdown_value,
+            next,
+        }),
+        setFirstLoadedPeople: (firstLoadedPeople: TrendPeople | null) => ({ firstLoadedPeople }),
     }),
 
     reducers: ({ props }) => ({
@@ -248,6 +283,13 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             {
                 setFilters: () => null,
                 setPeople: (_, people) => people,
+                setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
+            },
+        ],
+        firstLoadedPeople: [
+            null as TrendPeople | null,
+            {
+                saveFirstLoadedPeople: (_, people) => people,
             },
         ],
         loadingMorePeople: [
@@ -332,7 +374,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 }
 
                 const { action, day, breakdown_value } = people
-                const properties = [...(filters.properties || []), ...(action.properties || [])]
+                const properties = [...(filters.properties || []), ...(action !== 'session' ? action.properties : [])]
                 if (filters.breakdown && filters.breakdown_type && breakdown_value) {
                     properties.push({
                         key: filters.breakdown,
@@ -349,26 +391,16 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                     date: day,
                     filters: [
                         {
-                            type: action.type === 'actions' ? ACTION_TYPE : EVENT_TYPE,
+                            type: action !== 'session' && action.type === 'actions' ? ACTION_TYPE : EVENT_TYPE,
                             key: 'id',
-                            value: action.id,
+                            value: action !== 'session' && action['id'],
                             properties: eventProperties,
-                            label: action.name,
+                            label: action !== 'session' && action.name,
                         },
                         ...personProperties,
                     ],
                 }
             },
-        ],
-        peopleModalURL: [
-            (selectors) => [selectors.sessionsPageParams],
-            (params) => ({
-                sessions: `/sessions?${toAPIParams(params)}`,
-                recordings: `/sessions?${toAPIParams({
-                    ...params,
-                    filters: [...(params.filters || []), SESSIONS_WITH_RECORDINGS_FILTER],
-                })}`,
-            }),
         ],
         numberOfSeries: [
             (selectors) => [selectors.filters],
@@ -418,40 +450,56 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 errorToast(undefined, "We couldn't create your cohort:")
             }
         },
-        loadPeople: async ({ label, action, date_from, date_to, breakdown_value }, breakpoint) => {
+        loadPeople: async (
+            { label, action, date_from, date_to, breakdown_value, saveOriginal, searchTerm },
+            breakpoint
+        ) => {
             let people = []
+            const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
+
             if (values.filters.insight === ViewType.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
                     { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                     values.filters
                 )
-                actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
-                people = await api.get(`api/person/lifecycle/?${filterParams}`)
+                actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
+                people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
             } else if (values.filters.insight === ViewType.STICKINESS) {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
                     values.filters
                 )
-                actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
-                people = await api.get(`api/person/stickiness/?${filterParams}`)
+                actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
+                people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
             } else {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
                     values.filters
                 )
-                actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
-                people = await api.get(`api/action/people/?${filterParams}`)
+                actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
+                people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)
             }
             breakpoint()
             actions.setPeople(
                 people.results[0]?.people,
-                people.results[0]?.count,
+                people.results[0]?.count || 0,
                 action,
                 label,
                 date_from,
                 breakdown_value,
                 people.next
             )
+            if (saveOriginal) {
+                actions.saveFirstLoadedPeople(
+                    people.results[0]?.people,
+                    people.results[0]?.count || 0,
+                    action,
+                    label,
+                    date_from,
+                    breakdown_value,
+                    people.next
+                )
+            }
         },
         loadMorePeople: async ({}, breakpoint) => {
             if (values.people) {
@@ -526,6 +574,12 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             if (!objectsEqual(values.filters, mergedFilter)) {
                 actions.setFilters(mergedFilter, true)
             }
+        },
+        setPersonsModalFilters: async ({ searchTerm, people }) => {
+            const { label, action, day, breakdown_value } = people
+            const date_from = day
+            const date_to = day
+            actions.loadPeople(action, label, date_from, date_to, breakdown_value, false, searchTerm)
         },
     }),
 

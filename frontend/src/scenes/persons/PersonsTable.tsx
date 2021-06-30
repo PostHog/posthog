@@ -70,7 +70,7 @@ export function PersonsTable({
                                 explicitValue={person.distinct_ids[0]}
                                 tooltipMessage=""
                                 iconStyle={{ color: 'var(--primary)' }}
-                                iconPosition="start"
+                                iconPosition="end"
                             >
                                 {midEllipsis(person.distinct_ids[0], 32)}
                             </CopyToClipboardInline>
@@ -99,8 +99,8 @@ export function PersonsTable({
         render: function Render(person: PersonType, ...[, index]: [PersonType, number]) {
             return (
                 <>
-                    <Link to={linkToPerson(person)} data-attr={'goto-person-arrow-' + index} data-test-goto-person>
-                        <ArrowRightOutlined />
+                    <Link to={linkToPerson(person)} data-attr={`goto-person-arrow-${index}`} data-test-goto-person>
+                        <ArrowRightOutlined style={{ float: 'right' }} />
                         {allColumns ? ' view' : ''}
                     </Link>
                 </>

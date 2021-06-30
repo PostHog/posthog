@@ -83,7 +83,15 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
             self._test_filter_sessions(
                 SessionsFilter(data={"user_id": self.user.pk}),
-                [[{"id": "1", "viewed": True}, {"id": "3", "viewed": False}], [], [{"id": "2", "viewed": False}], []],
+                [
+                    [
+                        {"id": "1", "recording_duration": 25, "viewed": True},
+                        {"id": "3", "recording_duration": 45, "viewed": False},
+                    ],
+                    [],
+                    [{"id": "2", "recording_duration": 13, "viewed": False}],
+                    [],
+                ],
             )
 
         def test_filter_sessions_by_recording_duration_gt(self):
@@ -91,7 +99,12 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 SessionsFilter(
                     data={"filters": [{"type": "recording", "key": "duration", "operator": "gt", "value": 15}]}
                 ),
-                [[{"id": "1", "viewed": False}, {"id": "3", "viewed": False}]],
+                [
+                    [
+                        {"id": "1", "recording_duration": 25, "viewed": False},
+                        {"id": "3", "recording_duration": 45, "viewed": False},
+                    ]
+                ],
             )
 
         def test_filter_sessions_by_unseen_recording(self):
@@ -100,7 +113,12 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 SessionsFilter(
                     data={"filters": [{"type": "recording", "key": "unseen", "value": 1}], "user_id": self.user.pk}
                 ),
-                [[{"id": "1", "viewed": False}, {"id": "3", "viewed": False}]],
+                [
+                    [
+                        {"id": "1", "recording_duration": 25, "viewed": False},
+                        {"id": "3", "recording_duration": 45, "viewed": False},
+                    ]
+                ],
             )
 
         def test_filter_sessions_by_recording_duration_lt(self):
@@ -108,7 +126,10 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 SessionsFilter(
                     data={"filters": [{"type": "recording", "key": "duration", "operator": "lt", "value": 30}]}
                 ),
-                [[{"id": "1", "viewed": False}], [{"id": "2", "viewed": False}]],
+                [
+                    [{"id": "1", "recording_duration": 25, "viewed": False}],
+                    [{"id": "2", "recording_duration": 13, "viewed": False}],
+                ],
             )
 
         def test_query_run_with_no_sessions(self):
