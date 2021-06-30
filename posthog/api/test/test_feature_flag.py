@@ -250,7 +250,7 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(instance.key, "alpha-feature")
 
     @patch("posthoganalytics.capture")
-    def test_user_status(self, mock_capture):
+    def test_for_user(self, mock_capture):
         self.client.post(
             "/api/feature_flag/",
             {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 20}]}},
@@ -258,19 +258,19 @@ class TestFeatureFlag(APIBaseTest):
         )
 
         # alpha-feature is set for "distinct_id"
-        response = self.client.get("/api/feature_flag/user_status?distinct_id=distinct_id")
+        response = self.client.get("/api/feature_flag/for_user?distinct_id=distinct_id")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["distinct_id"], "distinct_id")
         self.assertEqual(sorted(response.json()["flags_enabled"]), ["alpha-feature", "red_button"])
 
         # alpha-feature is not set for "distinct_id_0"
-        response = self.client.get("/api/feature_flag/user_status?distinct_id=distinct_id_0")
+        response = self.client.get("/api/feature_flag/for_user?distinct_id=distinct_id_0")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["distinct_id"], "distinct_id_0")
         self.assertEqual(sorted(response.json()["flags_enabled"]), ["red_button"])
 
         # error if no distinct_id
-        response = self.client.get("/api/feature_flag/user_status?distinct_id=")
+        response = self.client.get("/api/feature_flag/for_user?distinct_id=")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["type"], "validation_error")
         self.assertEqual(response.json()["code"], "invalid_input")

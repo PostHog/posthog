@@ -111,7 +111,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
         return queryset.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
-    def user_status(self, request: request.Request, **kwargs):
+    def for_user(self, request: request.Request, **kwargs):
         distinct_id = request.GET.get("distinct_id", None)
         if not distinct_id:
             raise serializers.ValidationError("Please provide a distinct_id to continue.")
