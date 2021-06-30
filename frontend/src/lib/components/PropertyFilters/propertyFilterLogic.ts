@@ -91,7 +91,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '*': (_: Record<string, string>, { properties }: Record<string, any>) => {
+        '*': (_, { properties }) => {
             if (props.onChange) {
                 return
             }
