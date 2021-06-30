@@ -106,7 +106,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             formatted_query = self._get_inner_event_query()
 
         return f"""
-        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {self._get_step_times(max_steps)} FROM (
+        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {self._get_step_times(max_steps)} {self._get_breakdown_prop()} FROM (
             {formatted_query}
         ) WHERE step_0 = 1
         """
@@ -128,6 +128,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             person_id,
             timestamp,
             {self.get_partition_cols(1, max_steps)}
+            {self._get_breakdown_prop()}
             FROM ({self._get_inner_event_query()})
             """
         else:
@@ -136,11 +137,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
             person_id,
             timestamp,
             {self.get_partition_cols(level_index, max_steps)}
+            {self._get_breakdown_prop()}
             FROM (
                 SELECT 
                 person_id,
                 timestamp,
                 {self.get_comparison_cols(level_index, max_steps)}
+                {self._get_breakdown_prop()}
                 FROM ({self.build_step_subquery(level_index + 1, max_steps)})
             )
             """
@@ -218,16 +221,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
             extra_conditions=("AND prop != ''" if select_prop else ""),
         )
 
-    def _get_breakdown_select_prop(self) -> str:
-        if self._filter.breakdown:
-            self.params.update({"breakdown": self._filter.breakdown})
-            if self._filter.breakdown_type == "person":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
-            elif self._filter.breakdown_type == "event":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
-
-        return ""
-
     def _get_steps_conditions(self, length: int) -> str:
         step_conditions: List[str] = []
 
@@ -275,3 +268,19 @@ class ClickhouseFunnelBase(ABC, Funnel):
     @abstractmethod
     def get_query(self, format_properties):
         pass
+
+    def _get_breakdown_select_prop(self) -> str:
+        if self._filter.breakdown:
+            self.params.update({"breakdown": self._filter.breakdown})
+            if self._filter.breakdown_type == "person":
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
+            elif self._filter.breakdown_type == "event":
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
+
+        return ""
+
+    def _get_breakdown_prop(self) -> str:
+        if self._filter.breakdown:
+            return ", prop"
+        else:
+            return ""

@@ -18,12 +18,14 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
         steps_per_person_query = self._get_steps_per_person_query()
         max_steps = len(self._filter.entities)
 
+        breakdown_clause = self._get_breakdown_prop()
+
         return f"""
-        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} FROM (
-            SELECT person_id, max(steps) AS furthest {self._get_step_time_avgs(max_steps)} FROM (
+        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
+            SELECT person_id, max(steps) AS furthest {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
                 {steps_per_person_query}
-            ) GROUP BY person_id
-        ) SETTINGS allow_experimental_window_functions = 1
+            ) GROUP BY person_id {self._get_breakdown_prop()}
+        ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
 
     def _get_count_columns(self, max_steps: int):
@@ -55,14 +57,6 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
 
         return steps[::-1]  #  reverse
 
-    # TODO: include in the inner query to handle breakdown
-    def _get_breakdown_prop(self) -> str:
-        if self._filter.breakdown:
-            return ", prop"
-        else:
-            return ""
-
-    # TODO: include in the inner query to handle time to convert
     def _get_step_time_avgs(self, max_steps: int):
         conditions: List[str] = []
         for i in range(1, max_steps):

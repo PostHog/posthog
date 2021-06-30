@@ -526,3 +526,60 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         self.assertEqual(result[0]["average_conversion_time"], None)
         self.assertEqual(result[1]["average_conversion_time"], 6000)
         self.assertEqual(result[2]["average_conversion_time"], 5400)
+
+    def test_funnel_step_breakdown(self):
+
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelNew(filter, self.team)
+
+        # event
+        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T13:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="buy",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T15:00:00Z",
+        )
+
+        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person2",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T16:00:00Z",
+        )
+
+        result = funnel.run()
