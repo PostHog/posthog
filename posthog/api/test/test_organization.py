@@ -204,6 +204,7 @@ class TestSignup(APIBaseTest):
                 "new_onboarding_enabled": False,
                 "signup_backend_processor": "OrganizationSignupSerializer",
                 "signup_social_provider": "",
+                "realm": "hosted",
             },
         )
 
@@ -276,6 +277,7 @@ class TestSignup(APIBaseTest):
                 "new_onboarding_enabled": False,
                 "signup_backend_processor": "OrganizationSignupSerializer",
                 "signup_social_provider": "",
+                "realm": "hosted",
             },
         )
 
