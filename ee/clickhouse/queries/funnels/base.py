@@ -10,7 +10,7 @@ from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import FUNNEL_WINDOW_DAYS, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter, Team
 from posthog.models.filters.mixins.funnel import FunnelWindowDaysMixin
 from posthog.queries.funnel import Funnel
@@ -26,7 +26,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days:
-            self._filter = self._filter.with_data({"funnel_window_days": 14})
+            self._filter = self._filter.with_data({FUNNEL_WINDOW_DAYS: 14})
 
         self._team = team
         self.params = {
@@ -191,10 +191,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 
-    def _get_inner_event_query(self, entities=[], entity_name="events") -> str:
-        entities_to_use = self._filter.entities
-        if entities:
-            entities_to_use = entities
+    def _get_inner_event_query(self, entities=None, entity_name="events") -> str:
+        entities_to_use = entities or self._filter.entities
 
         event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query(
             entities_to_use, entity_name
