@@ -28,7 +28,7 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
             title: 'Event',
             key: 'id',
             render: function RenderEvent(event: EventType) {
-                return <PropertyKeyInfo value={eventToName(event)} />
+                return <PropertyKeyInfo value={eventToName(event)} ellipsis={false} />
             },
         },
         {

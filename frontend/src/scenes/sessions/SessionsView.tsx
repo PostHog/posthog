@@ -73,6 +73,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         expandedRowKeys,
         expandAllRows,
         showOnlyMatches,
+        filters,
     } = useValues(logic)
     const {
         fetchNextSessions,
@@ -244,7 +245,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                             onChange={setShowOnlyMatches}
                             checked={showOnlyMatches}
                             size="small"
-                            disabled={filteredSessions.length === 0}
+                            disabled={filteredSessions.length === 0 || filters.length === 0}
                         />
                         <label className="ml-05" htmlFor="show-only-matches">
                             Show only matches

@@ -15,7 +15,7 @@ describe('Sessions', () => {
         cy.get('.ant-list-item').contains('Pageview').click()
 
         cy.get('[data-attr=sessions-apply-filters]').click()
-
-        /* BLocked on writing any meaningful sessions tests until #4929 is fixed.  */
+        cy.get('.ant-table-row-expand-icon-cell').first().click()
+        cy.get('[data-attr=sessions-table]').find('.sessions-event-highlighted').its('length').should('be.gt', 0)
     })
 })
