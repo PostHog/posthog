@@ -37,22 +37,35 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
         return ", ".join(cols)
 
     def _format_results(self, results):
+        if not results or len(results) == 0:
+            return []
+
+        if self._filter.breakdown:
+            return [self._format_single_funnel(res, with_breakdown=True) for res in results]
+        else:
+            return self._format_single_funnel(results)
+
+    def _format_single_funnel(self, result, with_breakdown=False):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
         total_people = 0
 
         for step in reversed(self._filter.entities):
 
-            if results[0] and len(results[0]) > 0:
-                total_people += results[0][step.order]
+            if result and len(result) > 0:
+                total_people += result[step.order]
 
             serialized_result = self._serialize_step(step, total_people, [])
             if step.order > 0:
                 serialized_result.update(
-                    {"average_conversion_time": results[0][step.order + len(self._filter.entities) - 1]}
+                    {"average_conversion_time": result[step.order + len(self._filter.entities) - 1]}
                 )
             else:
                 serialized_result.update({"average_conversion_time": None})
+
+            if with_breakdown:
+                serialized_result.update({"breakdown": result[len(result) - 1][1:-1]})  # strip quotes
+
             steps.append(serialized_result)
 
         return steps[::-1]  #  reverse
