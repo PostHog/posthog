@@ -4,7 +4,7 @@ import {
     SortableElement as sortableElement,
     SortableHandle as sortableHandle,
 } from 'react-sortable-hoc'
-import { SortableDragIcon } from 'lib/components/SortableDragIcon'
+import { SortableDragIcon } from 'lib/components/icons'
 import { ActionFilterRow, ActionFilterRowProps } from './ActionFilterRow'
 
 const DragHandle = sortableHandle(() => (

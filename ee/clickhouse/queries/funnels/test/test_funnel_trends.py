@@ -685,3 +685,44 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_2["reached_to_step_count"], 1)
         self.assertEqual(day_2["conversion_rate"], 100)
         self.assertEqual(day_2["is_period_final"], True)
+
+    def test_window_size_one_day_not_broken_by_breakdown(self):
+        self._create_sample_data()
+
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 1,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+
+        filter_breakdown = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 1,
+                "breakdown": "x",
+                "breakdown_type": "event",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results_breakdown = ClickhouseFunnelTrends(filter_breakdown, self.team).perform_query()
+
+        self.assertEqual(results_breakdown, results)
