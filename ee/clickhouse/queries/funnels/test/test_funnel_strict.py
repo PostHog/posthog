@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
+from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictPersons
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
@@ -34,6 +35,11 @@ def _create_event(**kwargs):
 
 
 class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
+    def _get_people_at_step(self, filter, funnel_step):
+        person_filter = filter.with_data({"funnel_step": funnel_step})
+        result = ClickhouseFunnelStrictPersons(person_filter, self.team)._exec_query()
+        return [row[0] for row in result]
+
     def test_basic_strict_funnel(self):
         filter = Filter(
             data={
@@ -107,7 +113,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["count"], 7)
 
         self.assertCountEqual(
-            result[0]["people"],
+            self._get_people_at_step(filter, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -120,11 +126,11 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            result[1]["people"], [person3_stopped_after_insight_view.uuid, person7.uuid,],
+            self._get_people_at_step(filter, 2), [person3_stopped_after_insight_view.uuid, person7.uuid,],
         )
 
         self.assertCountEqual(
-            result[2]["people"], [person7.uuid],
+            self._get_people_at_step(filter, 3), [person7.uuid],
         )
 
     def test_advanced_strict_funnel(self):
@@ -225,7 +231,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["count"], 8)
 
         self.assertCountEqual(
-            result[0]["people"],
+            self._get_people_at_step(filter, 1),
             [
                 person1_stopped_after_signup.uuid,
                 person2_stopped_after_one_pageview.uuid,
@@ -239,7 +245,7 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            result[1]["people"],
+            self._get_people_at_step(filter, 2),
             [
                 person3_stopped_after_insight_view.uuid,
                 person4.uuid,
@@ -251,9 +257,10 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertCountEqual(
-            result[2]["people"], [person4.uuid, person5.uuid, person6.uuid, person7.uuid, person8.uuid,],
+            self._get_people_at_step(filter, 3),
+            [person4.uuid, person5.uuid, person6.uuid, person7.uuid, person8.uuid,],
         )
 
         self.assertCountEqual(
-            result[3]["people"], [person8.uuid,],
+            self._get_people_at_step(filter, 4), [person8.uuid,],
         )
