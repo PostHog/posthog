@@ -32,6 +32,7 @@ export interface InternalColumnType<RecordType> extends ResizableColumnType<Reco
 
 export type ResizeHandler = Exclude<ResizableProps['onResize'], undefined>
 
+// https://github.com/ant-design/ant-design/blob/4cdd24f4ec1ffb638175bb6c2dbb4fd7f103d60f/components/table/style/index.less#L422-L424
 export const ANTD_EXPAND_BUTTON_WIDTH = 48
 
 interface ResizableTableProps<RecordType> extends TableProps<RecordType> {
@@ -217,7 +218,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                         handleResize={handleColumnResize}
                         layoutEffect={updateTableWidth}
                         minColumnWidth={minColumnWidth}
-                        expandable={!!props.expandable}
+                        expandable={props.expandable}
                     />
                 )}
                 <Table

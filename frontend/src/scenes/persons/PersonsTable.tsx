@@ -1,18 +1,19 @@
 import React, { useRef } from 'react'
 import { Button } from 'antd'
+import { combineUrl } from 'kea-router'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import { TZLabel } from 'lib/components/TimezoneAware'
 import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { CohortType, PersonType } from '~/types'
+import { PersonsTabType, PersonType, SessionsPropertyFilter } from '~/types'
 import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import dayjs from 'dayjs'
 import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
-
-import relativeTime from 'dayjs/plugin/relativeTime'
-import { TZLabel } from 'lib/components/TimezoneAware'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
+
 dayjs.extend(relativeTime)
 
 interface PersonsTableType {
@@ -23,7 +24,9 @@ interface PersonsTableType {
     loadPrevious?: () => void
     loadNext?: () => void
     allColumns?: boolean // whether to show all columns or not
-    cohort?: CohortType
+    backTo?: string // text to display next to `back to` arrow. if "Insights," deep link to Persons > Sessions
+    sessionsFilters?: Partial<SessionsPropertyFilter>[] // sessions filters from trends graphs
+    date?: string
 }
 
 export function PersonsTable({
@@ -34,14 +37,20 @@ export function PersonsTable({
     loadPrevious,
     loadNext,
     allColumns,
-    cohort,
+    backTo = 'Persons',
+    sessionsFilters = [],
+    date = undefined,
 }: PersonsTableType): JSX.Element {
-    const linkToPerson = (person: PersonType): string => {
-        const backTo = cohort
-            ? `#backTo=Cohorts&backToURL=${window.location.pathname}`
-            : `#backTo=Persons&backToURL=${window.location.pathname}`
-        return `/person/${encodeURIComponent(person.distinct_ids[0])}${backTo}`
-    }
+    const deepLinkToPersonSessions = (person: PersonType): string =>
+        combineUrl(
+            `/person/${encodeURIComponent(person.distinct_ids[0])}`,
+            { filters: sessionsFilters, date },
+            {
+                backTo,
+                backToURL: window.location.pathname + window.location.search + window.location.hash,
+                activeTab: backTo === 'Insights' ? PersonsTabType.SESSIONS : PersonsTabType.EVENTS,
+            }
+        ).url
 
     const topRef = useRef<HTMLSpanElement>(null)
 
@@ -52,7 +61,7 @@ export function PersonsTable({
             span: 6,
             render: function Render(person: PersonType) {
                 return (
-                    <Link to={linkToPerson(person)} data-attr="goto-person-email">
+                    <Link to={deepLinkToPersonSessions(person)} data-attr="goto-person-email">
                         <PersonHeader person={person} />
                     </Link>
                 )
@@ -99,7 +108,11 @@ export function PersonsTable({
         render: function Render(person: PersonType, ...[, index]: [PersonType, number]) {
             return (
                 <>
-                    <Link to={linkToPerson(person)} data-attr={`goto-person-arrow-${index}`} data-test-goto-person>
+                    <Link
+                        to={deepLinkToPersonSessions(person)}
+                        data-attr={`goto-person-arrow-${index}`}
+                        data-test-goto-person
+                    >
                         <ArrowRightOutlined style={{ float: 'right' }} />
                         {allColumns ? ' view' : ''}
                     </Link>
