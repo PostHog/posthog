@@ -1,6 +1,8 @@
 from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Tuple
 
+from rest_framework.exceptions import ValidationError
+
 from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
 from ee.clickhouse.queries.util import parse_timestamps
@@ -105,7 +107,10 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     return
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
-        cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        try:
+            cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        except Cohort.DoesNotExist:
+            raise ValidationError(f"Cohort ID {prop.value} doesn't exist.")
         for group in cohort.groups:
             if group.get("properties"):
                 return True

@@ -142,6 +142,14 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response["result"][0]["count"], 2)
             self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
 
+        def test_nonexistent_cohort_is_handled(self):
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                response = self.client.get(
+                    f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':5}])}"
+                ).json()
+
+            self.assertEqual(response, self.validation_error_response("Cohort ID 5 doesn't exist.", "invalid_input"))
+
         def test_insight_trends_breakdown_pagination(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 for i in range(25):

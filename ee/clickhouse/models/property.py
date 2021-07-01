@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
@@ -38,7 +39,10 @@ def parse_prop_clauses(
 
     for idx, prop in enumerate(filters):
         if prop.type == "cohort":
-            cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
+            try:
+                cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
+            except Cohort.DoesNotExist:
+                raise ValidationError(f"Cohort ID {prop.value} doesn't exist.")
             person_id_query, cohort_filter_params = format_filter_query(cohort)
             params = {**params, **cohort_filter_params}
             final.append(
