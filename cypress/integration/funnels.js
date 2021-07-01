@@ -9,7 +9,7 @@ describe('Funnels', () => {
     it('Add only events to funnel', () => {
         cy.get('[data-attr=add-action-event-button]').click()
 
-        cy.get('[data-attr=save-funnel-button]').click()
+        cy.get('[data-attr=save-funnel-button]').click() // `save-funnel-button` is actually calculate, keeping around to avoid losing data
 
         cy.get('[data-attr=funnel-viz]').should('exist')
     })
