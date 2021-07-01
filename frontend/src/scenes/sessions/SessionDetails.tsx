@@ -8,10 +8,9 @@ import { EventType, SessionType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import ExpandIcon from 'lib/components/ExpandIcon'
-import { IconEventsShort } from 'lib/components/icons'
-import { MATCHING_EVENT_ICON_SIZE } from 'scenes/sessions/SessionsView'
 import { ANTD_EXPAND_BUTTON_WIDTH } from 'lib/components/ResizableTable'
+import { MATCHING_EVENT_ICON_SIZE } from 'scenes/sessions/SessionsView'
+import ExpandIcon from 'lib/components/ExpandIcon'
 
 export function SessionDetails({ session }: { session: SessionType }): JSX.Element {
     const { filteredSessionEvents } = useValues(sessionsTableLogic)
@@ -100,9 +99,9 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
                     return (
                         <ExpandIcon {...expandProps}>
                             {(session.matching_events || []).includes(event.id) ? (
-                                <Tooltip title="This event matches your event filters">
-                                    <div className="sessions-matching-events-icon cursor-pointer">
-                                        <IconEventsShort size={MATCHING_EVENT_ICON_SIZE} />
+                                <Tooltip title="Matches your event filters">
+                                    <div className="sessions-event-matching-events-icon cursor-pointer text-extra-small ml-05">
+                                        M
                                     </div>
                                 </Tooltip>
                             ) : (

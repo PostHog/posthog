@@ -221,6 +221,16 @@
     }
 }
 
+.sessions-event-matching-events-icon {
+    background-color: $yellow_300;
+    color: $bg_navy;
+    height: 20px;
+    width: 20px;
+    font-weight: bold;
+    font-size: 9px;
+    border-radius: 5px;
+}
+
 .sessions-view-actions {
     margin-top: $default_spacing;
     margin-bottom: $default_spacing;
