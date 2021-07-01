@@ -5,27 +5,27 @@ import React, { useState } from 'react'
 import { Input, Button } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectDownIcon } from 'lib/components/SelectDownIcon'
-import { cohortsModel } from '~/models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { OperatorValueSelect } from './OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { PropertyOperator } from '~/types'
 import { PropertyFilterInternalProps } from './PropertyFilter'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { propertyFilterLogic } from '../propertyFilterLogic'
+import { taxonomicPropertyFilterLogic } from '../taxonomicPropertyFilterLogic'
 
 import './TaxonomicPropertyFilter.scss'
 
-enum DisplayMode {
+export enum DisplayMode {
     PROPERTY_SELECT,
     OPERATOR_VALUE_SELECT,
 }
 
-export function TaxonomicPropertyFilter({ index, onComplete }: PropertyFilterInternalProps): JSX.Element {
+export function TaxonomicPropertyFilter({ pageKey, index, onComplete }: PropertyFilterInternalProps): JSX.Element {
     const { filters } = useValues(propertyFilterLogic)
-    const { personProperties } = useValues(personPropertiesModel)
-    const { cohorts } = useValues(cohortsModel)
+    const { personProperties, cohorts } = useValues(
+        taxonomicPropertyFilterLogic({ pageKey: pageKey || window.location.pathname, index })
+    )
     const { setFilter } = useActions(propertyFilterLogic)
     const { key, value, operator, type } = filters[index]
 
@@ -57,20 +57,13 @@ export function TaxonomicPropertyFilter({ index, onComplete }: PropertyFilterInt
                                 key: 'persons',
                                 name: 'Person properties',
                                 type: 'person',
-                                dataSource: personProperties.map((property) => ({
-                                    ...property,
-                                    key: property.name,
-                                })),
+                                dataSource: personProperties,
                             },
                             {
                                 key: 'cohorts',
                                 name: 'Cohort',
                                 type: 'cohort',
-                                dataSource: cohorts.map((cohort) => ({
-                                    ...cohort,
-                                    key: cohort.id,
-                                    name: cohort.name || '',
-                                })),
+                                dataSource: cohorts,
                             },
                         ]}
                         defaultActiveTabKey={type ? type + 's' : undefined}

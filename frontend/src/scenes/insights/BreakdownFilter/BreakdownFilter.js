@@ -110,6 +110,7 @@ function Content({ breakdown, breakdown_type, onChange }) {
         >
             <TabPane tab="Property" key="property">
                 <PropertyFilter
+                    pageKey={`${breakdown}-${window.location.pathname}`}
                     breakdown={(!breakdown_type || breakdown_type == 'property') && breakdown}
                     onChange={onChange}
                 />

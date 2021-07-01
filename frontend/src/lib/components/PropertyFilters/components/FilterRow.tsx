@@ -49,6 +49,7 @@ export const FilterRow = React.memo(function FilterRow({
 
     const propertyFilterCommonProps = {
         key: index,
+        pageKey,
         index,
         onComplete: () => setOpen(false),
         selectProps: {},
