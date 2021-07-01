@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
 import { decodeParams } from 'kea-router'
-import { Button, Spin, Space, Tooltip, Badge, Switch, Row } from 'antd'
+import { Button, Spin, Space, Tooltip, Badge, Switch, Row, Radio } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -57,7 +57,7 @@ function getSessionRecordingsDurationSum(session: SessionType): number {
     return session.session_recordings.map(({ recording_duration }) => recording_duration).reduce((a, b) => a + b, 0)
 }
 
-const MATCHING_EVENT_ICON_SIZE = 26
+export const MATCHING_EVENT_ICON_SIZE = 26
 
 export function SessionsView({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
@@ -71,7 +71,6 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         sessionRecordingId,
         firstRecordingId,
         expandedRowKeys,
-        expandAllRows,
         showOnlyMatches,
         filters,
     } = useValues(logic)
@@ -81,7 +80,9 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         nextDay,
         setFilters,
         applyFilters,
-        setExpandAllRows,
+        expandSessionRows,
+        collapseSessionRows,
+        onExpandedRowsChange,
         setShowOnlyMatches,
     } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
@@ -222,21 +223,16 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             <div className="sessions-view-actions">
                 <div className="sessions-view-actions-left-items">
                     <Row className="action">
-                        <Switch
-                            // @ts-expect-error `id` prop is valid on switch
-                            id="expand-all-sessions"
-                            onChange={(active) => {
-                                setExpandAllRows(active)
-                            }}
-                            checked={expandAllRows}
-                            size="small"
-                            disabled={filteredSessions.length === 0}
-                        />
-                        <label className="ml-05 mr" htmlFor="expand-all-sessions">
-                            Expand all sessions
-                        </label>
+                        <Radio.Group>
+                            <Radio.Button value="expand" onClick={expandSessionRows}>
+                                Expand all
+                            </Radio.Button>
+                            <Radio.Button value="collapse" onClick={collapseSessionRows}>
+                                Collapse all
+                            </Radio.Button>
+                        </Radio.Group>
                     </Row>
-                    <Row className="action">
+                    <Row className="action ml-05">
                         <Switch
                             // @ts-expect-error `id` prop is valid on switch
                             id="show-only-matches"
@@ -245,12 +241,12 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                             size="small"
                             disabled={filteredSessions.length === 0 || filters.length === 0}
                         />
-                        <label className="ml-05" htmlFor="show-only-matches">
+                        <label className="ml-025" htmlFor="show-only-matches">
                             Show only matches
                         </label>
                     </Row>
                 </div>
-                <div>
+                <div className="sessions-view-actions-right-items">
                     <Tooltip title={playAllCTA}>
                         <span>
                             <LinkButton
@@ -295,7 +291,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                             <ExpandIcon {...expandProps}>
                                 {session?.matching_events?.length > 0 ? (
                                     <Tooltip
-                                        title={`${session.matching_events.length} out of ${session.event_count} events match`}
+                                        title={`${session.matching_events.length} events match your event filters`}
                                     >
                                         <Badge
                                             className="sessions-matching-events-icon cursor-pointer"
@@ -314,8 +310,9 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     },
                     columnWidth: ANTD_EXPAND_BUTTON_WIDTH + MATCHING_EVENT_ICON_SIZE,
                     rowExpandable: () => true,
+                    onExpandedRowsChange: onExpandedRowsChange,
                     expandRowByClick: true,
-                    ...(expandAllRows && { expandedRowKeys }),
+                    ...(!!expandedRowKeys && { expandedRowKeys: expandedRowKeys as string[] }),
                 }}
             />
             {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} />}

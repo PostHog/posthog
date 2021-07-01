@@ -10,6 +10,12 @@ import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLog
 
 type SessionRecordingId = string
 
+enum ExpandState {
+    expanded,
+    collapsed,
+    manual,
+}
+
 interface Params {
     date?: string
     properties?: any
@@ -63,7 +69,9 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         loadSessionEvents: (session: SessionType) => ({ session }),
         addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
         setLastAppliedFilters: (filters: SessionsPropertyFilter[]) => ({ filters }),
-        setExpandAllRows: (expandAllRows: boolean) => ({ expandAllRows }),
+        expandSessionRows: true,
+        collapseSessionRows: true,
+        onExpandedRowsChange: true,
         setShowOnlyMatches: (showOnlyMatches: boolean) => ({ showOnlyMatches }),
     }),
     reducers: {
@@ -108,10 +116,12 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 setLastAppliedFilters: (_, { filters }) => filters,
             },
         ],
-        expandAllRows: [
-            false,
+        rowExpandState: [
+            ExpandState.collapsed,
             {
-                setExpandAllRows: (_, { expandAllRows }) => expandAllRows,
+                onExpandedRowsChange: () => ExpandState.manual,
+                expandSessionRows: () => ExpandState.expanded,
+                collapseSessionRows: () => ExpandState.collapsed,
             },
         ],
         showOnlyMatches: [
@@ -176,8 +186,17 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 ),
         ],
         expandedRowKeys: [
-            (selectors) => [selectors.sessions],
-            (sessions: SessionType[]): string[] => sessions?.map((s) => s.global_session_id) || [],
+            (selectors) => [selectors.sessions, selectors.rowExpandState],
+            (sessions: SessionType[], rowExpandState: ExpandState): string[] | boolean => {
+                if (rowExpandState === ExpandState.collapsed) {
+                    return []
+                }
+                if (rowExpandState === ExpandState.manual) {
+                    return false
+                }
+                // expand all
+                return sessions?.map((s) => s.global_session_id) || []
+            },
         ],
     },
     listeners: ({ values, actions, props }) => ({
