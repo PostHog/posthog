@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { personsLogicType } from './personsLogicType'
-import { CohortType, PersonType } from '~/types'
+import { CohortType, PersonsTabType, PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface PersonPaginatedResponse {
@@ -12,7 +12,7 @@ interface PersonPaginatedResponse {
     results: PersonType[]
 }
 
-const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
+const FILTER_ALLOWLIST: string[] = ['is_identified', 'search', 'cohort']
 
 export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     connect: {
@@ -23,6 +23,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         setHasNewKeys: true,
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
+        navigateToTab: (tab: PersonsTabType) => ({ tab }),
     },
     reducers: {
         listFilters: [
@@ -35,6 +36,12 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             false,
             {
                 setHasNewKeys: () => true,
+            },
+        ],
+        activeTab: [
+            PersonsTabType.EVENTS as PersonsTabType,
+            {
+                navigateToTab: (_, { tab }) => tab,
             },
         ],
     },
@@ -111,7 +118,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                         const qs = Object.keys(values.listFilters)
                             .filter((key) =>
                                 key !== 'is_identified'
-                                    ? FILTER_WHITELIST.includes(key)
+                                    ? FILTER_ALLOWLIST.includes(key)
                                     : !url?.includes('is_identified')
                             )
                             .reduce(function (result, key) {
@@ -173,17 +180,34 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 return ['/persons', values.listFilters]
             }
         },
+        navigateToTab: () => {
+            if (router.values.location.pathname.indexOf('/person') > -1) {
+                return [
+                    router.values.location.pathname,
+                    router.values.searchParams,
+                    {
+                        ...router.values.hashParams,
+                        activeTab: values.activeTab,
+                    },
+                ]
+            }
+        },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/persons': ({}, searchParams: Record<string, string>) => {
+        '/persons': ({}, searchParams) => {
             actions.setListFilters(searchParams)
             if (!values.persons.results.length && !values.personsLoading) {
                 // Initial load
                 actions.loadPersons()
             }
         },
-        '/person/*': ({ _ }: { _: string }) => {
-            actions.loadPerson(_) // underscore contains the wildcard
+        '/person/*': ({ _: person }, _searchParams, { activeTab }) => {
+            if (activeTab && values.activeTab !== activeTab) {
+                actions.navigateToTab(activeTab as PersonsTabType)
+            }
+            if (person) {
+                actions.loadPerson(person) // underscore contains the wildcard
+            }
         },
     }),
 })

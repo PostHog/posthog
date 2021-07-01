@@ -24,7 +24,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
     },
     connect: {
         values: [sessionsFiltersLogic, ['filters']],
-        actions: [sessionsFiltersLogic, ['setAllFilters']],
+        actions: [sessionsFiltersLogic, ['setAllFilters', 'removeFilter']],
     },
     loaders: ({ actions, values, props }) => ({
         sessions: {
@@ -63,6 +63,8 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         loadSessionEvents: (session: SessionType) => ({ session }),
         addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
         setLastAppliedFilters: (filters: SessionsPropertyFilter[]) => ({ filters }),
+        setExpandAllRows: (expandAllRows: boolean) => ({ expandAllRows }),
+        setShowOnlyMatches: (showOnlyMatches: boolean) => ({ showOnlyMatches }),
     }),
     reducers: {
         sessions: {
@@ -106,6 +108,18 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 setLastAppliedFilters: (_, { filters }) => filters,
             },
         ],
+        expandAllRows: [
+            false,
+            {
+                setExpandAllRows: (_, { expandAllRows }) => expandAllRows,
+            },
+        ],
+        showOnlyMatches: [
+            false,
+            {
+                setShowOnlyMatches: (_, { showOnlyMatches }) => showOnlyMatches,
+            },
+        ],
     },
     selectors: {
         selectedDateURLparam: [(s) => [s.selectedDate], (selectedDate) => selectedDate?.format('YYYY-MM-DD')],
@@ -121,6 +135,49 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         filtersDirty: [
             (selectors) => [selectors.filters, selectors.lastAppliedFilters],
             (filters, lastFilters): boolean => !equal(filters, lastFilters),
+        ],
+        filteredSessions: [
+            (selectors) => [selectors.sessions, selectors.showOnlyMatches],
+            (sessions: SessionType[], showOnlyMatches: boolean): SessionType[] =>
+                sessions
+                    // only get sessions with matched events
+                    // !s?.events = clickhouse returns all events, postgres loads events on demand and doesn't populate `events`
+                    .filter((s) => !s?.events || !showOnlyMatches || s.matching_events.length > 0)
+                    // filter events
+                    .map((s) => {
+                        const setOfMatchedEventIds = new Set(s.matching_events)
+                        return {
+                            ...s,
+                            ...(s?.events
+                                ? {
+                                      events:
+                                          s?.events?.filter(
+                                              (e) => !showOnlyMatches || setOfMatchedEventIds.has(e.id)
+                                          ) || [],
+                                  }
+                                : {}),
+                        }
+                    }),
+        ],
+        filteredSessionEvents: [
+            (selectors) => [selectors.loadedSessionEvents, selectors.sessions, selectors.showOnlyMatches],
+            (
+                loadedSessionEvents: Record<string, EventType[] | undefined>,
+                sessions: SessionType[],
+                showOnlyMatches: boolean
+            ): Record<string, EventType[] | undefined> =>
+                Object.fromEntries(
+                    Object.entries(loadedSessionEvents).map(([id, events]) => {
+                        const setOfMatchedEventIds = new Set(
+                            sessions.find((s) => s.global_session_id === id)?.matching_events || []
+                        )
+                        return [id, events?.filter((e) => !showOnlyMatches || setOfMatchedEventIds.has(e.id)) || []]
+                    })
+                ),
+        ],
+        expandedRowKeys: [
+            (selectors) => [selectors.sessions],
+            (sessions: SessionType[]): string[] => sessions?.map((s) => s.global_session_id) || [],
         ],
     },
     listeners: ({ values, actions, props }) => ({
@@ -167,12 +224,19 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 actions.addSessionEvents(session, response.result)
             }
         },
+        removeFilter: () => {
+            // Apply empty filters if there are no filters to display. User cannot manually
+            // trigger an apply because the Filters panel is hidden if there are no filters.
+            if (values.filters.length === 0) {
+                actions.applyFilters()
+            }
+        },
     }),
     actionToUrl: ({ values }) => {
-        const buildURL = (overrides: Partial<Params> = {}): [string, Params] => {
+        const buildURL = (overrides: Partial<Params> = {}): [string, Params, Record<string, any>] => {
             const today = dayjs().startOf('day').format('YYYY-MM-DD')
 
-            const { properties } = router.values.searchParams // eslint-disable-line
+            const { properties } = router.values.searchParams
 
             const params: Params = {
                 date: values.selectedDateURLparam !== today ? values.selectedDateURLparam : undefined,
@@ -182,7 +246,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 ...overrides,
             }
 
-            return [router.values.location.pathname, params]
+            return [router.values.location.pathname, params, router.values.hashParams]
         }
 
         return {

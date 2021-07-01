@@ -6,14 +6,14 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { TrendResultWithAggregate } from '~/types'
+import { FilterType, TrendResultWithAggregate } from '~/types'
 
 interface Props {
     dashboardItemId?: number | null
     view: ViewType
     color?: string
     inSharedMode?: boolean | null
-    filters?: Record<string, unknown>
+    filters?: Partial<FilterType>
     cachedResults?: any
 }
 

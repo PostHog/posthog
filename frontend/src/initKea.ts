@@ -1,5 +1,5 @@
 import { resetContext } from 'kea'
-import localStoragePlugin from 'kea-localstorage'
+import { localStoragePlugin } from 'kea-localstorage'
 import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
 import { windowValuesPlugin } from 'kea-window-values'

@@ -68,7 +68,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                             setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                             typeKey={'trends_' + view}
                             buttonCopy="Add graph series"
-                            showLetters={numberOfSeries > 1}
+                            showSeriesIndicator={numberOfSeries > 1}
                             singleFilter={filters.insight === ViewType.LIFECYCLE}
                             hideMathSelector={filters.insight === ViewType.LIFECYCLE}
                             customRowPrefix={

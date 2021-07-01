@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE } from 'lib/constants'
+import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -35,6 +35,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -63,6 +64,8 @@ export function Insights(): JSX.Element {
     } = useValues(insightLogic)
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
+
+    const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
 
@@ -170,8 +173,8 @@ export function Insights(): JSX.Element {
                                 placement="bottom"
                                 title={
                                     <>
-                                        Stickiness shows you how many days users performed an action repeteadely within
-                                        a timeframe.
+                                        Stickiness shows you how many days users performed an action repeatedly within a
+                                        timeframe.
                                         <br />
                                         <br />
                                         <i>
@@ -218,7 +221,7 @@ export function Insights(): JSX.Element {
                     </Col>
                 ) : (
                     <>
-                        <Col span={24}>
+                        <Col span={24} lg={verticalLayout ? 7 : undefined}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
@@ -284,7 +287,7 @@ export function Insights(): JSX.Element {
                                 </Card>
                             )}
                         </Col>
-                        <Col span={24}>
+                        <Col span={24} lg={verticalLayout ? 17 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/* These are filters that are reused between insight features. They
                                 each have generic logic that updates the url
@@ -383,10 +386,18 @@ export function Insights(): JSX.Element {
 }
 
 function FunnelInsight(): JSX.Element {
-    const { stepsWithCount, isValidFunnel, stepsWithCountLoading } = useValues(funnelLogic({}))
+    const {
+        stepsWithCount,
+        isValidFunnel,
+        stepsWithCountLoading,
+        filters: { display },
+    } = useValues(funnelLogic({}))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { autoCalculate } = useValues(funnelLogic())
+    const fluidHeight = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display === FUNNEL_VIZ
 
     return (
-        <div style={{ height: 300, position: 'relative' }}>
+        <div style={fluidHeight ? {} : { height: 300, position: 'relative' }}>
             {stepsWithCountLoading && <Loading />}
             {isValidFunnel ? (
                 <FunnelViz steps={stepsWithCount} />
@@ -398,7 +409,8 @@ function FunnelInsight(): JSX.Element {
                         }}
                     >
                         <span>
-                            Enter the details to your funnel and click 'calculate' to create a funnel visualization
+                            Enter the details to your funnel {!autoCalculate && `and click 'calculate'`} to create a
+                            funnel visualization
                         </span>
                     </div>
                 )
