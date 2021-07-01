@@ -29,6 +29,10 @@ export function uuid(): string {
     )
 }
 
+export function isObjectEmpty(obj: Record<string, any>): boolean {
+    return obj && Object.keys(obj).length === 0 && obj.constructor === Object
+}
+
 export function toParams(obj: Record<string, any>): string {
     function handleVal(val: any): string {
         if (dayjs.isDayjs(val)) {

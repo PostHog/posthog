@@ -231,6 +231,8 @@ export const FEATURE_FLAGS: Record<string, string> = {
     INGESTION_TAXONOMY: '4267-event-property-taxonomy',
     NEW_TOOLTIPS: '4156-tooltips-legends',
     ENGAGEMENT_COHORTS: 'engagement-cohorts-4349',
+    PERSONS_MODAL_FILTERING: '4819-persons-modal-updates',
+    FUNNEL_BAR_VIZ: '4535-funnel-bar-viz',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'

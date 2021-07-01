@@ -103,9 +103,14 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="random event", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"}
             )
 
-            response = self.client.get("/api/event/?person_id=%s" % person.pk).json()
+            response = self.client.get(f"/api/event/?person_id={person.pk}").json()
             self.assertEqual(len(response["results"]), 2)
             self.assertEqual(response["results"][0]["elements"], [])
+
+        def test_filter_by_nonexisting_person(self):
+            response = self.client.get(f"/api/event/?person_id=5555555555")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(len(response.json()["results"]), 0)
 
         def _signup_event(self, distinct_id: str):
             sign_up = event_factory(

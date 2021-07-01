@@ -38,6 +38,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 filters = {
                     "events": [{"id": "user signed up", "type": "events", "order": 0},],
                     "insight": INSIGHT_FUNNELS,
+                    "funnel_window_days": 14,
                 }
 
             if properties is not None:
@@ -61,6 +62,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         {"id": action_credit_card.pk, "type": "actions", "order": 1},
                         {"id": action_play_movie.pk, "type": "actions", "order": 2},
                     ],
+                    "funnel_window_days": 14,
                 }
 
             if properties is not None:
@@ -103,10 +105,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 2)
-            # check ordering of people in first step
-            self.assertCountEqual(
-                result[0]["people"], [person1_stopped_after_signup.uuid, person2_stopped_after_signup.uuid],
-            )
 
         def test_funnel_events(self):
             funnel = self._basic_funnel()
@@ -141,21 +139,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             result = funnel.run()
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 4)
-            # check ordering of people in first step
-            self.assertCountEqual(
-                result[0]["people"],
-                [
-                    person_stopped_after_movie.uuid,
-                    person_stopped_after_pay.uuid,
-                    person_stopped_after_signup.uuid,
-                    person_wrong_order.uuid,
-                ],
-            )
+
             self.assertEqual(result[1]["name"], "paid")
             self.assertEqual(result[1]["count"], 2)
             self.assertEqual(result[2]["name"], "watched movie")
             self.assertEqual(result[2]["count"], 1)
-            self.assertEqual(result[2]["people"], [person_stopped_after_movie.uuid])
 
             # make sure it's O(n)
             person_wrong_order = person_factory(distinct_ids=["badalgo"], team_id=self.team.pk)
@@ -239,6 +227,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "properties": [{"key": "$browser", "value": "Firefox"}],
                     },
                 ],
+                "funnel_window_days": 14,
             }
             funnel = self._basic_funnel(filters=filters)
 
@@ -289,6 +278,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     {"id": action_credit_card.pk, "type": "actions", "order": 1,},
                     {"id": action_play_movie.pk, "type": "actions", "order": 2,},
                 ],
+                "funnel_window_days": 14,
             }
             funnel = self._basic_funnel(filters=filters)
 
@@ -328,6 +318,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "events": [{"id": "event1", "order": 0}],
                         "actions": [{"id": action1.pk, "order": 1,}, {"id": action2.pk, "order": 2,},],
                         "insight": INSIGHT_FUNNELS,
+                        "funnel_window_days": 14,
                     }
                 ),
                 team=self.team,
@@ -347,6 +338,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "events": [{"id": "event1", "order": 0}],
                         "insight": INSIGHT_FUNNELS,
                         FILTER_TEST_ACCOUNTS: True,
+                        "funnel_window_days": 14,
                     }
                 ),
                 team=self.team,

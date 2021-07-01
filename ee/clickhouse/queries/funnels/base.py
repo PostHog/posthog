@@ -6,11 +6,13 @@ from django.utils import timezone
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.queries.util import parse_timestamps
+from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import FUNNEL_WINDOW_DAYS, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter, Team
-from posthog.models.filters.mixins.funnel_window_days import FunnelWindowDaysMixin
+from posthog.models.filters.mixins.funnel import FunnelWindowDaysMixin
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
 
@@ -21,6 +23,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def __init__(self, filter: Filter, team: Team) -> None:
         self._filter = filter
+
+        # handle default if window isn't provided
+        if not self._filter.funnel_window_days:
+            self._filter = self._filter.with_data({FUNNEL_WINDOW_DAYS: 14})
+
         self._team = team
         self.params = {
             "team_id": self._team.pk,
@@ -71,7 +78,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             filter=self._filter, table="events.", team_id=self._team.pk
         )
         self.params.update(prop_filter_params)
-        steps = [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
+        steps = [self._build_step_query(entity, index, "events") for index, entity in enumerate(self._filter.entities)]
 
         format_properties = {
             "team_id": self._team.id,
@@ -88,24 +95,172 @@ class ClickhouseFunnelBase(ABC, Funnel):
         }
 
         query = self.get_query(format_properties)
-
         return sync_execute(query, self.params)
 
-    def _build_steps_query(self, entity: Entity, index: int) -> str:
+    def _get_steps_per_person_query(self):
+        formatted_query = ""
+        max_steps = len(self._filter.entities)
+        if max_steps >= 2:
+            formatted_query = self.build_step_subquery(2, max_steps)
+        else:
+            formatted_query = self._get_inner_event_query()
+
+        return f"""
+        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {self._get_step_times(max_steps)} FROM (
+            {formatted_query}
+        ) WHERE step_0 = 1
+        """
+
+    def _get_step_times(self, max_steps: int):
+        conditions: List[str] = []
+        for i in range(1, max_steps):
+            conditions.append(
+                f"if(isNotNull(latest_{i}), dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_average_conversion_time"
+            )
+
+        formatted = ", ".join(conditions)
+        return f", {formatted}" if formatted else ""
+
+    def build_step_subquery(self, level_index: int, max_steps: int):
+        if level_index >= max_steps:
+            return f"""
+            SELECT 
+            person_id,
+            timestamp,
+            {self.get_partition_cols(1, max_steps)}
+            FROM ({self._get_inner_event_query()})
+            """
+        else:
+            return f"""
+            SELECT 
+            person_id,
+            timestamp,
+            {self.get_partition_cols(level_index, max_steps)}
+            FROM (
+                SELECT 
+                person_id,
+                timestamp,
+                {self.get_comparison_cols(level_index, max_steps)}
+                FROM ({self.build_step_subquery(level_index + 1, max_steps)})
+            )
+            """
+
+    def get_partition_cols(self, level_index: int, max_steps: int):
+        cols: List[str] = []
+        for i in range(0, max_steps):
+            cols.append(f"step_{i}")
+            if i < level_index:
+                cols.append(f"latest_{i}")
+            else:
+                duplicate_event = 0
+                if i > 0 and self._filter.entities[i].equals(self._filter.entities[i - 1]):
+                    duplicate_event = 1
+                cols.append(
+                    f"min(latest_{i}) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
+                )
+        return ", ".join(cols)
+
+    def get_comparison_cols(self, level_index: int, max_steps: int):
+        cols: List[str] = []
+        for i in range(0, max_steps):
+            cols.append(f"step_{i}")
+            if i < level_index:
+                cols.append(f"latest_{i}")
+            else:
+                comparison = self._get_comparison_at_step(i, level_index)
+                cols.append(f"if({comparison}, NULL, latest_{i}) as latest_{i}")
+        return ", ".join(cols)
+
+    def _get_comparison_at_step(self, index: int, level_index: int):
+        or_statements: List[str] = []
+
+        for i in range(level_index, index + 1):
+            or_statements.append(f"latest_{i} < latest_{level_index - 1}")
+
+        return " OR ".join(or_statements)
+
+    def _get_sorting_condition(self, curr_index: int, max_steps: int):
+
+        if curr_index == 1:
+            return "1"
+
+        conditions: List[str] = []
+        for i in range(1, curr_index):
+            conditions.append(f"latest_{i - 1} < latest_{i }")
+            conditions.append(f"latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY")
+
+        return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
+
+    def _get_inner_event_query(self, entities=None, entity_name="events") -> str:
+        entities_to_use = entities or self._filter.entities
+
+        event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query(
+            entities_to_use, entity_name
+        )
+
+        self.params.update(params)
+        steps_conditions = self._get_steps_conditions(length=len(entities_to_use))
+
+        all_step_cols: List[str] = []
+        for index, entity in enumerate(entities_to_use):
+            step_cols = self._get_step_col(entity, index, entity_name)
+            all_step_cols.extend(step_cols)
+
+        steps = ", ".join(all_step_cols)
+
+        select_prop = self._get_breakdown_select_prop()
+
+        return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
+            steps=steps,
+            event_query=event_query,
+            steps_condition=steps_conditions,
+            select_prop=select_prop,
+            extra_conditions=("AND prop != ''" if select_prop else ""),
+        )
+
+    def _get_breakdown_select_prop(self) -> str:
+        if self._filter.breakdown:
+            self.params.update({"breakdown": self._filter.breakdown})
+            if self._filter.breakdown_type == "person":
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
+            elif self._filter.breakdown_type == "event":
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
+
+        return ""
+
+    def _get_steps_conditions(self, length: int) -> str:
+        step_conditions: List[str] = []
+
+        for index in range(length):
+            step_conditions.append(f"step_{index} = 1")
+
+        return " OR ".join(step_conditions)
+
+    def _get_step_col(self, entity: Entity, index: int, entity_name: str) -> List[str]:
+        step_cols: List[str] = []
+        condition = self._build_step_query(entity, index, entity_name)
+        step_cols.append(f"if({condition}, 1, 0) as step_{index}")
+        step_cols.append(f"if(step_{index} = 1, timestamp, null) as latest_{index}")
+
+        return step_cols
+
+    def _build_step_query(self, entity: Entity, index: int, entity_name: str) -> str:
         filters = self._build_filters(entity, index)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = Action.objects.get(pk=entity.id)
             for action_step in action.steps.all():
-                self.params["events"].append(action_step.event)
-            action_query, action_params = format_action_filter(action, "step_{}".format(index))
+                self.params[entity_name].append(action_step.event)
+            action_query, action_params = format_action_filter(action, "{}_step_{}".format(entity_name, index))
             if action_query == "":
                 return ""
 
             self.params.update(action_params)
             content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
-            self.params["events"].append(entity.id)
-            content_sql = "event = '{event}' {filters}".format(event=entity.id, filters=filters)
+            self.params[entity_name].append(entity.id)
+            event_param_key = f"{entity_name}_event_{index}"
+            self.params[event_param_key] = entity.id
+            content_sql = f"event = %({event_param_key})s {filters}"
         return content_sql
 
     def _build_filters(self, entity: Entity, index: int) -> str:

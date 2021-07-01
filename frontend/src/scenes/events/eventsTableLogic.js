@@ -155,16 +155,6 @@ export const eventsTableLogic = kea({
     }),
 
     selectors: ({ selectors, props }) => ({
-        propertiesForUrl: [
-            () => [selectors.properties],
-            (properties) => {
-                if (Object.keys(properties).length > 0) {
-                    return { properties }
-                } else {
-                    return ''
-                }
-            },
-        ],
         eventsFormatted: [
             () => [selectors.events, selectors.newEvents],
             (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
@@ -181,12 +171,19 @@ export const eventsTableLogic = kea({
 
     actionToUrl: ({ values }) => ({
         setProperties: () => {
-            return [router.values.location.pathname, values.propertiesForUrl, window.location.hash]
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    properties: values.properties,
+                },
+                window.location.hash,
+            ]
         },
     }),
 
     urlToAction: ({ actions, values }) => ({
-        '*': (_, searchParams) => {
+        '*': (_, searchParams, hashParams) => {
             try {
                 // if the url changed, but we are not anymore on the page we were at when the logic was mounted
                 if (router.values.location.pathname !== values.initialPathname) {
@@ -198,7 +195,8 @@ export const eventsTableLogic = kea({
                 return
             }
 
-            if (!objectsEqual(searchParams.properties || {}, values.properties)) {
+            const isFirstRedirect = hashParams.backTo // first time we've navigated here from another page
+            if (!objectsEqual(searchParams.properties || {}, values.properties) || isFirstRedirect) {
                 actions.setProperties(searchParams.properties || {})
             }
         },

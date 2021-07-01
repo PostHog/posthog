@@ -115,7 +115,7 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
                     loadPrevious={() => loadPersons(persons.previous)}
                     loadNext={() => loadPersons(persons.next)}
                     allColumns
-                    cohort={cohort}
+                    backTo={cohort ? 'Cohort' : 'Persons'}
                 />
             </div>
         </div>

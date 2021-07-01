@@ -1,12 +1,11 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from typing import Union
 
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
-from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch, parse_timestamps
-from ee.clickhouse.sql.events import NULL_SQL_FUNNEL_TRENDS
-from ee.clickhouse.sql.funnels.funnel_trend import FUNNEL_TREND_SQL
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
+from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
+from posthog.constants import BREAKDOWN
+from posthog.models.filters.filter import Filter
+from posthog.models.team import Team
 
 DAY_START = 0
 TOTAL_COMPLETED_FUNNELS = 1
@@ -16,63 +15,117 @@ TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%a. %-d %b"
 
 
-class ClickhouseFunnelTrends(ClickhouseFunnelBase):
-    def run(self):
+class ClickhouseFunnelTrends(ClickhouseFunnelNew):
+    """
+    ## Funnel trends assumptions
+
+    Funnel trends are a graph of conversion over time – meaning a Y ({conversion_rate}) for each X ({entrance_period}).
+
+    ### What is {entrance_period}?
+
+    A funnel is considered entered by a user when they have performed its first step.
+    When that happens, we consider that an entrance of funnel.
+
+    Now, our time series is based on a sequence of {entrance_period}s, each starting at {entrance_period_start}
+    and ending _right before the next_ {entrance_period_start}. A person is then counted at most once in each
+    {entrance_period}.
+
+    ### What is {conversion_rate}?
+
+    Each time a funnel is entered by a person, they have exactly {funnel_window_days} days to go
+    through the funnel's steps. Later events are just not taken into account.
+
+    For {conversion_rate}, we need to know reference steps: {from_step} and {to_step}.
+    By default they are respectively the first and the last steps of the funnel.
+
+    Then for each {entrance_period} we calculate {reached_from_step_count} – the number of persons
+    who entered the funnel and reached step {from_step} (along with all the steps leading up to it, if there any).
+    Similarly we calculate {reached_to_step_count}, which is the number of persons from {reached_from_step_count}
+    who also reached step {to_step} (along with all the steps leading up to it, including of course step {from_step}).
+
+    {conversion_rate} is simply {reached_to_step_count} divided by {reached_from_step_count},
+    multiplied by 100 to be a percentage.
+
+    If no people have reached step {from_step} in the period, {conversion_rate} is zero.
+    """
+
+    def __init__(self, filter: Filter, team: Team) -> None:
+        # TODO: allow breakdown
+        if BREAKDOWN in filter._data:
+            del filter._data[BREAKDOWN]
+        super().__init__(filter, team)
+
+    def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
             return []
 
-        summary = self.perform_query()
-        ui_response = self._get_ui_response(summary)
-        return ui_response
+        return self._get_ui_response(self.perform_query())
 
     def perform_query(self):
-        sql = self._configure_sql()
-        results = sync_execute(sql, self.params)
-        summary = self._summarize_data(results)
-        return summary
+        return self._summarize_data(self._exec_query())
 
-    def _configure_sql(self):
-        funnel_trend_null_sql = self._get_funnel_trend_null_sql()
-        parsed_date_from, parsed_date_to, _ = self._get_dates()
-        prop_filters, _ = self._get_filters()
-        steps = self._get_steps()
-        step_count = len(steps)
+    def get_query(self, format_properties) -> str:
+        steps_per_person_query = self._get_steps_per_person_query()
+        num_intervals, seconds_in_interval, _ = get_time_diff(
+            self._filter.interval or "day", self._filter.date_from, self._filter.date_to, team_id=self._team.pk
+        )
         interval_method = get_trunc_func_ch(self._filter.interval)
 
-        sql = FUNNEL_TREND_SQL.format(
-            team_id=self._team.pk,
-            steps=", ".join(steps),
-            step_count=step_count,
-            filters=prop_filters.replace("uuid IN", "events.uuid IN", 1),
-            parsed_date_from=parsed_date_from,
-            parsed_date_to=parsed_date_to,
-            within_time=self._filter.milliseconds_from_days(self._filter.funnel_window_days),
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
-            funnel_trend_null_sql=funnel_trend_null_sql,
-            interval_method=interval_method,
-        )
-        return sql
+        # How many steps must have been done to count for the denominator
+        from_step = self._filter.funnel_from_step or 1
+        # How many steps must have been done to count for the numerator
+        to_step = self._filter.funnel_to_step or len(self._filter.entities)
+
+        reached_from_step_count_condition = f"steps_completed >= {from_step}"
+        reached_to_step_count_condition = f"steps_completed >= {to_step}"
+
+        query = f"""
+            SELECT
+                {interval_method}(toDateTime('{self._filter.date_from.strftime(TIMESTAMP_FORMAT)}') + number * {seconds_in_interval}) AS entrance_period_start,
+                reached_from_step_count,
+                reached_to_step_count,
+                conversion_rate
+            FROM numbers({num_intervals}) AS period_offsets
+            LEFT OUTER JOIN (
+                SELECT
+                    entrance_period_start,
+                    reached_from_step_count,
+                    reached_to_step_count,
+                    if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0) AS conversion_rate
+                FROM (
+                    SELECT
+                        entrance_period_start,
+                        countIf({reached_from_step_count_condition}) AS reached_from_step_count,
+                        countIf({reached_to_step_count_condition}) AS reached_to_step_count
+                    FROM (
+                        SELECT
+                            person_id,
+                            {interval_method}(timestamp) AS entrance_period_start,
+                            max(steps) AS steps_completed
+                        FROM (
+                            {steps_per_person_query}
+                        ) GROUP BY person_id, entrance_period_start
+                    ) GROUP BY entrance_period_start
+                )
+            ) data
+            ON data.entrance_period_start = entrance_period_start
+            ORDER BY entrance_period_start ASC
+            SETTINGS allow_experimental_window_functions = 1"""
+
+        return query
 
     def _summarize_data(self, results):
-        total = 0
-        for result in results:
-            total += result[ALL_FUNNELS_ENTRIES]
-
-        out = []
-
-        for result in results:
-            percent_complete = round(result[TOTAL_COMPLETED_FUNNELS] / total * 100, 2)
-            record = {
-                "timestamp": result[DAY_START],
-                "completed_funnels": result[TOTAL_COMPLETED_FUNNELS],
-                "total": total,
-                "percent_complete": percent_complete,
-                "is_complete": self._determine_complete(result[DAY_START]),
-                "cohort": result[PERSON_IDS],
+        summary = [
+            {
+                "timestamp": period_row[0],
+                "reached_from_step_count": period_row[1],
+                "reached_to_step_count": period_row[2],
+                "conversion_rate": period_row[3],
+                "is_period_final": self._is_period_final(period_row[0]),
             }
-            out.append(record)
-
-        return out
+            for period_row in results
+        ]
+        return summary
 
     @staticmethod
     def _get_ui_response(summary):
@@ -82,51 +135,18 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         labels = []
 
         for row in summary:
-            data.append(row["percent_complete"])
+            data.append(row["conversion_rate"])
             days.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
             labels.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
 
         return [{"count": count, "data": data, "days": days, "labels": labels,}]
 
-    def _get_funnel_trend_null_sql(self):
-        interval_annotation = get_trunc_func_ch(self._filter.interval)
-        num_intervals, seconds_in_interval, round_interval = get_time_diff(
-            self._filter.interval or "day", self._filter.date_from, self._filter.date_to, team_id=self._team.id
-        )
-        funnel_trend_null_sql = NULL_SQL_FUNNEL_TRENDS.format(
-            interval=interval_annotation,
-            seconds_in_interval=seconds_in_interval,
-            num_intervals=num_intervals,
-            date_to=self._filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
-        )
-        return funnel_trend_null_sql
-
-    def _get_dates(self):
-        return parse_timestamps(filter=self._filter, table="events.", team_id=self._team.pk)
-
-    def _get_filters(self):
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            self._filter.properties,
-            self._team.pk,
-            prepend="global",
-            allow_denormalized_props=True,
-            filter_test_accounts=self._filter.filter_test_accounts,
-        )
-        self.params.update(prop_filter_params)
-        return prop_filters, prop_filter_params
-
-    def _get_steps(self):
-        return [self._build_steps_query(entity, index) for index, entity in enumerate(self._filter.entities)]
-
-    def _determine_complete(self, timestamp):
+    def _is_period_final(self, timestamp: Union[datetime, date]):
         # difference between current date and timestamp greater than window
         now = datetime.utcnow().date()
         days_to_subtract = self._filter.funnel_window_days * -1
         delta = timedelta(days=days_to_subtract)
         completed_end = now + delta
-        compare_timestamp = timestamp.date() if type(timestamp) is datetime else timestamp
-        is_incomplete = compare_timestamp > completed_end
-        return not is_incomplete
-
-    def get_query(self, format_properties):
-        pass
+        compare_timestamp = timestamp.date() if isinstance(timestamp, datetime) else timestamp
+        is_final = compare_timestamp <= completed_end
+        return is_final
