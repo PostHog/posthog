@@ -1,9 +1,9 @@
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
+from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.models import Person
 
 
-class ClickhouseFunnelPersons(ClickhouseFunnelNew):
+class ClickhouseFunnelUnorderedPersons(ClickhouseFunnelUnordered):
     def get_query(self, format_properties):
         return FUNNEL_PERSONS_BY_STEP_SQL.format(
             **format_properties,
