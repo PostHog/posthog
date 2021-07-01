@@ -7,10 +7,6 @@ from posthog.constants import BREAKDOWN
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
-DAY_START = 0
-TOTAL_COMPLETED_FUNNELS = 1
-ALL_FUNNELS_ENTRIES = 2
-PERSON_IDS = 3
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%a. %-d %b"
 
