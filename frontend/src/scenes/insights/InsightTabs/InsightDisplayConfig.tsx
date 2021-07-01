@@ -17,6 +17,7 @@ import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import FunnelStepReferencePicker from './FunnelTab/FunnelStepReferencePicker'
+import { useValues } from 'kea'
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
     allFilters: FilterType
@@ -85,7 +86,9 @@ export function InsightDisplayConfig({
     activeView,
     clearAnnotationsToCreate,
 }: InsightDisplayConfigProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
+    const showFunnelStepReference = activeView === ViewType.FUNNELS && featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]
 
     return (
         <div className="display-config-inner">
@@ -108,7 +111,7 @@ export function InsightDisplayConfig({
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
 
-                {activeView === ViewType.FUNNELS && <FunnelStepReferencePicker />}
+                {showFunnelStepReference && <FunnelStepReferencePicker />}
 
                 {showDateFilter[activeView] && (
                     <>

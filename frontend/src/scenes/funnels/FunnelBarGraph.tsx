@@ -9,6 +9,9 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 
 import './FunnelBarGraph.scss'
 import { ArrowBottomRightOutlined } from 'lib/components/icons'
+import { funnelLogic } from './funnelLogic'
+import { useValues } from 'kea'
+import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 
 function calcPercentage(numerator: number, denominator: number): number {
     return (numerator / denominator) * 100 || 0
@@ -102,42 +105,58 @@ function ValueInspectorButton({
     )
 }
 
+function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepReference, index?: number): FunnelStep {
+    // Step to serve as denominator of percentage calculations.
+    // step[0] is full-funnel conversion, previous is relative.
+    if (!index || index <= 0) {
+        return steps[0]
+    }
+    switch (stepReference) {
+        case FunnelStepReference.previous:
+            return steps[index - 1]
+        case FunnelStepReference.total:
+        default:
+            return steps[0]
+    }
+}
+
 export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
+    const { stepReference } = useValues(funnelLogic)
     const steps = [...stepsParam].sort((a, b) => a.order - b.order)
-    const referenceStep = steps[0] // Compare values to first step, i.e. total
 
     return layout === 'horizontal' ? (
         <div>
-            {steps.map((step, i) => (
-                <section key={step.order} className="funnel-step">
-                    <div className="funnel-series-container">
-                        <div className={`funnel-series-linebox ${i > 0 ? 'before' : ''}`} />
-                        <SeriesGlyph style={{ backgroundColor: '#fff', zIndex: 2 }}>
-                            {humanizeOrder(step.order)}
-                        </SeriesGlyph>
-                        <div className={`funnel-series-linebox ${steps[i + 1] ? 'after' : ''}`} />
-                    </div>
-                    <header>
-                        <div className="funnel-step-title">
-                            <PropertyKeyInfo value={step.name} />
+            {steps.map((step, i) => {
+                const basisStep = getReferenceStep(steps, stepReference, i)
+                return (
+                    <section key={step.order} className="funnel-step">
+                        <div className="funnel-series-container">
+                            <div className={`funnel-series-linebox ${i > 0 ? 'before' : ''}`} />
+                            <SeriesGlyph style={{ backgroundColor: '#fff', zIndex: 2 }}>
+                                {humanizeOrder(step.order)}
+                            </SeriesGlyph>
+                            <div className={`funnel-series-linebox ${steps[i + 1] ? 'after' : ''}`} />
                         </div>
-                        <div className="funnel-step-metadata">
-                            {step.average_time >= 0 + Number.EPSILON ? (
-                                <Tooltip title="Average time spent on this step before continuing to the next.">
-                                    Average time:{' '}
-                                    <ValueInspectorButton
-                                        onClick={() => {}}
-                                        style={{ paddingLeft: 0, paddingRight: 0 }}
-                                        disabled
-                                    >
-                                        {humanFriendlyDuration(step.average_time)}
-                                    </ValueInspectorButton>
-                                </Tooltip>
-                            ) : null}
-                        </div>
-                    </header>
-                    <Bar percentage={calcPercentage(step.count, referenceStep.count)} name={step.name} />
-                    {i > 0 && step.order > 0 && steps[i - 1]?.count > step.count && (
+                        <header>
+                            <div className="funnel-step-title">
+                                <PropertyKeyInfo value={step.name} />
+                            </div>
+                            <div className="funnel-step-metadata">
+                                {step.average_time >= 0 + Number.EPSILON ? (
+                                    <Tooltip title="Average time spent on this step before continuing to the next.">
+                                        Average time:{' '}
+                                        <ValueInspectorButton
+                                            onClick={() => {}}
+                                            style={{ paddingLeft: 0, paddingRight: 0 }}
+                                            disabled
+                                        >
+                                            {humanFriendlyDuration(step.average_time)}
+                                        </ValueInspectorButton>
+                                    </Tooltip>
+                                ) : null}
+                            </div>
+                        </header>
+                        <Bar percentage={calcPercentage(step.count, basisStep.count)} name={step.name} />
                         <footer>
                             <div className="funnel-step-metadata">
                                 <ValueInspectorButton
@@ -147,24 +166,27 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                                 >
                                     {step.count} completed
                                 </ValueInspectorButton>
-                                <span>
-                                    <ValueInspectorButton
-                                        icon={<ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />}
-                                        onClick={() => {}}
-                                        disabled
-                                        style={{ paddingRight: '0.25em' }}
-                                    >
-                                        {steps[i - 1].count - step.count} dropped off
-                                    </ValueInspectorButton>
-                                    <span style={{ color: 'var(--primary-alt)' }}>
-                                        ({100 - calcPercentage(step.count, steps[i - 1].count)}% from previous step)
+                                {i > 0 && step.order > 0 && steps[i - 1]?.count > step.count && (
+                                    <span>
+                                        <ValueInspectorButton
+                                            icon={<ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />}
+                                            onClick={() => {}}
+                                            disabled
+                                            style={{ paddingRight: '0.25em' }}
+                                        >
+                                            {steps[i - 1].count - step.count} dropped off
+                                        </ValueInspectorButton>
+                                        <span style={{ color: 'var(--primary-alt)' }}>
+                                            ({humanizeNumber(100 - calcPercentage(step.count, steps[i - 1].count), 2)}%
+                                            from previous step)
+                                        </span>
                                     </span>
-                                </span>
+                                )}
                             </div>
                         </footer>
-                    )}
-                </section>
-            ))}
+                    </section>
+                )
+            })}
         </div>
     ) : (
         <>{null}</>
