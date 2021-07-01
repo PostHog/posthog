@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react'
 import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Button } from 'antd'
+import { Button, Tooltip } from 'antd'
 import { ArrowRightOutlined } from '@ant-design/icons'
 import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
@@ -123,7 +123,7 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                         </div>
                         <div className="funnel-step-metadata">
                             {step.average_time >= 0 + Number.EPSILON ? (
-                                <span>
+                                <Tooltip title="Average time spent on this step before continuing to the next.">
                                     Average time:{' '}
                                     <ValueInspectorButton
                                         onClick={() => {}}
@@ -132,7 +132,7 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                                     >
                                         {humanFriendlyDuration(step.average_time)}
                                     </ValueInspectorButton>
-                                </span>
+                                </Tooltip>
                             ) : null}
                         </div>
                     </header>
