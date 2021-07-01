@@ -233,7 +233,10 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         },
     }),
     actionToUrl: ({ values }) => {
-        const buildURL = (overrides: Partial<Params> = {}): [string, Params, Record<string, any>] => {
+        const buildURL = (
+            overrides: Partial<Params> = {},
+            replace = false
+        ): [string, Params, Record<string, any>, { replace: boolean }] => {
             const today = dayjs().startOf('day').format('YYYY-MM-DD')
 
             const { properties } = router.values.searchParams
@@ -246,11 +249,11 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 ...overrides,
             }
 
-            return [router.values.location.pathname, params, router.values.hashParams]
+            return [router.values.location.pathname, params, router.values.hashParams, { replace }]
         }
 
         return {
-            setFilters: () => buildURL(),
+            setFilters: () => buildURL({}, true),
             loadSessions: () => buildURL(),
             setSessionRecordingId: () => buildURL(),
             closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),

@@ -177,7 +177,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     actionToUrl: ({ values, props }) => ({
         setListFilters: () => {
             if (props.updateURL && router.values.location.pathname.indexOf('/persons') > -1) {
-                return ['/persons', values.listFilters]
+                return ['/persons', values.listFilters, undefined, { replace: true }]
             }
         },
         navigateToTab: () => {
