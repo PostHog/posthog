@@ -1,6 +1,7 @@
 import json
 from uuid import uuid4
 
+from django.core.cache import cache
 from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
@@ -55,6 +56,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(5, j["results"][0]["count"])
 
     def test_basic_pagination(self):
+        cache.clear()
         self._create_sample_data(250)
         request_data = {
             "insight": INSIGHT_FUNNELS,

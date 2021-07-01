@@ -5,6 +5,7 @@ from dateutil.relativedelta import relativedelta
 from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.query import Prefetch
 from rest_framework import request
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.entity import Entity
@@ -33,7 +34,7 @@ def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> Q
 
 def determine_compared_filter(filter) -> Filter:
     if not filter.date_to or not filter.date_from:
-        raise ValueError("You need date_from and date_to to compare")
+        raise ValidationError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
     return filter.with_data({"date_from": date_from.date().isoformat(), "date_to": date_to.date().isoformat()})
 
