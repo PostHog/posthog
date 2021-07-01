@@ -32,7 +32,7 @@ class ClickhousePersonViewSet(PersonViewSet):
 
         results, next_url = self.calculate_funnel_persons(request)["result"]
 
-        return Response(data={"results": results, "next": next_url})
+        return Response(data={"results": [{"people": results, "count": len(results)}], "next": next_url})
 
     @cached_function()
     def calculate_funnel_persons(self, request: Request) -> Dict[str, Tuple[list, Optional[str]]]:
