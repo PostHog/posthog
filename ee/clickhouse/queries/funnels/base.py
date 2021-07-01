@@ -286,6 +286,22 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self.params.update({"step_num": abs(step_num) - 1})
             return "steps = %(step_num)s"
 
+    def _get_count_columns(self, max_steps: int):
+        cols: List[str] = []
+
+        for i in range(max_steps):
+            cols.append(f"countIf(steps = {i + 1}) step_{i + 1}")
+
+        return ", ".join(cols)
+
+    def _get_step_time_avgs(self, max_steps: int):
+        conditions: List[str] = []
+        for i in range(1, max_steps):
+            conditions.append(f"avg(step_{i}_average_conversion_time) step_{i}_average_conversion_time")
+
+        formatted = ", ".join(conditions)
+        return f", {formatted}" if formatted else ""
+
     @abstractmethod
     def get_query(self, format_properties):
         pass
