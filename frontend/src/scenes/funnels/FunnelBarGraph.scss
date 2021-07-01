@@ -131,6 +131,7 @@ $glyph_height: 22px;
         height: 100%;
         background: #3b4b87;
         border-radius: 4px;
+        transition: width 0.2s ease, height 0.2s ease;
 
         .funnel-bar-percentage {
             position: absolute;
