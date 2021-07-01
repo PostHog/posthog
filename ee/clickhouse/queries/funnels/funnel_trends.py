@@ -3,6 +3,9 @@ from typing import Union
 
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
+from posthog.constants import BREAKDOWN
+from posthog.models.filters.filter import Filter
+from posthog.models.team import Team
 
 DAY_START = 0
 TOTAL_COMPLETED_FUNNELS = 1
@@ -14,38 +17,43 @@ HUMAN_READABLE_TIMESTAMP_FORMAT = "%a. %-d %b"
 
 class ClickhouseFunnelTrends(ClickhouseFunnelNew):
     """
-    ## Assumptions for funnel trends
+    ## Funnel trends assumptions
 
     Funnel trends are a graph of conversion over time – meaning a Y ({conversion_rate}) for each X ({entrance_period}).
 
     ### What is {entrance_period}?
 
-    Let's start by defining a funnel _entrance_:
-    A funnel is considered entered by a user when they have performed step {from_step} and all the steps leading to it,
-    _in order_ (if there are any).
-    When that happens, we consider that an entrance of the part of the funnel under consideration.
-    In the default case, {from_step} is the first step of the funnel, meaning entrance from the very beginning.
+    A funnel is considered entered by a user when they have performed its first step.
+    When that happens, we consider that an entrance of funnel.
 
     Now, our time series is based on a sequence of {entrance_period}s, each starting at {entrance_period_start}
-    and ending _right before the next_ {entrance_period_start}, and a person having entered the funnel
-    is only counted towards a single {entrance_period}'s numbers (hich is reflected in the time series).
+    and ending _right before the next_ {entrance_period_start}. A person is then counted at most once in each
+    {entrance_period}.
 
     ### What is {conversion_rate}?
 
-    This time let's start by defining a funnel _completion_:
-    A funnel is considered completed by a user when they have performed step {to_step} and all the steps leading to it,
-    _in order_ (including of course step {from_step}), _in the funnel window_.
-    When that happens, we consider that a completion of the part of the funnel under consideration.
-    In the default case, {to_step} is the last step of the funnel, meaning completion up to the very end.
+    Each time a funnel is entered by a person, they have exactly {funnel_window_days} days to go
+    through the funnel's steps. Later events are just not taken into account.
 
-    Side note: a funnel window is the interval in which step {to_step} must be reached for the completion to count.
-    It starts with the moment of entrance and ends exactly {funnel_window_days} days later.
+    For {conversion_rate}, we need to know reference steps: {from_step} and {to_step}.
+    By default they are respectively the first and the last steps of the funnel.
 
-    {conversion_rate} is the number of people who have completed the funnel ({completed_count})
-    divided by the number of people who have entered the funnel ({entered_count}),
-    taking {entrance_period} and {funnel_window_days} into account.
-    If no people have enterd the funnel in the period, {conversion_rate} is zero.
+    Then for each {entrance_period} we calculate {reached_from_step_count} – the number of persons
+    who entered the funnel and reached step {from_step} (along with all the steps leading up to it, if there any).
+    Similarly we calculate {reached_to_step_count}, which is the number of persons from {reached_from_step_count}
+    who also reached step {to_step} (along with all the steps leading up to it, including of course step {from_step}).
+
+    {conversion_rate} is simply {reached_to_step_count} divided by {reached_from_step_count},
+    multiplied by 100 to be a percentage.
+
+    If no people have reached step {from_step} in the period, {conversion_rate} is zero.
     """
+
+    def __init__(self, filter: Filter, team: Team) -> None:
+        # TODO: allow breakdown
+        if BREAKDOWN in filter._data:
+            del filter._data[BREAKDOWN]
+        super().__init__(filter, team)
 
     def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
@@ -63,8 +71,10 @@ class ClickhouseFunnelTrends(ClickhouseFunnelNew):
         )
         interval_method = get_trunc_func_ch(self._filter.interval)
 
-        from_step = 1  # How many steps must have been done to count for the denominator
-        to_step = len(self._filter.entities)  # How many steps must have been done to count for the numerator
+        # How many steps must have been done to count for the denominator
+        from_step = self._filter.funnel_from_step or 1
+        # How many steps must have been done to count for the numerator
+        to_step = self._filter.funnel_to_step or len(self._filter.entities)
 
         reached_from_step_count_condition = f"steps_completed >= {from_step}"
         reached_to_step_count_condition = f"steps_completed >= {to_step}"
@@ -72,21 +82,21 @@ class ClickhouseFunnelTrends(ClickhouseFunnelNew):
         query = f"""
             SELECT
                 {interval_method}(toDateTime('{self._filter.date_from.strftime(TIMESTAMP_FORMAT)}') + number * {seconds_in_interval}) AS entrance_period_start,
-                entered_count,
-                completed_count,
+                reached_from_step_count,
+                reached_to_step_count,
                 conversion_rate
             FROM numbers({num_intervals}) AS period_offsets
             LEFT OUTER JOIN (
                 SELECT
                     entrance_period_start,
-                    entered_count,
-                    completed_count,
-                    if(entered_count > 0, round(completed_count / entered_count * 100, 2), 0) AS conversion_rate
+                    reached_from_step_count,
+                    reached_to_step_count,
+                    if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0) AS conversion_rate
                 FROM (
                     SELECT
                         entrance_period_start,
-                        countIf({reached_from_step_count_condition}) AS entered_count,
-                        countIf({reached_to_step_count_condition}) AS completed_count
+                        countIf({reached_from_step_count_condition}) AS reached_from_step_count,
+                        countIf({reached_to_step_count_condition}) AS reached_to_step_count
                     FROM (
                         SELECT
                             person_id,
@@ -108,8 +118,8 @@ class ClickhouseFunnelTrends(ClickhouseFunnelNew):
         summary = [
             {
                 "timestamp": period_row[0],
-                "entered_count": period_row[1],
-                "completed_count": period_row[2],
+                "reached_from_step_count": period_row[1],
+                "reached_to_step_count": period_row[2],
                 "conversion_rate": period_row[3],
                 "is_period_final": self._is_period_final(period_row[0]),
             }

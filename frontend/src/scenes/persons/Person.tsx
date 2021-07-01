@@ -17,17 +17,18 @@ import { NewPropertyComponent } from './NewPropertyComponent'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { PersonsTabType } from '~/types'
+import { PageHeader } from 'lib/components/PageHeader'
 dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
 
 export function Person(): JSX.Element {
-    const [activeTab, setActiveTab] = useState('events')
     const [activeCardTab, setActiveCardTab] = useState('properties')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
 
-    const { person, personLoading, deletedPersonLoading, hasNewKeys } = useValues(personsLogic)
-    const { deletePerson, setPerson, editProperty } = useActions(personsLogic)
+    const { person, personLoading, deletedPersonLoading, hasNewKeys, activeTab } = useValues(personsLogic)
+    const { deletePerson, setPerson, editProperty, navigateToTab } = useActions(personsLogic)
 
     const ids = (
         <Menu>
@@ -50,9 +51,10 @@ export function Person(): JSX.Element {
             <Row gutter={16}>
                 <Col span={16}>
                     <Tabs
-                        defaultActiveKey={activeTab}
+                        defaultActiveKey={PersonsTabType.EVENTS}
+                        activeKey={activeTab}
                         onChange={(tab) => {
-                            setActiveTab(tab)
+                            navigateToTab(tab as PersonsTabType)
                         }}
                     >
                         <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key="events" />
@@ -66,11 +68,18 @@ export function Person(): JSX.Element {
                                     fixedFilters={{ person_id: person.id }}
                                 />
                             ) : (
-                                <SessionsView
-                                    key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                                    personIds={person.distinct_ids}
-                                    isPersonPage
-                                />
+                                <>
+                                    <PageHeader
+                                        title="Sessions"
+                                        caption="Explore how events are being processed within sessions."
+                                        style={{ marginTop: 0 }}
+                                    />
+                                    <SessionsView
+                                        key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                                        personIds={person.distinct_ids}
+                                        isPersonPage
+                                    />
+                                </>
                             )}
                         </div>
                     )}
