@@ -36,7 +36,6 @@ import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -394,9 +393,8 @@ function FunnelInsight(): JSX.Element {
         filters: { display },
     } = useValues(funnelLogic({}))
     const { featureFlags } = useValues(featureFlagLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { autoCalculate } = useValues(funnelLogic())
     const fluidHeight = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display === FUNNEL_VIZ
-    const autoCalculate = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled
 
     return (
         <div style={fluidHeight ? {} : { height: 300, position: 'relative' }}>

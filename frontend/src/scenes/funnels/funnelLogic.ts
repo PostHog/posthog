@@ -196,6 +196,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 return stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1
             },
         ],
+        autoCalculate: [
+            () => [selectors.featureFlags, selectors.preflight],
+            (featureFlags, preflight) => {
+                return !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled)
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -208,8 +214,7 @@ export const funnelLogic = kea<funnelLogicType>({
         setFilters: ({ refresh }) => {
             // FUNNEL_BAR_VIZ removes the Calculate button
             // Query performance is suboptimal on psql
-            const autoCalculate =
-                values.featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && values.preflight?.is_clickhouse_enabled
+            const { autoCalculate } = values
             if (refresh || autoCalculate) {
                 actions.loadResults()
             }
