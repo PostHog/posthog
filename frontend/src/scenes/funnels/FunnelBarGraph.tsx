@@ -159,7 +159,7 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                             <div className="funnel-step-metadata">
                                 <ValueInspectorButton
                                     icon={<UserOutlined /> /* TODO */}
-                                    onClick={() => {}}
+                                    onClick={() => openPersonsModal(step, -i - 1)}
                                     disabled={!funnelPersonsEnabled}
                                 >
                                     {steps[i - 1].count - step.count} dropped off
