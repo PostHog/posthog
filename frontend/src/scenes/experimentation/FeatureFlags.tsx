@@ -31,14 +31,6 @@ export function FeatureFlags(): JSX.Element {
             width: '15%',
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => ('' + a.key).localeCompare(b.key),
             render: function Render(_: string, featureFlag: FeatureFlagType) {
-                if (!featureFlag.active) {
-                    return (
-                        <Tooltip title="This feature flag is disabled.">
-                            <DisconnectOutlined style={{ marginRight: 4 }} />
-                        </Tooltip>
-                    )
-                }
-
                 return (
                     <div
                         style={{
@@ -48,6 +40,11 @@ export function FeatureFlags(): JSX.Element {
                             width: 'auto',
                         }}
                     >
+                        {!featureFlag.active && (
+                            <Tooltip title="This feature flag is disabled.">
+                                <DisconnectOutlined style={{ marginRight: 4 }} />
+                            </Tooltip>
+                        )}
                         <div onClick={(e) => e.stopPropagation()}>
                             <CopyToClipboardInline
                                 iconStyle={{ color: 'var(--primary)' }}

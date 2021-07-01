@@ -50,7 +50,8 @@ export function ActionsLineGraph({
                                   dataset.label,
                                   day,
                                   day,
-                                  dataset.breakdown_value || dataset.status
+                                  dataset.breakdown_value || dataset.status,
+                                  true
                               )
                           }
                 }

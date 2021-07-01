@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional, Tuple
 from django.conf import settings
 from django.db.models.expressions import F
 from django.utils import timezone
+from rest_framework.request import Request
 from rest_framework.utils.serializer_helpers import ReturnDict
 from sentry_sdk.api import capture_exception
 
@@ -72,7 +73,9 @@ class ClickhouseStickiness(Stickiness):
         counts = sync_execute(content_sql, params)
         return self.process_result(counts, filter)
 
-    def _retrieve_people(self, target_entity: Entity, filter: StickinessFilter, team: Team) -> ReturnDict:
+    def _retrieve_people(
+        self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request
+    ) -> ReturnDict:
         return retrieve_stickiness_people(target_entity, filter, team)
 
 

@@ -130,7 +130,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
     urlToAction: ({ actions }) => ({
         '/feature_flags/*': ({ _: id }) => {
             if (id) {
-                actions.setFeatureFlagId(parseInt(id))
+                const parsedId = id === 'new' ? 'new' : parseInt(id)
+                actions.setFeatureFlagId(parsedId)
             }
             actions.loadFeatureFlag()
         },
