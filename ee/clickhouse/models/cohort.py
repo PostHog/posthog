@@ -178,8 +178,7 @@ def is_precalculated_query(cohort: Cohort) -> bool:
     if (
         cohort.last_calculation
         and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
-        and not settings.DEBUG
-        and not settings.TEST
+        and settings.USE_PRECALCULATED_CH_COHORT_PEOPLE
     ):
         return True
     else:

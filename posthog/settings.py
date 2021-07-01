@@ -60,6 +60,7 @@ E2E_TESTING = get_from_env(
 )  # whether the app is currently running for E2E tests
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
 SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
+USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 
 SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
