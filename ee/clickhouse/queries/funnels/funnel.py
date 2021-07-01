@@ -20,7 +20,7 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
         return f"""
         SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
                 {steps_per_person_query}
-        ) SETTINGS allow_experimental_window_functions = 1
+        ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
 
     def get_step_counts_query(self):
@@ -30,7 +30,7 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
 
         return f"""SELECT person_id, max(steps) AS steps {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
             {steps_per_person_query}
-        ) GROUP BY person_id
+        ) GROUP BY person_id {self._get_breakdown_prop()}
         """
 
     def _format_results(self, results):
