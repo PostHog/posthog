@@ -49,12 +49,9 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get("/api/person/funnel/", data=request_data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
+        first_person = j["reults"][0]["people"][0]
         self.assertEqual(5, len(j["results"][0]["people"]))
-        self.assertTrue(
-            "id" in j["results"][0]["people"]
-            and "name" in j["results"][0]["people"]
-            and "distinct_ids" in j["results"][0]["people"]
-        )
+        self.assertTrue("id" in first_person and "name" in first_person and "distinct_ids" in first_person)
         self.assertEqual(5, j["results"][0]["count"])
 
     def test_basic_pagination(self):
