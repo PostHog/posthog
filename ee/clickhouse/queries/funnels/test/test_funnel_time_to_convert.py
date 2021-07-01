@@ -38,11 +38,11 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
         _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
 
-        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-09 13:00:00")
-        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-09 13:37:00")
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
+        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
 
-        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-11 07:00:00")
-        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-12 06:00:00")
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
+        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
 
         filter = Filter(
             data={
