@@ -361,6 +361,11 @@ export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
 
+export enum PersonsTabType {
+    EVENTS = 'events',
+    SESSIONS = 'sessions',
+}
+
 export interface EventType {
     elements: ElementType[]
     elements_hash: string | null

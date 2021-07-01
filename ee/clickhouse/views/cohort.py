@@ -1,3 +1,5 @@
+from rest_framework.request import Request
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from ee.clickhouse.sql.person import PERSON_STATIC_COHORT_TABLE
@@ -19,7 +21,7 @@ class ClickhouseCohortSerializer(CohortSerializer):
             cohort.pk, INSIGHT_STICKINESS, filter.to_dict(), entity_data=target_entity.to_dict()
         )
 
-    def _handle_trend_people(self, target_entity: Entity, cohort: Cohort, filter: Filter) -> None:
+    def _handle_trend_people(self, target_entity: Entity, cohort: Cohort, filter: Filter, request: Request) -> None:
         insert_cohort_from_query.delay(cohort.pk, INSIGHT_TRENDS, filter.to_dict(), entity_data=target_entity.to_dict())
 
 

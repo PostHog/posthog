@@ -1,6 +1,7 @@
-import React from 'react'
-import { useValues, useActions } from 'kea'
-import { Button, Spin, Space, Tooltip } from 'antd'
+import React, { useEffect, useRef } from 'react'
+import { useValues, useActions, BindLogic } from 'kea'
+import { decodeParams } from 'kea-router'
+import { Button, Spin, Space, Tooltip, Badge, Switch, Row } from 'antd'
 import { Link } from 'lib/components/Link'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
@@ -26,8 +27,10 @@ import { Drawer } from 'lib/components/Drawer'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
 import generatePicker from 'antd/es/date-picker/generatePicker'
-import { ResizableTable, ResizableColumnType } from 'lib/components/ResizableTable'
+import { ResizableTable, ResizableColumnType, ANTD_EXPAND_BUTTON_WIDTH } from 'lib/components/ResizableTable'
 import { teamLogic } from 'scenes/teamLogic'
+import { IconEventsShort } from 'lib/components/icons'
+import ExpandIcon from 'lib/components/ExpandIcon'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
@@ -54,10 +57,12 @@ function getSessionRecordingsDurationSum(session: SessionType): number {
     return session.session_recordings.map(({ recording_duration }) => recording_duration).reduce((a, b) => a + b, 0)
 }
 
+const MATCHING_EVENT_ICON_SIZE = 26
+
 export function SessionsView({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
     const {
-        sessions,
+        filteredSessions,
         sessionsLoading,
         pagination,
         isLoadingNext,
@@ -65,10 +70,23 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         properties,
         sessionRecordingId,
         firstRecordingId,
+        expandedRowKeys,
+        expandAllRows,
+        showOnlyMatches,
+        filters,
     } = useValues(logic)
-    const { fetchNextSessions, previousDay, nextDay, setFilters, applyFilters } = useActions(logic)
+    const {
+        fetchNextSessions,
+        previousDay,
+        nextDay,
+        setFilters,
+        applyFilters,
+        setExpandAllRows,
+        setShowOnlyMatches,
+    } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
+    const sessionsTableRef = useRef<HTMLInputElement>(null)
 
     const enableSessionRecordingCTA = (
         <>
@@ -99,13 +117,6 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             span: 3,
         },
         {
-            title: 'Event Count',
-            render: function RenderDuration(session: SessionType) {
-                return <span>{session.event_count}</span>
-            },
-            span: 2,
-        },
-        {
             title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
                 if (session.session_recordings.length > 0) {
@@ -114,28 +125,12 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 }
                 return <span>{humanFriendlyDuration(session.length)}</span>
             },
-            span: 2,
+            span: 3,
         },
         {
             title: 'Start Time',
             render: function RenderStartTime(session: SessionType) {
                 return <span>{humanFriendlyDetailedTime(session.start_time)}</span>
-            },
-            span: 3,
-        },
-        {
-            title: 'End Time',
-            render: function RenderEndTime(session: SessionType) {
-                if (session.session_recordings.length > 0) {
-                    const seconds = getSessionRecordingsDurationSum(session)
-                    if (seconds > session.length) {
-                        return (
-                            <span>{humanFriendlyDetailedTime(dayjs(session.start_time).add(seconds, 'seconds'))}</span>
-                        )
-                    }
-                }
-
-                return <span>{humanFriendlyDetailedTime(session.end_time)}</span>
             },
             span: 3,
         },
@@ -194,6 +189,13 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         },
     ]
 
+    useEffect(() => {
+        // scroll to sessions table if filters are defined in url from the get go
+        if (decodeParams(window.location.hash)?.['#backTo'] === 'Insights' && sessionsTableRef.current) {
+            sessionsTableRef.current.scrollIntoView({ behavior: 'smooth' })
+        }
+    }, [])
+
     return (
         <div className="events" data-attr="events-table">
             <Space className="mb-05">
@@ -210,27 +212,65 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             <SearchAllBox />
             <SessionsFilterBox selector="new" />
 
-            <EditFiltersPanel onSubmit={applyFilters} />
+            <BindLogic logic={sessionsTableLogic} props={{ personIds }}>
+                <EditFiltersPanel onSubmit={applyFilters} />
+            </BindLogic>
 
-            <div className="text-right mb mt">
-                <Tooltip title={playAllCTA}>
-                    <span>
-                        <LinkButton
-                            to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
-                            type="primary"
-                            data-attr="play-all-recordings"
-                            disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
-                        >
-                            <PlaySquareOutlined /> Play all
-                        </LinkButton>
-                    </span>
-                </Tooltip>
+            {/* scroll to */}
+            <div ref={sessionsTableRef} />
+
+            <div className="sessions-view-actions">
+                <div className="sessions-view-actions-left-items">
+                    <Row className="action">
+                        <Switch
+                            // @ts-expect-error `id` prop is valid on switch
+                            id="expand-all-sessions"
+                            onChange={(active) => {
+                                setExpandAllRows(active)
+                            }}
+                            checked={expandAllRows}
+                            size="small"
+                            disabled={filteredSessions.length === 0}
+                        />
+                        <label className="ml-05 mr" htmlFor="expand-all-sessions">
+                            Expand all sessions
+                        </label>
+                    </Row>
+                    <Row className="action">
+                        <Switch
+                            // @ts-expect-error `id` prop is valid on switch
+                            id="show-only-matches"
+                            onChange={setShowOnlyMatches}
+                            checked={showOnlyMatches}
+                            size="small"
+                            disabled={filteredSessions.length === 0 || filters.length === 0}
+                        />
+                        <label className="ml-05" htmlFor="show-only-matches">
+                            Show only matches
+                        </label>
+                    </Row>
+                </div>
+                <div>
+                    <Tooltip title={playAllCTA}>
+                        <span>
+                            <LinkButton
+                                to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
+                                type="primary"
+                                data-attr="play-all-recordings"
+                                disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
+                            >
+                                <PlaySquareOutlined /> Play all
+                            </LinkButton>
+                        </span>
+                    </Tooltip>
+                </div>
             </div>
-
             <ResizableTable
                 locale={{
                     emptyText: selectedDate
-                        ? `No Sessions on ${selectedDate.year() == dayjs().year() ? 'MMM D' : 'MMM D, YYYY'}`
+                        ? `No Sessions on ${selectedDate.format(
+                              selectedDate.year() == dayjs().year() ? 'MMM D' : 'MMM D, YYYY'
+                          )}`
                         : 'No Sessions',
                 }}
                 data-attr="sessions-table"
@@ -238,15 +278,44 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 rowKey="global_session_id"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 rowClassName="cursor-pointer"
-                dataSource={sessions}
+                dataSource={filteredSessions}
                 columns={columns}
                 loading={sessionsLoading}
                 expandable={{
                     expandedRowRender: function renderExpand(session) {
-                        return <SessionDetails key={session.global_session_id} session={session} />
+                        return (
+                            <BindLogic logic={sessionsTableLogic} props={{ personIds }}>
+                                <SessionDetails key={session.global_session_id} session={session} />
+                            </BindLogic>
+                        )
                     },
+                    expandIcon: function _renderExpandIcon(expandProps) {
+                        const { record: session } = expandProps
+                        return (
+                            <ExpandIcon {...expandProps}>
+                                {session?.matching_events?.length > 0 ? (
+                                    <Tooltip
+                                        title={`${session.matching_events.length} out of ${session.event_count} events match`}
+                                    >
+                                        <Badge
+                                            className="sessions-matching-events-icon cursor-pointer"
+                                            count={<span className="badge-text">{session.matching_events.length}</span>}
+                                            offset={[0, MATCHING_EVENT_ICON_SIZE]}
+                                            size="small"
+                                        >
+                                            <IconEventsShort size={MATCHING_EVENT_ICON_SIZE} />
+                                        </Badge>
+                                    </Tooltip>
+                                ) : (
+                                    <></>
+                                )}
+                            </ExpandIcon>
+                        )
+                    },
+                    columnWidth: ANTD_EXPAND_BUTTON_WIDTH + MATCHING_EVENT_ICON_SIZE,
                     rowExpandable: () => true,
                     expandRowByClick: true,
+                    ...(expandAllRows && { expandedRowKeys }),
                 }}
             />
             {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} />}

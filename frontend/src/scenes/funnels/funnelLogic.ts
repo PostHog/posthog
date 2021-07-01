@@ -8,6 +8,9 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import { EntityTypes, FilterType, FunnelResult, FunnelStep, PathType, PersonType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
 function wait(ms = 1000): Promise<any> {
@@ -72,6 +75,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
     connect: {
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
+        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
     },
 
     loaders: ({ props, values, actions }) => ({
@@ -198,6 +202,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 return stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1
             },
         ],
+        autoCalculate: [
+            () => [selectors.featureFlags, selectors.preflight],
+            (featureFlags, preflight) => {
+                return !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled)
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -208,7 +218,10 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setStepsWithCountLoading(false)
         },
         setFilters: ({ refresh }) => {
-            if (refresh) {
+            // FUNNEL_BAR_VIZ removes the Calculate button
+            // Query performance is suboptimal on psql
+            const { autoCalculate } = values
+            if (refresh || autoCalculate) {
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
