@@ -302,3 +302,12 @@ AND person_id IN
     WHERE 1 = 1 {filters}
 )
 """
+
+GET_PERSON_PROPERTIES_COUNT = """
+SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
+FROM person
+ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) as keysAndValues
+WHERE team_id = %(team_id)s
+GROUP BY tupleElement(keysAndValues, 1)
+ORDER BY count DESC, key ASC
+"""

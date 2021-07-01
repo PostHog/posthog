@@ -1,6 +1,7 @@
 import json
 from uuid import uuid4
 
+from django.core.cache import cache
 from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
@@ -49,10 +50,13 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get("/api/person/funnel/", data=request_data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
-        self.assertEqual(5, len(j["results"]))
-        self.assertTrue("id" in j["results"][0] and "name" in j["results"][0] and "distinct_ids" in j["results"][0])
+        first_person = j["results"][0]["people"][0]
+        self.assertEqual(5, len(j["results"][0]["people"]))
+        self.assertTrue("id" in first_person and "name" in first_person and "distinct_ids" in first_person)
+        self.assertEqual(5, j["results"][0]["count"])
 
     def test_basic_pagination(self):
+        cache.clear()
         self._create_sample_data(250)
         request_data = {
             "insight": INSIGHT_FUNNELS,
@@ -73,18 +77,21 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get("/api/person/funnel/", data=request_data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
+        people = j["results"][0]["people"]
         next = j["next"]
-        self.assertEqual(100, len(j["results"]))
+        self.assertEqual(100, len(people))
 
         response = self.client.get(next)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
+        people = j["results"][0]["people"]
         next = j["next"]
-        self.assertEqual(100, len(j["results"]))
+        self.assertEqual(100, len(people))
         self.assertNotEqual(None, next)
 
         response = self.client.get(next)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
-        self.assertEqual(50, len(j["results"]))
+        people = j["results"][0]["people"]
+        self.assertEqual(50, len(people))
         self.assertEqual(None, j["next"])

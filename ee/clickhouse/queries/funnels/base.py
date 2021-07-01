@@ -191,15 +191,21 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 
-    def _get_inner_event_query(self, entities=None, entity_name="events") -> str:
+    def _get_inner_event_query(
+        self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False
+    ) -> str:
         entities_to_use = entities or self._filter.entities
 
         event_query, params = FunnelEventQuery(filter=self._filter, team_id=self._team.pk).get_query(
-            entities_to_use, entity_name
+            entities_to_use, entity_name, skip_entity_filter=skip_entity_filter
         )
 
         self.params.update(params)
-        steps_conditions = self._get_steps_conditions(length=len(entities_to_use))
+
+        if skip_step_filter:
+            steps_conditions = "1=1"
+        else:
+            steps_conditions = self._get_steps_conditions(length=len(self._filter.entities))
 
         all_step_cols: List[str] = []
         for index, entity in enumerate(entities_to_use):
@@ -271,6 +277,36 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if entity.properties:
             return prop_filters
         return ""
+
+    def _get_funnel_person_step_condition(self):
+        step_num = self._filter.funnel_step
+        max_steps = len(self._filter.entities)
+
+        if step_num is None:
+            raise ValueError("funnel_step should not be none")
+
+        if step_num >= 0:
+            self.params.update({"step_num": [i for i in range(step_num, max_steps + 1)]})
+            return "steps IN %(step_num)s"
+        else:
+            self.params.update({"step_num": abs(step_num) - 1})
+            return "steps = %(step_num)s"
+
+    def _get_count_columns(self, max_steps: int):
+        cols: List[str] = []
+
+        for i in range(max_steps):
+            cols.append(f"countIf(steps = {i + 1}) step_{i + 1}")
+
+        return ", ".join(cols)
+
+    def _get_step_time_avgs(self, max_steps: int):
+        conditions: List[str] = []
+        for i in range(1, max_steps):
+            conditions.append(f"avg(step_{i}_average_conversion_time) step_{i}_average_conversion_time")
+
+        formatted = ", ".join(conditions)
+        return f", {formatted}" if formatted else ""
 
     @abstractmethod
     def get_query(self, format_properties):

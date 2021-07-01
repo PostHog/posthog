@@ -89,6 +89,21 @@ FUNNEL_WINDOW_DAYS = "funnel_window_days"
 FUNNEL_FROM_STEP = "funnel_from_step"
 FUNNEL_TO_STEP = "funnel_to_step"
 FUNNEL_STEP = "funnel_step"
+FUNNEL_ORDER_TYPE = "funnel_order_type"
+FUNNEL_VIZ_TYPE = "funnel_viz_type"
+
+
+class FunnelOrderType(str, Enum):
+    STRICT = "strict"
+    UNORDERED = "unordered"
+    ORDERED = "ordered"
+
+
+class FunnelVizType(str, Enum):
+    TRENDS = "trends"
+    TIME_TO_CONVERT = "time_to_convert"
+    STEPS = "steps"
+
 
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_TIME = "retention_first_time"
