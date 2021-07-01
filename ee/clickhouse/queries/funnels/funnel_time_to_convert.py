@@ -2,13 +2,10 @@ from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
 
 
 class ClickhouseFunnelTimeToConvert(ClickhouseFunnelNew):
-    def run(self, *args, **kwargs) -> list:
+    def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
             return []
 
-        return self.perform_query()
-
-    def perform_query(self):
         return self._exec_query()
 
     def get_query(self, format_properties) -> str:

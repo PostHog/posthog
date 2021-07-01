@@ -62,15 +62,17 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
-        results = funnel_trends.perform_query()
+        results = funnel_trends.run()
 
         # Autobinned using the maximum time to convert
+        # Since the maximum time to step 1 from 0 is user C's 23 h (82_800) s and the number of bins is 10,
+        # each bin is an interval of 8280 s, starting with 0, left-inclusive
         self.assertEqual(
             results,
             [
-                (8280.0, 2),
-                (16560.0, 0),
-                (24840.0, 0),
+                (8280.0, 2),  # Reached step 1 from step 0 in less than 8280 s - users A and B fall into this bin
+                (16560.0, 0),  # Reached step 1 from step 0 in at least 8280 s but less than 16_560 s - no users
+                (24840.0, 0),  # And so on
                 (33120.0, 0),
                 (41400.0, 0),
                 (49680.0, 0),
@@ -78,6 +80,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 (66240.0, 0),
                 (74520.0, 0),
                 (82800.0, 0),
-                (91080.0, 1),
+                (91080.0, 1),  # >= 82_800 && < 91_080 - user C falls into this bin, with a time of exactly 82_800 s
             ],
         )
