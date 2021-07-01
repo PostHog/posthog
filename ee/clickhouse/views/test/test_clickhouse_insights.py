@@ -43,7 +43,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                     {"id": "step two", "type": "events", "order": 1},
                 ],
                 "funnel_window_days": 14,
-                "funnel_type": "unordered",
+                "funnel_order_type": "unordered",
             },
         ).json()
 
@@ -77,7 +77,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 "funnel_window_days": 7,
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-07 23:59:59",
-                "funnel_type": "trends",
+                "funnel_viz_type": "trends",
             },
         ).json()
 

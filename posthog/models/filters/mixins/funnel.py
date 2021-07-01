@@ -1,13 +1,20 @@
 from typing import Optional
 
-from django.db.models import base
-
-from posthog.constants import FUNNEL_FROM_STEP, FUNNEL_STEP, FUNNEL_TO_STEP, FUNNEL_TYPE, FUNNEL_WINDOW_DAYS, FunnelType
+from posthog.constants import (
+    FUNNEL_FROM_STEP,
+    FUNNEL_ORDER_TYPE,
+    FUNNEL_STEP,
+    FUNNEL_TO_STEP,
+    FUNNEL_VIZ_TYPE,
+    FUNNEL_WINDOW_DAYS,
+    FunnelOrderType,
+    FunnelVizType,
+)
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 
 
-class FunnelTrendsFromToStepsMixin(BaseParamMixin):
+class FunnelFromToStepsMixin(BaseParamMixin):
     @cached_property
     def funnel_from_step(self) -> Optional[int]:
         if self._data.get(FUNNEL_FROM_STEP):
@@ -71,9 +78,13 @@ class FunnelPersonsStepMixin(BaseParamMixin):
 
 class FunnelTypeMixin(BaseParamMixin):
     @cached_property
-    def funnel_type(self) -> Optional[FunnelType]:
-        return self._data.get(FUNNEL_TYPE)
+    def funnel_order_type(self) -> FunnelOrderType:
+        return self._data.get(FUNNEL_ORDER_TYPE, FunnelOrderType.ORDERED)
+
+    @cached_property
+    def funnel_viz_type(self) -> FunnelVizType:
+        return self._data.get(FUNNEL_VIZ_TYPE, FunnelVizType.STEPS)
 
     @include_dict
     def funnel_type_to_dict(self):
-        return {FUNNEL_TYPE: self.funnel_type} if self.funnel_type else {}
+        return {FUNNEL_ORDER_TYPE: self.funnel_order_type, FUNNEL_VIZ_TYPE: self.funnel_viz_type}

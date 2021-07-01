@@ -12,7 +12,7 @@ from ee.clickhouse.queries.funnels import ClickhouseFunnelPersons, ClickhouseFun
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from posthog.api.person import PersonViewSet
 from posthog.api.utils import format_next_absolute_url, format_next_url
-from posthog.constants import INSIGHT_FUNNELS, FunnelType
+from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.models import Event, Filter, Person
 
@@ -41,9 +41,9 @@ class ClickhousePersonViewSet(PersonViewSet):
         filter = Filter(request=request)
         funnel_class: Callable = ClickhouseFunnelPersons
 
-        if filter.funnel_type == FunnelType.TRENDS:
+        if filter.funnel_viz_type == FunnelVizType.TRENDS:
             funnel_class = ClickhouseFunnelTrendsPersons
-        # elif filter.funnel_type == FunnelType.UNORDERED:
+        # elif filter.funnel_order_type == FunnelOrderType.UNORDERED:
         #     funnel_class = ClickhouseFunnelUnorderedPersons
 
         results = funnel_class(filter, team).run()

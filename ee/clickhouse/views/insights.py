@@ -20,7 +20,8 @@ from posthog.constants import (
     INSIGHT_STICKINESS,
     TRENDS_LINEAR,
     TRENDS_STICKINESS,
-    FunnelType,
+    FunnelOrderType,
+    FunnelVizType,
 )
 from posthog.decorators import cached_function
 from posthog.models.filters import Filter
@@ -75,12 +76,12 @@ class ClickhouseInsightsViewSet(InsightViewSet):
 
         # backwards compatibility - unsure of implications yet
         # but it's very confusing that funnel trends constant is same as the Trends display constant
-        if not filter.funnel_type and filter.display == TRENDS_LINEAR:
-            filter.funnel_type = FunnelType.TRENDS
+        if filter.display == TRENDS_LINEAR:
+            filter.funnel_viz_type = FunnelVizType.TRENDS
 
-        if filter.funnel_type == FunnelType.TRENDS:
+        if filter.funnel_viz_type == FunnelVizType.TRENDS:
             return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run()}
-        elif filter.funnel_type == FunnelType.UNORDERED:
+        elif filter.funnel_order_type == FunnelOrderType.UNORDERED:
             return {"result": ClickhouseFunnelUnordered(team=team, filter=filter).run()}
         else:
             return {"result": ClickhouseFunnel(team=team, filter=filter).run()}
