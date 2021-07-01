@@ -3,8 +3,8 @@ from typing import Any, Callable, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query import Prefetch
-from rest_framework.request import Request
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter

@@ -5,8 +5,8 @@ from dateutil.relativedelta import relativedelta
 from django.db import connection
 from django.db.models.query import Prefetch
 from django.utils import timezone
-from rest_framework.request import Request
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity

@@ -4,8 +4,8 @@ from typing import Any, Dict, List, Union
 from django.db import connection
 from django.db.models import Count
 from django.db.models.query import Prefetch, QuerySet
-from rest_framework.request import Request
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
@@ -130,7 +130,7 @@ def stickiness_process_entity_type(target_entity: Entity, team: Team, filter: St
             base.filter_events(team.pk, filter, target_entity)
         )
     else:
-        raise ValidationError("target entity must be action or event")
+        raise ValidationError("Target entity must be action or event.")
     return events
 
 
