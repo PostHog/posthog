@@ -254,7 +254,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
 
         return {
             setFilters: () => buildURL({}, true),
-            loadSessions: () => buildURL(),
+            loadSessions: () => buildURL({}, true),
             setSessionRecordingId: () => buildURL(),
             closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
         }
