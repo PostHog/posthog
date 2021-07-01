@@ -167,6 +167,8 @@ export function Cohorts(): JSX.Element {
         },
     ]
 
+    const COHORT_V2 = featureFlags[FEATURE_FLAGS.ENGAGEMENT_COHORTS] && preflight?.is_clickhouse_enabled
+
     return (
         <div>
             <PageHeader
@@ -212,14 +214,9 @@ export function Cohorts(): JSX.Element {
                     onClose={() => setOpenCohort(null)}
                     destroyOnClose={true}
                     visible={!!openCohort}
-                    footer={openCohort ? <CohortV2Footer cohort={openCohort} /> : null}
+                    footer={openCohort && COHORT_V2 ? <CohortV2Footer cohort={openCohort} /> : null}
                 >
-                    {openCohort &&
-                        (featureFlags[FEATURE_FLAGS.ENGAGEMENT_COHORTS] && preflight?.is_clickhouse_enabled ? (
-                            <CohortV2 cohort={openCohort} />
-                        ) : (
-                            <Cohort cohort={openCohort} />
-                        ))}
+                    {openCohort && (COHORT_V2 ? <CohortV2 cohort={openCohort} /> : <Cohort cohort={openCohort} />)}
                 </Drawer>
             </div>
         </div>

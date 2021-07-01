@@ -43,6 +43,7 @@ export const cohortLogic = kea({
     actions: () => ({
         saveCohort: (cohortParams = {}, filterParams = null) => ({ cohortParams, filterParams }),
         setCohort: (cohort) => ({ cohort }),
+        updateCohortGroups: (groups) => ({ groups }),
         checkIsFinished: (cohort) => ({ cohort }),
         setToastId: (toastId) => ({ toastId }),
         setPollTimeout: (pollTimeout) => ({ pollTimeout }),
@@ -59,7 +60,10 @@ export const cohortLogic = kea({
         cohort: [
             processCohortOnSet(props.cohort),
             {
-                setCohort: (_, { cohort }) => processCohortOnSet(cohort),
+                setCohort: (s, { cohort }) => processCohortOnSet(cohort),
+                updateCohortGroups: (state, { groups }) => {
+                    return processCohortOnSet({ ...state, groups })
+                },
             },
         ],
         toastId: [

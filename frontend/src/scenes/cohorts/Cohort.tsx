@@ -8,6 +8,19 @@ import { CohortGroupType, CohortType } from '~/types'
 import { Persons } from '../persons/Persons'
 import Dragger from 'antd/lib/upload/Dragger'
 
+const isSubmitDisabled = (cohort: CohortType): boolean => {
+    if (cohort && cohort.csv) {
+        return false
+    }
+    if (cohort && cohort.groups) {
+        return cohort.groups.filter(isValidGroup).length !== cohort.groups.length
+    }
+    return true
+}
+
+const isValidGroup = (group: CohortGroupType): boolean =>
+    !!(group.days && group.action_id) || !!(group.properties && group.properties.length > 0)
+
 function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
     const { setCohort } = useActions(logic)
     const { cohort } = useValues(logic)
@@ -51,8 +64,9 @@ function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
 }
 
 function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
-    const { setCohort } = useActions(logic)
+    const { updateCohortGroups, setCohort } = useActions(logic)
     const { cohort } = useValues(logic)
+
     return (
         <>
             {cohort.id === 'new' && (
@@ -71,12 +85,13 @@ function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
                         allowRemove={cohort.groups.length > 1}
                         index={index}
                         onRemove={() => {
-                            cohort.groups.splice(index, 1)
-                            setCohort({ ...cohort })
+                            const groups = [...cohort.groups].splice(index, 1)
+                            updateCohortGroups(groups)
                         }}
                         onChange={(_group: CohortGroupType) => {
-                            cohort.groups[index] = _group
-                            setCohort({ ...cohort })
+                            const groups = [...cohort.groups]
+                            groups[index] = _group
+                            updateCohortGroups(groups)
                         }}
                     />
                     {index < cohort.groups.length - 1 && (
@@ -164,6 +179,15 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                 )}
 
                 <div className="mt">
+                    <Button
+                        type="primary"
+                        htmlType="submit"
+                        disabled={isSubmitDisabled(cohort)}
+                        data-attr="save-cohort"
+                        style={{ marginRight: '1rem' }}
+                    >
+                        Save cohort
+                    </Button>
                     {cohort.is_static === false && (
                         <Button onClick={() => setCohort({ ...cohort, groups: [...cohort.groups, {}] })}>
                             New group
