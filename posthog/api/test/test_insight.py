@@ -186,6 +186,7 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(response["result"]), 1)
 
         def test_insight_funnels_basic_post(self):
+            person_factory(team=self.team, distinct_ids=["1"])
             event_factory(team=self.team, event="user signed up", distinct_id="1")
             event_factory(team=self.team, event="user did things", distinct_id="1")
             response = self.client.post(
@@ -203,7 +204,9 @@ def insight_test_factory(event_factory, person_factory):
             if is_clickhouse_enabled():
                 self.assertEqual(len(response["result"]), 2)
                 self.assertEqual(response["result"][0]["name"], "user signed up")
+                self.assertEqual(response["result"][0]["count"], 1)
                 self.assertEqual(response["result"][1]["name"], "user did things")
+                self.assertEqual(response["result"][1]["count"], 1)
             else:
                 self.assertEqual(response["result"]["loading"], True)
 
