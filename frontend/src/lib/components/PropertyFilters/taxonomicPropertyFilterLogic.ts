@@ -10,16 +10,38 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         pageKey: string
         index: number
         onChange?: null | ((filters: AnyPropertyFilter[]) => void)
+        initialDisplayMode: DisplayMode
     },
     key: (props) => `${props.pageKey}-${props.index}`,
 
     actions: () => ({
         update: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
-        setSelectedItemKey: (selectedItemKey: number | null) => ({ selectedItemKey }),
+        setSelectedItemKey: (selectedItemKey: string | number | null) => ({ selectedItemKey }),
         setDisplayMode: (displayMode: DisplayMode) => ({
             displayMode,
         }),
+    }),
+
+    reducers: ({ props }) => ({
+        searchQuery: [
+            '',
+            {
+                setSearchQuery: (_, { searchQuery }) => searchQuery,
+            },
+        ],
+        selectedItemKey: [
+            null as string | number | null,
+            {
+                setSelectedItemKey: (_, { selectedItemKey }) => selectedItemKey,
+            },
+        ],
+        displayMode: [
+            props.initialDisplayMode,
+            {
+                setDisplayMode: (_, { displayMode }) => displayMode,
+            },
+        ],
     }),
 
     selectors: {

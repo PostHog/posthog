@@ -1,7 +1,7 @@
 /*
 Contains the property filter component w/ properties and cohorts separated in tabs. Also includes infinite-scroll remote loading.
 */
-import React, { useState } from 'react'
+import React from 'react'
 import { Input, Button } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectDownIcon } from 'lib/components/SelectDownIcon'
@@ -21,19 +21,19 @@ export enum DisplayMode {
     OPERATOR_VALUE_SELECT,
 }
 
-export function TaxonomicPropertyFilter({ pageKey, index, onComplete }: PropertyFilterInternalProps): JSX.Element {
+export function TaxonomicPropertyFilter({
+    pageKey = window.location.pathname,
+    index,
+    onComplete,
+}: PropertyFilterInternalProps): JSX.Element {
     const { filters } = useValues(propertyFilterLogic)
-    const { personProperties, cohorts } = useValues(
-        taxonomicPropertyFilterLogic({ pageKey: pageKey || window.location.pathname, index })
-    )
     const { setFilter } = useActions(propertyFilterLogic)
     const { key, value, operator, type } = filters[index]
-
-    const [searchQuery, setSearchQuery] = useState('')
-    const [selectedItemKey, setSelectedItemKey] = useState<string | number | null>(null)
     const initialDisplayMode =
         key && type !== 'cohort' ? DisplayMode.OPERATOR_VALUE_SELECT : DisplayMode.PROPERTY_SELECT
-    const [displayMode, setDisplayMode] = useState(initialDisplayMode)
+    const logic = taxonomicPropertyFilterLogic({ pageKey, index, initialDisplayMode })
+    const { personProperties, cohorts, searchQuery, selectedItemKey, displayMode } = useValues(logic)
+    const { setSearchQuery, setSelectedItemKey, setDisplayMode } = useActions(logic)
 
     return (
         <div style={{ minWidth: '25rem' }}>
