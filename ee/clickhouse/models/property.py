@@ -3,7 +3,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
@@ -42,12 +41,13 @@ def parse_prop_clauses(
             try:
                 cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
             except Cohort.DoesNotExist:
-                raise ValidationError(f"Cohort ID {prop.value} doesn't exist.")
-            person_id_query, cohort_filter_params = format_filter_query(cohort)
-            params = {**params, **cohort_filter_params}
-            final.append(
-                "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
-            )
+                final.append("AND 0 = 1")  # If cohort doesn't exist, nothing can match
+            else:
+                person_id_query, cohort_filter_params = format_filter_query(cohort)
+                params = {**params, **cohort_filter_params}
+                final.append(
+                    "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
+                )
         elif prop.type == "person":
             filter_query, filter_params = prop_filter_json_extract(
                 prop, idx, "{}person".format(prepend), allow_denormalized_props=allow_denormalized_props
