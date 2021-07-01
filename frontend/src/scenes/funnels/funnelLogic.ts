@@ -11,6 +11,7 @@ import { FilterType, FunnelResult, FunnelStep, PersonType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
@@ -66,6 +67,7 @@ export const funnelLogic = kea<funnelLogicType>({
         setStepsWithCountLoading: (stepsWithCountLoading: boolean) => ({ stepsWithCountLoading }),
         loadConversionWindow: (days: number) => ({ days }),
         setConversionWindowInDays: (days: number) => ({ days }),
+        setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
     }),
 
     connect: {
@@ -163,6 +165,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 setConversionWindowInDays: (state, { days }) => {
                     return days >= 1 && days <= 365 ? Math.round(days) : state
                 },
+            },
+        ],
+        stepReference: [
+            FunnelStepReference.total as FunnelStepReference,
+            {
+                setStepReference: (_, { stepReference }) => stepReference,
             },
         ],
     }),

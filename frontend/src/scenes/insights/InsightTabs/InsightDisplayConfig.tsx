@@ -16,6 +16,7 @@ import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import FunnelStepReferencePicker from './FunnelTab/FunnelStepReferencePicker'
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
     allFilters: FilterType
@@ -106,6 +107,8 @@ export function InsightDisplayConfig({
                 {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
+
+                {activeView === ViewType.FUNNELS && <FunnelStepReferencePicker />}
 
                 {showDateFilter[activeView] && (
                     <>
