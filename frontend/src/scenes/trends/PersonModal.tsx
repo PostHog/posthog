@@ -50,7 +50,10 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
             ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
             : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie'
             ? `"${people?.label}"`
-            : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
+            : filters.insight === ViewType.FUNNELS
+            ? `${people?.label} - ${people?.day}`
+            : `${people?.label} on ${people?.day} : ${people?.day ? dayjs(people.day).format('ll') : '...'}`
+
     const closeModal = (): void => {
         setShowingPeople(false)
         setSearchTerm('')

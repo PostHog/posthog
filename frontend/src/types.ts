@@ -603,6 +603,7 @@ export interface FilterType {
     formula?: any
     filter_test_accounts?: boolean
     from_dashboard?: boolean
+    funnel_step?: number
 }
 
 export interface SystemStatusSubrows {

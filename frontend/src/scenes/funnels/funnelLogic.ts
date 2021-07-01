@@ -34,7 +34,7 @@ async function pollFunnel(params: Record<string, any>): Promise<FunnelResult> {
     return result
 }
 
-const cleanFunnelParams = (filters: FilterType): FilterType => {
+export const cleanFunnelParams = (filters: FilterType): FilterType => {
     return {
         ...filters,
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
@@ -45,6 +45,7 @@ const cleanFunnelParams = (filters: FilterType): FilterType => {
         ...(filters.interval ? { interval: filters.interval } : {}),
         ...(filters.properties ? { properties: filters.properties } : {}),
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
         interval: autocorrectInterval(filters),
         insight: ViewType.FUNNELS,
     }

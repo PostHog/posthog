@@ -36,6 +36,7 @@ import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PersonModal } from 'scenes/trends/PersonModal'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -64,6 +65,8 @@ export function Insights(): JSX.Element {
     } = useValues(insightLogic)
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
+    const { showingPeople } = useValues(trendsLogic())
+    const { refreshCohort } = useActions(trendsLogic())
 
     const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
@@ -100,6 +103,14 @@ export function Insights(): JSX.Element {
 
     return (
         <div className="insights-page">
+            <PersonModal
+                visible={showingPeople} //&& !cohortModalVisible}
+                view={ViewType.FUNNELS}
+                onSaveCohort={() => {
+                    refreshCohort()
+                    // setCohortModalVisible(true)
+                }}
+            />
             <PageHeader title="Insights" />
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs

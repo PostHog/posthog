@@ -8,6 +8,10 @@ import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 
 import './FunnelBarGraph.scss'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useActions, useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 function calcPercentage(numerator: number, denominator: number): number {
     return (numerator / denominator) * 100 || 0
@@ -90,7 +94,11 @@ function ValueInspectorButton({ icon, onClick, children, disabled = false }: Val
 export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
     const steps = [...stepsParam].sort((a, b) => a.order - b.order)
     const referenceStep = steps[0] // Compare values to first step, i.e. total
-
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { setShowingPeople, loadPeople } = useActions(trendsLogic)
+    const loadFunnelsPeople = (stepName: string, i: number): void => {
+        loadPeople('session', `Persons who completed Step #${i + 1} - ${stepName}`, '', '', '', true, '', i)
+    }
     return layout === 'horizontal' ? (
         <div>
             {steps.map((step, i) => (
@@ -112,7 +120,14 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                                     {humanFriendlyDuration(step.average_time)}
                                 </ValueInspectorButton>
                             ) : null}
-                            <ValueInspectorButton icon={<UserOutlined />} onClick={() => {}} disabled /* TODO */>
+                            <ValueInspectorButton
+                                icon={<UserOutlined />}
+                                onClick={() => {
+                                    setShowingPeople(true)
+                                    loadFunnelsPeople(step.name, i)
+                                }}
+                                disabled={!featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL]}
+                            >
                                 {step.count} completed
                             </ValueInspectorButton>
                         </div>

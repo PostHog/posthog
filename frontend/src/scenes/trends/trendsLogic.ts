@@ -2,6 +2,7 @@ import { kea } from 'kea'
 
 import api from 'lib/api'
 import { autocorrectInterval, errorToast, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
 import {
@@ -21,6 +22,7 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
+import { cleanFunnelParams } from 'scenes/funnels/funnelLogic'
 interface TrendResponse {
     result: TrendResult[]
     next?: string
@@ -32,12 +34,12 @@ export interface IndexedTrendResult extends TrendResult {
 
 export interface TrendPeople {
     people: PersonType[]
-    breakdown_value?: string
     count: number
-    day?: string | number
-    next?: string
+    day: string | number
     label: string
     action: ActionFilter | 'session'
+    breakdown_value?: string
+    next?: string
     loadingMore?: boolean
 }
 
@@ -198,11 +200,12 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         loadPeople: (
             action: ActionFilter | 'session', // todo, refactor this session string param out
             label: string,
-            date_from?: string | number,
-            date_to?: string | number,
+            date_from: string | number,
+            date_to: string | number,
             breakdown_value?: string,
             saveOriginal?: boolean,
-            searchTerm?: string
+            searchTerm?: string,
+            funnel_step?: number
         ) => ({
             action,
             label,
@@ -211,6 +214,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             breakdown_value,
             saveOriginal,
             searchTerm,
+            funnel_step,
         }),
         saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
@@ -222,7 +226,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             count: number,
             action: ActionFilter | 'session',
             label: string,
-            day?: string | number,
+            day: string | number,
             breakdown_value?: string,
             next?: string
         ) => ({
@@ -246,7 +250,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             count: number,
             action: ActionFilter | 'session',
             label: string,
-            day?: string | number,
+            day: string | number,
             breakdown_value?: string,
             next?: string
         ) => ({
@@ -265,9 +269,8 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         filters: [
             (props.filters
                 ? props.filters
-                : (state: Record<string, any>) => cleanFilters(router.selectors.searchParams(state))) as Partial<
-                FilterType
-            >,
+                : (state: Record<string, any>) =>
+                      cleanFilters(router.selectors.searchParams(state))) as Partial<FilterType>,
             {
                 setFilters: (state, { filters, mergeFilters }) => {
                     const newState = state?.insight && TRENDS_BASED_INSIGHTS.includes(state.insight) ? state : {}
@@ -451,12 +454,11 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             }
         },
         loadPeople: async (
-            { label, action, date_from, date_to, breakdown_value, saveOriginal, searchTerm },
+            { label, action, date_from, date_to, breakdown_value, saveOriginal, searchTerm, funnel_step },
             breakpoint
         ) => {
             let people = []
             const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
-
             if (values.filters.insight === ViewType.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
                     { label, action, target_date: date_from, lifecycle_type: breakdown_value },
@@ -471,6 +473,48 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 )
                 actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
                 people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
+            } else if (values.filters.insight === ViewType.FUNNELS) {
+                const params = { ...values.filters, funnel_step }
+                const cleanedParams = cleanFunnelParams(params)
+                const funnelParams = toParams(cleanedParams)
+                // people = await api.get(`api/person/funnel/?${funnelParams}${searchTermParam}`)
+                people = {
+                    results: [
+                        {
+                            id: 62856566,
+                            name: '0178ac0c-da3c-000a-d236-7f1f86f80016',
+                            distinct_ids: ['0178ac0c-da3c-000a-d236-7f1f86f80016'],
+                            properties: {
+                                is_demo: true,
+                            },
+                            is_identified: false,
+                            created_at: '2021-04-07T11:17:06.749393Z',
+                            uuid: '0178ac0c-da39-0004-e84a-d50409f34329',
+                        },
+                        {
+                            id: 62856569,
+                            name: '0178ac0c-da3c-000d-c143-af2dd730386d',
+                            distinct_ids: ['0178ac0c-da3c-000d-c143-af2dd730386d'],
+                            properties: {
+                                is_demo: true,
+                            },
+                            is_identified: false,
+                            created_at: '2021-04-07T11:17:06.749451Z',
+                            uuid: '0178ac0c-da39-0007-a74f-00a7fbceb356',
+                        },
+                        {
+                            id: 62856570,
+                            name: '0178ac0c-da3c-000e-d78c-3e703bcf9683',
+                            distinct_ids: ['0178ac0c-da3c-000e-d78c-3e703bcf9683'],
+                            properties: {
+                                is_demo: true,
+                            },
+                            is_identified: false,
+                            created_at: '2021-04-07T11:17:06.749470Z',
+                            uuid: '0178ac0c-da39-0008-059b-fd4c5492768d',
+                        },
+                    ],
+                }
             } else {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
@@ -481,8 +525,8 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             }
             breakpoint()
             actions.setPeople(
-                people.results[0]?.people,
-                people.results[0]?.count || 0,
+                people.results || people.results[0]?.people,
+                people.results.length || people.results[0]?.count || 0,
                 action,
                 label,
                 date_from,
@@ -491,8 +535,8 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             )
             if (saveOriginal) {
                 actions.saveFirstLoadedPeople(
-                    people.results[0]?.people,
-                    people.results[0]?.count || 0,
+                    people.results || people.results[0]?.people,
+                    people.results.length || people.results[0]?.count || 0,
                     action,
                     label,
                     date_from,
