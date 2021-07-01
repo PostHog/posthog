@@ -64,7 +64,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
         results = funnel_trends.perform_query()
 
-        # Autobinned using the maximum the to convert
+        # Autobinned using the maximum time to convert
         self.assertEqual(
             results,
             [
