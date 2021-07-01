@@ -13,7 +13,7 @@ import { CohortType } from '~/types'
 import api from 'lib/api'
 import './cohorts.scss'
 import Fuse from 'fuse.js'
-import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
@@ -36,7 +36,7 @@ const cohortsUrlLogic = kea<cohortsUrlLogicType>({
         setOpenCohort: () => '/cohorts' + (values.openCohort ? '/' + (values.openCohort.id || 'new') : ''),
     }),
     urlToAction: ({ actions, values }) => ({
-        '/cohorts(/:cohortId)': async ({ cohortId }: { cohortId: number | 'new' }) => {
+        '/cohorts(/:cohortId)': async ({ cohortId }) => {
             if (cohortId && cohortId !== 'new' && Number(cohortId) !== values.openCohort?.id) {
                 const cohort = await api.get('api/cohort/' + cohortId)
                 actions.setOpenCohort(cohort)

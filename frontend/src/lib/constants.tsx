@@ -226,12 +226,13 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS: Record<string, string> = {
     INGESTION_GRID: 'ingestion-grid-exp-3',
     PROJECT_HOME: 'project-home-exp-5',
-    QUERY_UX_V2: '4050-query-ui-optB',
     EVENT_COLUMN_CONFIG: '4141-event-columns',
     NPS_PROMPT: '4562-nps',
     INGESTION_TAXONOMY: '4267-event-property-taxonomy',
     NEW_TOOLTIPS: '4156-tooltips-legends',
     PLUGIN_METRICS: '4871-plugin-metrics',
+    PERSONS_MODAL_FILTERING: '4819-persons-modal-updates',
+    FUNNEL_BAR_VIZ: '4535-funnel-bar-viz',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'

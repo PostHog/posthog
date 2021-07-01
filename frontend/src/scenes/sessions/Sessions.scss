@@ -196,6 +196,47 @@
     background-color: #fdedc9;
 }
 
+.sessions-matching-events-icon {
+    color: $bg_navy;
+
+    .badge-text {
+        background-color: $yellow_50;
+        height: 1.1rem;
+        min-width: 1.1rem;
+        line-height: 1.1rem;
+        font-weight: 600;
+        white-space: nowrap;
+        text-align: center;
+        border-radius: 10px;
+        box-shadow: 0 0 0 1px $bg_light;
+        padding: 0 4px;
+        font-size: 9px;
+    }
+}
+
+.sessions-view-actions {
+    margin-top: $default_spacing;
+    margin-bottom: $default_spacing;
+    display: flex;
+
+    .sessions-view-actions-left-items {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        flex-grow: 1;
+
+        .action {
+            display: flex;
+            align-items: center;
+            flex-wrap: nowrap;
+        }
+    }
+
+    .ant-btn {
+        padding-left: 4px !important;
+    }
+}
+
 @media (max-width: $md) {
     .sessions-wrapper {
         display: block;

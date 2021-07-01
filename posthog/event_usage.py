@@ -7,6 +7,7 @@ from typing import List
 import posthoganalytics
 
 from posthog.models import Organization, User
+from posthog.utils import get_instance_realm
 
 
 def report_user_signed_up(
@@ -28,6 +29,7 @@ def report_user_signed_up(
         "new_onboarding_enabled": new_onboarding_enabled,
         "signup_backend_processor": backend_processor,
         "signup_social_provider": social_provider,
+        "realm": get_instance_realm(),
     }
 
     # TODO: This should be $set_once as user props.
