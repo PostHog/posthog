@@ -268,7 +268,9 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             <ResizableTable
                 locale={{
                     emptyText: selectedDate
-                        ? `No Sessions on ${selectedDate.year() == dayjs().year() ? 'MMM D' : 'MMM D, YYYY'}`
+                        ? `No Sessions on ${selectedDate.format(
+                              selectedDate.year() == dayjs().year() ? 'MMM D' : 'MMM D, YYYY'
+                          )}`
                         : 'No Sessions',
                 }}
                 data-attr="sessions-table"

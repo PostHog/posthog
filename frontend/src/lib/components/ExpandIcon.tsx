@@ -19,7 +19,7 @@ function ExpandIcon({ prefixCls, onExpand, record, expanded, expandable, childre
         <div
             style={{ display: 'flex', alignItems: 'center' }}
             onClick={(e) => {
-                onExpand(record, e!)
+                onExpand(record, e)
                 e.stopPropagation()
             }}
         >

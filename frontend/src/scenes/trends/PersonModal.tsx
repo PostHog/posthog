@@ -7,7 +7,7 @@ import { Modal, Button, Spin, Input } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter } from '~/types'
+import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter } from '~/types'
 import { ACTION_TYPE, EVENT_TYPE, FEATURE_FLAGS } from 'lib/constants'
 import { personsModalLogic } from './personsModalLogic'
 
@@ -16,13 +16,14 @@ const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterTyp
     if (!people?.action) {
         return []
     }
+    const action = people.action as ActionFilter
     return [
         {
             key: 'id',
-            value: people.action.id,
-            label: people.action.name as string,
-            type: people.action.type === EntityTypes.ACTIONS ? ACTION_TYPE : EVENT_TYPE,
-            properties: [...people.action.properties, ...(filters?.properties || [])] as EventPropertyFilter[], // combine global properties into action/event filter
+            value: action.id,
+            label: action.name as string,
+            type: action.type === EntityTypes.ACTIONS ? ACTION_TYPE : EVENT_TYPE,
+            properties: [...action.properties, ...(filters?.properties || [])] as EventPropertyFilter[], // combine global properties into action/event filter
         },
     ]
 }
