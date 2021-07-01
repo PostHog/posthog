@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from dateutil import parser
 from django.conf import settings
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -113,7 +114,7 @@ def _get_count_operator(count_operator: Optional[str]) -> str:
     elif count_operator == "eq" or count_operator is None:
         return "="
     else:
-        raise ValueError("count_operator must be gte, lte, eq, or None")
+        raise ValidationError("count_operator must be gte, lte, eq, or None")
 
 
 def _get_entity_query(
@@ -126,7 +127,7 @@ def _get_entity_query(
         action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
         return action_filter_query, action_params
     else:
-        raise ValueError("Cohort query requires action_id or event_id")
+        raise ValidationError("Cohort query requires action_id or event_id")
 
 
 def get_date_query(
