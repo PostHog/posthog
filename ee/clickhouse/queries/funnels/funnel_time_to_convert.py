@@ -2,11 +2,8 @@ from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
 
 
 class ClickhouseFunnelTimeToConvert(ClickhouseFunnelNew):
-    def run(self, *args, **kwargs):
-        if len(self._filter.entities) == 0:
-            return []
-
-        return self._exec_query()
+    def _format_results(self, results: list) -> list:
+        return results
 
     def get_query(self, format_properties) -> str:
         steps_per_person_query = self._get_steps_per_person_query()
