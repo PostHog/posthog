@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Tuple, Union
+from typing import Callable, Dict, Optional, Tuple
 
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -36,7 +36,10 @@ class ClickhousePersonViewSet(PersonViewSet):
         return Response(data={"results": results, "next": next_url})
 
     @cached_function()
-    def calculate_funnel_persons(self, request: Request) -> Dict[str, Tuple[list, str]]:
+    def calculate_funnel_persons(self, request: Request) -> Dict[str, Tuple[list, Optional[str]]]:
+        if request.user.is_anonymous or not request.user.team:
+            return {"result": ([], None)}
+
         team = request.user.team
         filter = Filter(request=request)
         funnel_class: Callable = ClickhouseFunnelPersons
