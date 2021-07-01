@@ -26,7 +26,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFunnel(ClickhouseTestMixin, APIBaseTest):
+class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data_multiple_dropoffs(self):
         for i in range(5):
             _create_person(distinct_ids=[f"user_{i}"], team=self.team)

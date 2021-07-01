@@ -6,6 +6,7 @@ from django.db.models.expressions import Exists, F, OuterRef
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 from django.db.models.query import Prefetch, QuerySet
 from django.db.models.query_utils import Q
+from rest_framework.exceptions import ValidationError
 from rest_framework.utils.serializer_helpers import ReturnDict
 from sentry_sdk.api import capture_exception
 
@@ -305,7 +306,7 @@ class Retention(BaseQuery):
         elif entity.type == TREND_FILTER_TYPE_ACTIONS:
             return Q(action__pk=entity.id), "{}.action_id = %s".format(table)
         else:
-            raise ValueError(f"Entity type not supported")
+            raise ValidationError(f"Entity type not supported")
 
     def _get_trunc_func(
         self, subject: str, period: str
@@ -335,7 +336,7 @@ class Retention(BaseQuery):
             """
             return TruncMonth(subject), fields
         else:
-            raise ValueError(f"Period {period} is unsupported.")
+            raise ValidationError(f"Period {period} is unsupported.")
 
 
 def appearance_to_markers(vals: List, num_intervals: int) -> List:
