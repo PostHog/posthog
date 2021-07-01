@@ -65,7 +65,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         results = funnel_trends.run()
 
         # Autobinned using the maximum time to convert
-        # Since the maximum time to step 1 from 0 is user C's 23 h (82_800) s and the number of bins is 10,
+        # Since the maximum time to step 1 from 0 is user C's 23 h (82_800 s) and the number of bins is 10,
         # each bin is an interval of 8280 s, starting with 0, left-inclusive
         self.assertEqual(
             results,
