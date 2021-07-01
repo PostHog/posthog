@@ -78,13 +78,16 @@ class FunnelPersonsStepMixin(BaseParamMixin):
 
 class FunnelTypeMixin(BaseParamMixin):
     @cached_property
-    def funnel_order_type(self) -> FunnelOrderType:
-        return self._data.get(FUNNEL_ORDER_TYPE, FunnelOrderType.ORDERED)
+    def funnel_order_type(self) -> Optional[FunnelOrderType]:
+        return self._data.get(FUNNEL_ORDER_TYPE)
 
     @cached_property
-    def funnel_viz_type(self) -> FunnelVizType:
-        return self._data.get(FUNNEL_VIZ_TYPE, FunnelVizType.STEPS)
+    def funnel_viz_type(self) -> Optional[FunnelVizType]:
+        return self._data.get(FUNNEL_VIZ_TYPE)
 
     @include_dict
     def funnel_type_to_dict(self):
-        return {FUNNEL_ORDER_TYPE: self.funnel_order_type, FUNNEL_VIZ_TYPE: self.funnel_viz_type}
+        result = {}
+        result.update({FUNNEL_ORDER_TYPE: self.funnel_order_type} if self.funnel_order_type else {})
+        result.update({FUNNEL_VIZ_TYPE: self.funnel_viz_type} if self.funnel_viz_type else {})
+        return result

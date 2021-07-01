@@ -72,11 +72,11 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     @cached_function()
     def calculate_funnel(self, request: Request) -> Dict[str, Any]:
         team = self.team
-        filter = Filter(request=request, data={**request.data, "insight": INSIGHT_FUNNELS})
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
 
         # backwards compatibility - unsure of implications yet
         # but it's very confusing that funnel trends constant is same as the Trends display constant
-        if filter.display == TRENDS_LINEAR:
+        if not filter.funnel_viz_type and filter.display == TRENDS_LINEAR:
             filter.funnel_viz_type = FunnelVizType.TRENDS
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
