@@ -10,14 +10,16 @@ import { SelectedItem } from 'lib/components/SelectBox'
 import api from 'lib/api'
 
 import { useThrottledCallback } from 'use-debounce/lib'
-import { Loading } from 'lib/utils'
+import { Loading, buildUrl } from 'lib/utils'
+import { infiniteSelectResultsLogic } from '../infiniteSelectResultsLogic'
+import { useActions, useValues } from 'kea'
 
 interface SelectResult extends Omit<SelectedItem, 'key'> {
     key: string | number
     tags?: string[] // TODO better type
 }
 
-interface SelectResultGroup {
+export interface SelectResultGroup {
     key: string
     name: string
     type: string
@@ -32,6 +34,7 @@ type EventDefinitionResult = {
 }
 
 export interface InfiniteSelectResultsProps {
+    pageKey: string
     groups: SelectResultGroup[]
     searchQuery?: string // Search query for endpoint if defined, else simple filter on dataSource
     onSelect: (type: string, id: string | number, name: string) => void
@@ -40,14 +43,17 @@ export interface InfiniteSelectResultsProps {
 }
 
 export function InfiniteSelectResults({
+    pageKey,
     groups,
     searchQuery,
     onSelect,
     selectedItemKey = null,
     defaultActiveTabKey,
 }: InfiniteSelectResultsProps): JSX.Element {
-    console.log('defaultActiveTabKey', defaultActiveTabKey)
-    const [activeTabKey, setActiveTabKey] = useState(defaultActiveTabKey || groups[0]?.key)
+    const initialActiveTabKey = defaultActiveTabKey || groups[0]?.key
+    const logic = infiniteSelectResultsLogic({ pageKey, groups, initialActiveTabKey })
+    const { activeTabKey } = useValues(logic)
+    const { setActiveTabKey } = useActions(logic)
 
     const handleSelect = (type: string, key: string | number, name: string): void => {
         onSelect(type, key, name)
@@ -57,7 +63,7 @@ export function InfiniteSelectResults({
         <Row gutter={8} style={{ width: '100%' }} wrap={false}>
             <Col flex={1}>
                 <Tabs
-                    defaultActiveKey={defaultActiveTabKey}
+                    defaultActiveKey={initialActiveTabKey}
                     onChange={setActiveTabKey}
                     tabPosition="top"
                     animated={false}
@@ -87,20 +93,6 @@ export function InfiniteSelectResults({
             </Col>
         </Row>
     )
-}
-
-function buildUrl(url: string, queryParams?: Record<string, any>): string {
-    let result = url
-    if (queryParams) {
-        const initialChar = url.indexOf('?') !== -1 ? '&' : '?'
-        result += initialChar
-        const searchString = Object.entries(queryParams)
-            .filter(([, value]) => value !== undefined)
-            .map(([key, value]) => `${key}=${value}`)
-            .join('&')
-        result += searchString
-    }
-    return result
 }
 
 function transformResults(results: EventDefinitionResult['results']): SelectResult[] {

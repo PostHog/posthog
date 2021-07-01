@@ -3,8 +3,8 @@ import { AnyPropertyFilter } from '~/types'
 import { DisplayMode } from './components/TaxonomicPropertyFilter'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
-
 import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
+
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
     props: {} as {
         pageKey: string

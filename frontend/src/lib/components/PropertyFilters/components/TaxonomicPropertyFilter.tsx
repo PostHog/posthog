@@ -46,6 +46,7 @@ export function TaxonomicPropertyFilter({
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                     <InfiniteSelectResults
+                        pageKey={pageKey}
                         groups={[
                             {
                                 key: 'events',
