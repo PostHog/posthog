@@ -1,6 +1,8 @@
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from rest_framework.exceptions import ValidationError
+
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
@@ -79,7 +81,7 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict
         try:
             earliest_date = get_earliest_timestamp(team_id)
         except IndexError:
-            raise ValueError("Active User queries require a lower date bound")
+            raise ValidationError("Active User queries require a lower date bound")
         else:
             params.update(
                 {
@@ -99,7 +101,7 @@ def populate_entity_params(entity: Entity) -> Tuple[Dict, Dict]:
             params = {**action_params}
             content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}
         except:
-            raise ValueError("Action does not exist")
+            raise ValidationError("Action does not exist")
     else:
         content_sql_params = {"entity_query": "AND event = %(event)s"}
         params = {"event": entity.id}

@@ -79,22 +79,6 @@ class Person(models.Model):
     # Has an index on properties -> email, built concurrently
     # See migration 0121
 
-    @staticmethod
-    def get_distinct_ids_and_email_by_ids(person_ids, team_id):
-        decorated = []
-        for person_id in person_ids:
-            distinct_ids, email = Person.get_distinct_ids_and_email_by_id(person_id, team_id)
-            decorated.append({"distinct_ids": distinct_ids, "email": email})
-        return decorated
-
-    @staticmethod
-    def get_distinct_ids_and_email_by_id(person_id, team_id):
-        person = Person.objects.get(uuid=person_id)
-        distinct_ids = PersonDistinctId.objects.filter(person_id=person.id, team_id=team_id)
-        flat_distinct_ids = [row.distinct_id for row in distinct_ids]
-        email = person.properties.get("email", "")
-        return flat_distinct_ids, email
-
 
 class PersonDistinctId(models.Model):
     class Meta:
