@@ -9,14 +9,14 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
     actions: () => ({
         setChartFilter: (filter: ChartDisplayType) => ({ filter }),
     }),
-    reducers: {
+    reducers: ({ props }) => ({
         chartFilter: [
-            null as null | ChartDisplayType,
+            props?.defaultChartFilter as null | ChartDisplayType,
             {
                 setChartFilter: (_, { filter }) => filter,
             },
         ],
-    },
+    }),
     listeners: ({ values }) => ({
         setChartFilter: () => {
             const { display, ...searchParams } = router.values.searchParams // eslint-disable-line

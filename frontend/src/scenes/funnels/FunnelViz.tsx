@@ -144,6 +144,7 @@ export function FunnelViz({
         ) : null
     }
 
+    console.log('feature flags', FEATURE_FLAGS.FUNNEL_BAR_VIZ, featureFlags)
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
         return steps && steps.length > 0 ? <FunnelBarGraph layout="horizontal" steps={steps} /> : null
     }

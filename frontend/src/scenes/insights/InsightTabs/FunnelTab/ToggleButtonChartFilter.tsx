@@ -1,8 +1,9 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Radio } from 'antd'
+import { Dropdown, Menu, Button } from 'antd'
 import { ChartDisplayType } from '~/types'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
+import { DownOutlined } from '@ant-design/icons'
 
 interface ToggleButtonChartFilterProps {
     onChange?: (chartFilter: ChartDisplayType) => void
@@ -15,36 +16,38 @@ export function ToggleButtonChartFilter({
     onChange = noop,
     disabled = false,
 }: ToggleButtonChartFilterProps): JSX.Element {
-    const { chartFilter } = useValues(chartFilterLogic)
-    const { setChartFilter } = useActions(chartFilterLogic)
-    const defaultDisplay = ChartDisplayType.FunnelViz
+    const logic = chartFilterLogic({ defaultChartFilter: ChartDisplayType.FunnelViz })
+    const { chartFilter } = useValues(logic)
+    const { setChartFilter } = useActions(logic)
 
-    const options = [
-        {
-            value: ChartDisplayType.FunnelViz,
-            label: 'Funnel conversion',
-        },
-        {
-            value: ChartDisplayType.ActionsLineGraphLinear,
-            label: 'Conversion trend',
-        },
-    ]
+    const options: { [key in ChartDisplayType]?: string } = {
+        [ChartDisplayType.FunnelViz]: 'Funnel conversion',
+        [ChartDisplayType.ActionsHistogramChart]: 'Time to convert',
+        [ChartDisplayType.ActionsLineGraphLinear]: 'Conversion trend',
+    }
 
     return (
-        <Radio.Group
-            key="2"
-            defaultValue={defaultDisplay}
-            value={chartFilter || defaultDisplay}
-            onChange={({ target: { value } }: { target: { value?: ChartDisplayType } }) => {
-                if (value) {
-                    setChartFilter(value)
-                    onChange(value)
-                }
-            }}
+        <Dropdown
+            overlay={
+                <Menu
+                    onClick={({ key }) => {
+                        const displayType = key as ChartDisplayType
+                        setChartFilter(displayType)
+                        onChange(displayType)
+                    }}
+                >
+                    {Object.entries(options).map(([value, label]) => (
+                        <Menu.Item key={value}>{label}</Menu.Item>
+                    ))}
+                </Menu>
+            }
+            trigger={['click']}
             data-attr="chart-filter"
             disabled={disabled}
-            options={options}
-            optionType="button"
-        />
+        >
+            <Button>
+                {chartFilter ? options[chartFilter] : 'Select graph type'} <DownOutlined />
+            </Button>
+        </Dropdown>
     )
 }

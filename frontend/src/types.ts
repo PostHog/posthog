@@ -555,6 +555,7 @@ export enum ChartDisplayType {
     ActionsPieChart = 'ActionsPie',
     ActionsBarChart = 'ActionsBar',
     ActionsBarChartValue = 'ActionsBarValue',
+    ActionsHistogramChart = 'ActionsHistogram',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
 }
