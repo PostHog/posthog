@@ -2,12 +2,14 @@ from rest_framework import request, response
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsPersons
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
+from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.person import PersonViewSet
 from posthog.api.utils import format_next_absolute_url, format_next_url
 from posthog.models import Event, Filter, Person
@@ -43,6 +45,10 @@ class ClickhousePersonViewSet(PersonViewSet):
 
         next_url = format_next_absolute_url(request, filter.offset, 100) if len(results) > 99 else None
         return response.Response(data={"results": results, "next": next_url})
+
+    def get_properties(self, request: request.Request):
+        rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": self.team.pk})
+        return [{"name": name, "count": count} for name, count in rows]
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
