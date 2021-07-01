@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Table } from 'antd'
+import { Table, Tooltip } from 'antd'
 import { humanFriendlyDiff, humanFriendlyDetailedTime } from '~/lib/utils'
 import { EventDetails } from 'scenes/events'
 import { Property } from 'lib/components/Property'
@@ -8,6 +8,10 @@ import { EventType, SessionType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import ExpandIcon from 'lib/components/ExpandIcon'
+import { IconEventsShort } from 'lib/components/icons'
+import { MATCHING_EVENT_ICON_SIZE } from 'scenes/sessions/SessionsView'
+import { ANTD_EXPAND_BUTTON_WIDTH } from 'lib/components/ResizableTable'
 
 export function SessionDetails({ session }: { session: SessionType }): JSX.Element {
     const { filteredSessionEvents } = useValues(sessionsTableLogic)
@@ -90,6 +94,23 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
                 },
                 rowExpandable: (event) => !!event,
                 expandRowByClick: true,
+                columnWidth: ANTD_EXPAND_BUTTON_WIDTH + MATCHING_EVENT_ICON_SIZE,
+                expandIcon: function _renderExpandIcon(expandProps) {
+                    const { record: event } = expandProps
+                    return (
+                        <ExpandIcon {...expandProps}>
+                            {(session.matching_events || []).includes(event.id) ? (
+                                <Tooltip title="This event matches your event filters">
+                                    <div className="sessions-matching-events-icon cursor-pointer">
+                                        <IconEventsShort size={MATCHING_EVENT_ICON_SIZE} />
+                                    </div>
+                                </Tooltip>
+                            ) : (
+                                <></>
+                            )}
+                        </ExpandIcon>
+                    )
+                },
             }}
         />
     )
