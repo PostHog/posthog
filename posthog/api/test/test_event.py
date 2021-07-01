@@ -352,6 +352,16 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual(len(response["result"]), SESSIONS_LIST_DEFAULT_LIMIT)
             self.assertIsNotNone(response["pagination"])
 
+        def test_events_nonexistent_cohort_handling(self):
+            response_nonexistent_property = self.client.get(
+                f"/api/event/sessions/?filters={json.dumps([{'type':'property','key':'abc','value':'xyz'}])}"
+            ).json()
+            response_nonexistent_cohort = self.client.get(
+                f"/api/event/sessions/?filters={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
+            ).json()
+
+            self.assertEqual(response_nonexistent_property, response_nonexistent_cohort)  # Both caes just empty
+
         def test_event_sessions_by_id(self):
             another_team = Team.objects.create(organization=self.organization)
 
