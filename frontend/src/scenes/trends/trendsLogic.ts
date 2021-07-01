@@ -30,7 +30,7 @@ export interface IndexedTrendResult extends TrendResult {
     id: number
 }
 
-interface TrendPeople {
+export interface TrendPeople {
     people: PersonType[]
     breakdown_value?: string
     count: number
