@@ -38,6 +38,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
         _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
 
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-09 13:00:00")
+        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-09 13:37:00")
+
         _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-11 07:00:00")
         _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-12 06:00:00")
 
@@ -61,5 +64,20 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team)
         results = funnel_trends.perform_query()
 
-        # Only 2 bins because there's no funnel runs for more
-        self.assertEqual(results, [(3600.0, 43200.0, 1), (43200.0, 82800.0, 1)])
+        # Autobinned using the maximum the to convert
+        self.assertEqual(
+            results,
+            [
+                (8280.0, 2),
+                (16560.0, 0),
+                (24840.0, 0),
+                (33120.0, 0),
+                (41400.0, 0),
+                (49680.0, 0),
+                (57960.0, 0),
+                (66240.0, 0),
+                (74520.0, 0),
+                (82800.0, 0),
+                (91080.0, 1),
+            ],
+        )
