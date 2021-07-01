@@ -1,14 +1,33 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
-import { parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
+import { TrendPeople, parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter } from '~/types'
+import { ACTION_TYPE, EVENT_TYPE, FEATURE_FLAGS } from 'lib/constants'
 import { personsModalLogic } from './personsModalLogic'
+
+// Utility function to handle filter conversion required for deeplinking to person -> sessions
+const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
+    if (!people?.action) {
+        return []
+    }
+    const action = people.action as ActionFilter
+    return [
+        {
+            key: 'id',
+            value: action.id,
+            label: action.name as string,
+            type: action.type === EntityTypes.ACTIONS ? ACTION_TYPE : EVENT_TYPE,
+            properties: [...action.properties, ...(filters?.properties || [])] as EventPropertyFilter[], // combine global properties into action/event filter
+        },
+    ]
+}
+
 interface Props {
     visible: boolean
     view: ViewType
@@ -124,7 +143,13 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                             title="Download CSV"
                         />
                     </div>
-                    <PersonsTable loading={!people?.people} people={people.people} />
+                    <PersonsTable
+                        loading={!people?.people}
+                        people={people.people}
+                        sessionsFilters={convertToSessionFilters(people, filters)}
+                        date={people?.day ? dayjs(people.day).format('YYYY-MM-DD') : undefined}
+                        backTo="Insights"
+                    />
                     <div
                         style={{
                             margin: '1rem',

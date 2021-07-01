@@ -24,7 +24,7 @@ import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
 import { endWithPunctation } from '../../../lib/utils'
 import { canInstallPlugins } from '../access'
-import { LinkButton } from '../../../lib/components/LinkButton'
+import { LinkButton } from 'lib/components/LinkButton'
 import { PluginUpdateButton } from './PluginUpdateButton'
 
 export function ExtraPluginButtons({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {

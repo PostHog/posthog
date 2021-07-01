@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import dayjs from 'dayjs'
 import { retentionTableLogic } from './retentionTableLogic'
 import { LineGraph } from '../insights/LineGraph'
 import { useActions, useValues } from 'kea'
@@ -82,8 +83,12 @@ export function RetentionLineGraph({
                 ) : (
                     <p>Loading users...</p>
                 )}
-
-                <PersonsTable loading={peopleLoading} people={peopleData} />
+                <PersonsTable
+                    loading={peopleLoading}
+                    people={peopleData}
+                    date={filters.date_to ? dayjs(filters.date_to).format('YYYY-MM-DD') : undefined}
+                    backTo="Insights"
+                />
                 <div
                     style={{
                         margin: '1rem',
