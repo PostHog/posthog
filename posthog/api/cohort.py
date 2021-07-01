@@ -93,7 +93,7 @@ class CohortSerializer(serializers.ModelSerializer):
                     )
                     self._handle_stickiness_people(target_entity, cohort, stickiness_filter)
                 else:
-                    self._handle_trend_people(target_entity, cohort, filter)
+                    self._handle_trend_people(target_entity, cohort, filter, request)
             except Exception as e:
                 capture_exception(e)
                 raise ValueError("This cohort has no conditions")
@@ -114,9 +114,9 @@ class CohortSerializer(serializers.ModelSerializer):
         ids = [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
         self._calculate_static_by_people(ids, cohort)
 
-    def _handle_trend_people(self, target_entity: Entity, cohort: Cohort, filter: Filter) -> None:
+    def _handle_trend_people(self, target_entity: Entity, cohort: Cohort, filter: Filter, request: Request) -> None:
         events = filter_by_type(entity=target_entity, team=cohort.team, filter=filter)
-        people = calculate_people(team=cohort.team, events=events, filter=filter)
+        people = calculate_people(team=cohort.team, events=events, filter=filter, request=request)
         ids = [person.distinct_ids[0] for person in people if len(person.distinct_ids)]
         self._calculate_static_by_people(ids, cohort)
 

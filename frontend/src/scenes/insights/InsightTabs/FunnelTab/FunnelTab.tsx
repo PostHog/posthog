@@ -12,10 +12,15 @@ import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { InsightTitle } from '../InsightTitle'
 import { SaveOutlined } from '@ant-design/icons'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
+import { InsightActionBar } from '../InsightActionBar'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic())
+    const { isStepsEmpty, filters, stepsWithCount, autoCalculate } = useValues(funnelLogic())
+    const { featureFlags } = useValues(featureFlagLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
     const [savingModal, setSavingModal] = useState<boolean>(false)
 
@@ -28,9 +33,25 @@ export function FunnelTab(): JSX.Element {
 
     return (
         <div data-attr="funnel-tab">
-            <Row>
-                <InsightTitle />
-            </Row>
+            <InsightTitle
+                actionBar={
+                    autoCalculate ? (
+                        <InsightActionBar
+                            variant="sidebar"
+                            filters={filters}
+                            insight="FUNNELS"
+                            showReset={!isStepsEmpty || !!filters.properties?.length}
+                            onReset={(): void => clearFunnel()}
+                        />
+                    ) : undefined
+                }
+            />
+            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && (
+                <div style={{ paddingBottom: '1rem' }}>
+                    <h4 className="secondary">Graph Type</h4>
+                    <ToggleButtonChartFilter />
+                </div>
+            )}
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
@@ -44,6 +65,9 @@ export function FunnelTab(): JSX.Element {
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
                     buttonCopy="Add funnel step"
+                    showSeriesIndicator={!isStepsEmpty && featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
+                    seriesIndicatorType="numeric"
+                    fullWidth={featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
                     sortable
                 />
                 <hr />
@@ -58,30 +82,34 @@ export function FunnelTab(): JSX.Element {
                     }}
                 />
                 <TestAccountFilter filters={filters} onChange={setFilters} />
-                <hr />
-                <Row style={{ justifyContent: 'flex-end' }}>
-                    {!isStepsEmpty && Array.isArray(stepsWithCount) && !!stepsWithCount.length && (
-                        <div style={{ flexGrow: 1 }}>
-                            <Button type="primary" onClick={showModal} icon={<SaveOutlined />}>
-                                Save
+                {!autoCalculate && (
+                    <>
+                        <hr />
+                        <Row style={{ justifyContent: 'flex-end' }}>
+                            {!isStepsEmpty && Array.isArray(stepsWithCount) && !!stepsWithCount.length && (
+                                <div style={{ flexGrow: 1 }}>
+                                    <Button type="primary" onClick={showModal} icon={<SaveOutlined />}>
+                                        Save
+                                    </Button>
+                                </div>
+                            )}
+                            {!isStepsEmpty && (
+                                <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
+                                    Clear
+                                </Button>
+                            )}
+                            <Button
+                                style={{ marginLeft: 4 }}
+                                type="primary"
+                                htmlType="submit"
+                                disabled={isStepsEmpty}
+                                data-attr="save-funnel-button"
+                            >
+                                Calculate
                             </Button>
-                        </div>
-                    )}
-                    {!isStepsEmpty && (
-                        <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
-                            Clear
-                        </Button>
-                    )}
-                    <Button
-                        style={{ marginLeft: 4 }}
-                        type="primary"
-                        htmlType="submit"
-                        disabled={isStepsEmpty}
-                        data-attr="save-funnel-button"
-                    >
-                        Calculate
-                    </Button>
-                </Row>
+                        </Row>
+                    </>
+                )}
             </form>
             <SaveModal
                 title="Save Funnel"

@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Union
 from django.db import connection
 from django.db.models import Count
 from django.db.models.query import Prefetch, QuerySet
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
@@ -14,7 +16,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person import Person
 from posthog.queries import base
 
-from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
+from .base import BaseQuery, filter_events, filter_persons, handle_compare, process_entity_for_events
 
 
 def execute_custom_sql(query, params):
@@ -89,17 +91,22 @@ class Stickiness(BaseQuery):
             response.extend(entity_resp)
         return response
 
-    def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, *args, **kwargs) -> ReturnDict:
-        results = self._retrieve_people(target_entity, filter, team)
+    def people(
+        self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs
+    ) -> ReturnDict:
+        results = self._retrieve_people(target_entity, filter, team, request)
         return results
 
-    def _retrieve_people(self, target_entity: Entity, filter: StickinessFilter, team: Team) -> ReturnDict:
+    def _retrieve_people(
+        self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request
+    ) -> ReturnDict:
         from posthog.api.person import PersonSerializer
 
         events = stickiness_process_entity_type(target_entity, team, filter)
         events = stickiness_format_intervals(events, filter)
         people = stickiness_fetch_people(events, team, filter)
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        people = filter_persons(team.id, request, people)
 
         return PersonSerializer(people, many=True).data
 
@@ -123,7 +130,7 @@ def stickiness_process_entity_type(target_entity: Entity, team: Team, filter: St
             base.filter_events(team.pk, filter, target_entity)
         )
     else:
-        raise ValueError("target entity must be action or event")
+        raise ValidationError("Target entity must be action or event.")
     return events
 
 

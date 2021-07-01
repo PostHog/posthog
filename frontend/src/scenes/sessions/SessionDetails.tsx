@@ -7,14 +7,15 @@ import { eventToName } from 'lib/utils'
 import { EventType, SessionType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function SessionDetails({ session }: { session: SessionType }): JSX.Element {
-    const { loadedSessionEvents } = useValues(sessionsTableLogic)
+    const { filteredSessionEvents } = useValues(sessionsTableLogic)
     const { loadSessionEvents } = useActions(sessionsTableLogic)
 
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(50)
-    const events = session.events || loadedSessionEvents[session.global_session_id]
+    const events = session.events || filteredSessionEvents[session.global_session_id]
 
     useEffect(() => {
         if (!events) {
@@ -27,7 +28,7 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
             title: 'Event',
             key: 'id',
             render: function RenderEvent(event: EventType) {
-                return eventToName(event)
+                return <PropertyKeyInfo value={eventToName(event)} ellipsis={false} />
             },
         },
         {
