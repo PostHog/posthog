@@ -14,7 +14,7 @@ export function MetricsDrawer(): JSX.Element {
             visible={!!showingMetricsPlugin}
             onClose={hidePluginMetrics}
             width={'min(90vw, 80rem)'}
-            title={`Plugin Metrics ${!!showingMetricsPlugin ? `: ${showingMetricsPlugin.name}` : ''}`}
+            title={`Plugin Metrics${!!showingMetricsPlugin ? `: ${showingMetricsPlugin.name}` : ''}`}
             placement="left"
             destroyOnClose
             className="metrics-drawer"
