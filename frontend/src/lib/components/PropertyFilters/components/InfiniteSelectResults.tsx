@@ -1,20 +1,19 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { Col, Row, Tabs, List } from 'antd'
 import AutoSizer from 'react-virtualized/dist/commonjs/AutoSizer'
 import VirtualizedList from 'react-virtualized/dist/commonjs/List'
 import { InfiniteLoader, ListRowProps, ListRowRenderer } from 'react-virtualized'
 
-import { EventDefinition } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectedItem } from 'lib/components/SelectBox'
-import api from 'lib/api'
 
 import { useThrottledCallback } from 'use-debounce/lib'
-import { Loading, buildUrl } from 'lib/utils'
+import { Loading } from 'lib/utils'
 import { infiniteSelectResultsLogic } from '../infiniteSelectResultsLogic'
 import { useActions, useValues } from 'kea'
+import { infiniteListLogic } from '../infiniteListLogic'
 
-interface SelectResult extends Omit<SelectedItem, 'key'> {
+export interface SelectResult extends Omit<SelectedItem, 'key'> {
     key: string | number
     tags?: string[] // TODO better type
 }
@@ -25,12 +24,6 @@ export interface SelectResultGroup {
     type: string
     endpoint?: string // Endpoint supporting search and pagination
     dataSource?: SelectResult[] // Static options (instead of fetching from endpoint)
-}
-
-type EventDefinitionResult = {
-    count: number
-    next: null | string
-    results: EventDefinition[]
 }
 
 export interface InfiniteSelectResultsProps {
@@ -72,6 +65,7 @@ export function InfiniteSelectResults({
                         <Tabs.TabPane tab={name} key={key} active={activeTabKey === key}>
                             {endpoint && !dataSource ? (
                                 <InfiniteList
+                                    pageKey={pageKey}
                                     type={type}
                                     endpoint={endpoint}
                                     searchQuery={searchQuery}
@@ -95,14 +89,8 @@ export function InfiniteSelectResults({
     )
 }
 
-function transformResults(results: EventDefinitionResult['results']): SelectResult[] {
-    return results.map((definition) => ({
-        ...definition,
-        key: definition.id,
-    }))
-}
-
 interface InfiniteListProps {
+    pageKey: string
     type: string
     endpoint: string
     searchQuery?: string
@@ -110,82 +98,47 @@ interface InfiniteListProps {
     selectedItemKey: string | number | null
 }
 
-function InfiniteList({ type, endpoint, searchQuery, onSelect, selectedItemKey }: InfiniteListProps): JSX.Element {
-    const [items, setItems] = useState<SelectResult[]>([])
-    const [loading, setLoading] = useState(false)
-    const [totalCount, setTotalCount] = useState<number | null>(null)
-    const [next, setNext] = useState<string | null>(null)
-
-    const isRowLoaded = ({ index }: { index: number }): boolean => {
-        return Boolean(items[index])
-    }
-
-    const loadInitialRows = async (search?: string): Promise<any> => {
-        try {
-            const url = buildUrl(endpoint, {
-                search,
-                limit: 100,
-                offset: 0,
-            })
-            setLoading(true)
-            const response: EventDefinitionResult = await api.get(url)
-            setTotalCount(response.count)
-            setNext(response.next)
-            setItems(transformResults(response.results))
-            setLoading(false)
-        } catch (err) {
-            console.error(err)
-        }
-    }
-
-    const loadMoreRows = async ({ startIndex }: { startIndex: number }): Promise<any> => {
-        const [, , nextOffset] = next?.match(/(offset=)(\d*)/) || []
-        // Only load values not yet in state
-        if (startIndex >= items.length && parseInt(nextOffset) >= items.length) {
-            try {
-                const response: EventDefinitionResult = await api.get(next)
-                setTotalCount(response.count)
-                setNext(response.next)
-                setItems((previousItems) => [...previousItems, ...transformResults(response.results)])
-                return response.results
-            } catch (err) {
-                console.error(err)
-            }
-        }
-    }
+function InfiniteList({ pageKey, type, endpoint, searchQuery, onSelect, selectedItemKey }: InfiniteListProps): JSX.Element {
+    const logic = infiniteListLogic({ pageKey, type, endpoint })
+    const { results, itemsLoading, totalCount } = useValues(logic)
+    const { loadItems } = useActions(logic)
 
     const renderItem: ListRowRenderer = ({ index, style }: ListRowProps): JSX.Element | null => {
-        const item = items[index]
+        const item = results[index]
         return item ? (
             <List.Item
                 className={selectedItemKey === item.id ? 'selected' : undefined}
                 key={item.id}
-                onClick={() => onSelect(type, item.key, item.name)}
+                onClick={() => onSelect(type, item.id, item.name)}
                 style={style}
-                data-attr={`prop-filter-${item.groupName || type}-${index}`}
+                data-attr={`prop-filter-${type}-${index}`}
             >
                 <PropertyKeyInfo value={item.name} />
             </List.Item>
         ) : null
     }
 
-    useEffect(() => {
-        loadInitialRows()
-    }, [])
-
     useEffect(
         useThrottledCallback(() => {
-            loadInitialRows(searchQuery)
+            // TODO breakpoint in loadItems
+            loadItems({ search: searchQuery })
         }, 100),
         [searchQuery]
     )
 
     return (
         <div style={{ minHeight: '200px' }}>
-            {loading && <Loading />}
+            {itemsLoading && <Loading />}
             <AutoSizer>
                 {({ height, width }: { height: number; width: number }) => (
-                    <InfiniteLoader isRowLoaded={isRowLoaded} loadMoreRows={loadMoreRows} rowCount={totalCount || 0}>
+                    <InfiniteLoader
+                        isRowLoaded={({ index }) => !!results[index]}
+                        loadMoreRows={({ startIndex, stopIndex }) => {
+                            // TODO async load and return Promise<results>
+                            loadItems({ search: searchQuery, offset: startIndex, limit: stopIndex - startIndex })
+                        }}
+                        rowCount={totalCount || 0}
+                    >
                         {({ onRowsRendered, registerChild }) => (
                             <VirtualizedList
                                 height={height}
