@@ -57,8 +57,6 @@ $glyph_height: 22px;
 
             .funnel-inspect-label {
                 color: inherit;
-                text-decoration: underline;
-                text-underline-position: under;
             }
 
             &:hover .funnel-inspect-label {
@@ -107,7 +105,7 @@ $glyph_height: 22px;
 
     footer {
         .funnel-step-metadata {
-            justify-content: flex-start;
+            justify-content: space-between;
 
             .ant-btn.funnel-inspect-button {
                 padding-left: 0;
@@ -115,6 +113,7 @@ $glyph_height: 22px;
             }
 
             & > span {
+                display: flex;
                 line-height: 32px;
             }
         }

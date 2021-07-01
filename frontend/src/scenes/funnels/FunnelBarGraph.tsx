@@ -3,11 +3,12 @@ import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button } from 'antd'
-import { ClockCircleOutlined, UserOutlined } from '@ant-design/icons'
+import { ArrowRightOutlined } from '@ant-design/icons'
 import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 
 import './FunnelBarGraph.scss'
+import { ArrowBottomRightOutlined } from 'lib/components/icons'
 
 function calcPercentage(numerator: number, denominator: number): number {
     return (numerator / denominator) * 100 || 0
@@ -77,11 +78,25 @@ interface ValueInspectorButtonProps {
     onClick: (e?: React.SyntheticEvent) => any
     children: React.ReactNode
     disabled?: boolean
+    style?: React.CSSProperties
 }
 
-function ValueInspectorButton({ icon, onClick, children, disabled = false }: ValueInspectorButtonProps): JSX.Element {
+function ValueInspectorButton({
+    icon,
+    onClick,
+    children,
+    disabled = false,
+    style,
+}: ValueInspectorButtonProps): JSX.Element {
     return (
-        <Button type="link" icon={icon} onClick={onClick} className="funnel-inspect-button" disabled={disabled}>
+        <Button
+            type="link"
+            icon={icon}
+            onClick={onClick}
+            className="funnel-inspect-button"
+            disabled={disabled}
+            style={style}
+        >
             <span className="funnel-inspect-label">{children}</span>
         </Button>
     )
@@ -108,24 +123,42 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                         </div>
                         <div className="funnel-step-metadata">
                             {step.average_time >= 0 + Number.EPSILON ? (
-                                <ValueInspectorButton icon={<ClockCircleOutlined />} onClick={() => {}} disabled>
-                                    {humanFriendlyDuration(step.average_time)}
-                                </ValueInspectorButton>
+                                <span>
+                                    Average time:{' '}
+                                    <ValueInspectorButton
+                                        onClick={() => {}}
+                                        style={{ paddingLeft: 0, paddingRight: 0 }}
+                                        disabled
+                                    >
+                                        {humanFriendlyDuration(step.average_time)}
+                                    </ValueInspectorButton>
+                                </span>
                             ) : null}
-                            <ValueInspectorButton icon={<UserOutlined />} onClick={() => {}} disabled /* TODO */>
-                                {step.count} completed
-                            </ValueInspectorButton>
                         </div>
                     </header>
                     <Bar percentage={calcPercentage(step.count, referenceStep.count)} name={step.name} />
                     {i > 0 && step.order > 0 && steps[i - 1]?.count > step.count && (
                         <footer>
                             <div className="funnel-step-metadata">
-                                <ValueInspectorButton icon={<UserOutlined /> /* TODO */} onClick={() => {}} disabled>
-                                    {steps[i - 1].count - step.count} dropped off
+                                <ValueInspectorButton
+                                    icon={<ArrowRightOutlined style={{ color: 'var(--success)' }} />}
+                                    onClick={() => {}}
+                                    disabled
+                                >
+                                    {step.count} completed
                                 </ValueInspectorButton>
                                 <span>
-                                    ({100 - calcPercentage(step.count, steps[i - 1].count)}% from previous step)
+                                    <ValueInspectorButton
+                                        icon={<ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />}
+                                        onClick={() => {}}
+                                        disabled
+                                        style={{ paddingRight: '0.25em' }}
+                                    >
+                                        {steps[i - 1].count - step.count} dropped off
+                                    </ValueInspectorButton>
+                                    <span style={{ color: 'var(--primary-alt)' }}>
+                                        ({100 - calcPercentage(step.count, steps[i - 1].count)}% from previous step)
+                                    </span>
                                 </span>
                             </div>
                         </footer>
