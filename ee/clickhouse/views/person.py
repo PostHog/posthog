@@ -32,7 +32,7 @@ class ClickhousePersonViewSet(PersonViewSet):
         results = ClickhouseFunnelPersons(filter, team).run()
 
         next_url = format_next_absolute_url(request, filter.offset, 100) if len(results) > 99 else None
-        return response.Response(data={"results": results, "next": next_url})
+        return response.Response({"results": [{"people": results, "count": len(results)}], "next": next_url})
 
     @action(methods=["GET"], detail=False)
     def funnel_trends(self, request: request.Request, **kwargs) -> response.Response:
@@ -44,7 +44,7 @@ class ClickhousePersonViewSet(PersonViewSet):
         results = ClickhouseFunnelTrendsPersons(filter, team).run()
 
         next_url = format_next_absolute_url(request, filter.offset, 100) if len(results) > 99 else None
-        return response.Response(data={"results": results, "next": next_url})
+        return response.Response({"results": [{"people": results, "count": len(results)}], "next": next_url})
 
     def get_properties(self, request: request.Request):
         rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": self.team.pk})
