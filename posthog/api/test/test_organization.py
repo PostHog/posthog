@@ -11,6 +11,7 @@ from rest_framework import status
 from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
 from posthog.models.organization import OrganizationInvite
 from posthog.test.base import APIBaseTest
+from posthog.utils import get_instance_realm
 
 
 class TestOrganizationAPI(APIBaseTest):
@@ -204,6 +205,7 @@ class TestSignup(APIBaseTest):
                 "new_onboarding_enabled": False,
                 "signup_backend_processor": "OrganizationSignupSerializer",
                 "signup_social_provider": "",
+                "realm": get_instance_realm(),
             },
         )
 
@@ -276,6 +278,7 @@ class TestSignup(APIBaseTest):
                 "new_onboarding_enabled": False,
                 "signup_backend_processor": "OrganizationSignupSerializer",
                 "signup_social_provider": "",
+                "realm": get_instance_realm(),
             },
         )
 
@@ -555,6 +558,7 @@ class TestInviteSignup(APIBaseTest):
                 "new_onboarding_enabled": False,
                 "signup_backend_processor": "OrganizationInviteSignupSerializer",
                 "signup_social_provider": "",
+                "realm": get_instance_realm(),
             },
         )
 
