@@ -67,7 +67,7 @@ export function Insights(): JSX.Element {
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(trendsLogic())
     const { refreshCohort } = useActions(trendsLogic())
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { funnelPersonsEnabled } = useValues(funnelLogic)
     const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
@@ -360,7 +360,7 @@ export function Insights(): JSX.Element {
                                     </div>
                                 </div>
                             </Card>
-                            {!featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL] &&
+                            {!funnelPersonsEnabled &&
                                 !showErrorMessage &&
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&

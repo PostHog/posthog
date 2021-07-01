@@ -8,10 +8,9 @@ import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 
 import './FunnelBarGraph.scss'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useActions, useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { funnelLogic } from './funnelLogic'
 
 function calcPercentage(numerator: number, denominator: number): number {
     return (numerator / denominator) * 100 || 0
@@ -28,15 +27,17 @@ interface FunnelBarGraphProps {
 interface BarProps {
     percentage: number
     name?: string
+    onBarClick?: () => void
 }
 
 type LabelPosition = 'inside' | 'outside'
 
-function Bar({ percentage, name }: BarProps): JSX.Element {
+function Bar({ percentage, name, onBarClick }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
+    const { funnelPersonsEnabled } = useValues(funnelLogic)
 
     function decideLabelPosition(): void {
         // Place label inside or outside bar, based on whether it fits
@@ -59,7 +60,16 @@ function Bar({ percentage, name }: BarProps): JSX.Element {
 
     return (
         <div className="funnel-bar-wrapper">
-            <div ref={barRef} className="funnel-bar" style={{ width: `${percentage}%` }}>
+            <div
+                ref={barRef}
+                className="funnel-bar"
+                style={{ width: `${percentage}%`, cursor: `${funnelPersonsEnabled ? 'pointer' : ''}` }}
+                onClick={() => {
+                    if (funnelPersonsEnabled && onBarClick) {
+                        onBarClick()
+                    }
+                }}
+            >
                 <div
                     ref={labelRef}
                     className={`funnel-bar-percentage ${labelPosition}`}
@@ -94,7 +104,7 @@ function ValueInspectorButton({ icon, onClick, children, disabled = false }: Val
 export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
     const steps = [...stepsParam].sort((a, b) => a.order - b.order)
     const referenceStep = steps[0] // Compare values to first step, i.e. total
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { funnelPersonsEnabled } = useValues(funnelLogic)
     const { setShowingPeople, loadPeople } = useActions(trendsLogic)
     const openPersonsModal = (step: FunnelStep, i: number): void => {
         setShowingPeople(true)
@@ -133,20 +143,24 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                             <ValueInspectorButton
                                 icon={<UserOutlined />}
                                 onClick={() => openPersonsModal(step, i)}
-                                disabled={!featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL]}
+                                disabled={!funnelPersonsEnabled}
                             >
                                 {step.count} completed
                             </ValueInspectorButton>
                         </div>
                     </header>
-                    <Bar percentage={calcPercentage(step.count, referenceStep.count)} name={step.name} />
+                    <Bar
+                        percentage={calcPercentage(step.count, referenceStep.count)}
+                        name={step.name}
+                        onBarClick={() => openPersonsModal(step, i)}
+                    />
                     {i > 0 && step.order > 0 && steps[i - 1]?.count > step.count && (
                         <footer>
                             <div className="funnel-step-metadata">
                                 <ValueInspectorButton
                                     icon={<UserOutlined /> /* TODO */}
                                     onClick={() => {}}
-                                    disabled={!featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL]}
+                                    disabled={!funnelPersonsEnabled}
                                 >
                                     {steps[i - 1].count - step.count} dropped off
                                 </ValueInspectorButton>
