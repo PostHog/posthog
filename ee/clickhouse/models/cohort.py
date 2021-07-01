@@ -43,7 +43,13 @@ def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
         )
 
     or_queries = []
-    for group_idx, group in enumerate(cohort.groups):
+    groups = cohort.groups
+
+    if not groups:
+        # No person can match a cohort that has no match groups
+        return "0 = 1", {}
+
+    for group_idx, group in enumerate(groups):
         if group.get("action_id") or group.get("event_id"):
             entity_query, entity_params = get_entity_cohort_subquery(cohort, group, group_idx)
             params = {**params, **entity_params}
