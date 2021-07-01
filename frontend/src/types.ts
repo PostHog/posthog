@@ -686,7 +686,7 @@ export interface FunnelStep {
     name: string
     order: number
     people: string[]
-    type: string
+    type: EntityType
     labels?: string[]
 }
 

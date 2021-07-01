@@ -51,8 +51,8 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
             : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie'
             ? `"${people?.label}"`
             : filters.insight === ViewType.FUNNELS
-            ? `${people?.label} - ${people?.day}`
-            : `${people?.label} on ${people?.day} : ${people?.day ? dayjs(people.day).format('ll') : '...'}`
+            ? `${people?.label}`
+            : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
 
     const closeModal = (): void => {
         setShowingPeople(false)
@@ -61,7 +61,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
 
     return (
         <Modal
-            title={title}
+            title={<b>{title}</b>}
             visible={visible}
             onOk={closeModal}
             onCancel={closeModal}

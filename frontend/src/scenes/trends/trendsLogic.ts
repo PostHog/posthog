@@ -269,8 +269,9 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         filters: [
             (props.filters
                 ? props.filters
-                : (state: Record<string, any>) =>
-                      cleanFilters(router.selectors.searchParams(state))) as Partial<FilterType>,
+                : (state: Record<string, any>) => cleanFilters(router.selectors.searchParams(state))) as Partial<
+                FilterType
+            >,
             {
                 setFilters: (state, { filters, mergeFilters }) => {
                     const newState = state?.insight && TRENDS_BASED_INSIGHTS.includes(state.insight) ? state : {}
@@ -473,48 +474,11 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 )
                 actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
                 people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
-            } else if (values.filters.insight === ViewType.FUNNELS) {
+            } else if (funnel_step) {
                 const params = { ...values.filters, funnel_step }
                 const cleanedParams = cleanFunnelParams(params)
                 const funnelParams = toParams(cleanedParams)
-                // people = await api.get(`api/person/funnel/?${funnelParams}${searchTermParam}`)
-                people = {
-                    results: [
-                        {
-                            id: 62856566,
-                            name: '0178ac0c-da3c-000a-d236-7f1f86f80016',
-                            distinct_ids: ['0178ac0c-da3c-000a-d236-7f1f86f80016'],
-                            properties: {
-                                is_demo: true,
-                            },
-                            is_identified: false,
-                            created_at: '2021-04-07T11:17:06.749393Z',
-                            uuid: '0178ac0c-da39-0004-e84a-d50409f34329',
-                        },
-                        {
-                            id: 62856569,
-                            name: '0178ac0c-da3c-000d-c143-af2dd730386d',
-                            distinct_ids: ['0178ac0c-da3c-000d-c143-af2dd730386d'],
-                            properties: {
-                                is_demo: true,
-                            },
-                            is_identified: false,
-                            created_at: '2021-04-07T11:17:06.749451Z',
-                            uuid: '0178ac0c-da39-0007-a74f-00a7fbceb356',
-                        },
-                        {
-                            id: 62856570,
-                            name: '0178ac0c-da3c-000e-d78c-3e703bcf9683',
-                            distinct_ids: ['0178ac0c-da3c-000e-d78c-3e703bcf9683'],
-                            properties: {
-                                is_demo: true,
-                            },
-                            is_identified: false,
-                            created_at: '2021-04-07T11:17:06.749470Z',
-                            uuid: '0178ac0c-da39-0008-059b-fd4c5492768d',
-                        },
-                    ],
-                }
+                people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
             } else {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
@@ -525,8 +489,8 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             }
             breakpoint()
             actions.setPeople(
-                people.results || people.results[0]?.people,
-                people.results.length || people.results[0]?.count || 0,
+                people.results[0]?.people,
+                people.results[0]?.count || 0,
                 action,
                 label,
                 date_from,
@@ -535,8 +499,8 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             )
             if (saveOriginal) {
                 actions.saveFirstLoadedPeople(
-                    people.results || people.results[0]?.people,
-                    people.results.length || people.results[0]?.count || 0,
+                    people.results[0]?.people,
+                    people.results[0]?.count || 0,
                     action,
                     label,
                     date_from,

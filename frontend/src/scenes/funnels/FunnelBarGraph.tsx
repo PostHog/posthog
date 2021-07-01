@@ -96,8 +96,18 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
     const referenceStep = steps[0] // Compare values to first step, i.e. total
     const { featureFlags } = useValues(featureFlagLogic)
     const { setShowingPeople, loadPeople } = useActions(trendsLogic)
-    const loadFunnelsPeople = (stepName: string, i: number): void => {
-        loadPeople('session', `Persons who completed Step #${i + 1} - ${stepName}`, '', '', '', true, '', i)
+    const openPersonsModal = (step: FunnelStep, i: number): void => {
+        setShowingPeople(true)
+        loadPeople(
+            { id: step.action_id, name: step.name, properties: [], type: step.type },
+            `Persons who completed Step #${i + 1} - "${step.name}"`,
+            '',
+            '',
+            '',
+            true,
+            '',
+            i + 1
+        )
     }
     return layout === 'horizontal' ? (
         <div>
@@ -122,10 +132,7 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                             ) : null}
                             <ValueInspectorButton
                                 icon={<UserOutlined />}
-                                onClick={() => {
-                                    setShowingPeople(true)
-                                    loadFunnelsPeople(step.name, i)
-                                }}
+                                onClick={() => openPersonsModal(step, i)}
                                 disabled={!featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL]}
                             >
                                 {step.count} completed
@@ -136,7 +143,11 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                     {i > 0 && step.order > 0 && steps[i - 1]?.count > step.count && (
                         <footer>
                             <div className="funnel-step-metadata">
-                                <ValueInspectorButton icon={<UserOutlined /> /* TODO */} onClick={() => {}} disabled>
+                                <ValueInspectorButton
+                                    icon={<UserOutlined /> /* TODO */}
+                                    onClick={() => {}}
+                                    disabled={!featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL]}
+                                >
                                     {steps[i - 1].count - step.count} dropped off
                                 </ValueInspectorButton>
                                 <span>
