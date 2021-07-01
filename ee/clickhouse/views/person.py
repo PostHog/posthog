@@ -5,11 +5,13 @@ from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels import ClickhouseFunnelPersons, ClickhouseFunnelTrendsPersons
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
+from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.person import PersonViewSet
 from posthog.api.utils import format_next_absolute_url, format_next_url
 from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
@@ -54,6 +56,10 @@ class ClickhousePersonViewSet(PersonViewSet):
 
         # cached_function expects a dict with the key result
         return {"result": (results, next_url)}
+
+    def get_properties(self, request: Request):
+        rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": self.team.pk})
+        return [{"name": name, "count": count} for name, count in rows]
 
     def destroy(self, request: Request, pk=None, **kwargs):  # type: ignore
         try:
