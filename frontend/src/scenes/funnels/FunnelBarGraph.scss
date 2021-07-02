@@ -122,7 +122,6 @@ $glyph_height: 22px;
                     display: flex;
                     flex-wrap: wrap;
                     line-height: 16px;
-                    margin: 8px 0;
                 }
             }
         }
@@ -186,6 +185,7 @@ $glyph_height: 22px;
             .funnel-step-metadata {
                 line-height: 1;
                 align-items: flex-start;
+                justify-content: flex-start;
 
                 .ant-btn.funnel-inspect-button {
                     padding: 0;
@@ -212,7 +212,6 @@ $glyph_height: 22px;
 
         .funnel-bar-wrapper {
             width: 56px;
-            margin: 4px;
             height: 300px;
             position: relative;
 

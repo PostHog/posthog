@@ -6,12 +6,13 @@ import { Button, Tooltip } from 'antd'
 import { ArrowRightOutlined } from '@ant-design/icons'
 import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-
-import './FunnelBarGraph.scss'
 import { ArrowBottomRightOutlined } from 'lib/components/icons'
 import { funnelLogic } from './funnelLogic'
 import { useValues } from 'kea'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
+import { useThrottledCallback } from 'use-debounce'
+
+import './FunnelBarGraph.scss'
 
 function calcPercentage(numerator: number, denominator: number): number {
     return (numerator / denominator) * 100 || 0
@@ -71,7 +72,7 @@ function Bar({ percentage, name, layout = FunnelBarLayout.horizontal }: BarProps
     }
 
     useResizeObserver({
-        callback: decideLabelPosition,
+        callback: useThrottledCallback(decideLabelPosition, 200),
         element: barRef,
     })
 
@@ -200,7 +201,7 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                         >
                                             {steps[i - 1].count - step.count} dropped off
                                         </ValueInspectorButton>
-                                        <span style={{ color: 'var(--primary-alt)' }}>
+                                        <span style={{ color: 'var(--primary-alt)', padding: '8px 0' }}>
                                             ({humanizeNumber(100 - calcPercentage(step.count, steps[i - 1].count), 2)}%
                                             from previous step)
                                         </span>
