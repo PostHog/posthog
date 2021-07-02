@@ -124,18 +124,20 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
     const { stepReference } = useValues(funnelLogic)
     const steps = [...stepsParam].sort((a, b) => a.order - b.order)
 
-    return layout === 'horizontal' ? (
-        <div>
+    return (
+        <div className={`funnel-bar-graph ${layout}`}>
             {steps.map((step, i) => {
                 const basisStep = getReferenceStep(steps, stepReference, i)
+                const showLineBefore = layout === 'horizontal' && i > 0
+                const showLineAfter = layout === 'vertical' || i < steps.length - 1
                 return (
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
-                            <div className={`funnel-series-linebox ${i > 0 ? 'before' : ''}`} />
+                            <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
                             <SeriesGlyph style={{ backgroundColor: '#fff', zIndex: 2 }}>
                                 {humanizeOrder(step.order)}
                             </SeriesGlyph>
-                            <div className={`funnel-series-linebox ${steps[i + 1] ? 'after' : ''}`} />
+                            <div className={`funnel-series-linebox ${showLineAfter ? 'after' : ''}`} />
                         </div>
                         <header>
                             <div className="funnel-step-title">
@@ -188,7 +190,5 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                 )
             })}
         </div>
-    ) : (
-        <>{null}</>
     )
 }
