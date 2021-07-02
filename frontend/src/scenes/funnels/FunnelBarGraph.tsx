@@ -20,33 +20,48 @@ function calcPercentage(numerator: number, denominator: number): number {
 function humanizeOrder(order: number): number {
     return order + 1
 }
+
+type LayoutOption = 'horizontal' | 'vertical'
+
 interface FunnelBarGraphProps {
-    layout?: 'horizontal' | 'vertical'
+    layout?: LayoutOption
     steps: FunnelStep[]
 }
 
 interface BarProps {
     percentage: number
     name?: string
+    layout?: LayoutOption
 }
 
 type LabelPosition = 'inside' | 'outside'
 
-function Bar({ percentage, name }: BarProps): JSX.Element {
+function Bar({ percentage, name, layout = 'horizontal' }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
+    const dimensionProperty = layout === 'horizontal' ? 'width' : 'height'
 
     function decideLabelPosition(): void {
         // Place label inside or outside bar, based on whether it fits
-        const barWidth = barRef.current?.clientWidth ?? null
-        const labelWidth = labelRef.current?.clientWidth ?? null
-
-        if (barWidth !== null && labelWidth !== null) {
-            if (labelWidth + LABEL_POSITION_OFFSET * 2 > barWidth) {
-                setLabelPosition('outside')
-                return
+        if (layout === 'horizontal') {
+            const barWidth = barRef.current?.clientWidth ?? null
+            const labelWidth = labelRef.current?.clientWidth ?? null
+            if (barWidth !== null && labelWidth !== null) {
+                if (labelWidth + LABEL_POSITION_OFFSET * 2 > barWidth) {
+                    setLabelPosition('outside')
+                    return
+                }
+            }
+        } else {
+            const barHeight = barRef.current?.clientHeight ?? null
+            const labelHeight = labelRef.current?.clientHeight ?? null
+            if (barHeight !== null && labelHeight !== null) {
+                if (labelHeight + LABEL_POSITION_OFFSET * 2 > barHeight) {
+                    setLabelPosition('outside')
+                    return
+                }
             }
         }
         setLabelPosition('inside')
@@ -59,7 +74,7 @@ function Bar({ percentage, name }: BarProps): JSX.Element {
 
     return (
         <div className="funnel-bar-wrapper">
-            <div ref={barRef} className="funnel-bar" style={{ width: `${percentage}%` }}>
+            <div ref={barRef} className="funnel-bar" style={{ [dimensionProperty]: `${percentage}%` }}>
                 <div
                     ref={labelRef}
                     className={`funnel-bar-percentage ${labelPosition}`}
@@ -158,7 +173,11 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                                 ) : null}
                             </div>
                         </header>
-                        <Bar percentage={calcPercentage(step.count, basisStep.count)} name={step.name} />
+                        <Bar
+                            percentage={calcPercentage(step.count, basisStep.count)}
+                            name={step.name}
+                            layout={layout}
+                        />
                         <footer>
                             <div className="funnel-step-metadata">
                                 <ValueInspectorButton
