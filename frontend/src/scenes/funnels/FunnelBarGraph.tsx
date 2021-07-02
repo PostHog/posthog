@@ -138,11 +138,8 @@ function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepReferenc
     }
 }
 
-export function FunnelBarGraph({
-    layout = FunnelBarLayout.horizontal,
-    steps: stepsParam,
-}: FunnelBarGraphProps): JSX.Element {
-    const { stepReference } = useValues(funnelLogic)
+export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
+    const { stepReference, barGraphLayout: layout } = useValues(funnelLogic)
     const steps = [...stepsParam].sort((a, b) => a.order - b.order)
 
     return (
