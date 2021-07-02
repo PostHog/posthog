@@ -11,6 +11,7 @@ import { FilterType, FunnelResult, FunnelStep, PersonType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
@@ -67,6 +68,7 @@ export const funnelLogic = kea<funnelLogicType>({
         setStepsWithCountLoading: (stepsWithCountLoading: boolean) => ({ stepsWithCountLoading }),
         loadConversionWindow: (days: number) => ({ days }),
         setConversionWindowInDays: (days: number) => ({ days }),
+        openPersonsModal: (step: FunnelStep, stepNumber: number) => ({ step, stepNumber }),
     }),
 
     connect: {
@@ -247,6 +249,19 @@ export const funnelLogic = kea<funnelLogicType>({
             await breakpoint(1000)
             actions.setConversionWindowInDays(days)
             actions.loadResults()
+        },
+        openPersonsModal: ({ step, stepNumber }) => {
+            trendsLogic().actions.setShowingPeople(true)
+            trendsLogic().actions.loadPeople(
+                { id: step.action_id, name: step.name, properties: [], type: step.type },
+                `Persons who completed Step #${stepNumber} - "${step.name}"`,
+                '',
+                '',
+                '',
+                true,
+                '',
+                stepNumber
+            )
         },
     }),
     actionToUrl: ({ values, props }) => ({

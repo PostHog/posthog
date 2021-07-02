@@ -21,8 +21,7 @@ import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-
-import { cleanFunnelParams } from 'scenes/funnels/funnelLogic'
+import { cleanFunnelParams, funnelLogic } from 'scenes/funnels/funnelLogic'
 interface TrendResponse {
     result: TrendResult[]
     next?: string
@@ -475,7 +474,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
                 people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
             } else if (funnel_step) {
-                const params = { ...values.filters, funnel_step }
+                const params = { ...funnelLogic().values.filters, funnel_step }
                 const cleanedParams = cleanFunnelParams(params)
                 const funnelParams = toParams(cleanedParams)
                 people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)

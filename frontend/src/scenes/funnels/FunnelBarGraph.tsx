@@ -105,20 +105,8 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
     const steps = [...stepsParam].sort((a, b) => a.order - b.order)
     const referenceStep = steps[0] // Compare values to first step, i.e. total
     const { funnelPersonsEnabled } = useValues(funnelLogic)
-    const { setShowingPeople, loadPeople } = useActions(trendsLogic)
-    const openPersonsModal = (step: FunnelStep, i: number): void => {
-        setShowingPeople(true)
-        loadPeople(
-            { id: step.action_id, name: step.name, properties: [], type: step.type },
-            `Persons who completed Step #${i + 1} - "${step.name}"`,
-            '',
-            '',
-            '',
-            true,
-            '',
-            i + 1
-        )
-    }
+    const { openPersonsModal } = useActions(funnelLogic)
+
     return layout === 'horizontal' ? (
         <div>
             {steps.map((step, i) => (
@@ -142,7 +130,7 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                             ) : null}
                             <ValueInspectorButton
                                 icon={<UserOutlined />}
-                                onClick={() => openPersonsModal(step, i)}
+                                onClick={() => openPersonsModal(step, i + 1)}
                                 disabled={!funnelPersonsEnabled}
                             >
                                 {step.count} completed
@@ -159,7 +147,7 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                             <div className="funnel-step-metadata">
                                 <ValueInspectorButton
                                     icon={<UserOutlined /> /* TODO */}
-                                    onClick={() => openPersonsModal(step, -i - 1)}
+                                    onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
                                     disabled={!funnelPersonsEnabled}
                                 >
                                     {steps[i - 1].count - step.count} dropped off
