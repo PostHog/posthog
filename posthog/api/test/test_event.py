@@ -42,7 +42,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"}
             )
 
-            expected_queries = 4 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 11
+            expected_queries = 3 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 10
 
             with self.assertNumQueries(expected_queries):
                 response = self.client.get("/api/event/?distinct_id=2").json()
@@ -65,7 +65,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
             )
 
-            expected_queries = 4 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 8
+            expected_queries = 3 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 7
 
             with self.assertNumQueries(expected_queries):
                 response = self.client.get("/api/event/?event=event_name").json()
@@ -82,7 +82,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
             )
 
-            expected_queries = 4 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 8
+            expected_queries = 3 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 7
 
             with self.assertNumQueries(expected_queries):
                 response = self.client.get(
