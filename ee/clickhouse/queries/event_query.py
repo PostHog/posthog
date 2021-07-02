@@ -105,7 +105,10 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     return
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
-        cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        try:
+            cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        except Cohort.DoesNotExist:
+            return False
         for group in cohort.groups:
             if group.get("properties"):
                 return True
@@ -186,7 +189,11 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         return " ".join(final), params
 
     def _get_cohort_subquery(self, prop) -> Tuple[str, Dict[str, Any]]:
-        cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        try:
+            cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        except Cohort.DoesNotExist:
+            return "0 = 1", {}  # If cohort doesn't exist, nothing can match
+
         is_precalculated = is_precalculated_query(cohort)
 
         person_id_query, cohort_filter_params = (

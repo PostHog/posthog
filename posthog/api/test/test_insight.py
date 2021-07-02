@@ -142,6 +142,17 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response["result"][0]["count"], 2)
             self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
 
+        def test_nonexistent_cohort_is_handled(self):
+            with self.settings(DEBUG=1):
+                response_nonexistent_property = self.client.get(
+                    f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'property','key':'foo','value':'barabarab'}])}"
+                ).json()
+                response_nonexistent_cohort = self.client.get(
+                    f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
+                ).json()  # This should not throw an error, just act like there's no event matches
+
+            self.assertEqual(response_nonexistent_cohort, response_nonexistent_property)  # Both cases just empty
+
         def test_insight_trends_breakdown_pagination(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 for i in range(25):
@@ -175,6 +186,7 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(response["result"]), 1)
 
         def test_insight_funnels_basic_post(self):
+            person_factory(team=self.team, distinct_ids=["1"])
             event_factory(team=self.team, event="user signed up", distinct_id="1")
             event_factory(team=self.team, event="user did things", distinct_id="1")
             response = self.client.post(
@@ -192,7 +204,9 @@ def insight_test_factory(event_factory, person_factory):
             if is_clickhouse_enabled():
                 self.assertEqual(len(response["result"]), 2)
                 self.assertEqual(response["result"][0]["name"], "user signed up")
+                self.assertEqual(response["result"][0]["count"], 1)
                 self.assertEqual(response["result"][1]["name"], "user did things")
+                self.assertEqual(response["result"][1]["count"], 1)
             else:
                 self.assertEqual(response["result"]["loading"], True)
 

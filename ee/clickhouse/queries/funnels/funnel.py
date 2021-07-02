@@ -11,28 +11,24 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
 class ClickhouseFunnelNew(ClickhouseFunnelBase):
     def get_query(self, format_properties):
-        return self.get_step_counts_query()
 
-    def get_step_counts_query(self):
-
-        steps_per_person_query = self._get_steps_per_person_query()
+        steps_per_person_query = self.get_step_counts_query()
         max_steps = len(self._filter.entities)
 
         return f"""
         SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} FROM (
-            SELECT person_id, max(steps) AS furthest {self._get_step_time_avgs(max_steps)} FROM (
                 {steps_per_person_query}
-            ) GROUP BY person_id
         ) SETTINGS allow_experimental_window_functions = 1
         """
 
-    def _get_count_columns(self, max_steps: int):
-        cols: List[str] = []
+    def get_step_counts_query(self):
+        steps_per_person_query = self._get_steps_per_person_query()
+        max_steps = len(self._filter.entities)
 
-        for i in range(max_steps):
-            cols.append(f"countIf(furthest = {i + 1}) step_{i + 1}")
-
-        return ", ".join(cols)
+        return f"""SELECT person_id, max(steps) AS steps {self._get_step_time_avgs(max_steps)} FROM (
+            {steps_per_person_query}
+        ) GROUP BY person_id
+        """
 
     def _format_results(self, results):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
@@ -61,12 +57,3 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
             return ", prop"
         else:
             return ""
-
-    # TODO: include in the inner query to handle time to convert
-    def _get_step_time_avgs(self, max_steps: int):
-        conditions: List[str] = []
-        for i in range(1, max_steps):
-            conditions.append(f"avg(step_{i}_average_conversion_time) step_{i}_average_conversion_time")
-
-        formatted = ", ".join(conditions)
-        return f", {formatted}" if formatted else ""
