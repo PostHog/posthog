@@ -139,7 +139,7 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                     <Bar
                         percentage={calcPercentage(step.count, referenceStep.count)}
                         name={step.name}
-                        onBarClick={() => openPersonsModal(step, i)}
+                        onBarClick={() => openPersonsModal(step, i + 1)}
                     />
                     {i > 0 && step.order > 0 && steps[i - 1]?.count > step.count && (
                         <footer>
