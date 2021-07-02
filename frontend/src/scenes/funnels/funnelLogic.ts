@@ -213,7 +213,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         funnelPersonsEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.FUNNEL_PERSON_MODAL],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL],
         ],
     }),
 

@@ -63,7 +63,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
 
     return (
         <Modal
-            title={<b>{title}</b>}
+            title={<strong>{title}</strong>}
             visible={visible}
             onOk={closeModal}
             onCancel={closeModal}

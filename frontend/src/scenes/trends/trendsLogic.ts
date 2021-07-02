@@ -204,7 +204,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             breakdown_value?: string,
             saveOriginal?: boolean,
             searchTerm?: string,
-            funnel_step?: number
+            funnelStep?: number
         ) => ({
             action,
             label,
@@ -213,7 +213,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             breakdown_value,
             saveOriginal,
             searchTerm,
-            funnel_step,
+            funnelStep,
         }),
         saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
@@ -454,7 +454,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             }
         },
         loadPeople: async (
-            { label, action, date_from, date_to, breakdown_value, saveOriginal, searchTerm, funnel_step },
+            { label, action, date_from, date_to, breakdown_value, saveOriginal, searchTerm, funnelStep },
             breakpoint
         ) => {
             let people = []
@@ -473,8 +473,8 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 )
                 actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
                 people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
-            } else if (funnel_step) {
-                const params = { ...funnelLogic().values.filters, funnel_step }
+            } else if (funnelStep) {
+                const params = { ...funnelLogic().values.filters, funnel_step: funnelStep }
                 const cleanedParams = cleanFunnelParams(params)
                 const funnelParams = toParams(cleanedParams)
                 people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
