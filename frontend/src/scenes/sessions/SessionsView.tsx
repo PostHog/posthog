@@ -70,7 +70,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         properties,
         sessionRecordingId,
         firstRecordingId,
-        expandedRowKeys,
+        expandedRowKeysProps,
         showOnlyMatches,
         filters,
     } = useValues(logic)
@@ -312,7 +312,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     rowExpandable: () => true,
                     onExpandedRowsChange: onExpandedRowsChange,
                     expandRowByClick: true,
-                    ...(!!expandedRowKeys && { expandedRowKeys: expandedRowKeys as string[] }),
+                    ...expandedRowKeysProps,
                 }}
             />
             {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} />}

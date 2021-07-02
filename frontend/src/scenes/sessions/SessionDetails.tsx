@@ -19,6 +19,7 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(50)
     const events = session.events || filteredSessionEvents[session.global_session_id]
+    const matchingEventIds = new Set(session.matching_events || [])
 
     useEffect(() => {
         if (!events) {
@@ -72,9 +73,7 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
         <Table
             columns={columns}
             rowKey="id"
-            rowClassName={(event: EventType) =>
-                (session.matching_events || []).includes(event.id) ? 'sessions-event-highlighted' : ''
-            }
+            rowClassName={(event: EventType) => (matchingEventIds.has(event.id) ? 'sessions-event-highlighted' : '')}
             dataSource={events}
             loading={!events}
             pagination={{
@@ -98,7 +97,7 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
                     const { record: event } = expandProps
                     return (
                         <ExpandIcon {...expandProps}>
-                            {(session.matching_events || []).includes(event.id) ? (
+                            {matchingEventIds.has(event.id) ? (
                                 <Tooltip title="Matches your event filters">
                                     <div className="sessions-event-matching-events-icon cursor-pointer text-extra-small ml-05">
                                         M
