@@ -25,7 +25,7 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
             searchParams.display = values.chartFilter
 
             if (!objectsEqual(display, values.chartFilter)) {
-                router.actions.push(pathname, searchParams)
+                router.actions.replace(pathname, searchParams)
             }
         },
     }),

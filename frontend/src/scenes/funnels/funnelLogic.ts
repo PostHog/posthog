@@ -253,12 +253,12 @@ export const funnelLogic = kea<funnelLogicType>({
     actionToUrl: ({ values, props }) => ({
         setSteps: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', values.propertiesForUrl]
+                return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
             }
         },
         clearFunnel: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', { insight: ViewType.FUNNELS }]
+                return ['/insights', { insight: ViewType.FUNNELS }, undefined, { replace: true }]
             }
         },
     }),
