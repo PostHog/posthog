@@ -152,7 +152,8 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
                                     {steps[i - 1].count - step.count} dropped off
                                 </ValueInspectorButton>
                                 <span>
-                                    ({100 - calcPercentage(step.count, steps[i - 1].count)}% from previous step)
+                                    ({(100 - calcPercentage(step.count, steps[i - 1].count)).toFixed(2)}% from previous
+                                    step)
                                 </span>
                             </div>
                         </footer>
