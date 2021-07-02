@@ -89,8 +89,8 @@ class FunnelTypeMixin(BaseParamMixin):
     def funnel_viz_type(self) -> Optional[FunnelVizType]:
         funnel_viz_type = self._data.get(FUNNEL_VIZ_TYPE)
         if (
-            self._data.get(INSIGHT) == INSIGHT_FUNNELS
-            and not funnel_viz_type
+            not funnel_viz_type is None
+            and self._data.get(INSIGHT) == INSIGHT_FUNNELS
             and self._data.get(DISPLAY) == TRENDS_LINEAR
         ):
             # Backwards compatibility
