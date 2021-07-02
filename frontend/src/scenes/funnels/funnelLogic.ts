@@ -12,6 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
+import { FunnelBarLayout } from './FunnelBarGraph'
 
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
@@ -68,6 +69,7 @@ export const funnelLogic = kea<funnelLogicType>({
         loadConversionWindow: (days: number) => ({ days }),
         setConversionWindowInDays: (days: number) => ({ days }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
+        setBarGraphLayout: (barGraphLayout: FunnelBarLayout) => ({ barGraphLayout }),
     }),
 
     connect: {
@@ -171,6 +173,12 @@ export const funnelLogic = kea<funnelLogicType>({
             FunnelStepReference.total as FunnelStepReference,
             {
                 setStepReference: (_, { stepReference }) => stepReference,
+            },
+        ],
+        barGraphLayout: [
+            FunnelBarLayout.horizontal as FunnelBarLayout,
+            {
+                setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
             },
         ],
     }),

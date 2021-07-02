@@ -21,31 +21,34 @@ function humanizeOrder(order: number): number {
     return order + 1
 }
 
-type LayoutOption = 'horizontal' | 'vertical'
+export enum FunnelBarLayout {
+    horizontal = 'horizontal',
+    vertical = 'vertical',
+}
 
 interface FunnelBarGraphProps {
-    layout?: LayoutOption
+    layout?: FunnelBarLayout
     steps: FunnelStep[]
 }
 
 interface BarProps {
     percentage: number
     name?: string
-    layout?: LayoutOption
+    layout?: FunnelBarLayout
 }
 
 type LabelPosition = 'inside' | 'outside'
 
-function Bar({ percentage, name, layout = 'horizontal' }: BarProps): JSX.Element {
+function Bar({ percentage, name, layout = FunnelBarLayout.horizontal }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
-    const dimensionProperty = layout === 'horizontal' ? 'width' : 'height'
+    const dimensionProperty = layout === FunnelBarLayout.horizontal ? 'width' : 'height'
 
     function decideLabelPosition(): void {
         // Place label inside or outside bar, based on whether it fits
-        if (layout === 'horizontal') {
+        if (layout === FunnelBarLayout.horizontal) {
             const barWidth = barRef.current?.clientWidth ?? null
             const labelWidth = labelRef.current?.clientWidth ?? null
             if (barWidth !== null && labelWidth !== null) {
@@ -135,7 +138,10 @@ function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepReferenc
     }
 }
 
-export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
+export function FunnelBarGraph({
+    layout = FunnelBarLayout.horizontal,
+    steps: stepsParam,
+}: FunnelBarGraphProps): JSX.Element {
     const { stepReference } = useValues(funnelLogic)
     const steps = [...stepsParam].sort((a, b) => a.order - b.order)
 
@@ -143,8 +149,8 @@ export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: Fun
         <div className={`funnel-bar-graph ${layout}`}>
             {steps.map((step, i) => {
                 const basisStep = getReferenceStep(steps, stepReference, i)
-                const showLineBefore = layout === 'horizontal' && i > 0
-                const showLineAfter = layout === 'vertical' || i < steps.length - 1
+                const showLineBefore = layout === FunnelBarLayout.horizontal && i > 0
+                const showLineAfter = layout === FunnelBarLayout.vertical || i < steps.length - 1
                 return (
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
