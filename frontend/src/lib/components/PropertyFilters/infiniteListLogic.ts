@@ -13,28 +13,39 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
     },
     key: (props) => `${props.pageKey}-${props.type}`,
 
-    actions: () => ({
+    actions: {
         appendItems: (items: EventDefinitionStorage) => ({ items }),
         setItems: (items: EventDefinitionStorage) => ({ items }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setItemsLoading: (itemsLoading: boolean) => ({ itemsLoading }),
-    }),
+    },
 
     loaders: ({ props, values, actions }) => ({
         items: [
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
             {
-                loadItems: async ({ search = '', offset = 0, limit = 100 }: { search?: string, offset?: number, limit?: number }) => {
+                loadItems: async ({
+                    search = '',
+                    offset = 0,
+                    limit = 100,
+                }: {
+                    search?: string
+                    offset?: number
+                    limit?: number
+                }) => {
                     if (offset < values.minimumNextOffset) {
                         // We already have the requested range in state.
                         return values.items
                     }
                     const searchQueryUnchanged = search === values.searchQuery
-                    const url = values.nextUrl && searchQueryUnchanged ? values.nextUrl : buildUrl(props.endpoint, {
-                        search,
-                        limit,
-                        offset: searchQueryUnchanged ? values.minimumNextOffset : 0
-                    })
+                    const url =
+                        values.nextUrl && searchQueryUnchanged
+                            ? values.nextUrl
+                            : buildUrl(props.endpoint, {
+                                  search,
+                                  limit,
+                                  offset: searchQueryUnchanged ? values.minimumNextOffset : 0,
+                              })
                     const response: EventDefinitionStorage = await api.get(url)
 
                     actions.setSearchQuery(search)
@@ -43,9 +54,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         next: response.next,
                         count: response.count,
                     }
-                }
-            }
-        ]
+                },
+            },
+        ],
     }),
 
     listeners: ({ actions }) => ({
@@ -76,21 +87,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
     }),
 
     selectors: () => ({
-        nextUrl: [
-            (s) => [s.items],
-            (items) => items.next
-        ],
-        totalCount: [
-            (s) => [s.items],
-            (items) => items.count
-        ],
-        results: [
-            (s) => [s.items],
-            (items) => items.results
-        ],
-        minimumNextOffset: [
-            (s) => [s.items],
-            (items) => items.results.length
-        ],
-    })
+        nextUrl: [(s) => [s.items], (items) => items.next],
+        totalCount: [(s) => [s.items], (items) => items.count],
+        results: [(s) => [s.items], (items) => items.results],
+        minimumNextOffset: [(s) => [s.items], (items) => items.results.length],
+    }),
 })

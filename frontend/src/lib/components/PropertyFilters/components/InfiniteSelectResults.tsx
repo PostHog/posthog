@@ -1,8 +1,7 @@
 import React, { useEffect } from 'react'
 import { Col, Row, Tabs, List } from 'antd'
-import AutoSizer from 'react-virtualized/dist/commonjs/AutoSizer'
 import VirtualizedList from 'react-virtualized/dist/commonjs/List'
-import { InfiniteLoader, ListRowProps, ListRowRenderer } from 'react-virtualized'
+import { InfiniteLoader, ListRowProps, ListRowRenderer, AutoSizer } from 'react-virtualized'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectedItem } from 'lib/components/SelectBox'
@@ -98,7 +97,14 @@ interface InfiniteListProps {
     selectedItemKey: string | number | null
 }
 
-function InfiniteList({ pageKey, type, endpoint, searchQuery, onSelect, selectedItemKey }: InfiniteListProps): JSX.Element {
+function InfiniteList({
+    pageKey,
+    type,
+    endpoint,
+    searchQuery,
+    onSelect,
+    selectedItemKey,
+}: InfiniteListProps): JSX.Element {
     const logic = infiniteListLogic({ pageKey, type, endpoint })
     const { results, itemsLoading, totalCount } = useValues(logic)
     const { loadItems } = useActions(logic)
