@@ -8,7 +8,7 @@ import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter } from '~/types'
-import { ACTION_TYPE, EVENT_TYPE, FEATURE_FLAGS } from 'lib/constants'
+import { ACTION_TYPE, EVENT_TYPE } from 'lib/constants'
 import { personsModalLogic } from './personsModalLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 

@@ -9,7 +9,6 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { funnelLogic } from './funnelLogic'
 
 function calcPercentage(numerator: number, denominator: number): number {
