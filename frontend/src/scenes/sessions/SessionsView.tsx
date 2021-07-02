@@ -31,6 +31,8 @@ import { ResizableTable, ResizableColumnType, ANTD_EXPAND_BUTTON_WIDTH } from 'l
 import { teamLogic } from 'scenes/teamLogic'
 import { IconEventsShort } from 'lib/components/icons'
 import ExpandIcon from 'lib/components/ExpandIcon'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
@@ -87,6 +89,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
     } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const sessionsTableRef = useRef<HTMLInputElement>(null)
 
     const enableSessionRecordingCTA = (
@@ -224,9 +227,11 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 <div className="sessions-view-actions-left-items">
                     <Row className="action">
                         <Radio.Group>
-                            <Radio.Button value="expand" onClick={expandSessionRows}>
-                                Expand all
-                            </Radio.Button>
+                            {featureFlags[FEATURE_FLAGS.SESSIONS_TABLE] && (
+                                <Radio.Button value="expand" onClick={expandSessionRows}>
+                                    Expand all
+                                </Radio.Button>
+                            )}
                             <Radio.Button value="collapse" onClick={collapseSessionRows}>
                                 Collapse all
                             </Radio.Button>
