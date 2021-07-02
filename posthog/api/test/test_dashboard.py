@@ -140,7 +140,7 @@ class TestDashboard(APIBaseTest):
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
