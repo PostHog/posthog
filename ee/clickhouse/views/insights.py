@@ -74,11 +74,6 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
 
-        # backwards compatibility - unsure of implications yet
-        # but it's very confusing that funnel trends constant is same as the Trends display constant
-        if not filter.funnel_viz_type and filter.display == TRENDS_LINEAR:
-            filter.funnel_viz_type = FunnelVizType.TRENDS
-
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
             return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run()}
         elif filter.funnel_order_type == FunnelOrderType.UNORDERED:
