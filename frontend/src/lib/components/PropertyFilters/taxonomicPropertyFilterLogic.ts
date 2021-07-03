@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { AnyPropertyFilter } from '~/types'
-import { DisplayMode } from './components/TaxonomicPropertyFilter'
+import { DisplayMode } from './components/TaxonomicPropertyFilter/TaxonomicPropertyFilter'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
