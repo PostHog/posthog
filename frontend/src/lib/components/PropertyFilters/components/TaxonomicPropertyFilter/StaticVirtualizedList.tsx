@@ -30,7 +30,7 @@ export function StaticVirtualizedList({
         return item ? (
             <List.Item
                 className={selectedItemKey === item.key ? 'selected' : undefined}
-                key={item.id}
+                key={item.id || item.key}
                 onClick={() => onSelect(type, item.key, item.name)}
                 style={style}
                 data-attr={`prop-filter-${item.groupName || type}-${index}`}

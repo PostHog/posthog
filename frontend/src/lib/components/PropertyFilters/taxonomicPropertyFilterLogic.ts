@@ -21,6 +21,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         setDisplayMode: (displayMode: DisplayMode) => ({
             displayMode,
         }),
+        setActiveTabKey: (activeTabKey: string) => ({ activeTabKey }),
     }),
 
     reducers: ({ props }) => ({
@@ -40,6 +41,12 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             props.initialDisplayMode,
             {
                 setDisplayMode: (_, { displayMode }) => displayMode,
+            },
+        ],
+        activeTabKey: [
+            null as string | null,
+            {
+                setActiveTabKey: (_, { activeTabKey }) => activeTabKey,
             },
         ],
     }),

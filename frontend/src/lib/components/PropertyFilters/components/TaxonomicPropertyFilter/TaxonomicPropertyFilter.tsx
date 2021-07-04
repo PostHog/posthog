@@ -32,8 +32,8 @@ export function TaxonomicPropertyFilter({
     const initialDisplayMode =
         key && type !== 'cohort' ? DisplayMode.OPERATOR_VALUE_SELECT : DisplayMode.PROPERTY_SELECT
     const logic = taxonomicPropertyFilterLogic({ pageKey, index, initialDisplayMode })
-    const { personProperties, cohorts, searchQuery, selectedItemKey, displayMode } = useValues(logic)
-    const { setSearchQuery, setSelectedItemKey, setDisplayMode } = useActions(logic)
+    const { personProperties, cohorts, searchQuery, selectedItemKey, displayMode, activeTabKey } = useValues(logic)
+    const { setSearchQuery, setSelectedItemKey, setDisplayMode, setActiveTabKey } = useActions(logic)
 
     return (
         <div style={{ minWidth: '25rem' }}>
@@ -67,7 +67,8 @@ export function TaxonomicPropertyFilter({
                                 dataSource: cohorts,
                             },
                         ]}
-                        defaultActiveTabKey={type ? type + 's' : undefined}
+                        activeTabKey={activeTabKey}
+                        setActiveTabKey={setActiveTabKey}
                         searchQuery={searchQuery}
                         selectedItemKey={selectedItemKey}
                         onSelect={(newType, newKey, name) => {

@@ -1,8 +1,6 @@
 import React from 'react'
 import { Col, Row, Tabs } from 'antd'
 import { SelectedItem } from 'lib/components/SelectBox'
-import { useActions, useValues } from 'kea'
-import { infiniteSelectResultsLogic } from 'lib/components/PropertyFilters/infiniteSelectResultsLogic'
 import { InfiniteList } from './InfiniteList'
 import { StaticVirtualizedList } from './StaticVirtualizedList'
 
@@ -25,7 +23,8 @@ export interface InfiniteSelectResultsProps {
     searchQuery?: string // Search query for endpoint if defined, else simple filter on dataSource
     onSelect: (type: string, id: string | number, name: string) => void
     selectedItemKey?: string | number | null
-    defaultActiveTabKey?: string
+    activeTabKey: string | null
+    setActiveTabKey: (key: string) => void
 }
 
 export function InfiniteSelectResults({
@@ -34,13 +33,9 @@ export function InfiniteSelectResults({
     searchQuery,
     onSelect,
     selectedItemKey = null,
-    defaultActiveTabKey,
+    activeTabKey,
+    setActiveTabKey,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const initialActiveTabKey = defaultActiveTabKey || groups[0]?.key
-    const logic = infiniteSelectResultsLogic({ pageKey, groups, initialActiveTabKey })
-    const { activeTabKey } = useValues(logic)
-    const { setActiveTabKey } = useActions(logic)
-
     const handleSelect = (type: string, key: string | number, name: string): void => {
         onSelect(type, key, name)
     }
@@ -49,7 +44,7 @@ export function InfiniteSelectResults({
         <Row gutter={8} style={{ width: '100%' }} wrap={false}>
             <Col flex={1}>
                 <Tabs
-                    defaultActiveKey={initialActiveTabKey}
+                    defaultActiveKey={activeTabKey || groups[0].key}
                     onChange={setActiveTabKey}
                     tabPosition="top"
                     animated={false}
