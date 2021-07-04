@@ -3,6 +3,8 @@ import { Col, Row, Tabs } from 'antd'
 import { SelectedItem } from 'lib/components/SelectBox'
 import { InfiniteList } from './InfiniteList'
 import { StaticVirtualizedList } from './StaticVirtualizedList'
+import { useActions, useValues } from 'kea'
+import { taxonomicPropertyFilterLogic } from '../../taxonomicPropertyFilterLogic'
 
 export interface SelectResult extends Omit<SelectedItem, 'key'> {
     key: string | number
@@ -20,22 +22,13 @@ export interface SelectResultGroup {
 export interface InfiniteSelectResultsProps {
     filterKey: string
     groups: SelectResultGroup[]
-    searchQuery?: string // Search query for endpoint if defined, else simple filter on dataSource
     onSelect: (type: string, id: string | number, name: string) => void
-    selectedItemKey?: string | number | null
-    activeTabKey: string | null
-    setActiveTabKey: (key: string) => void
 }
 
-export function InfiniteSelectResults({
-    filterKey,
-    groups,
-    searchQuery,
-    onSelect,
-    selectedItemKey = null,
-    activeTabKey,
-    setActiveTabKey,
-}: InfiniteSelectResultsProps): JSX.Element {
+export function InfiniteSelectResults({ filterKey, groups, onSelect }: InfiniteSelectResultsProps): JSX.Element {
+    const filterLogic = taxonomicPropertyFilterLogic({ key: filterKey })
+    const { activeTabKey, searchQuery, selectedItemKey } = useValues(filterLogic)
+    const { setActiveTabKey } = useActions(filterLogic)
     const handleSelect = (type: string, key: string | number, name: string): void => {
         onSelect(type, key, name)
     }

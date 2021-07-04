@@ -4,7 +4,7 @@ import { buildUrl } from 'lib/utils'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { EventDefinitionStorage } from '~/models/eventDefinitionsModel'
 import { infiniteListLogicType } from './infiniteListLogicType'
-import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
+
 interface ListStorage extends EventDefinitionStorage {
     searchQuery?: string // Query used for the results currently in state
     nextOffset: number
@@ -15,17 +15,15 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage>>({
         key: string
         type: string
         endpoint: string
+        searchQuery?: string
     },
 
     key: (props) => props.key,
 
-    connect: {
-        values: [taxonomicPropertyFilterLogic, ['searchQuery']],
-    },
-
     actions: {
         setLimit: (limit: number) => ({ limit }),
         onRowsRendered: (rowInfo: RenderedRows) => ({ rowInfo }),
+        loadItems: (options: Record<string, number>) => options,
     },
 
     loaders: ({ props, values }) => ({
@@ -33,10 +31,10 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage>>({
             { results: [], next: null, nextOffset: 0, count: 0 } as ListStorage,
             {
                 loadItems: async ({ offset = 0, limit = values.limit }: { offset?: number; limit?: number }) => {
-                    const shouldBuildUrl = !values.nextUrl || values.searchQuery !== values.items.searchQuery
+                    const shouldBuildUrl = !values.nextUrl || props.searchQuery !== values.items.searchQuery
                     const url = shouldBuildUrl
                         ? buildUrl(props.endpoint, {
-                              search: values.searchQuery,
+                              search: props.searchQuery,
                               limit,
                               offset,
                           })
@@ -75,5 +73,9 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage>>({
         nextUrl: [(s) => [s.items], (items) => items.next],
         totalCount: [(s) => [s.items], (items) => items.count],
         results: [(s) => [s.items], (items) => items.results],
+    }),
+
+    events: ({ actions }) => ({
+        afterMount: () => actions.loadItems({}),
     }),
 })

@@ -21,11 +21,12 @@ export function InfiniteList({
     tabKey,
     type,
     endpoint,
+    searchQuery,
     onSelect,
     selectedItemKey,
 }: InfiniteListProps): JSX.Element {
     const key = `${filterKey}-${tabKey}`
-    const logic = infiniteListLogic({ key, filterKey, type, endpoint })
+    const logic = infiniteListLogic({ key, filterKey, type, endpoint, searchQuery })
     const { results, itemsLoading, totalCount } = useValues(logic)
     const { onRowsRendered } = useActions(logic)
 

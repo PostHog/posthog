@@ -7,11 +7,11 @@ import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogic
 
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
     props: {} as {
-        pageKey: string
+        key: string
         onChange?: null | ((filters: AnyPropertyFilter[]) => void)
         initialDisplayMode?: DisplayMode
     },
-    key: (props) => props.pageKey,
+    key: (props) => props.key,
 
     actions: () => ({
         update: true,
