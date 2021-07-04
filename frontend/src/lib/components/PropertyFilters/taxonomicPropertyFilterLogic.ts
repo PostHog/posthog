@@ -8,11 +8,10 @@ import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogic
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
     props: {} as {
         pageKey: string
-        index: number
         onChange?: null | ((filters: AnyPropertyFilter[]) => void)
-        initialDisplayMode: DisplayMode
+        initialDisplayMode?: DisplayMode
     },
-    key: (props) => `${props.pageKey}-${props.index}`,
+    key: (props) => props.pageKey,
 
     actions: () => ({
         update: true,
@@ -38,7 +37,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             },
         ],
         displayMode: [
-            props.initialDisplayMode,
+            props.initialDisplayMode ?? DisplayMode.PROPERTY_SELECT,
             {
                 setDisplayMode: (_, { displayMode }) => displayMode,
             },

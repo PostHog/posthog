@@ -7,7 +7,8 @@ import { useActions, useValues } from 'kea'
 import { infiniteListLogic } from 'lib/components/PropertyFilters/infiniteListLogic'
 
 interface InfiniteListProps {
-    pageKey: string
+    filterKey: string
+    tabKey: string
     type: string
     endpoint: string
     searchQuery?: string
@@ -15,8 +16,16 @@ interface InfiniteListProps {
     selectedItemKey: string | number | null
 }
 
-export function InfiniteList({ pageKey, type, endpoint, onSelect, selectedItemKey }: InfiniteListProps): JSX.Element {
-    const logic = infiniteListLogic({ pageKey, type, endpoint })
+export function InfiniteList({
+    filterKey,
+    tabKey,
+    type,
+    endpoint,
+    onSelect,
+    selectedItemKey,
+}: InfiniteListProps): JSX.Element {
+    const key = `${filterKey}-${tabKey}`
+    const logic = infiniteListLogic({ key, filterKey, type, endpoint })
     const { results, itemsLoading, totalCount } = useValues(logic)
     const { onRowsRendered } = useActions(logic)
 

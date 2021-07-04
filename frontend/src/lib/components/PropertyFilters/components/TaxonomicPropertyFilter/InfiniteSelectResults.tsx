@@ -18,7 +18,7 @@ export interface SelectResultGroup {
 }
 
 export interface InfiniteSelectResultsProps {
-    pageKey: string
+    filterKey: string
     groups: SelectResultGroup[]
     searchQuery?: string // Search query for endpoint if defined, else simple filter on dataSource
     onSelect: (type: string, id: string | number, name: string) => void
@@ -28,7 +28,7 @@ export interface InfiniteSelectResultsProps {
 }
 
 export function InfiniteSelectResults({
-    pageKey,
+    filterKey,
     groups,
     searchQuery,
     onSelect,
@@ -53,7 +53,8 @@ export function InfiniteSelectResults({
                         <Tabs.TabPane tab={name} key={key} active={activeTabKey === key}>
                             {endpoint && !dataSource ? (
                                 <InfiniteList
-                                    pageKey={pageKey}
+                                    filterKey={filterKey}
+                                    tabKey={key}
                                     type={type}
                                     endpoint={endpoint}
                                     searchQuery={searchQuery}

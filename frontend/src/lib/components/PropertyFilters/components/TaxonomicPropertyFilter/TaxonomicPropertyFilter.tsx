@@ -31,7 +31,8 @@ export function TaxonomicPropertyFilter({
     const { key, value, operator, type } = filters[index]
     const initialDisplayMode =
         key && type !== 'cohort' ? DisplayMode.OPERATOR_VALUE_SELECT : DisplayMode.PROPERTY_SELECT
-    const logic = taxonomicPropertyFilterLogic({ pageKey, index, initialDisplayMode })
+    const filterKey = `${pageKey}-${index}`
+    const logic = taxonomicPropertyFilterLogic({ pageKey: filterKey, initialDisplayMode })
     const { personProperties, cohorts, searchQuery, selectedItemKey, displayMode, activeTabKey } = useValues(logic)
     const { setSearchQuery, setSelectedItemKey, setDisplayMode, setActiveTabKey } = useActions(logic)
 
@@ -46,7 +47,7 @@ export function TaxonomicPropertyFilter({
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                     <InfiniteSelectResults
-                        pageKey={pageKey}
+                        filterKey={filterKey}
                         groups={[
                             {
                                 key: 'events',

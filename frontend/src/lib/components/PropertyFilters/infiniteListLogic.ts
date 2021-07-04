@@ -12,12 +12,12 @@ interface ListStorage extends EventDefinitionStorage {
 
 export const infiniteListLogic = kea<infiniteListLogicType<ListStorage>>({
     props: {} as {
-        pageKey: string
+        key: string
         type: string
         endpoint: string
     },
 
-    key: (props) => props.pageKey,
+    key: (props) => props.key,
 
     connect: {
         values: [taxonomicPropertyFilterLogic, ['searchQuery']],
