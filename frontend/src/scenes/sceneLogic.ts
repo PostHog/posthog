@@ -7,8 +7,6 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 import { afterLoginRedirect } from 'scenes/authentication/loginLogic'
 
@@ -46,7 +44,7 @@ export enum Scene {
     Personalization = 'personalization',
     Ingestion = 'ingestion',
     OnboardingSetup = 'onboardingSetup',
-    Home = 'home',
+    Overview = 'overview',
 }
 
 interface LoadedScene {
@@ -103,7 +101,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Personalization]: () => import(/* webpackChunkName: 'personalization' */ './onboarding/Personalization'),
     [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
     [Scene.Login]: () => import(/* webpackChunkName: 'login' */ './authentication/Login'),
-    [Scene.Home]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/Home'),
+    [Scene.Overview]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/Home'),
 }
 
 interface SceneConfig {
@@ -204,7 +202,7 @@ export const routes: Record<string, Scene> = {
     '/ingestion': Scene.Ingestion,
     '/ingestion/*': Scene.Ingestion,
     '/setup': Scene.OnboardingSetup,
-    '/home': Scene.Home,
+    '/overview': Scene.Overview,
 }
 
 export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneConfig>>({
@@ -271,12 +269,7 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
-                let redirect = redirects[path]
-
-                if (path === '/' && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
-                    redirect = '/home'
-                }
-
+                const redirect = redirects[path]
                 router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }

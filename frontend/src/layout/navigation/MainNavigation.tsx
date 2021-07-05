@@ -244,17 +244,12 @@ export function MainNavigation(): JSX.Element {
             >
                 <div className="navigation-inner" ref={navRef} onScroll={handleNavScroll}>
                     <div className="nav-logo">
-                        {featureFlags[FEATURE_FLAGS.PROJECT_HOME] ? (
-                            <Link to="/home">
-                                <img src={smLogo} className="logo-sm" alt="" />
-                                <img src={lgLogo} className="logo-lg" alt="" />
-                            </Link>
-                        ) : (
+                        {
                             <Link to="/insights">
                                 <img src={smLogo} className="logo-sm" alt="" />
                                 <img src={lgLogo} className="logo-lg" alt="" />
                             </Link>
-                        )}
+                        }
                     </div>
                     {currentOrganization?.setup.is_active && (
                         <MenuItem
@@ -266,7 +261,7 @@ export function MainNavigation(): JSX.Element {
                         />
                     )}
                     {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
-                        <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to="/home" />
+                        <MenuItem title="Overview" icon={<HomeOutlined />} identifier="overview" to="/overview" />
                     )}
                     <MenuItem
                         title="Insights"
