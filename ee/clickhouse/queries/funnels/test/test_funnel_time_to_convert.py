@@ -1,13 +1,9 @@
-from datetime import datetime, timedelta
 from uuid import uuid4
-
-import pytz
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
-from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
+from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest

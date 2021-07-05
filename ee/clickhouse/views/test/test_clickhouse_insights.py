@@ -1,10 +1,8 @@
-import json
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_insight import insight_test_factory
-from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 

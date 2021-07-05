@@ -1,5 +1,3 @@
-from typing import Optional
-
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
 
 
