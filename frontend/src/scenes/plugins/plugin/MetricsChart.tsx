@@ -15,6 +15,7 @@ const baseFilters = {
     actions: [],
     new_entity: [],
     date_from: '-30d',
+    refresh: true,
 }
 
 export function MetricsChart({ plugin }: { plugin: PluginTypeWithConfig }): JSX.Element {
