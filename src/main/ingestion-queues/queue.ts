@@ -28,22 +28,22 @@ export async function startQueue(
         onEvent: (event: PluginEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'onEvent'
-            return piscina.runTask({ task: 'onEvent', args: { event } })
+            return piscina.run({ task: 'onEvent', args: { event } })
         },
         onSnapshot: (event: PluginEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'onSnapshot'
-            return piscina.runTask({ task: 'onSnapshot', args: { event } })
+            return piscina.run({ task: 'onSnapshot', args: { event } })
         },
         processEvent: (event: PluginEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'processEvent'
-            return piscina.runTask({ task: 'processEvent', args: { event } })
+            return piscina.run({ task: 'processEvent', args: { event } })
         },
         ingestEvent: (event: PluginEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'ingestEvent'
-            return piscina.runTask({ task: 'ingestEvent', args: { event } })
+            return piscina.run({ task: 'ingestEvent', args: { event } })
         },
         ...workerMethods,
     }
