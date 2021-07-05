@@ -54,7 +54,6 @@ class TrendsEventQuery(ClickhouseEventQuery):
     def _determine_should_join_distinct_ids(self) -> None:
         if self._entity.math == "dau":
             self._should_join_distinct_ids = True
-            return
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
         date_filter = ""

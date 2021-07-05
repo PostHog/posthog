@@ -181,7 +181,7 @@ INNER JOIN (
     SELECT person_id, distinct_id
     FROM ({latest_distinct_id_sql})
     WHERE team_id = %(team_id)s
-) AS pid ON p.id = pid.person_id
+) AS pdi ON p.id = pdi.person_id
 WHERE team_id = %(team_id)s
   {distinct_query}
 """.format(
@@ -197,9 +197,9 @@ INNER JOIN (
     SELECT person_id, distinct_id
     FROM ({latest_distinct_id_sql})
     WHERE team_id = %(team_id)s
-) AS pid ON p.id = pid.person_id
+) AS pdi ON p.id = pdi.person_id
 WHERE team_id = %(team_id)s
-  AND pid.distinct_id = %(distinct_id)s
+  AND pdi.distinct_id = %(distinct_id)s
   {distinct_query}
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL,
