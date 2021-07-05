@@ -21,8 +21,8 @@ export function MetricsChart({ plugin }: { plugin: PluginTypeWithConfig }): JSX.
     const eventFilters = Object.entries(plugin.metrics || {}).map(([metricName, math]) => {
         return {
             math: math as string,
-            id: '$plugin_metrics',
-            name: '$plugin_metrics',
+            id: '$$plugin_metrics',
+            name: '$$plugin_metrics',
             type: 'events',
             order: 0,
             math_property: metricName,
