@@ -286,7 +286,7 @@ export function formatPropertyLabel(
               (isOperatorFlag(operator)
                   ? ` ${operatorMap[operator]}`
                   : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${
-                        value.length === 1 && value[0] === '' ? '(empty string)' : value || ''
+                        value && value.length === 1 && value[0] === '' ? '(empty string)' : value || ''
                     } `)
 }
 
