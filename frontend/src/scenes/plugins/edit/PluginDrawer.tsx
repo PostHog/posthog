@@ -83,6 +83,10 @@ export function PluginDrawer(): JSX.Element {
     const isValidField = (fieldConfig: PluginConfigSchema): boolean =>
         fieldConfig.type !== 'choice' || isValidChoiceConfig(fieldConfig)
 
+    const isVisibleField = () => {
+        console.log(form, form.getFieldsValue())
+    }
+
     return (
         <>
             <Drawer
@@ -251,7 +255,7 @@ export function PluginDrawer(): JSX.Element {
                                                 },
                                             ]}
                                         >
-                                            <PluginField fieldConfig={fieldConfig} />
+                                            <PluginField fieldConfig={fieldConfig} onChange={isVisibleField} />
                                         </Form.Item>
                                     ) : (
                                         <>
