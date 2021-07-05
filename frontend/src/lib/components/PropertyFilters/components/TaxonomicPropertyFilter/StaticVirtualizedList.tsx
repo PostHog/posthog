@@ -22,6 +22,7 @@ export function StaticVirtualizedList({
 }: StaticVirtualizedListProps): JSX.Element {
     let items = dataSource
     if (searchQuery) {
+        // TODO use Fuse
         items = dataSource.filter(({ name }) => name.match(searchQuery))
     }
 
