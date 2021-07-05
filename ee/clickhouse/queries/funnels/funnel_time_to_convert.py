@@ -16,13 +16,13 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelNew):
         # Use custom bin_count if provided by user, otherwise infer an automatic one based on the number of samples
         bin_count = self._filter.bin_count
         if bin_count is not None:
-            bin_count_identifier = str(bin_count)
-            bin_count_expression = None
             # Custom count is clamped between 1 and 90
             if bin_count < 1:
                 bin_count = 1
             elif bin_count > 90:
                 bin_count = 90
+            bin_count_identifier = str(bin_count)
+            bin_count_expression = None
         else:
             # Auto count is clamped between 3 and 60
             bin_count_identifier = "bin_count"
