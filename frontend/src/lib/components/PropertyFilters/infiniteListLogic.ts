@@ -24,16 +24,16 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage>>({
         setLimit: (limit: number) => ({ limit }),
         onRowsRendered: (rowInfo: RenderedRows) => ({ rowInfo }),
         loadItems: (options: Record<string, number>) => options,
+        setNextOffset: (nextOffset: number) => ({ nextOffset }),
     },
 
-    loaders: ({ props, values }) => ({
+    loaders: ({ actions, props, values }) => ({
         items: [
             { results: [], next: null, nextOffset: 0, count: 0 } as ListStorage,
             {
-                loadItems: async (
-                    { offset = 0, limit = values.limit }: { offset?: number; limit?: number },
-                    breakpoint
-                ) => {
+                loadItems: async ({ offset = 0, limit = values.limit }: { offset?: number; limit?: number }) => {
+                    // nextOffset prevents this loader from being called again on an overlapping region.
+                    actions.setNextOffset(offset + limit)
                     const shouldBuildUrl = !values.nextUrl || props.searchQuery !== values.items.searchQuery
                     const url = shouldBuildUrl
                         ? buildUrl(props.endpoint, {
@@ -42,7 +42,6 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage>>({
                               offset,
                           })
                         : values.nextUrl
-                    await breakpoint(100)
                     const response: EventDefinitionStorage = await api.get(url)
                     return {
                         results: [...values.results, ...response.results],
@@ -56,10 +55,10 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage>>({
     }),
 
     listeners: ({ values, actions }) => ({
-        onRowsRendered: ({ rowInfo: { overscanStopIndex } }) => {
-            if (overscanStopIndex >= values.results.length && overscanStopIndex <= values.totalCount) {
+        onRowsRendered: ({ rowInfo: { startIndex, overscanStopIndex } }) => {
+            if (overscanStopIndex >= values.results.length && startIndex >= values.nextOffset) {
                 // Render the next chunk
-                actions.loadItems({ offset: values.results.length, limit: values.limit })
+                actions.loadItems({ offset: values.nextOffset, limit: values.limit })
             }
         },
     }),
@@ -69,6 +68,12 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage>>({
             100,
             {
                 setLimit: (_, { limit }) => limit,
+            },
+        ],
+        nextOffset: [
+            100,
+            {
+                setNextOffset: (_, { nextOffset }) => nextOffset,
             },
         ],
     }),
