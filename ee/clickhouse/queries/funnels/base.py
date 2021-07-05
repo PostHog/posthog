@@ -303,7 +303,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
     def _get_step_time_avgs(self, max_steps: int):
         conditions: List[str] = []
         for i in range(1, max_steps):
-            conditions.append(f"avg(step_{i}_conversion_time) AS step_{i}_average_conversion_time")
+            conditions.append(f"avg(step_{i}_conversion_time) step_{i}_average_conversion_time")
 
         formatted = ", ".join(conditions)
         return f", {formatted}" if formatted else ""

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
 
 
@@ -14,17 +16,19 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelNew):
         # Use custom bin_count if provided by user, otherwise infer an automatic one based on the number of samples
         bin_count = self._filter.bin_count
         if bin_count is not None:
+            bin_count_identifier = str(bin_count)
+            bin_count_expression = None
             # Custom count is clamped between 1 and 90
             if bin_count < 1:
                 bin_count = 1
             elif bin_count > 90:
                 bin_count = 90
-            bin_count_expression = bin_count
         else:
             # Auto count is clamped between 3 and 60
-            bin_count_expression = """
+            bin_count_identifier = "bin_count"
+            bin_count_expression = f"""
                 count() AS sample_count,
-                least(60, greatest(3, ceil(cbrt(sample_count))))
+                least(60, greatest(3, ceil(cbrt(sample_count)))) AS {bin_count_identifier},
             """
 
         if not (0 < to_step < len(self._filter.entities)):
@@ -43,11 +47,11 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelNew):
                     SELECT
                         floor(min(step_{to_step}_conversion_time)) AS from_seconds,
                         ceil(max(step_{to_step}_conversion_time)) AS to_seconds,
-                        {bin_count_expression} AS bin_count,
-                        ceil((to_seconds - from_seconds) / bin_count) AS bin_width_seconds
+                        {bin_count_expression or ""}
+                        ceil((to_seconds - from_seconds) / {bin_count_identifier}) AS bin_width_seconds
                     FROM step_runs
                 ),
-                ( SELECT bin_count FROM histogram_params ) AS bin_count,
+                {f"( SELECT {bin_count_identifier} FROM histogram_params ) AS {bin_count_identifier}," if bin_count_expression else ""}
                 ( SELECT bin_width_seconds FROM histogram_params ) AS bin_width_seconds,
                 ( SELECT from_seconds FROM histogram_params ) AS histogram_from_seconds,
                 ( SELECT to_seconds FROM histogram_params ) AS histogram_to_seconds
@@ -66,7 +70,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelNew):
             FULL OUTER JOIN (
                 -- Making sure number_of_bins bins are returned
                 -- Those not present in the results query due to lack of data simply get person_count 0
-                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_to_seconds FROM system.numbers LIMIT bin_count + 1
+                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_to_seconds FROM system.numbers LIMIT {bin_count_identifier} + 1
             ) fill
             USING (bin_to_seconds)
             ORDER BY bin_to_seconds
