@@ -1,15 +1,19 @@
-from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
-from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_SQL
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
+from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.models import Person
 
 
-class ClickhouseFunnelPersons(ClickhouseFunnelBase):
+class ClickhouseFunnelPersons(ClickhouseFunnelNew):
     def get_query(self, format_properties):
-        return FUNNEL_PERSONS_SQL.format(**format_properties)
+        return FUNNEL_PERSONS_BY_STEP_SQL.format(
+            **format_properties,
+            steps_per_person_query=self.get_step_counts_query(),
+            persons_steps=self._get_funnel_person_step_condition()
+        )
 
     def _format_results(self, results):
-        formatted_results = []
-        for row in results:
-            distinct_ids, email = Person.get_distinct_ids_and_email_by_id(row[1], self._team.id)
-            formatted_results.append({"max_step": row[0], "distinct_ids": distinct_ids, "email": email})
-        return formatted_results
+        people = Person.objects.filter(team_id=self._team.pk, uuid__in=[val[0] for val in results])
+
+        from posthog.api.person import PersonSerializer
+
+        return PersonSerializer(people, many=True).data

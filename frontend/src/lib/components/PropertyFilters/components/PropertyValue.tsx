@@ -145,8 +145,11 @@ export function PropertyValue({
                 e.target.blur()
             }
             if (!isMultiSelect && e.key === 'Enter') {
-                // We have not explicitly selected a dropdown item by pressing the up/down keys
-                if (autoCompleteRef.current?.querySelectorAll?.('.ant-select-item-option-active')?.length === 0) {
+                // We have not explicitly selected a dropdown item by pressing the up/down keys; or the ref is unavailable
+                if (
+                    !autoCompleteRef.current ||
+                    autoCompleteRef.current?.querySelectorAll?.('.ant-select-item-option-active')?.length === 0
+                ) {
                     setValue(input)
                 }
             }

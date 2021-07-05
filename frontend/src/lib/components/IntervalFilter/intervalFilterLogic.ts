@@ -31,7 +31,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
             searchParams.interval = values.interval
 
             if (!objectsEqual(interval, values.interval)) {
-                router.actions.push(pathname, searchParams)
+                router.actions.replace(pathname, searchParams)
             }
         },
         setDateFrom: () => {
@@ -41,12 +41,12 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
             searchParams.date_from = values.dateFrom
 
             if (!objectsEqual(date_from, values.dateFrom)) {
-                router.actions.push(pathname, searchParams)
+                router.actions.replace(pathname, searchParams)
             }
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_: Record<string, string>, { interval, date_from }: Record<string, any>) => {
+        '/insights': (_, { interval, date_from }) => {
             if (interval) {
                 actions.setIntervalFilter(interval)
             }

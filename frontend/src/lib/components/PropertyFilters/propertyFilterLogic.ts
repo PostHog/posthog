@@ -84,14 +84,14 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
                 searchParams.properties = cleanedFilters
 
                 if (!objectsEqual(properties, cleanedFilters)) {
-                    router.actions.push(pathname, searchParams)
+                    router.actions.replace(pathname, searchParams)
                 }
             }
         },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '*': (_: Record<string, string>, { properties }: Record<string, any>) => {
+        '*': (_, { properties }) => {
             if (props.onChange) {
                 return
             }

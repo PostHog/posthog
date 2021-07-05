@@ -25,12 +25,12 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
             searchParams.display = values.chartFilter
 
             if (!objectsEqual(display, values.chartFilter)) {
-                router.actions.push(pathname, searchParams)
+                router.actions.replace(pathname, searchParams)
             }
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_: Record<string, string>, { display, insight }: Record<string, any>) => {
+        '/insights': (_, { display, insight }) => {
             if (display) {
                 actions.setChartFilter(display)
             } else if (insight === ViewType.RETENTION) {

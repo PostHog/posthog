@@ -7,7 +7,11 @@ import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
-import { FilterType, FunnelResult, FunnelStep, PersonType } from '~/types'
+import { EntityTypes, FilterType, FunnelResult, FunnelStep, PathType, PersonType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
@@ -58,7 +62,11 @@ export const funnelLogic = kea<funnelLogicType>({
     actions: () => ({
         setSteps: (steps: FunnelStep[]) => ({ steps }),
         clearFunnel: true,
-        setFilters: (filters: FilterType, refresh: boolean = false) => ({ filters, refresh }),
+        setFilters: (filters: FilterType, refresh = false, mergeWithExisting = true) => ({
+            filters,
+            refresh,
+            mergeWithExisting,
+        }),
         saveFunnelInsight: (name: string) => ({ name }),
         setStepsWithCountLoading: (stepsWithCountLoading: boolean) => ({ stepsWithCountLoading }),
         loadConversionWindow: (days: number) => ({ days }),
@@ -67,6 +75,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
     connect: {
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
+        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
     },
 
     loaders: ({ props, values, actions }) => ({
@@ -132,7 +141,8 @@ export const funnelLogic = kea<funnelLogicType>({
         filters: [
             (props.filters || {}) as FilterType,
             {
-                setFilters: (state, { filters }) => ({ ...state, ...filters }),
+                setFilters: (state, { filters, mergeWithExisting }) =>
+                    mergeWithExisting ? { ...state, ...filters } : filters,
                 clearFunnel: (state) => ({ new_entity: state.new_entity }),
             },
         ],
@@ -185,20 +195,17 @@ export const funnelLogic = kea<funnelLogicType>({
                 return isStepsEmpty(filters)
             },
         ],
-        propertiesForUrl: [
-            () => [selectors.filters],
-            (filters: FilterType) => {
-                const result = {
-                    insight: ViewType.FUNNELS,
-                    ...cleanFunnelParams(filters),
-                }
-                return result
-            },
-        ],
+        propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
         isValidFunnel: [
             () => [selectors.stepsWithCount],
             (stepsWithCount: FunnelStep[]) => {
                 return stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1
+            },
+        ],
+        autoCalculate: [
+            () => [selectors.featureFlags, selectors.preflight],
+            (featureFlags, preflight) => {
+                return !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled)
             },
         ],
     }),
@@ -211,7 +218,10 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setStepsWithCountLoading(false)
         },
         setFilters: ({ refresh }) => {
-            if (refresh) {
+            // FUNNEL_BAR_VIZ removes the Calculate button
+            // Query performance is suboptimal on psql
+            const { autoCalculate } = values
+            if (refresh || autoCalculate) {
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
@@ -243,17 +253,17 @@ export const funnelLogic = kea<funnelLogicType>({
     actionToUrl: ({ values, props }) => ({
         setSteps: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', values.propertiesForUrl]
+                return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
             }
         },
         clearFunnel: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', { insight: ViewType.FUNNELS }]
+                return ['/insights', { insight: ViewType.FUNNELS }, undefined, { replace: true }]
             }
         },
     }),
     urlToAction: ({ actions, values, props }) => ({
-        '/insights': (_: unknown, searchParams: Record<string, any>) => {
+        '/insights': (_, searchParams) => {
             if (props.dashboardItemId) {
                 return
             }
@@ -277,7 +287,22 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
 
                 if (!objectsEqual(_filters, paramsToCheck)) {
-                    actions.setFilters(cleanFunnelParams(searchParams), !isStepsEmpty(paramsToCheck))
+                    const cleanedParams = cleanFunnelParams(searchParams)
+
+                    if (isStepsEmpty(cleanedParams)) {
+                        const event = eventDefinitionsModel.values.eventNames.includes(PathType.PageView)
+                            ? PathType.PageView
+                            : eventDefinitionsModel.values.eventNames[0]
+                        cleanedParams.events = [
+                            {
+                                id: event,
+                                name: event,
+                                type: EntityTypes.EVENTS,
+                                order: 0,
+                            },
+                        ]
+                    }
+                    actions.setFilters(cleanedParams, true, false)
                 }
             }
         },

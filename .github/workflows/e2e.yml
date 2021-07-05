@@ -7,7 +7,6 @@ jobs:
     cypress:
         name: Cypress E2E tests
         runs-on: ubuntu-18.04
-        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
 
         strategy:
             # when one test fails, DO NOT cancel the other
@@ -98,6 +97,8 @@ jobs:
                       ${{ runner.os }}-yarn-build-
             - name: Yarn build
               if: steps.yarn-build-cache.outputs.cache-hit != 'true'
+              env:
+                  GENERATE_SOURCEMAP: 'false'
               run: |
                   yarn build
             - name: Boot PostHog

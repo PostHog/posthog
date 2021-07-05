@@ -66,15 +66,9 @@
     }
     &.show-filters {
         padding: 0 8px;
+        &:hover,
         &.visible {
-            background-color: $primary;
-            color: #fff;
-
-            &:hover {
-                background-color: #fff;
-                color: $primary;
-                border: 1px solid $primary;
-            }
+            border: 1px solid $primary;
         }
     }
 }
@@ -84,6 +78,11 @@
     &:nth-child(2n) {
         padding: 0.25rem;
         background-color: #f6f6f6;
+    }
+}
+.full-width {
+    .property-filter-button-label {
+        max-width: 300px;
     }
 }
 
