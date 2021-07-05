@@ -50,7 +50,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
-                "display": TRENDS_LINEAR,
                 "interval": "day",
                 "date_from": "2021-06-07 00:00:00",
                 "date_to": "2021-06-13 23:59:59",
@@ -99,7 +98,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
-                "display": TRENDS_LINEAR,
                 "interval": "day",
                 "date_from": "2021-06-07 00:00:00",
                 "date_to": "2021-06-13 23:59:59",
