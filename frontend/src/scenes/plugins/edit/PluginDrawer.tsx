@@ -296,11 +296,13 @@ export function PluginDrawer(): JSX.Element {
                                             name={fieldConfig.key}
                                             required={
                                                 fieldConfig.required ||
-                                                (fieldConfig.key && requiredFields.includes(fieldConfig.key))
+                                                (!!fieldConfig.key && requiredFields.includes(fieldConfig.key))
                                             }
                                             rules={[
                                                 {
-                                                    required: fieldConfig.required,
+                                                    required:
+                                                        fieldConfig.required ||
+                                                        (!!fieldConfig.key && requiredFields.includes(fieldConfig.key)),
                                                     message: 'Please enter a value!',
                                                 },
                                             ]}
