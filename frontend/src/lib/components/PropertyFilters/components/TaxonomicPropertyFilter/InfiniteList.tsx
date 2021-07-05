@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { List as AntDesignList, Skeleton } from 'antd'
 import { List, ListRowProps, ListRowRenderer, AutoSizer } from 'react-virtualized'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -27,7 +27,7 @@ export function InfiniteList({
     const key = `${filterKey}-${tabKey}`
     const logic = infiniteListLogic({ key, filterKey, type, endpoint, searchQuery })
     const { results, totalCount } = useValues(logic)
-    const { onRowsRendered } = useActions(logic)
+    const { onRowsRendered, loadItems } = useActions(logic)
 
     const renderItem: ListRowRenderer = ({ index, style }: ListRowProps): JSX.Element | null => {
         const item = results[index]
@@ -47,6 +47,10 @@ export function InfiniteList({
             </AntDesignList.Item>
         )
     }
+
+    useEffect(() => {
+        loadItems({ newSearchQuery: searchQuery })
+    }, [searchQuery])
 
     return (
         <div style={{ minHeight: '200px' }}>
