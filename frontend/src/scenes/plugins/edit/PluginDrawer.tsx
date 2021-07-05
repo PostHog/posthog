@@ -281,7 +281,7 @@ export function PluginDrawer(): JSX.Element {
                                     )}
                                     {fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
-                                            hidden={fieldConfig.key && invisibleFields.includes(fieldConfig.key)}
+                                            hidden={!!fieldConfig.key && invisibleFields.includes(fieldConfig.key)}
                                             label={
                                                 <>
                                                     {fieldConfig.secret && <SecretFieldIcon />}
