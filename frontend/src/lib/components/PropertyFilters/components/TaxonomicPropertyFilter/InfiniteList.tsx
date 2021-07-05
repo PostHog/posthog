@@ -54,6 +54,7 @@ export function InfiniteList({
                         width={width}
                         height={height}
                         rowCount={totalCount}
+                        overscanRowCount={100}
                         rowHeight={32}
                         rowRenderer={renderItem}
                         onRowsRendered={onRowsRendered}

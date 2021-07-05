@@ -30,7 +30,10 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage>>({
         items: [
             { results: [], next: null, nextOffset: 0, count: 0 } as ListStorage,
             {
-                loadItems: async ({ offset = 0, limit = values.limit }: { offset?: number; limit?: number }) => {
+                loadItems: async (
+                    { offset = 0, limit = values.limit }: { offset?: number; limit?: number },
+                    breakpoint
+                ) => {
                     const shouldBuildUrl = !values.nextUrl || props.searchQuery !== values.items.searchQuery
                     const url = shouldBuildUrl
                         ? buildUrl(props.endpoint, {
@@ -39,6 +42,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage>>({
                               offset,
                           })
                         : values.nextUrl
+                    await breakpoint(100)
                     const response: EventDefinitionStorage = await api.get(url)
                     return {
                         results: [...values.results, ...response.results],
@@ -52,10 +56,10 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage>>({
     }),
 
     listeners: ({ values, actions }) => ({
-        onRowsRendered: ({ rowInfo: { startIndex, stopIndex } }) => {
-            if (startIndex >= values.totalCount - values.limit && stopIndex >= values.totalCount) {
+        onRowsRendered: ({ rowInfo: { overscanStopIndex } }) => {
+            if (overscanStopIndex >= values.results.length && overscanStopIndex <= values.totalCount) {
                 // Render the next chunk
-                actions.loadItems({ offset: startIndex, limit: values.limit })
+                actions.loadItems({ offset: values.results.length, limit: values.limit })
             }
         },
     }),
