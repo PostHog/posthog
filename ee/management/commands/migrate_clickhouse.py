@@ -7,6 +7,7 @@ from infi.clickhouse_orm.migrations import MigrationHistory  # type: ignore
 from infi.clickhouse_orm.utils import import_submodules  # type: ignore
 
 from posthog.settings import (
+    CLICKHOUSE_BACKUP_HOSTS_HTTP_URLS,
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS,
     CLICKHOUSE_PASSWORD,
@@ -48,40 +49,63 @@ class Command(BaseCommand):
         )
 
         if options["plan"]:
-            print("List of clickhouse migrations to be applied:")
-            migrations = list(self.get_migrations(database, options["upto"]))
-            for migration_name, operations in migrations:
-                print(f"Migration would get applied: {migration_name}")
-                for op in operations:
-                    sql = getattr(op, "_sql")
-                    if options["print_sql"] and sql is not None:
-                        print(indent("\n\n".join(sql), "    "))
-            if len(migrations) == 0:
-                print("Clickhouse migrations up to date!")
+            self.perform_plan(database, host, options)
         elif options["fake"]:
-            for migration_name, _ in self.get_migrations(database, options["upto"]):
-                print(f"Faked migration: {migration_name}")
-                database.insert(
-                    [
-                        MigrationHistory(
-                            package_name=MIGRATIONS_PACKAGE_NAME,
-                            module_name=migration_name,
-                            applied=datetime.date.today(),
-                        )
-                    ]
-                )
-            print("Migrations done")
+            self.perform_fake(database, host, options)
         else:
-            database.migrate(MIGRATIONS_PACKAGE_NAME, options["upto"])
-            print("Migration successful")
+            self.perform_migrations(database, host, options)
 
-    def get_migrations(self, database, upto):
+    def perform_plan(self, database, host, options):
+        print("List of clickhouse migrations to be applied:")
+        migrations = list(self.get_migrations(database, host, options["upto"]))
+        for migration_name, operations in migrations:
+            print(f"Migration would get applied: {migration_name}")
+            for op in operations:
+                sql = getattr(op, "_sql")
+                if options["print_sql"] and sql is not None:
+                    print(indent("\n\n".join(sql), "    "))
+        if len(migrations) == 0:
+            print("Clickhouse migrations up to date!")
+
+    def perform_fake(self, database, host, options):
+        for migration_name, _ in self.get_migrations(database, host, options["upto"]):
+            print(f"Faked migration: {migration_name}")
+            database.insert(
+                [
+                    MigrationHistory(
+                        package_name=MIGRATIONS_PACKAGE_NAME, module_name=migration_name, applied=datetime.date.today(),
+                    )
+                ]
+            )
+        print("Migrations done")
+
+    def perform_migrations(self, database, host, options):
+        migrations = list(self.get_migrations(database, host, options["upto"]))
+        for migration_name, operations in migrations:
+            print(f"Applying migration {migration_name}...")
+
+            for op in operations:
+                op.apply(database)
+
+            database.insert(
+                [
+                    MigrationHistory(
+                        package_name=MIGRATIONS_PACKAGE_NAME, module_name=migration_name, applied=datetime.date.today(),
+                    )
+                ]
+            )
+
+        if len(migrations) == 0:
+            print("Clickhouse migrations up to date!")
+
+    def get_migrations(self, database, host, upto):
         applied_migrations = database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME)
         modules = import_submodules(MIGRATIONS_PACKAGE_NAME)
         unapplied_migrations = set(modules.keys()) - applied_migrations
 
         for migration_name in sorted(unapplied_migrations):
-            yield migration_name, modules[migration_name].operations
+            operations = modules[migration_name].operations(is_backup_host=host in CLICKHOUSE_BACKUP_HOSTS_HTTP_URLS)
+            yield migration_name, operations
 
             if int(migration_name[:4]) >= upto:
                 break

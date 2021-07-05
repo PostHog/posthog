@@ -161,12 +161,14 @@ if CLICKHOUSE_SECURE:
     _clickhouse_http_protocol = "https://"
     _clickhouse_http_port = "8443"
 
-CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
+_make_clickhouse_url = lambda host: f"{_clickhouse_http_protocol}{host}:{_clickhouse_http_port}/"
+
+CLICKHOUSE_HTTP_URL = _make_clickhouse_url(CLICKHOUSE_HOST)
 
 _clickhouse_hosts = get_from_env("CLICKHOUSE_MIGRATION_HOSTS", CLICKHOUSE_HOST).split(",")
-CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS = [
-    f"{_clickhouse_http_protocol}{host}:{_clickhouse_http_port}/" for host in _clickhouse_hosts
-]
+_clickhouse_backup_hosts = get_from_env("CLICKHOUSE_BACKUP_HOSTS", "").split(",")
+CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS = list(map(_make_clickhouse_url, _clickhouse_hosts))
+CLICKHOUSE_BACKUP_HOSTS_HTTP_URLS = list(map(_make_clickhouse_url, _clickhouse_backup_hosts))
 
 IS_HEROKU = get_from_env("IS_HEROKU", False, type_cast=str_to_bool)
 

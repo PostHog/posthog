@@ -6,8 +6,15 @@ from ee.clickhouse.sql.session_recording_events import (
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
 
-operations = [
-    migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_SQL),
-    migrations.RunSQL(KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL),
-    migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_MV_SQL),
-]
+
+def operations(is_backup_host):
+    if is_backup_host:
+        return [
+            migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_SQL),
+        ]
+    else:
+        return [
+            migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_SQL),
+            migrations.RunSQL(KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL),
+            migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_MV_SQL),
+        ]
