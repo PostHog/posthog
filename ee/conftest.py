@@ -3,6 +3,7 @@ from infi.clickhouse_orm import Database
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.plugin_log_entries import DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL, PLUGIN_LOG_ENTRIES_TABLE_SQL
+from ee.management.commands.migrate_clickhouse import MigrateClickhouseCommand
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -32,7 +33,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
     if not django_db_keepdb or not database.db_exists:
         database.create_database()
 
-    database.migrate("ee.clickhouse.migrations")
+    MigrateClickhouseCommand().migrate(CLICKHOUSE_HTTP_URL, {"upto": 99_999})
     # Make DELETE / UPDATE synchronous to avoid flaky tests
     sync_execute("SET mutations_sync = 1")
 

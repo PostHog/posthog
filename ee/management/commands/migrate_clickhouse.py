@@ -17,7 +17,7 @@ from posthog.settings import (
 MIGRATIONS_PACKAGE_NAME = "ee.clickhouse.migrations"
 
 
-class Command(BaseCommand):
+class MigrateClickhouseCommand(BaseCommand):
     help = "Migrate clickhouse"
 
     def add_arguments(self, parser):
@@ -39,7 +39,7 @@ class Command(BaseCommand):
             print(f"Updating host {host} ({index + 1}/{len(CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS)})")
             self.migrate(host, options)
 
-    def migrate(self, host, options):
+    def migrate(self, host, options={}):
         database = Database(
             CLICKHOUSE_DATABASE,
             db_url=host,
@@ -48,9 +48,9 @@ class Command(BaseCommand):
             verify_ssl_cert=False,
         )
 
-        if options["plan"]:
+        if options.get("plan"):
             self.perform_plan(database, host, options)
-        elif options["fake"]:
+        elif options.get("fake"):
             self.perform_fake(database, host, options)
         else:
             self.perform_migrations(database, host, options)
@@ -62,7 +62,7 @@ class Command(BaseCommand):
             print(f"Migration would get applied: {migration_name}")
             for op in operations:
                 sql = getattr(op, "_sql")
-                if options["print_sql"] and sql is not None:
+                if options.get("print_sql") and sql is not None:
                     print(indent("\n\n".join(sql), "    "))
         if len(migrations) == 0:
             print("Clickhouse migrations up to date!")

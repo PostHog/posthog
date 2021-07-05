@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 
+from ee.management.commands.migrate_clickhouse import MigrateClickhouseCommand
 from posthog.ee import is_clickhouse_enabled
 
 
@@ -36,4 +37,5 @@ class Command(BaseCommand):
                 database.create_database()
             except:
                 pass
-            database.migrate("ee.clickhouse.migrations")
+
+            MigrateClickhouseCommand().migrate(CLICKHOUSE_HTTP_URL, {"upto": 99_999})
