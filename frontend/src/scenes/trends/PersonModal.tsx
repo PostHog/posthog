@@ -16,16 +16,14 @@ const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterTyp
     if (!people?.action) {
         return []
     }
-    const action = people.action as ActionFilter
-    return [
-        {
-            key: 'id',
-            value: action.id,
-            label: action.name as string,
-            type: action.type === EntityTypes.ACTIONS ? ACTION_TYPE : EVENT_TYPE,
-            properties: [...action.properties, ...(filters?.properties || [])] as EventPropertyFilter[], // combine global properties into action/event filter
-        },
-    ]
+    const actions: ActionFilter[] = people.action === 'session' ? (filters.events as ActionFilter[]) : [people.action]
+    return actions.map((a) => ({
+        key: 'id',
+        value: a.id,
+        label: a.name as string,
+        type: a.type === EntityTypes.ACTIONS ? ACTION_TYPE : EVENT_TYPE,
+        properties: [...(a.properties || []), ...(filters.properties || [])] as EventPropertyFilter[], // combine global properties into action/event filter
+    }))
 }
 
 interface Props {

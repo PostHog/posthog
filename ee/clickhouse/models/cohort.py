@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from dateutil import parser
 from django.conf import settings
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -42,7 +43,13 @@ def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
         )
 
     or_queries = []
-    for group_idx, group in enumerate(cohort.groups):
+    groups = cohort.groups
+
+    if not groups:
+        # No person can match a cohort that has no match groups
+        return "0 = 1", {}
+
+    for group_idx, group in enumerate(groups):
         if group.get("action_id") or group.get("event_id"):
             entity_query, entity_params = get_entity_cohort_subquery(cohort, group, group_idx)
             params = {**params, **entity_params}
@@ -113,7 +120,7 @@ def _get_count_operator(count_operator: Optional[str]) -> str:
     elif count_operator == "eq" or count_operator is None:
         return "="
     else:
-        raise ValueError("count_operator must be gte, lte, eq, or None")
+        raise ValidationError("count_operator must be gte, lte, eq, or None")
 
 
 def _get_entity_query(
@@ -126,7 +133,7 @@ def _get_entity_query(
         action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
         return action_filter_query, action_params
     else:
-        raise ValueError("Cohort query requires action_id or event_id")
+        raise ValidationError("Cohort query requires action_id or event_id")
 
 
 def get_date_query(
@@ -171,8 +178,7 @@ def is_precalculated_query(cohort: Cohort) -> bool:
     if (
         cohort.last_calculation
         and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
-        and not settings.DEBUG
-        and not settings.TEST
+        and settings.USE_PRECALCULATED_CH_COHORT_PEOPLE
     ):
         return True
     else:
@@ -203,7 +209,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
     from ee.clickhouse.models.property import parse_prop_clauses
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
-    filter_query, filter_params = parse_prop_clauses(filters.properties, team.pk, table_name="pid")
+    filter_query, filter_params = parse_prop_clauses(filters.properties, team.pk, table_name="pdi")
 
     results = sync_execute(GET_PERSON_IDS_BY_FILTER.format(distinct_query=filter_query, query=""), filter_params,)
 
