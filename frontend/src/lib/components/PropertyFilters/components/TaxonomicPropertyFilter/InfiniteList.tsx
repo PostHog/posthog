@@ -1,8 +1,7 @@
 import React from 'react'
-import { List as AntDesignList } from 'antd'
+import { List as AntDesignList, Skeleton } from 'antd'
 import { List, ListRowProps, ListRowRenderer, AutoSizer } from 'react-virtualized'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Loading } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { infiniteListLogic } from 'lib/components/PropertyFilters/infiniteListLogic'
 
@@ -27,7 +26,7 @@ export function InfiniteList({
 }: InfiniteListProps): JSX.Element {
     const key = `${filterKey}-${tabKey}`
     const logic = infiniteListLogic({ key, filterKey, type, endpoint, searchQuery })
-    const { results, itemsLoading, totalCount } = useValues(logic)
+    const { results, totalCount } = useValues(logic)
     const { onRowsRendered } = useActions(logic)
 
     const renderItem: ListRowRenderer = ({ index, style }: ListRowProps): JSX.Element | null => {
@@ -42,12 +41,15 @@ export function InfiniteList({
             >
                 <PropertyKeyInfo value={item.name} />
             </AntDesignList.Item>
-        ) : null
+        ) : (
+            <AntDesignList.Item style={style} data-attr={`prop-filter-${type}-${index}`}>
+                <Skeleton active title={false} paragraph={{ rows: 1 }} />
+            </AntDesignList.Item>
+        )
     }
 
     return (
         <div style={{ minHeight: '200px' }}>
-            {itemsLoading && <Loading />}
             <AutoSizer>
                 {({ height, width }: { height: number; width: number }) => (
                     <List
