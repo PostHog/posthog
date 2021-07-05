@@ -41,7 +41,7 @@ export function StaticVirtualizedList({
     }
 
     return (
-        <div style={{ height: '200px', width: '350px' }}>
+        <div style={{ height: '200px' }}>
             <AutoSizer>
                 {({ height, width }: { height: number; width: number }) => (
                     <VirtualizedList

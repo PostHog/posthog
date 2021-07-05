@@ -1,5 +1,5 @@
 import React from 'react'
-import { Col, Row, Tabs } from 'antd'
+import { Tabs } from 'antd'
 import { SelectedItem } from 'lib/components/SelectBox'
 import { InfiniteList } from './InfiniteList'
 import { StaticVirtualizedList } from './StaticVirtualizedList'
@@ -34,39 +34,35 @@ export function InfiniteSelectResults({ filterKey, groups, onSelect }: InfiniteS
     }
 
     return (
-        <Row gutter={8} style={{ width: '100%' }} wrap={false}>
-            <Col flex={1}>
-                <Tabs
-                    defaultActiveKey={activeTabKey || groups[0].key}
-                    onChange={setActiveTabKey}
-                    tabPosition="top"
-                    animated={false}
-                >
-                    {groups.map(({ key, name, type, endpoint, dataSource }) => (
-                        <Tabs.TabPane tab={name} key={key} active={activeTabKey === key}>
-                            {endpoint && !dataSource ? (
-                                <InfiniteList
-                                    filterKey={filterKey}
-                                    tabKey={key}
-                                    type={type}
-                                    endpoint={endpoint}
-                                    searchQuery={searchQuery}
-                                    onSelect={handleSelect}
-                                    selectedItemKey={selectedItemKey}
-                                />
-                            ) : (
-                                <StaticVirtualizedList
-                                    type={type}
-                                    dataSource={dataSource || []}
-                                    searchQuery={searchQuery}
-                                    onSelect={handleSelect}
-                                    selectedItemKey={selectedItemKey}
-                                />
-                            )}
-                        </Tabs.TabPane>
-                    ))}
-                </Tabs>
-            </Col>
-        </Row>
+        <Tabs
+            defaultActiveKey={activeTabKey || groups[0].key}
+            onChange={setActiveTabKey}
+            tabPosition="top"
+            animated={false}
+        >
+            {groups.map(({ key, name, type, endpoint, dataSource }) => (
+                <Tabs.TabPane tab={name} key={key} active={activeTabKey === key}>
+                    {endpoint && !dataSource ? (
+                        <InfiniteList
+                            filterKey={filterKey}
+                            tabKey={key}
+                            type={type}
+                            endpoint={endpoint}
+                            searchQuery={searchQuery}
+                            onSelect={handleSelect}
+                            selectedItemKey={selectedItemKey}
+                        />
+                    ) : (
+                        <StaticVirtualizedList
+                            type={type}
+                            dataSource={dataSource || []}
+                            searchQuery={searchQuery}
+                            onSelect={handleSelect}
+                            selectedItemKey={selectedItemKey}
+                        />
+                    )}
+                </Tabs.TabPane>
+            ))}
+        </Tabs>
     )
 }
