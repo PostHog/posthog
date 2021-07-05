@@ -72,10 +72,7 @@ export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000)
     //  due to threading shenanigans. Nudge the plugin server to finish loading!
     void piscina.broadcastTask({ task: 'reloadSchedule' })
     while (maxIterations--) {
-        const schedule = (await piscina.runTask({ task: 'getPluginSchedule' })) as Record<
-            string,
-            PluginConfigId[]
-        > | null
+        const schedule = (await piscina.run({ task: 'getPluginSchedule' })) as Record<string, PluginConfigId[]> | null
         if (schedule) {
             return schedule
         }
@@ -85,7 +82,7 @@ export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000)
 }
 
 export function runScheduleDebounced(server: Hub, piscina: Piscina, taskName: string): void {
-    const runTask = (pluginConfigId: PluginConfigId) => piscina.runTask({ task: taskName, args: { pluginConfigId } })
+    const runTask = (pluginConfigId: PluginConfigId) => piscina.run({ task: taskName, args: { pluginConfigId } })
 
     for (const pluginConfigId of server.pluginSchedule?.[taskName] || []) {
         // last task still running? skip rerunning!

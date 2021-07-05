@@ -16,7 +16,7 @@ export async function startJobQueueConsumer(server: Hub, piscina: Piscina): Prom
     const onJob: OnJobCallback = async (jobs) => {
         pauseQueueIfWorkerFull(() => server.jobQueueManager.pauseConsumer(), server, piscina)
         for (const job of jobs) {
-            await piscina.runTask({ task: 'runJob', args: { job } })
+            await piscina.run({ task: 'runJob', args: { job } })
         }
     }
 

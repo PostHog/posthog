@@ -53,7 +53,7 @@
         "@google-cloud/bigquery": "^5.6.0",
         "@maxmind/geoip2-node": "^3.0.0",
         "@posthog/clickhouse": "^1.7.0",
-        "@posthog/piscina": "^2.2.0-posthog",
+        "@posthog/piscina": "^3.2.0-posthog",
         "@posthog/plugin-contrib": "^0.0.5",
         "@posthog/plugin-scaffold": "0.10.0",
         "@sentry/node": "^6.7.0",

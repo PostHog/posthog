@@ -51,7 +51,7 @@ test('runScheduleDebounced', async () => {
     `
     await resetTestDatabase(testCode)
     const piscina = setupPiscina(workerThreads, 10)
-    const processEvent = (event: PluginEvent) => piscina.runTask({ task: 'processEvent', args: { event } })
+    const processEvent = (event: PluginEvent) => piscina.run({ task: 'processEvent', args: { event } })
 
     const [hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
     hub.pluginSchedule = await loadPluginSchedule(piscina)
