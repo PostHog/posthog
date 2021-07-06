@@ -604,6 +604,7 @@ export interface FilterType {
     formula?: any
     filter_test_accounts?: boolean
     from_dashboard?: boolean
+    funnel_step?: number
 }
 
 export interface SystemStatusSubrows {
@@ -686,7 +687,7 @@ export interface FunnelStep {
     name: string
     order: number
     people: string[]
-    type: string
+    type: EntityType
     labels?: string[]
 }
 
