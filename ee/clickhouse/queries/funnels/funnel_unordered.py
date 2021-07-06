@@ -2,6 +2,8 @@ from typing import List
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
+MAX_INT_32 = 2147483647
+
 
 class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     """
@@ -52,7 +54,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             """
 
             formatted_query = f"""
-                SELECT *, {sorting_condition} AS steps {self._get_step_times(max_steps)} FROM (
+                SELECT *, {sorting_condition} AS steps_initial {self._get_step_times(max_steps)} FROM (
                         {inner_query}
                     ) WHERE step_0 = 1"""
 
@@ -63,10 +65,30 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         union_formatted_query = " UNION ALL ".join(union_queries)
 
         return f"""
-        SELECT person_id, max(steps) AS steps {self._get_step_time_avgs(max_steps)} FROM (
+        SELECT person_id, max(steps_initial) AS steps {self._get_step_time_avgs(max_steps)} FROM (
                 {union_formatted_query}
         ) GROUP BY person_id
         """
+
+    def _get_step_times(self, max_steps: int):
+        def get_basic_step_time(current_index: int, max_steps: int):
+            elements = []
+            for i in range(max_steps):
+                if i == current_index:
+                    continue
+
+                conversion_time = f"if(toDateTime(latest_{i}) < toDateTime(latest_{current_index}), dateDiff('second', assumeNotNull(latest_{i}), assumeNotNull(latest_{current_index})), {MAX_INT_32})"
+                elements.append(conversion_time)
+            return f"arrayMin([{','.join(elements)}])"
+
+        conditions: List[str] = []
+        for i in range(1, max_steps):
+            conditions.append(
+                f"if(isNotNull(latest_{i}), {get_basic_step_time(i, max_steps)}, NULL) step_{i}_average_conversion_time"
+            )
+
+        formatted = ", ".join(conditions)
+        return f", {formatted}" if formatted else ""
 
     def get_sorting_condition(self, max_steps: int):
 
