@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from posthog.queries.base import filter_persons
 from typing import Any, Callable, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta

@@ -24,6 +24,7 @@ def parse_prop_clauses(
     allow_denormalized_props: bool = False,
     filter_test_accounts=False,
     is_person_query=False,
+    or_clause: str = "",
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -56,12 +57,15 @@ def parse_prop_clauses(
                 final.append(filter_query)
                 params.update(filter_params)
             else:
+                clause = "OR" if idx > 0 and len(or_clause) > 0 else "AND"
                 final.append(
-                    "AND {table_name}distinct_id IN ({filter_query})".format(
+                    "{clause} {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(filters=filter_query),
                         table_name=table_name,
+                        clause=clause
                     )
                 )
+                print(final)
                 params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))

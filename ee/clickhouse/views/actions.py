@@ -154,12 +154,21 @@ def _process_content_sql(team: Team, entity: Entity, filter: Filter):
             **{"key": filter.breakdown, "value": filter.breakdown_value, "type": filter.breakdown_type}
         )
         filter.properties.append(breakdown_prop)
-
+    # PROPERTIES [Property(person: email__icontains=.com)]
+    print('FILTER', filter._data.get('search', None))
+    # 'properties': [{'key': 'email', 'value': '.com', 'operator': 'icontains', 'type': 'person'}]
+    # print('PROPERTIES', filter.properties)
+    search_filter = filter._data.get('search', None)
+    if search_filter:
+        email_property = Property(**{"key": 'email', "value": search_filter, "operator": "icontains", "type": "person"})
+        id_property = Property(**{"key": 'distinct_id', "value": search_filter, "operator": "icontains", "type": "person"})
+        filter.properties.extend([email_property, id_property])
     prop_filters, prop_filter_params = parse_prop_clauses(
-        filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+        filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts, or_clause=search_filter
     )
     params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
-
+    # print('PROP FILTERS', prop_filters)
+    # print('PROP FILTER PARAMS', prop_filter_params)
     if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
         active_user_params = get_active_user_params(filter, entity, team.pk)
         content_sql = PERSONS_ACTIVE_USER_SQL.format(
