@@ -31,7 +31,7 @@ $glyph_height: 22px;
                 left: 0;
                 width: calc(#{$series_container_width} / 2 + 1px);
                 box-sizing: border-box;
-                border-right: 2px solid #c5c9d7;
+                border-right: 2px solid $border;
 
                 &.before {
                     top: 0;
@@ -153,7 +153,7 @@ $glyph_height: 22px;
 
                 &.outside {
                     left: calc(100% + #{$label_position_offset});
-                    color: #3b4b87;
+                    color: $funnel_default;
                 }
             }
         }

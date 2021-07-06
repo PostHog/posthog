@@ -3,7 +3,7 @@ import { Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelPlotOutlined, BarChartOutlined } from '@ant-design/icons'
-import { FunnelBarLayout } from 'scenes/funnels/FunnelBarGraph'
+import { FunnelBarLayout } from 'lib/constants'
 
 export function FunnelDisplayLayoutPicker(): JSX.Element {
     const { barGraphLayout } = useValues(funnelLogic)

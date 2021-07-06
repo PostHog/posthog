@@ -2,17 +2,17 @@ import React, { useRef, useState } from 'react'
 import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Button, Tooltip } from 'antd'
+import { Button } from 'antd'
 import { ArrowRightOutlined } from '@ant-design/icons'
 import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { ArrowBottomRightOutlined } from 'lib/components/icons'
 import { funnelLogic } from './funnelLogic'
 import { useValues } from 'kea'
-import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { useThrottledCallback } from 'use-debounce'
-
 import './FunnelBarGraph.scss'
+import { FunnelBarLayout } from 'lib/constants'
+import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 
 function calcPercentage(numerator: number, denominator: number): number {
     return (numerator / denominator) * 100 || 0
@@ -20,11 +20,6 @@ function calcPercentage(numerator: number, denominator: number): number {
 
 function humanizeOrder(order: number): number {
     return order + 1
-}
-
-export enum FunnelBarLayout {
-    horizontal = 'horizontal',
-    vertical = 'vertical',
 }
 
 interface FunnelBarGraphProps {
@@ -101,6 +96,7 @@ interface ValueInspectorButtonProps {
     children: React.ReactNode
     disabled?: boolean
     style?: React.CSSProperties
+    title?: string | undefined
 }
 
 function ValueInspectorButton({
@@ -109,6 +105,7 @@ function ValueInspectorButton({
     children,
     disabled = false,
     style,
+    title,
 }: ValueInspectorButtonProps): JSX.Element {
     return (
         <Button
@@ -118,6 +115,7 @@ function ValueInspectorButton({
             className="funnel-inspect-button"
             disabled={disabled}
             style={style}
+            title={title}
         >
             <span className="funnel-inspect-label">{children}</span>
         </Button>
@@ -164,16 +162,17 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                             </div>
                             <div className="funnel-step-metadata">
                                 {step.average_time >= 0 + Number.EPSILON ? (
-                                    <Tooltip title="Average time spent on this step before continuing to the next.">
-                                        Average time:{' '}
+                                    <div>
+                                        <span className="text-muted">Average time:</span>
                                         <ValueInspectorButton
                                             onClick={() => {}}
-                                            style={{ paddingLeft: 0, paddingRight: 0 }}
+                                            style={{ paddingLeft: 4, paddingRight: 0 }}
                                             disabled
+                                            title="Average time elapsed between completing this step and starting the next one."
                                         >
                                             {humanFriendlyDuration(step.average_time)}
                                         </ValueInspectorButton>
-                                    </Tooltip>
+                                    </div>
                                 ) : null}
                             </div>
                         </header>

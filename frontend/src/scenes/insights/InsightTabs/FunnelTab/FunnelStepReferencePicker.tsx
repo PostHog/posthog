@@ -2,7 +2,7 @@ import React from 'react'
 import { Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { PercentageOutlined, NumberOutlined } from '@ant-design/icons'
+import { PercentageOutlined } from '@ant-design/icons'
 
 export enum FunnelStepReference {
     total = 'total',
@@ -15,8 +15,8 @@ export function FunnelStepReferencePicker(): JSX.Element {
     const options = [
         {
             value: FunnelStepReference.total,
-            icon: <NumberOutlined />,
-            label: 'Absolute values',
+            icon: <PercentageOutlined />,
+            label: 'Overall conversion',
         },
         {
             value: FunnelStepReference.previous,
