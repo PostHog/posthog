@@ -641,3 +641,11 @@ export function stringify(value: any): string {
             return JSON.stringify(value)
     }
 }
+
+export class IllegalOperationError extends Error {
+    name = 'IllegalOperationError'
+
+    constructor(operation: string) {
+        super(operation)
+    }
+}

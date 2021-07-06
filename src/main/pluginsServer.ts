@@ -46,6 +46,7 @@ export async function startPluginsServer(
     let pingJob: schedule.Job | undefined
     let piscinaStatsJob: schedule.Job | undefined
     let internalMetricsStatsJob: schedule.Job | undefined
+    let pluginMetricsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
     let queue: Queue | undefined
     let jobQueueConsumer: JobQueueConsumerControl | undefined
@@ -73,6 +74,7 @@ export async function startPluginsServer(
         await pubSub?.stop()
         actionsReloadJob && schedule.cancelJob(actionsReloadJob)
         pingJob && schedule.cancelJob(pingJob)
+        pluginMetricsJob && schedule.cancelJob(pluginMetricsJob)
         statusReport.stopStatusReportSchedule()
         piscinaStatsJob && schedule.cancelJob(piscinaStatsJob)
         internalMetricsStatsJob && schedule.cancelJob(internalMetricsStatsJob)
@@ -183,6 +185,10 @@ export async function startPluginsServer(
                 await hub!.internalMetrics?.flush(piscina!)
             })
         }
+
+        pluginMetricsJob = schedule.scheduleJob('*/30 * * * *', async () => {
+            await piscina!.broadcastTask({ task: 'sendPluginMetrics' })
+        })
 
         if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
             // check every 10 sec how long it has been since the last activity

@@ -4,8 +4,9 @@ import { mocked } from 'ts-jest/utils'
 import { Hub, LogLevel, PluginTaskType } from '../src/types'
 import { clearError, processError } from '../src/utils/db/error'
 import { createHub } from '../src/utils/db/hub'
+import { IllegalOperationError } from '../src/utils/utils'
 import { loadPlugin } from '../src/worker/plugins/loadPlugin'
-import { IllegalOperationError, runProcessEvent } from '../src/worker/plugins/run'
+import { runProcessEvent } from '../src/worker/plugins/run'
 import { loadSchedule, setupPlugins } from '../src/worker/plugins/setup'
 import {
     commonOrganizationId,
@@ -147,6 +148,7 @@ test('plugin meta has what it should have', async () => {
         'geoip',
         'global',
         'jobs',
+        'metrics',
         'storage',
     ])
     expect(returnedEvent!.properties!['attachments']).toEqual({
@@ -707,6 +709,159 @@ test('plugin lazy loads capabilities', async () => {
     await setupPlugins(hub)
     const pluginConfig = hub.pluginConfigs.get(39)!
     expect(pluginConfig.plugin!.capabilities).toEqual({})
+})
+
+test('plugin sets exported metrics', async () => {
+    getPluginRows.mockReturnValueOnce([
+        mockPluginWithArchive(`
+            export const metrics = {
+                'metric1': 'sum',
+                'metric2': 'mAx',
+                'metric3': 'MIN'
+            }
+        `),
+    ])
+    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+    await setupPlugins(hub)
+    const pluginConfig = hub.pluginConfigs.get(39)!
+
+    expect(pluginConfig.plugin!.metrics).toEqual({
+        metric1: 'sum',
+        metric2: 'max',
+        metric3: 'min',
+    })
+})
+
+test('exportEvents automatically sets metrics', async () => {
+    getPluginRows.mockReturnValueOnce([
+        mockPluginWithArchive(`
+            export function exportEvents() {}
+        `),
+    ])
+    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+    await setupPlugins(hub)
+    const pluginConfig = hub.pluginConfigs.get(39)!
+
+    expect(pluginConfig.plugin!.metrics).toEqual({
+        events_delivered_successfully: 'sum',
+        events_seen: 'sum',
+        other_errors: 'sum',
+        retry_errors: 'sum',
+        undelivered_events: 'sum',
+    })
+})
+
+test('plugin vm is not setup if metric type is unsupported', async () => {
+    getPluginRows.mockReturnValueOnce([
+        mockPluginWithArchive(`
+            export const metrics = {
+                'unsupportedMetric': 'avg',
+            }
+        `),
+    ])
+    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+    await setupPlugins(hub)
+    const pluginConfig = hub.pluginConfigs.get(39)!
+    const vm = await pluginConfig.vm?.resolveInternalVm
+
+    expect(vm).toEqual(null)
+    expect(pluginConfig.plugin!.metrics).toEqual({})
+})
+
+test('metrics API works as expected', async () => {
+    const testEvent = { event: '$test', properties: {}, team_id: 2, distinct_id: 'some id' } as PluginEvent
+    getPluginRows.mockReturnValueOnce([
+        mockPluginWithArchive(`
+            export const metrics = {
+                'metric1': 'sum',
+                'metric2': 'max',
+                'metric3': 'min'
+            }
+
+            export function processEvent(event, { metrics }) {
+                metrics['metric1'].increment(100)
+                metrics['metric1'].increment(10)
+                metrics['metric1'].increment(-10)
+                metrics['metric2'].max(5)
+                metrics['metric2'].max(10)
+                metrics['metric3'].min(4)
+                metrics['metric3'].min(1)
+            }
+        `),
+    ])
+    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+    await setupPlugins(hub)
+    const pluginConfig = hub.pluginConfigs.get(39)!
+    await pluginConfig.vm?.resolveInternalVm
+    await runProcessEvent(hub, testEvent)
+
+    expect(hub.pluginMetricsManager.metricsPerPlugin[39].metrics).toEqual({ metric1: 100, metric2: 10, metric3: 1 })
+})
+
+test('metrics method will fail for wrongly specified metric type', async () => {
+    const testEvent = { event: '$test', properties: {}, team_id: 2, distinct_id: 'some id' } as PluginEvent
+    getPluginRows.mockReturnValueOnce([
+        mockPluginWithArchive(`
+            export const metrics = {
+                'i_should_increment': 'sum'
+            }
+
+            export function processEvent(event, { metrics }) {
+                metrics['i_should_increment'].max(100)
+            }
+        `),
+    ])
+    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+    await setupPlugins(hub)
+    const pluginConfig = hub.pluginConfigs.get(39)!
+    await pluginConfig.vm?.resolveInternalVm
+    await runProcessEvent(hub, testEvent)
+
+    expect(processError).toHaveBeenCalledWith(
+        hub,
+        pluginConfig,
+        new TypeError('metrics.i_should_increment.max is not a function'),
+        expect.anything()
+    )
+})
+
+test('metrics methods only support numbers', async () => {
+    const testEvent = { event: '$test', properties: {}, team_id: 2, distinct_id: 'some id' } as PluginEvent
+    getPluginRows.mockReturnValueOnce([
+        mockPluginWithArchive(`
+            export const metrics = {
+                'metric1': 'sum'
+            }
+
+            export function processEvent(event, { metrics }) {
+                metrics['metric1'].increment('im not a number, but im also not NaN')
+            }
+        `),
+    ])
+    getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
+    getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+
+    await setupPlugins(hub)
+    const pluginConfig = hub.pluginConfigs.get(39)!
+    await pluginConfig.vm?.resolveInternalVm
+    await runProcessEvent(hub, testEvent)
+
+    expect(processError).toHaveBeenCalledWith(
+        hub,
+        pluginConfig,
+        new IllegalOperationError('Only numbers are allowed for operations on metrics'),
+        expect.anything()
+    )
 })
 
 describe('loadSchedule()', () => {
