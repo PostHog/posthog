@@ -182,7 +182,7 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         barGraphLayout: [
-            FunnelBarLayout.horizontal as FunnelBarLayout,
+            FunnelBarLayout.vertical as FunnelBarLayout,
             {
                 setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
             },

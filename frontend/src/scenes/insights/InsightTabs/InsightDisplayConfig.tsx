@@ -16,9 +16,9 @@ import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import FunnelStepReferencePicker from './FunnelTab/FunnelStepReferencePicker'
+import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { useValues } from 'kea'
-import FunnelBarLayoutPicker from './FunnelTab/FunnelBarLayoutPicker'
+import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -115,7 +115,7 @@ export function InsightDisplayConfig({
 
                 {showFunnelBarOptions && (
                     <>
-                        <FunnelBarLayoutPicker />
+                        <FunnelDisplayLayoutPicker />
                         <FunnelStepReferencePicker />
                     </>
                 )}

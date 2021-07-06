@@ -27,7 +27,7 @@ export function ToggleButtonChartFilter({
         {
             value: ChartDisplayType.ActionsLineGraphLinear,
             label: (
-                <Tooltip title="Track how this funnel’s conversion rate is trending over time">
+                <Tooltip title="Track how this funnel's conversion rate is trending over time">
                     Historical conversion
                 </Tooltip>
             ),

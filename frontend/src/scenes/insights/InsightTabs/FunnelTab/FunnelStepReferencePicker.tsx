@@ -2,34 +2,29 @@ import React from 'react'
 import { Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { PercentageOutlined } from '@ant-design/icons'
+import { PercentageOutlined, NumberOutlined } from '@ant-design/icons'
 
 export enum FunnelStepReference {
     total = 'total',
     previous = 'previous',
 }
 
-export default function FunnelStepReferencePicker(): JSX.Element {
+export function FunnelStepReferencePicker(): JSX.Element {
     const { stepReference } = useValues(funnelLogic)
     const { setStepReference } = useActions(funnelLogic)
     const options = [
         {
             value: FunnelStepReference.total,
-            label: (
-                <>
-                    <PercentageOutlined /> Absolute values
-                </>
-            ),
+            icon: <NumberOutlined />,
+            label: 'Absolute values',
         },
         {
             value: FunnelStepReference.previous,
-            label: (
-                <>
-                    <PercentageOutlined /> Relative to previous step
-                </>
-            ),
+            icon: <PercentageOutlined />,
+            label: 'Relative to previous step',
         },
     ]
+
     return (
         <Select
             defaultValue={FunnelStepReference.total}
@@ -38,7 +33,21 @@ export default function FunnelStepReferencePicker(): JSX.Element {
             bordered={false}
             dropdownMatchSelectWidth={false}
             data-attr="funnel-step-reference-selector"
-            options={options}
-        />
+            optionLabelProp="label"
+        >
+            {options.map((option) => (
+                <Select.Option
+                    key={option.value}
+                    value={option.value}
+                    label={
+                        <>
+                            {option.icon} {option.label}
+                        </>
+                    }
+                >
+                    {option.label}
+                </Select.Option>
+            ))}
+        </Select>
     )
 }
