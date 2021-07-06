@@ -113,30 +113,36 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         return self._filter_request(self.request, super().get_queryset())
 
-    @action(methods=["GET"], detail=False)
-    def properties(self, request: request.Request, **kwargs) -> response.Response:
-        result = self.get_properties(request)
-
-        return response.Response(result)
-
-    def get_properties(self, request) -> List[Dict[str, Any]]:
+    def get_person_properties(self) -> QuerySet:
         class JsonKeys(Func):
             function = "jsonb_object_keys"
 
         people = self.get_queryset()
-        people = (
+        return (
             people.annotate(keys=JsonKeys("properties"))
             .values("keys")
             .annotate(count=Count("id"))
             .order_by("-count", "keys")
         )
-        count = people.count()
+
+    @action(methods=["GET"], detail=False)
+    def properties(self, request: request.Request, **kwargs) -> response.Response:
+        properties = self.get_person_properties()
+        result = [{"name": property["keys"], "count": property["count"]} for property in properties]
+        return response.Response(result)
+
+    @action(methods=["GET"], detail=False)
+    def properties_paginated(self, request: request.Request, **kwargs) -> List[Dict[str, Any]]:
+        properties = self.get_person_properties()
+        count = properties.count()
         limit = int(request.GET.get("limit", 100))
         offset = int(request.GET.get("offset", 0))
-        people = people[offset : offset + limit]
-
-        results = [{"name": event["keys"], "count": event["count"]} for event in people]
-        return {"count": count, "results": results}
+        properties = properties[offset : offset + limit]
+        result = {
+            "count": count,
+            "results": [{"name": property["keys"], "count": property["count"]} for property in properties],
+        }
+        return response.Response(result)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
