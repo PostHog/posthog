@@ -178,5 +178,5 @@ class ClickhouseLifecycle(LifecycleTrend):
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
         from posthog.api.person import PersonSerializer
-
+        people = filter_persons(team_id, request, people)
         return PersonSerializer(people, many=True).data
