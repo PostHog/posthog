@@ -261,7 +261,7 @@ export function MainNavigation(): JSX.Element {
                         />
                     )}
                     {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
-                        <MenuItem title="Overview" icon={<HomeOutlined />} identifier="overview" to="/overview" />
+                        <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to="/home" />
                     )}
                     <MenuItem
                         title="Insights"
