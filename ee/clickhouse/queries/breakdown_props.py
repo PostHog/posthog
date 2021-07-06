@@ -11,7 +11,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
 
 
-def _get_top_elements(filter: Filter, team_id: int, query: str, limit: int = 25, params: Dict = {}) -> List:
+def _get_top_elements(filter: Filter, team_id: int, query: str, limit, params: Dict = {}) -> List:
     # use limit of 25 to determine if there are more than 20
     element_params = {
         "key": filter.breakdown,
@@ -30,7 +30,9 @@ def _get_top_elements(filter: Filter, team_id: int, query: str, limit: int = 25,
     return top_elements_array
 
 
-def get_breakdown_person_prop_values(filter: Filter, entity: Entity, aggregate_operation: str, team_id: int):
+def get_breakdown_person_prop_values(
+    filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25
+):
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
         filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts,
@@ -60,12 +62,15 @@ def get_breakdown_person_prop_values(filter: Filter, entity: Entity, aggregate_o
         team_id=team_id,
         query=elements_query,
         params={**prop_filter_params, **person_prop_params, **entity_params},
+        limit=limit,
     )
 
     return top_elements_array
 
 
-def get_breakdown_event_prop_values(filter: Filter, entity: Entity, aggregate_operation: str, team_id: int):
+def get_breakdown_event_prop_values(
+    filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25
+):
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
         filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts,
@@ -81,7 +86,11 @@ def get_breakdown_event_prop_values(filter: Filter, entity: Entity, aggregate_op
         **entity_format_params
     )
     top_elements_array = _get_top_elements(
-        filter=filter, team_id=team_id, query=elements_query, params={**prop_filter_params, **entity_params}
+        filter=filter,
+        team_id=team_id,
+        query=elements_query,
+        params={**prop_filter_params, **entity_params},
+        limit=limit,
     )
 
     return top_elements_array

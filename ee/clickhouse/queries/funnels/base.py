@@ -97,7 +97,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         }
 
         query = self.get_query(format_properties)
-        print(query)
+
         return sync_execute(query, self.params)
 
     def _get_steps_per_person_query(self):
@@ -329,9 +329,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 ValidationError("An entity with order 0 was not provided")
             values = []
             if self._filter.breakdown_type == "person":
-                values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk)
+                values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, 5)
             elif self._filter.breakdown_type == "event":
-                values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk)
+                values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, 5)
             self.params.update({"breakdown_values": values})
 
             return "prop IN %(breakdown_values)s"
