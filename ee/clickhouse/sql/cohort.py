@@ -61,8 +61,8 @@ INNER JOIN (
         distinct_id
     FROM ({latest_distinct_id_sql})
     WHERE team_id = %(team_id)s
-) as pid
-ON events.distinct_id = pid.distinct_id
+) as pdi
+ON events.distinct_id = pdi.distinct_id
 WHERE team_id = %(team_id)s {date_query} AND {entity_query}
 GROUP BY person_id HAVING count(*) {count_operator} %(count)s
 """

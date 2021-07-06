@@ -3,13 +3,16 @@ import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button } from 'antd'
-import { ClockCircleOutlined, UserOutlined } from '@ant-design/icons'
+import { ArrowRightOutlined } from '@ant-design/icons'
 import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-
+import { ArrowBottomRightOutlined } from 'lib/components/icons'
+import { funnelLogic } from './funnelLogic'
+import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
-import { funnelLogic } from './funnelLogic'
+import { FunnelBarLayout } from 'lib/constants'
+import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 
 function calcPercentage(numerator: number, denominator: number): number {
     return (numerator / denominator) * 100 || 0
@@ -18,8 +21,9 @@ function calcPercentage(numerator: number, denominator: number): number {
 function humanizeOrder(order: number): number {
     return order + 1
 }
+
 interface FunnelBarGraphProps {
-    layout?: 'horizontal' | 'vertical'
+    layout?: FunnelBarLayout
     steps: FunnelStep[]
 }
 
@@ -27,42 +31,55 @@ interface BarProps {
     percentage: number
     name?: string
     onBarClick?: () => void
+    layout?: FunnelBarLayout
 }
 
 type LabelPosition = 'inside' | 'outside'
 
-function Bar({ percentage, name, onBarClick }: BarProps): JSX.Element {
+function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
     const { funnelPersonsEnabled } = useValues(funnelLogic)
+    const dimensionProperty = layout === FunnelBarLayout.horizontal ? 'width' : 'height'
+    const cursorType = funnelPersonsEnabled ? 'pointer' : ''
 
     function decideLabelPosition(): void {
         // Place label inside or outside bar, based on whether it fits
-        const barWidth = barRef.current?.clientWidth ?? null
-        const labelWidth = labelRef.current?.clientWidth ?? null
-
-        if (barWidth !== null && labelWidth !== null) {
-            if (labelWidth + LABEL_POSITION_OFFSET * 2 > barWidth) {
-                setLabelPosition('outside')
-                return
+        if (layout === FunnelBarLayout.horizontal) {
+            const barWidth = barRef.current?.clientWidth ?? null
+            const labelWidth = labelRef.current?.clientWidth ?? null
+            if (barWidth !== null && labelWidth !== null) {
+                if (labelWidth + LABEL_POSITION_OFFSET * 2 > barWidth) {
+                    setLabelPosition('outside')
+                    return
+                }
+            }
+        } else {
+            const barHeight = barRef.current?.clientHeight ?? null
+            const labelHeight = labelRef.current?.clientHeight ?? null
+            if (barHeight !== null && labelHeight !== null) {
+                if (labelHeight + LABEL_POSITION_OFFSET * 2 > barHeight) {
+                    setLabelPosition('outside')
+                    return
+                }
             }
         }
         setLabelPosition('inside')
     }
 
     useResizeObserver({
-        callback: decideLabelPosition,
+        callback: useThrottledCallback(decideLabelPosition, 200),
         element: barRef,
     })
 
     return (
         <div className="funnel-bar-wrapper">
-            <div
-                ref={barRef}
-                className="funnel-bar"
-                style={{ width: `${percentage}%`, cursor: `${funnelPersonsEnabled ? 'pointer' : ''}` }}
+            <div 
+                ref={barRef} 
+                className="funnel-bar" 
+                style={{ [dimensionProperty]: `${percentage}%`, cursor: cursorType }}
                 onClick={() => {
                     if (funnelPersonsEnabled && onBarClick) {
                         onBarClick()
@@ -90,78 +107,124 @@ interface ValueInspectorButtonProps {
     onClick: (e?: React.SyntheticEvent) => any
     children: React.ReactNode
     disabled?: boolean
+    style?: React.CSSProperties
+    title?: string | undefined
 }
 
-function ValueInspectorButton({ icon, onClick, children, disabled = false }: ValueInspectorButtonProps): JSX.Element {
+function ValueInspectorButton({
+    icon,
+    onClick,
+    children,
+    disabled = false,
+    style,
+    title,
+}: ValueInspectorButtonProps): JSX.Element {
     return (
-        <Button type="link" icon={icon} onClick={onClick} className="funnel-inspect-button" disabled={disabled}>
+        <Button
+            type="link"
+            icon={icon}
+            onClick={onClick}
+            className="funnel-inspect-button"
+            disabled={disabled}
+            style={style}
+            title={title}
+        >
             <span className="funnel-inspect-label">{children}</span>
         </Button>
     )
 }
 
-export function FunnelBarGraph({ layout = 'horizontal', steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
-    const steps = [...stepsParam].sort((a, b) => a.order - b.order)
-    const referenceStep = steps[0] // Compare values to first step, i.e. total
-    const { funnelPersonsEnabled } = useValues(funnelLogic)
-    const { openPersonsModal } = useActions(funnelLogic)
+function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepReference, index?: number): FunnelStep {
+    // Step to serve as denominator of percentage calculations.
+    // step[0] is full-funnel conversion, previous is relative.
+    if (!index || index <= 0) {
+        return steps[0]
+    }
+    switch (stepReference) {
+        case FunnelStepReference.previous:
+            return steps[index - 1]
+        case FunnelStepReference.total:
+        default:
+            return steps[0]
+    }
+}
 
-    return layout === 'horizontal' ? (
-        <div>
-            {steps.map((step, i) => (
-                <section key={step.order} className="funnel-step">
-                    <div className="funnel-series-container">
-                        <div className={`funnel-series-linebox ${i > 0 ? 'before' : ''}`} />
-                        <SeriesGlyph style={{ backgroundColor: '#fff', zIndex: 2 }}>
-                            {humanizeOrder(step.order)}
-                        </SeriesGlyph>
-                        <div className={`funnel-series-linebox ${steps[i + 1] ? 'after' : ''}`} />
-                    </div>
-                    <header>
-                        <div className="funnel-step-title">
-                            <PropertyKeyInfo value={step.name} />
+export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
+    const { stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(funnelLogic)
+    const { openPersonsModal } = useActions(funnelLogic)
+    const steps = [...stepsParam].sort((a, b) => a.order - b.order)
+
+    return (
+        <div className={`funnel-bar-graph ${layout}`}>
+            {steps.map((step, i) => {
+                const basisStep = getReferenceStep(steps, stepReference, i)
+                const showLineBefore = layout === FunnelBarLayout.horizontal && i > 0
+                const showLineAfter = layout === FunnelBarLayout.vertical || i < steps.length - 1
+                return (
+                    <section key={step.order} className="funnel-step">
+                        <div className="funnel-series-container">
+                            <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
+                            <SeriesGlyph style={{ backgroundColor: '#fff', zIndex: 2 }}>
+                                {humanizeOrder(step.order)}
+                            </SeriesGlyph>
+                            <div className={`funnel-series-linebox ${showLineAfter ? 'after' : ''}`} />
                         </div>
-                        <div className="funnel-step-metadata">
-                            {step.average_time >= 0 + Number.EPSILON ? (
-                                <ValueInspectorButton icon={<ClockCircleOutlined />} onClick={() => {}} disabled>
-                                    {humanFriendlyDuration(step.average_time)}
-                                </ValueInspectorButton>
-                            ) : null}
-                            <ValueInspectorButton
-                                icon={<UserOutlined />}
-                                onClick={() => openPersonsModal(step, i + 1)}
-                                disabled={!funnelPersonsEnabled}
-                            >
-                                {step.count} completed
-                            </ValueInspectorButton>
-                        </div>
-                    </header>
-                    <Bar
-                        percentage={calcPercentage(step.count, referenceStep.count)}
-                        name={step.name}
-                        onBarClick={() => openPersonsModal(step, i + 1)}
-                    />
-                    {i > 0 && step.order > 0 && steps[i - 1]?.count > step.count && (
+                        <header>
+                            <div className="funnel-step-title">
+                                <PropertyKeyInfo value={step.name} />
+                            </div>
+                            <div className="funnel-step-metadata">
+                                {step.average_time >= 0 + Number.EPSILON ? (
+                                    <div>
+                                        <span className="text-muted">Average time:</span>
+                                        <ValueInspectorButton
+                                            style={{ paddingLeft: 4, paddingRight: 0 }}
+                                            onClick={() => {}}
+                                            disabled
+                                            title="Average time elapsed between completing this step and starting the next one."
+                                        >
+                                            {humanFriendlyDuration(step.average_time)}
+                                        </ValueInspectorButton>
+                                    </div>
+                                ) : null}
+                            </div>
+                        </header>
+                        <Bar
+                            percentage={calcPercentage(step.count, basisStep.count)}
+                            name={step.name}
+                            onBarClick={() => openPersonsModal(step, i + 1)}
+                            layout={layout}
+                        />  
                         <footer>
                             <div className="funnel-step-metadata">
                                 <ValueInspectorButton
-                                    icon={<UserOutlined /> /* TODO */}
-                                    onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
+                                    icon={<ArrowRightOutlined style={{ color: 'var(--success)' }} />}
+                                    onClick={() => openPersonsModal(step, i + 1)}
                                     disabled={!funnelPersonsEnabled}
                                 >
-                                    {steps[i - 1].count - step.count} dropped off
+                                    {step.count} completed
                                 </ValueInspectorButton>
-                                <span>
-                                    ({(100 - calcPercentage(step.count, steps[i - 1].count)).toFixed(2)}% from previous
-                                    step)
-                                </span>
+                                {i > 0 && step.order > 0 && steps[i - 1]?.count > step.count && (
+                                    <span>
+                                        <ValueInspectorButton
+                                            icon={<ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />}
+                                            onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
+                                            disabled={!funnelPersonsEnabled}        
+                                            style={{ paddingRight: '0.25em' }}
+                                        >
+                                            {steps[i - 1].count - step.count} dropped off
+                                        </ValueInspectorButton>
+                                        <span style={{ color: 'var(--primary-alt)', padding: '8px 0' }}>
+                                            ({humanizeNumber(100 - calcPercentage(step.count, steps[i - 1].count), 2)}%
+                                            from previous step)
+                                        </span>
+                                    </span>
+                                )}
                             </div>
                         </footer>
-                    )}
-                </section>
-            ))}
+                    </section>
+                )
+            })}
         </div>
-    ) : (
-        <>{null}</>
     )
 }

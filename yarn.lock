@@ -7530,10 +7530,10 @@ kea-localstorage@^1.1.1:
   resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-1.1.1.tgz#6edf69476779e002708fb10f2360e48333707406"
   integrity sha512-YijSF33Y1QpfHAq1hGvulWWoGC9Kckd4lVa+XStHar4t7GfoaDa1aWnTeJxzz9bWnJovfk+MnG8ekP4rWIqINA==
 
-kea-router@^0.5.3:
-  version "0.5.3"
-  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-0.5.3.tgz#f0f2719b1be4c661ad62312a6249067429d51731"
-  integrity sha512-adXb8oQcoR70Q8JegsauCawAsj63+/n9MeacKOa7/kbCZQYAlrjfcG83CcuRLe99MI/PSaEfeFX2doOG4Ir4xA==
+kea-router@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-1.0.0.tgz#bdd82698502ead67e4b022326423e226e7c9529d"
+  integrity sha512-9jW8Uwc3A+5YpIuiF+opT+cXUfO6pIa22DFKTcKmVJg/GkiR5RHOziGs8uSkE9AG4snptoNkpA1iPDu/aK3dnw==
   dependencies:
     url-pattern "^1.0.3"
 
@@ -7552,10 +7552,10 @@ kea-window-values@^0.0.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
   integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
 
-kea@^2.4.3:
-  version "2.4.4"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.4.4.tgz#94f7aa3266af980e8d2f5e0e71b033255aac95ef"
-  integrity sha512-gq5+jcC6w0FJVWkipA31s0WfmRSjIxTIvLtaApc/EPd0ACxKUhrApmC6Ldg9Au9Cu0ddC4g5wijoOUEmn0YyQA==
+kea@^2.4.5:
+  version "2.4.5"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.4.5.tgz#5a43a5aedf306bc7ae0a271ee5bc1ae5fedb4959"
+  integrity sha512-eo9o0AlnPVKyX2/qFAMxFksPjgHfc//NgzET7X3QbddKPDqCVgNfR8DGdrhnbrKlHF9lJtMQ4ERbVr9WaEEheg==
 
 killable@^1.0.1:
   version "1.0.1"

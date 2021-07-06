@@ -59,8 +59,8 @@ FROM (
                     WHERE team_id = %(team_id)s
                 )
             WHERE team_id = %(team_id)s
-        ) as pid
-        ON e.distinct_id = pid.distinct_id
+        ) as pdi
+        ON e.distinct_id = pdi.distinct_id
         {event_join}
         {conditions}
         GROUP BY timestamp, person_id, breakdown_value

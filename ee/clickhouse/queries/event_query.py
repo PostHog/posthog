@@ -57,21 +57,21 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if self._should_join_distinct_ids:
             return f"""
             INNER JOIN (
-                SELECT person_id,
+                SELECT
+                    person_id,
                     distinct_id
                 FROM (
-                        SELECT *
+                    SELECT *
+                    FROM person_distinct_id
+                    JOIN (
+                        SELECT distinct_id,
+                            max(_offset) as _offset
                         FROM person_distinct_id
-                        JOIN (
-                                SELECT distinct_id,
-                                    max(_offset) as _offset
-                                FROM person_distinct_id
-                                WHERE team_id = %(team_id)s
-                                GROUP BY distinct_id
-                            ) as person_max
-                            ON person_distinct_id.distinct_id = person_max.distinct_id
-                        AND person_distinct_id._offset = person_max._offset
                         WHERE team_id = %(team_id)s
+                        GROUP BY distinct_id
+                    ) as person_max
+                    USING (distinct_id, _offset)
+                    WHERE team_id = %(team_id)s
                     )
                 WHERE team_id = %(team_id)s
             ) AS {self.DISTINCT_ID_TABLE_ALIAS}
@@ -109,6 +109,8 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
         except Cohort.DoesNotExist:
             return False
+        if is_precalculated_query(cohort):
+            return True
         for group in cohort.groups:
             if group.get("properties"):
                 return True
@@ -190,7 +192,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
     def _get_cohort_subquery(self, prop) -> Tuple[str, Dict[str, Any]]:
         try:
-            cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+            cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
         except Cohort.DoesNotExist:
             return "0 = 1", {}  # If cohort doesn't exist, nothing can match
 

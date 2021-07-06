@@ -231,6 +231,7 @@ export const FEATURE_FLAGS: Record<string, string> = {
     INGESTION_TAXONOMY: '4267-event-property-taxonomy',
     NEW_TOOLTIPS: '4156-tooltips-legends',
     FUNNEL_PERSONS_MODAL: '4819-funnel-persons-modal',
+    PLUGIN_METRICS: '4871-plugin-metrics',
     FUNNEL_BAR_VIZ: '4535-funnel-bar-viz',
 }
 
@@ -239,4 +240,9 @@ export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
 export enum Environments {
     PRODUCTION = 'production',
     TEST = 'test',
+}
+
+export enum FunnelBarLayout {
+    horizontal = 'horizontal',
+    vertical = 'vertical',
 }

@@ -9,9 +9,10 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import { EntityTypes, FilterType, FunnelResult, FunnelStep, PathType, PersonType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelBarLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
 function wait(ms = 1000): Promise<any> {
@@ -74,6 +75,8 @@ export const funnelLogic = kea<funnelLogicType>({
         loadConversionWindow: (days: number) => ({ days }),
         setConversionWindowInDays: (days: number) => ({ days }),
         openPersonsModal: (step: FunnelStep, stepNumber: number) => ({ step, stepNumber }),
+        setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
+        setBarGraphLayout: (barGraphLayout: FunnelBarLayout) => ({ barGraphLayout }),
     }),
 
     connect: {
@@ -172,6 +175,18 @@ export const funnelLogic = kea<funnelLogicType>({
                 setConversionWindowInDays: (state, { days }) => {
                     return days >= 1 && days <= 365 ? Math.round(days) : state
                 },
+            },
+        ],
+        stepReference: [
+            FunnelStepReference.total as FunnelStepReference,
+            {
+                setStepReference: (_, { stepReference }) => stepReference,
+            },
+        ],
+        barGraphLayout: [
+            FunnelBarLayout.vertical as FunnelBarLayout,
+            {
+                setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
             },
         ],
     }),
@@ -273,12 +288,12 @@ export const funnelLogic = kea<funnelLogicType>({
     actionToUrl: ({ values, props }) => ({
         setSteps: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', values.propertiesForUrl]
+                return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
             }
         },
         clearFunnel: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', { insight: ViewType.FUNNELS }]
+                return ['/insights', { insight: ViewType.FUNNELS }, undefined, { replace: true }]
             }
         },
     }),

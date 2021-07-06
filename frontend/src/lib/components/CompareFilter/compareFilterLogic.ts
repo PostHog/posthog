@@ -33,7 +33,7 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
             searchParams.compare = values.compare
 
             if (!objectsEqual(compare, values.compare)) {
-                router.actions.push(pathname, searchParams)
+                router.actions.replace(pathname, searchParams)
             }
         },
         toggleCompare: () => {
