@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
-import { defaultConfigForPlugin, getConfigSchemaArray } from 'scenes/plugins/utils'
+import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
@@ -86,15 +86,12 @@ export function PluginDrawer(): JSX.Element {
             if (!field.visible_if || !field.key) {
                 continue
             }
-            for (const [targetFieldName, targetFieldValue] of field.visible_if) {
-                const formActualValue = form.getFieldValue(targetFieldName) || ''
-                const targetAnyValue = typeof targetFieldValue === 'undefined'
-                const formValueSet = !!formActualValue
+            const shouldBeVisible = field.visible_if.every(
+                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
+                    doFieldRequirementsMatch(form, targetFieldName, targetFieldValue)
+            )
 
-                if ((targetAnyValue && formValueSet) || targetFieldValue === formActualValue) {
-                    continue
-                }
-
+            if (!shouldBeVisible) {
                 fieldsToSetAsInvisible.push(field.key)
             }
         }
@@ -104,17 +101,15 @@ export function PluginDrawer(): JSX.Element {
     const determineAndSetRequiredFields = (): void => {
         const fieldsToSetAsRequired = []
         for (const field of Object.values(getConfigSchemaArray(editingPlugin?.config_schema || {}))) {
-            if (!field.required_if || !field.key) {
+            if (!field.required_if || !Array.isArray(field.required_if) || !field.key) {
                 continue
             }
-            for (const [targetFieldName, targetFieldValue] of field.required_if) {
-                const formActualValue = form.getFieldValue(targetFieldName) || ''
-                const targetAnyValue = typeof targetFieldValue === 'undefined'
-                const formValueSet = !!formActualValue
-
-                if ((targetAnyValue && formValueSet) || targetFieldValue === formActualValue) {
-                    fieldsToSetAsRequired.push(field.key)
-                }
+            const shouldBeRequired = field.required_if.every(
+                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
+                    doFieldRequirementsMatch(form, targetFieldName, targetFieldValue)
+            )
+            if (shouldBeRequired) {
+                fieldsToSetAsRequired.push(field.key)
             }
         }
 
