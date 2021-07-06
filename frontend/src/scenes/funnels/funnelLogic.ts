@@ -230,6 +230,7 @@ export const funnelLogic = kea<funnelLogicType>({
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags) => featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL],
         ],
+        clickhouseEnabled: [() => [selectors.preflight], (preflight) => preflight?.is_clickhouse_enabled],
     }),
 
     listeners: ({ actions, values, props }) => ({
