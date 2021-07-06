@@ -285,7 +285,9 @@ export function formatPropertyLabel(
         : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${operatorMap[operator]}`
-                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${value || ''}`)
+                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${
+                        value && value.length === 1 && value[0] === '' ? '(empty string)' : value || ''
+                    } `)
 }
 
 export function formatProperty(property: Record<string, any>): string {
