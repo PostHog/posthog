@@ -3,7 +3,7 @@ import { useValues, useActions, BindLogic } from 'kea'
 import { decodeParams } from 'kea-router'
 import { Button, Spin, Space, Tooltip, Badge, Switch, Row } from 'antd'
 import { Link } from 'lib/components/Link'
-import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+import { ExpandState, sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
 import { SessionDetails } from './SessionDetails'
 import dayjs from 'dayjs'
@@ -30,7 +30,9 @@ import generatePicker from 'antd/es/date-picker/generatePicker'
 import { ResizableTable, ResizableColumnType, ANTD_EXPAND_BUTTON_WIDTH } from 'lib/components/ResizableTable'
 import { teamLogic } from 'scenes/teamLogic'
 import { IconEventsShort } from 'lib/components/icons'
-import ExpandIcon from 'lib/components/ExpandIcon'
+import { ExpandIcon } from 'lib/components/ExpandIcon'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
@@ -57,7 +59,7 @@ function getSessionRecordingsDurationSum(session: SessionType): number {
     return session.session_recordings.map(({ recording_duration }) => recording_duration).reduce((a, b) => a + b, 0)
 }
 
-const MATCHING_EVENT_ICON_SIZE = 26
+export const MATCHING_EVENT_ICON_SIZE = 26
 
 export function SessionsView({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
@@ -70,10 +72,10 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         properties,
         sessionRecordingId,
         firstRecordingId,
-        expandedRowKeys,
-        expandAllRows,
+        expandedRowKeysProps,
         showOnlyMatches,
         filters,
+        rowExpandState,
     } = useValues(logic)
     const {
         fetchNextSessions,
@@ -81,11 +83,13 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         nextDay,
         setFilters,
         applyFilters,
-        setExpandAllRows,
+        toggleExpandSessionRows,
+        onExpandedRowsChange,
         setShowOnlyMatches,
     } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { shareFeedbackCommand } = useActions(commandPaletteLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const sessionsTableRef = useRef<HTMLInputElement>(null)
 
     const enableSessionRecordingCTA = (
@@ -222,35 +226,29 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             <div className="sessions-view-actions">
                 <div className="sessions-view-actions-left-items">
                     <Row className="action">
-                        <Switch
-                            // @ts-expect-error `id` prop is valid on switch
-                            id="expand-all-sessions"
-                            onChange={(active) => {
-                                setExpandAllRows(active)
-                            }}
-                            checked={expandAllRows}
-                            size="small"
-                            disabled={filteredSessions.length === 0}
-                        />
-                        <label className="ml-05 mr" htmlFor="expand-all-sessions">
-                            Expand all sessions
-                        </label>
+                        {featureFlags[FEATURE_FLAGS.SESSIONS_TABLE] && (
+                            <Button data-attr="sessions-expand-collapse" onClick={toggleExpandSessionRows}>
+                                {rowExpandState === ExpandState.Expanded ? 'Collapse' : 'Expand'} all
+                            </Button>
+                        )}
                     </Row>
-                    <Row className="action">
-                        <Switch
-                            // @ts-expect-error `id` prop is valid on switch
-                            id="show-only-matches"
-                            onChange={setShowOnlyMatches}
-                            checked={showOnlyMatches}
-                            size="small"
-                            disabled={filteredSessions.length === 0 || filters.length === 0}
-                        />
-                        <label className="ml-05" htmlFor="show-only-matches">
-                            Show only matches
-                        </label>
-                    </Row>
+                    {filters.length > 0 && (
+                        <Row className="action ml-05">
+                            <Switch
+                                // @ts-expect-error `id` prop is valid on switch
+                                id="show-only-matches"
+                                onChange={setShowOnlyMatches}
+                                checked={showOnlyMatches}
+                                //size="small"
+                                disabled={filteredSessions.length === 0}
+                            />
+                            <label className="ml-025" htmlFor="show-only-matches">
+                                <b>Show only event matches</b>
+                            </label>
+                        </Row>
+                    )}
                 </div>
-                <div>
+                <div className="sessions-view-actions-right-items">
                     <Tooltip title={playAllCTA}>
                         <span>
                             <LinkButton
@@ -295,7 +293,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                             <ExpandIcon {...expandProps}>
                                 {session?.matching_events?.length > 0 ? (
                                     <Tooltip
-                                        title={`${session.matching_events.length} out of ${session.event_count} events match`}
+                                        title={`${session.matching_events.length} events match your event filters`}
                                     >
                                         <Badge
                                             className="sessions-matching-events-icon cursor-pointer"
@@ -314,8 +312,9 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     },
                     columnWidth: ANTD_EXPAND_BUTTON_WIDTH + MATCHING_EVENT_ICON_SIZE,
                     rowExpandable: () => true,
+                    onExpandedRowsChange: onExpandedRowsChange,
                     expandRowByClick: true,
-                    ...(expandAllRows && { expandedRowKeys }),
+                    ...expandedRowKeysProps,
                 }}
             />
             {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} />}
