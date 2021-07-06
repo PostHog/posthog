@@ -2,7 +2,7 @@ import json
 import warnings
 from typing import Any, Dict, List, Optional, Union, cast
 
-from django.db.models import Count, Func, Prefetch, Q, QuerySet
+from django.db.models import Count, F, Func, Prefetch, Q, QuerySet
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -127,10 +127,16 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         people = (
             people.annotate(keys=JsonKeys("properties"))
             .values("keys")
-            .annotate(count=Count("id"))
+            .annotate(count=Count("id"), id=F("keys"))
             .order_by("-count", "keys")
         )
-        return [{"name": event["keys"], "count": event["count"]} for event in people]
+        count = people.count()
+        limit = int(request.GET.get("limit", 100))
+        offset = int(request.GET.get("offset", 0))
+        print(request)
+        people = self.paginator.paginate_queryset(people, request, view=self)
+        results = [{"name": event["keys"], "count": event["count"]} for event in people[offset : offset + limit]]
+        return {"count": count, "results": results}
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
