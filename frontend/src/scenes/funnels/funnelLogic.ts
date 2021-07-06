@@ -9,8 +9,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import { EntityTypes, FilterType, FunnelResult, FunnelStep, PathType, PersonType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelBarLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
 function wait(ms = 1000): Promise<any> {
@@ -71,6 +72,8 @@ export const funnelLogic = kea<funnelLogicType>({
         setStepsWithCountLoading: (stepsWithCountLoading: boolean) => ({ stepsWithCountLoading }),
         loadConversionWindow: (days: number) => ({ days }),
         setConversionWindowInDays: (days: number) => ({ days }),
+        setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
+        setBarGraphLayout: (barGraphLayout: FunnelBarLayout) => ({ barGraphLayout }),
     }),
 
     connect: {
@@ -169,6 +172,18 @@ export const funnelLogic = kea<funnelLogicType>({
                 setConversionWindowInDays: (state, { days }) => {
                     return days >= 1 && days <= 365 ? Math.round(days) : state
                 },
+            },
+        ],
+        stepReference: [
+            FunnelStepReference.total as FunnelStepReference,
+            {
+                setStepReference: (_, { stepReference }) => stepReference,
+            },
+        ],
+        barGraphLayout: [
+            FunnelBarLayout.vertical as FunnelBarLayout,
+            {
+                setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
             },
         ],
     }),
