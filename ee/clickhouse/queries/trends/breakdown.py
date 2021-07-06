@@ -6,7 +6,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.breakdown_props import BreakdownProps
+from ee.clickhouse.queries.breakdown_props import get_breakdown_event_prop_values, get_breakdown_person_prop_values
 from ee.clickhouse.queries.trends.util import (
     enumerate_time_range,
     get_active_user_params,
@@ -190,7 +190,7 @@ class ClickhouseTrendsBreakdown:
         return params, breakdown_filter, breakdown_filter_params, "value"
 
     def _breakdown_person_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
-        values_arr = BreakdownProps(filter, entity, aggregate_operation, team_id).get_person_prop_values()
+        values_arr = get_breakdown_person_prop_values(filter, entity, aggregate_operation, team_id)
         breakdown_filter_params = {
             "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
         }
@@ -207,7 +207,7 @@ class ClickhouseTrendsBreakdown:
         )
 
     def _breakdown_prop_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
-        values_arr = BreakdownProps(filter, entity, aggregate_operation, team_id).get_event_prop_values()
+        values_arr = get_breakdown_event_prop_values(filter, entity, aggregate_operation, team_id)
         params = {
             "values": [*values_arr, "none"],
         }
