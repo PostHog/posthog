@@ -525,14 +525,14 @@ export function PropertyKeyInfo({
     } else {
         return (
             <Typography.Text ellipsis={ellipsis} style={{ color: 'inherit', maxWidth: 400, ...style }} title={value}>
-                {value}
+                {value !== '' ? value : <i>(empty string)</i>}
             </Typography.Text>
         )
     }
     if (disableIcon) {
         return (
             <Typography.Text ellipsis={ellipsis} style={{ color: 'inherit', maxWidth: 400 }} title={data.label}>
-                {data.label}
+                {data.label !== '' ? data.label : <i>(empty string)</i>}
             </Typography.Text>
         )
     }
