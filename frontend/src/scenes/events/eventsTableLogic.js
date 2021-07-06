@@ -178,6 +178,7 @@ export const eventsTableLogic = kea({
                     properties: values.properties,
                 },
                 window.location.hash,
+                { replace: true },
             ]
         },
     }),

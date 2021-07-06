@@ -1,12 +1,16 @@
 from typing import Optional
 
 from posthog.constants import (
+    DISPLAY,
     FUNNEL_FROM_STEP,
     FUNNEL_ORDER_TYPE,
     FUNNEL_STEP,
     FUNNEL_TO_STEP,
     FUNNEL_VIZ_TYPE,
     FUNNEL_WINDOW_DAYS,
+    INSIGHT,
+    INSIGHT_FUNNELS,
+    TRENDS_LINEAR,
     FunnelOrderType,
     FunnelVizType,
 )
@@ -83,11 +87,22 @@ class FunnelTypeMixin(BaseParamMixin):
 
     @cached_property
     def funnel_viz_type(self) -> Optional[FunnelVizType]:
-        return self._data.get(FUNNEL_VIZ_TYPE)
+        funnel_viz_type = self._data.get(FUNNEL_VIZ_TYPE)
+        if (
+            not funnel_viz_type is None
+            and self._data.get(INSIGHT) == INSIGHT_FUNNELS
+            and self._data.get(DISPLAY) == TRENDS_LINEAR
+        ):
+            # Backwards compatibility
+            # Before Filter.funnel_viz_type funnel trends were indicated by Filter.display being TRENDS_LINEAR
+            return FunnelVizType.TRENDS
+        return funnel_viz_type
 
     @include_dict
     def funnel_type_to_dict(self):
         result = {}
-        result.update({FUNNEL_ORDER_TYPE: self.funnel_order_type} if self.funnel_order_type else {})
-        result.update({FUNNEL_VIZ_TYPE: self.funnel_viz_type} if self.funnel_viz_type else {})
+        if self.funnel_order_type:
+            result[FUNNEL_ORDER_TYPE] = self.funnel_order_type
+        if self.funnel_viz_type:
+            result[FUNNEL_VIZ_TYPE] = self.funnel_viz_type
         return result

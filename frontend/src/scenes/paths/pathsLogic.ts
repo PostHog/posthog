@@ -181,10 +181,10 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     },
     actionToUrl: ({ values }) => ({
         setProperties: () => {
-            return ['/insights', values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
         },
         setFilter: () => {
-            return ['/insights', values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
         },
     }),
     urlToAction: ({ actions, values, key }) => ({

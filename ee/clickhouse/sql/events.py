@@ -191,7 +191,7 @@ SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seco
 """
 
 EVENT_JOIN_PERSON_SQL = """
-INNER JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) as pid ON events.distinct_id = pid.distinct_id
+INNER JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) as pdi ON events.distinct_id = pdi.distinct_id
 """.format(
     latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
 )

@@ -1,12 +1,13 @@
 import json
 from datetime import timedelta
 
-from django.test.utils import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.constants import RDBMS
 from posthog.ee import is_clickhouse_enabled
+from posthog.models.cohort import Cohort
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
 from posthog.models.filters import Filter
@@ -17,6 +18,8 @@ from posthog.test.base import APIBaseTest
 
 def insight_test_factory(event_factory, person_factory):
     class TestInsight(APIBaseTest):
+        maxDiff = None
+
         CLASS_DATA_LEVEL_SETUP = False
 
         def test_get_insight_items(self):
@@ -143,15 +146,52 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
 
         def test_nonexistent_cohort_is_handled(self):
-            with self.settings(DEBUG=1):
-                response_nonexistent_property = self.client.get(
-                    f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'property','key':'foo','value':'barabarab'}])}"
-                ).json()
-                response_nonexistent_cohort = self.client.get(
-                    f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
-                ).json()  # This should not throw an error, just act like there's no event matches
+            response_nonexistent_property = self.client.get(
+                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'property','key':'foo','value':'barabarab'}])}"
+            ).json()
+            response_nonexistent_cohort = self.client.get(
+                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
+            ).json()  # This should not throw an error, just act like there's no event matches
 
             self.assertEqual(response_nonexistent_cohort, response_nonexistent_property)  # Both cases just empty
+
+        def test_cohort_without_match_group_works(self):
+            whatever_cohort_without_match_groups = Cohort.objects.create(team=self.team)
+
+            response_nonexistent_property = self.client.get(
+                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'property','key':'foo','value':'barabarab'}])}"
+            )
+            response_cohort_without_match_groups = self.client.get(
+                f"/api/insight/trend/?events={json.dumps([{'id':'$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':whatever_cohort_without_match_groups.pk}])}"
+            )  # This should not throw an error, just act like there's no event matches
+
+            self.assertEqual(response_nonexistent_property.status_code, 200)
+            self.assertEqual(
+                response_nonexistent_property.json(), response_cohort_without_match_groups.json()
+            )  # Both cases just empty
+
+        def test_precalculated_cohort_works(self):
+            person_factory(team=self.team, distinct_ids=["person_1"], properties={"foo": "bar"})
+
+            whatever_cohort: Cohort = Cohort.objects.create(
+                id=113,
+                team=self.team,
+                groups=[{"properties": [{"type": "person", "key": "foo", "value": "bar", "operator": "exact"}]}],
+                last_calculation=timezone.now(),
+            )
+            whatever_cohort.calculate_people()
+            whatever_cohort.calculate_people_ch()
+
+            with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
+                response_user_property = self.client.get(
+                    f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'person','key':'foo','value':'bar'}])}"
+                )
+                response_precalculated_cohort = self.client.get(
+                    f"/api/insight/trend/?events={json.dumps([{'id':'$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':113}])}"
+                )
+
+            self.assertEqual(response_precalculated_cohort.status_code, 200)
+            self.assertEqual(response_precalculated_cohort.json(), response_user_property.json())
 
         def test_insight_trends_breakdown_pagination(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):
