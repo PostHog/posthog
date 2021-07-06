@@ -240,3 +240,8 @@ export enum Environments {
     PRODUCTION = 'production',
     TEST = 'test',
 }
+
+export enum FunnelBarLayout {
+    horizontal = 'horizontal',
+    vertical = 'vertical',
+}
