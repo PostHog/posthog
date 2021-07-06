@@ -16,19 +16,23 @@ jobs:
               with:
                   node-version: 14
             - uses: actions/cache@v2
-              id: cypress-cache-670
+              id: cypress-cache-67
               with:
                   path: |
                       **/node_modules
-                  key: ${{ runner.os }}-cypress-cache-670
+                      ~/.cache/Cypress
+                  key: ${{ runner.os }}-cypress-cache-67
                   restore-keys: |
-                      ${{ runner.os }}-cypress-cache-670
+                      ${{ runner.os }}-cypress-cache-67
             - name: Install cypress
-              if: steps.cypress-cache-670.outputs.cache-hit != 'true'
+              if: steps.cypress-cache-67.outputs.cache-hit != 'true'
               run: |
+                  mv package.json package.json.bak
+                  mv yarn.lock yarn.lock.bak
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
-            - name: Show contents of node_modules
-              run: ls -lhr node_modules
+                  mv package.json.bak package.json
+                  mv yarn.lock.bak yarn.lock
+                  mv node_modules node_modules_cypress
             - uses: actions/cache@v2
               id: cypress-node-modules-cache-2
               with:
@@ -41,8 +45,6 @@ jobs:
               if: steps.cypress-node-modules-cache-2.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
-            - name: Show contents of node_modules
-              run: ls -lhr node_modules
             - uses: actions/cache@v1
               name: Setup Yarn build cache
               id: yarn-build-cache
@@ -57,6 +59,9 @@ jobs:
                   GENERATE_SOURCEMAP: 'false'
               run: |
                   yarn build
+            - name: Copy cypress files
+              run: |
+                  mv node_modules_cypress/* node_modules || true;
 
             - name: Cypress run
               uses: cypress-io/github-action@v2
