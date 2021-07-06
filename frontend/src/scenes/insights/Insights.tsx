@@ -36,6 +36,9 @@ import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PersonModal } from 'scenes/trends/PersonModal'
+import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -64,6 +67,11 @@ export function Insights(): JSX.Element {
     } = useValues(insightLogic)
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
+    const { showingPeople } = useValues(trendsLogic())
+    const { refreshCohort, saveCohortWithFilters } = useActions(trendsLogic())
+    const { funnelPersonsEnabled } = useValues(funnelLogic)
+    const { cohortModalVisible } = useValues(personsModalLogic)
+    const { setCohortModalVisible } = useActions(personsModalLogic)
 
     const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
@@ -100,6 +108,22 @@ export function Insights(): JSX.Element {
 
     return (
         <div className="insights-page">
+            <PersonModal
+                visible={showingPeople && !cohortModalVisible}
+                view={ViewType.FUNNELS}
+                onSaveCohort={() => {
+                    refreshCohort()
+                    setCohortModalVisible(true)
+                }}
+            />
+            <SaveCohortModal
+                visible={cohortModalVisible}
+                onOk={(title: string) => {
+                    saveCohortWithFilters(title)
+                    setCohortModalVisible(false)
+                }}
+                onCancel={() => setCohortModalVisible(false)}
+            />
             <PageHeader title="Insights" />
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
@@ -349,7 +373,8 @@ export function Insights(): JSX.Element {
                                     </div>
                                 </div>
                             </Card>
-                            {!showErrorMessage &&
+                            {!funnelPersonsEnabled &&
+                                !showErrorMessage &&
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && (

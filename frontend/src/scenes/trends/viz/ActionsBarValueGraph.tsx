@@ -83,8 +83,8 @@ export function ActionsBarValueGraph({
                               const { dataset } = point
                               const action = dataset.actions[point.index]
                               const label = dataset.labels[point.index]
-                              const date_from = filtersParam?.date_from
-                              const date_to = filtersParam?.date_to
+                              const date_from = filtersParam?.date_from || ''
+                              const date_to = filtersParam?.date_to || ''
                               const breakdownValue = dataset.breakdownValues[point.index]
                                   ? dataset.breakdownValues[point.index]
                                   : null
