@@ -61,7 +61,7 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
                 serialized_result.update({"average_conversion_time": None})
 
             if with_breakdown:
-                serialized_result.update({"breakdown": result[-1][1:-1]})  # strip quotes
+                serialized_result.update({"breakdown": result[len(result) - 1][1:-1]})  # strip quotes
 
             steps.append(serialized_result)
 
