@@ -1,9 +1,9 @@
 import React, { useEffect, useRef } from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
 import { decodeParams } from 'kea-router'
-import { Button, Spin, Space, Tooltip, Badge, Switch, Row, Radio } from 'antd'
+import { Button, Spin, Space, Tooltip, Badge, Switch, Row } from 'antd'
 import { Link } from 'lib/components/Link'
-import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+import { ExpandState, sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
 import { SessionDetails } from './SessionDetails'
 import dayjs from 'dayjs'
@@ -30,7 +30,7 @@ import generatePicker from 'antd/es/date-picker/generatePicker'
 import { ResizableTable, ResizableColumnType, ANTD_EXPAND_BUTTON_WIDTH } from 'lib/components/ResizableTable'
 import { teamLogic } from 'scenes/teamLogic'
 import { IconEventsShort } from 'lib/components/icons'
-import ExpandIcon from 'lib/components/ExpandIcon'
+import { ExpandIcon } from 'lib/components/ExpandIcon'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -75,6 +75,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         expandedRowKeysProps,
         showOnlyMatches,
         filters,
+        rowExpandState,
     } = useValues(logic)
     const {
         fetchNextSessions,
@@ -82,8 +83,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         nextDay,
         setFilters,
         applyFilters,
-        expandSessionRows,
-        collapseSessionRows,
+        toggleExpandSessionRows,
         onExpandedRowsChange,
         setShowOnlyMatches,
     } = useActions(logic)
@@ -226,30 +226,27 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             <div className="sessions-view-actions">
                 <div className="sessions-view-actions-left-items">
                     <Row className="action">
-                        <Radio.Group>
-                            {featureFlags[FEATURE_FLAGS.SESSIONS_TABLE] && (
-                                <Radio.Button value="expand" onClick={expandSessionRows}>
-                                    Expand all
-                                </Radio.Button>
-                            )}
-                            <Radio.Button value="collapse" onClick={collapseSessionRows}>
-                                Collapse all
-                            </Radio.Button>
-                        </Radio.Group>
+                        {featureFlags[FEATURE_FLAGS.SESSIONS_TABLE] && (
+                            <Button data-attr="sessions-expand-collapse" onClick={toggleExpandSessionRows}>
+                                {rowExpandState === ExpandState.Expanded ? 'Collapse' : 'Expand'} all
+                            </Button>
+                        )}
                     </Row>
-                    <Row className="action ml-05">
-                        <Switch
-                            // @ts-expect-error `id` prop is valid on switch
-                            id="show-only-matches"
-                            onChange={setShowOnlyMatches}
-                            checked={showOnlyMatches}
-                            size="small"
-                            disabled={filteredSessions.length === 0 || filters.length === 0}
-                        />
-                        <label className="ml-025" htmlFor="show-only-matches">
-                            Show only matches
-                        </label>
-                    </Row>
+                    {filters.length > 0 && (
+                        <Row className="action ml-05">
+                            <Switch
+                                // @ts-expect-error `id` prop is valid on switch
+                                id="show-only-matches"
+                                onChange={setShowOnlyMatches}
+                                checked={showOnlyMatches}
+                                //size="small"
+                                disabled={filteredSessions.length === 0}
+                            />
+                            <label className="ml-025" htmlFor="show-only-matches">
+                                <b>Show only event matches</b>
+                            </label>
+                        </Row>
+                    )}
                 </div>
                 <div className="sessions-view-actions-right-items">
                     <Tooltip title={playAllCTA}>

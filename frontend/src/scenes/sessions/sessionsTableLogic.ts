@@ -10,10 +10,9 @@ import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLog
 
 type SessionRecordingId = string
 
-enum ExpandState {
+export enum ExpandState {
     Expanded,
     Collapsed,
-    Uncontrolled, // expand state is controlled by antd <Table/>
 }
 
 interface Params {
@@ -69,8 +68,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         loadSessionEvents: (session: SessionType) => ({ session }),
         addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
         setLastAppliedFilters: (filters: SessionsPropertyFilter[]) => ({ filters }),
-        expandSessionRows: true,
-        collapseSessionRows: true,
+        toggleExpandSessionRows: true,
         onExpandedRowsChange: true,
         setShowOnlyMatches: (showOnlyMatches: boolean) => ({ showOnlyMatches }),
     }),
@@ -119,9 +117,15 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         rowExpandState: [
             ExpandState.Collapsed,
             {
-                onExpandedRowsChange: () => ExpandState.Uncontrolled,
-                expandSessionRows: () => ExpandState.Expanded,
-                collapseSessionRows: () => ExpandState.Collapsed,
+                toggleExpandSessionRows: (state) =>
+                    state === ExpandState.Expanded ? ExpandState.Collapsed : ExpandState.Expanded,
+            },
+        ],
+        manualRowExpansion: [
+            true,
+            {
+                onExpandedRowsChange: () => true,
+                toggleExpandSessionRows: () => false,
             },
         ],
         showOnlyMatches: [
@@ -186,15 +190,20 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 ),
         ],
         expandedRowKeysProps: [
-            (selectors) => [selectors.sessions, selectors.rowExpandState],
-            (sessions: SessionType[], rowExpandState: ExpandState): { expandedRowKeys?: string[] } => {
-                switch (rowExpandState) {
-                    case ExpandState.Collapsed:
-                        return { expandedRowKeys: [] }
-                    case ExpandState.Expanded:
-                        return { expandedRowKeys: sessions.map((s) => s.global_session_id) || [] }
-                    case ExpandState.Uncontrolled:
-                        return {}
+            (selectors) => [selectors.sessions, selectors.rowExpandState, selectors.manualRowExpansion],
+            (
+                sessions,
+                rowExpandState,
+                manualRowExpansion
+            ): {
+                expandedRowKeys?: string[]
+            } => {
+                if (manualRowExpansion) {
+                    return {}
+                } else if (rowExpandState === ExpandState.Collapsed) {
+                    return { expandedRowKeys: [] }
+                } else {
+                    return { expandedRowKeys: sessions.map((s) => s.global_session_id) || [] }
                 }
             },
         ],
