@@ -13,7 +13,14 @@ interface ExpandIconProps {
     children?: JSX.Element
 }
 
-function ExpandIcon({ prefixCls, onExpand, record, expanded, expandable, children }: ExpandIconProps): JSX.Element {
+export function ExpandIcon({
+    prefixCls,
+    onExpand,
+    record,
+    expanded,
+    expandable,
+    children,
+}: ExpandIconProps): JSX.Element {
     const iconPrefix = `${prefixCls}-row-expand-icon`
     return (
         <div
@@ -36,5 +43,3 @@ function ExpandIcon({ prefixCls, onExpand, record, expanded, expandable, childre
         </div>
     )
 }
-
-export default ExpandIcon
