@@ -946,10 +946,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/clickhouse/-/clickhouse-1.7.0.tgz#21fa1e8cfa0637b688f91964e0efeedbf4cf7a3c"
   integrity sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==
 
-"@posthog/piscina@^2.2.0-posthog":
-  version "2.2.0-posthog"
-  resolved "https://registry.yarnpkg.com/@posthog/piscina/-/piscina-2.2.0-posthog.tgz#de92f7809258ca98e0c6c101c14e808df3a07bcb"
-  integrity sha512-M4yfSogzAplo0ZN/i2B3jHeEjIEUVOo0Mcc0wikvlCSGP5h/AtTaYja+p2FfmrP4jjMeTksEfVAh/Nt2fEcKSg==
+"@posthog/piscina@^3.2.0-posthog":
+  version "3.2.0-posthog"
+  resolved "https://registry.yarnpkg.com/@posthog/piscina/-/piscina-3.2.0-posthog.tgz#d1f114be2ccc2a737066e48a3398191369f7f630"
+  integrity sha512-l/umooZNU/D0EswG52u2qR5EeGZMeYIHLJyfNB1pCD8wZRb/UzvhZ7SE1GEm56Iz/8maGBeJDRU5DBPRm1zRbQ==
   dependencies:
     eventemitter-asyncresource "^1.0.0"
     hdr-histogram-js "^2.0.1"
@@ -967,10 +967,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.10.0.tgz#e80f57c5d3833753632607bed3ca71ebf272b12b"
   integrity sha512-c8lNzQTBMJ0X3SCjcaD+mXZIx2thc+ptf8G4gbfT9YBFFD6TMaxs+/APMUab2aRJRbVwOsCGj9poxwuF4wxPpA==
 
-"@posthog/plugin-server@1.0.1":
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.0.1.tgz#b8d744dee5bf8d64073c77cb5dbe6fb29f580972"
-  integrity sha512-IFWYv5Z1uEXZPrXwozRv6v9GGOcTWEDT34tpCO43pnty8eoNhlLJIY8sbV5zSfp7eNGIgaCFoR7VVTaOSFedEA==
+"@posthog/plugin-server@1.0.2":
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.0.2.tgz#a5d726e9cc78a5f4d3800edacb50e934d2ead9b7"
+  integrity sha512-KJt3vDV6wj8yrTQs+iLhQ3IuQO2PTiupnVhDVkPztdXeZUJk1Ll5GjFPlCqZL0IxVM3U327amHHFf4RIgCr4/A==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
@@ -979,7 +979,7 @@
     "@google-cloud/bigquery" "^5.6.0"
     "@maxmind/geoip2-node" "^3.0.0"
     "@posthog/clickhouse" "^1.7.0"
-    "@posthog/piscina" "^2.2.0-posthog"
+    "@posthog/piscina" "^3.2.0-posthog"
     "@posthog/plugin-contrib" "^0.0.5"
     "@posthog/plugin-scaffold" "0.10.0"
     "@sentry/node" "^6.7.0"
