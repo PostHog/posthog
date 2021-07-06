@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PersonModal } from './PersonModal'
 import {
@@ -16,15 +16,13 @@ import { trendsLogic } from './trendsLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
-import { personsModalLogic } from './personsModalLogic'
 
 interface Props {
     view: ViewType
 }
 
 export function TrendInsight({ view }: Props): JSX.Element {
-    const { cohortModalVisible } = useValues(personsModalLogic)
-    const { setCohortModalVisible } = useActions(personsModalLogic)
+    const [cohortModalVisible, setCohortModalVisible] = useState(false)
     const {
         filters: _filters,
         showingPeople,
