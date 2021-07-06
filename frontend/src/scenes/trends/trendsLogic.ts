@@ -22,6 +22,7 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cleanFunnelParams, funnelLogic } from 'scenes/funnels/funnelLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 interface TrendResponse {
     result: TrendResult[]
     next?: string
@@ -152,7 +153,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
     },
 
     connect: {
-        values: [actionsModel, ['actions']],
+        values: [actionsModel, ['actions'], preflightLogic, ['preflight']],
     },
 
     loaders: ({ values, props }) => ({
@@ -458,18 +459,25 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             breakpoint
         ) => {
             let people = []
-            const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
+            const searchTermParam =
+                searchTerm && !values.preflight?.is_clickhouse_enabled
+                    ? `&search=${encodeURIComponent(searchTerm)}`
+                    : ''
+            const properties =
+                searchTerm && values.preflight?.is_clickhouse_enabled
+                    ? ([{ key: 'email', value: searchTerm, operator: 'icontains', type: 'person' }] as PropertyFilter[])
+                    : []
             if (values.filters.insight === ViewType.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
                     { label, action, target_date: date_from, lifecycle_type: breakdown_value },
-                    values.filters
+                    { ...values.filters, properties }
                 )
                 actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
                 people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
             } else if (values.filters.insight === ViewType.STICKINESS) {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
-                    values.filters
+                    { ...values.filters, properties }
                 )
                 actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
                 people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
@@ -481,7 +489,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             } else {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },
-                    values.filters
+                    { ...values.filters, properties }
                 )
                 actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
                 people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)

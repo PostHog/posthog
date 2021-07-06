@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from posthog.queries.base import filter_persons
 from typing import Any, Callable, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
@@ -178,5 +177,5 @@ class ClickhouseLifecycle(LifecycleTrend):
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
         from posthog.api.person import PersonSerializer
-        people = filter_persons(team_id, request, people)
+
         return PersonSerializer(people, many=True).data
