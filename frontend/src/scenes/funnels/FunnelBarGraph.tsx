@@ -76,9 +76,9 @@ function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal
 
     return (
         <div className="funnel-bar-wrapper">
-            <div 
-                ref={barRef} 
-                className="funnel-bar" 
+            <div
+                ref={barRef}
+                className="funnel-bar"
                 style={{ [dimensionProperty]: `${percentage}%`, cursor: cursorType }}
                 onClick={() => {
                     if (funnelPersonsEnabled && onBarClick) {
@@ -194,7 +194,7 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                             name={step.name}
                             onBarClick={() => openPersonsModal(step, i + 1)}
                             layout={layout}
-                        />  
+                        />
                         <footer>
                             <div className="funnel-step-metadata">
                                 <ValueInspectorButton
@@ -209,7 +209,7 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                         <ValueInspectorButton
                                             icon={<ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />}
                                             onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
-                                            disabled={!funnelPersonsEnabled}        
+                                            disabled={!funnelPersonsEnabled}
                                             style={{ paddingRight: '0.25em' }}
                                         >
                                             {steps[i - 1].count - step.count} dropped off
