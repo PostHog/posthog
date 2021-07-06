@@ -20,7 +20,7 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
         return f"""
         SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
                 {steps_per_person_query}
-        ) {f'GROUP BY {breakdown_clause}' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
+        ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
 
     def get_step_counts_query(self):
@@ -61,7 +61,7 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
                 serialized_result.update({"average_conversion_time": None})
 
             if with_breakdown:
-                serialized_result.update({"breakdown": result[len(result) - 1][1:-1]})  # strip quotes
+                serialized_result.update({"breakdown": result[-1][1:-1]})  # strip quotes
 
             steps.append(serialized_result)
 
