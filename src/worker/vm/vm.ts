@@ -2,12 +2,13 @@ import { RetryError } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import { VM } from 'vm2'
 
-import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
+import { Hub, PluginConfig, PluginConfigVMResponse, PluginMetricsVmResponse } from '../../types'
 import { createCache } from './extensions/cache'
 import { createConsole } from './extensions/console'
 import { createGeoIp } from './extensions/geoip'
 import { createGoogle } from './extensions/google'
 import { createJobs } from './extensions/jobs'
+import { createMetrics, setupMetrics } from './extensions/metrics'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
 import { imports } from './imports'
@@ -81,6 +82,7 @@ export async function createPluginConfigVM(
             storage: createStorage(hub, pluginConfig),
             geoip: createGeoIp(hub),
             jobs: createJobs(hub, pluginConfig),
+            metrics: createMetrics(hub, pluginConfig),
         },
         '__pluginHostMeta'
     )
@@ -171,6 +173,7 @@ export async function createPluginConfigVM(
                 schedule: {},
                 job: {},
             };
+            const __metrics = {}
 
             for (const exportDestination of exportDestinations.reverse()) {
                 // gather the runEveryX commands and export in __tasks
@@ -194,19 +197,36 @@ export async function createPluginConfigVM(
                         }
                     }
                 }
+
+                if (typeof exportDestination['metrics'] === 'object') {
+                    for (const [key, value] of Object.entries(exportDestination['metrics'])) {
+                        if (typeof value === 'string') {
+                            __metrics[key] = value.toLowerCase()
+                        }
+                    }
+                }
+
             }
 
-            ${responseVar} = { methods: __methods, tasks: __tasks, meta: __pluginMeta, }
+            ${responseVar} = { methods: __methods, tasks: __tasks, meta: __pluginMeta, metrics: __metrics, }
         })
     `)(asyncGuard)
 
-    upgradeExportEvents(hub, pluginConfig, vm.run(responseVar))
+    const vmResponse = vm.run(responseVar)
+    const { methods, tasks, metrics } = vmResponse
+    const exportEventsExists = !!methods.exportEvents
+
+    if (exportEventsExists) {
+        upgradeExportEvents(hub, pluginConfig, vmResponse)
+    }
+
+    setupMetrics(hub, pluginConfig, metrics, exportEventsExists)
 
     await vm.run(`${responseVar}.methods.setupPlugin?.()`)
 
     return {
         vm,
-        methods: vm.run(`${responseVar}.methods`),
-        tasks: vm.run(`${responseVar}.tasks`),
+        methods,
+        tasks,
     }
 }

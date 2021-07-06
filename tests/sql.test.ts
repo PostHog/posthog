@@ -6,6 +6,7 @@ import {
     getPluginConfigRows,
     getPluginRows,
     setError,
+    setPluginMetrics,
 } from '../src/utils/db/sql'
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
@@ -170,5 +171,30 @@ describe('disablePlugin', () => {
 
         const rowsAfter = await getPluginConfigRows(hub)
         expect(rowsAfter).toEqual([])
+    })
+})
+
+describe('setPluginMetrics', () => {
+    test('setPluginMetrics sets metrics correctly', async () => {
+        const pluginConfig39: PluginConfig = {
+            id: 39,
+            team_id: 2,
+            plugin_id: 60,
+            enabled: true,
+            order: 0,
+            config: {},
+            error: undefined,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        }
+
+        const rowsBefore = await getPluginRows(hub)
+        expect(rowsBefore[0].id).toEqual(60)
+        expect(rowsBefore[0].metrics).toEqual({})
+
+        await setPluginMetrics(hub, pluginConfig39, { metric1: 'sum' })
+
+        const rowsAfter = await getPluginRows(hub)
+        expect(rowsAfter[0].metrics).toEqual({ metric1: 'sum' })
     })
 })

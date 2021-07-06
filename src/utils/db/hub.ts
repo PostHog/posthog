@@ -6,6 +6,7 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { Kafka, logLevel } from 'kafkajs'
 import { DateTime } from 'luxon'
+import * as schedule from 'node-schedule'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
@@ -23,6 +24,7 @@ import { InternalMetrics } from '../internal-metrics'
 import { killProcess } from '../kill'
 import { status } from '../status'
 import { createPostgresPool, createRedis, logOrThrowJobQueueError, UUIDT } from '../utils'
+import { PluginMetricsManager } from './../plugin-metrics'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 
@@ -196,6 +198,8 @@ export async function createHub(
     if (serverConfig.CAPTURE_INTERNAL_METRICS) {
         hub.internalMetrics = new InternalMetrics(hub as Hub)
     }
+
+    hub.pluginMetricsManager = new PluginMetricsManager()
 
     try {
         await hub.jobQueueManager.connectProducer()

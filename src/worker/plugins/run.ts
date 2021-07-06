@@ -3,18 +3,11 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Hub, PluginConfig, PluginFunction, PluginTaskType, TeamId } from '../../types'
 import { processError } from '../../utils/db/error'
 import { statusReport } from '../../utils/status-report'
+import { IllegalOperationError } from '../../utils/utils'
 
 function captureTimeSpentRunning(teamId: TeamId, timer: Date, func: PluginFunction): void {
     const timeSpentRunning = new Date().getTime() - timer.getTime()
     statusReport.addToTimeSpentRunningPlugins(teamId, timeSpentRunning, func)
-}
-
-export class IllegalOperationError extends Error {
-    name = 'IllegalOperationError'
-
-    constructor(operation: string) {
-        super(operation)
-    }
 }
 
 export async function runOnEvent(server: Hub, event: PluginEvent): Promise<void> {

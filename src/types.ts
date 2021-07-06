@@ -6,12 +6,14 @@ import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { JobQueueManager } from 'main/job-queues/job-queue-manager'
+import { Job } from 'node-schedule'
 import { Pool } from 'pg'
 import { VM } from 'vm2'
 
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { InternalMetrics } from './utils/internal-metrics'
+import { PluginMetricsManager } from './utils/plugin-metrics'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
@@ -113,6 +115,8 @@ export interface Hub extends PluginsServerConfig {
     // metrics
     statsd?: StatsD
     internalMetrics?: InternalMetrics
+    pluginMetricsManager: PluginMetricsManager
+    pluginMetricsJob: Job | undefined
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
     pluginConfigs: Map<PluginConfigId, PluginConfig>
@@ -192,7 +196,15 @@ export type PluginId = Plugin['id']
 export type PluginConfigId = PluginConfig['id']
 export type TeamId = Team['id']
 
-export type MetricMathOperations = 'max' | 'min' | 'sum'
+export enum MetricMathOperations {
+    Increment = 'increment',
+    Max = 'max',
+    Min = 'min',
+}
+
+export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
+export type StoredPluginMetrics = Record<string, StoredMetricMathOperations> | null
+export type PluginMetricsVmResponse = Record<string, string> | null
 
 export interface Plugin {
     id: number
@@ -213,7 +225,7 @@ export interface Plugin {
     created_at: string
     updated_at: string
     capabilities?: PluginCapabilities
-    metrics?: Record<string, MetricMathOperations> | null
+    metrics?: StoredPluginMetrics
 }
 
 export interface PluginCapabilities {
