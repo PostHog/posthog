@@ -153,7 +153,7 @@ class TestCreateAction(APIBaseTest):
         )
 
         # test queries
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(5):
             self.client.get("/api/action/")
 
     def test_update_action_remove_all_steps(self, *args):

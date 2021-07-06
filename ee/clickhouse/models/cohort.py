@@ -43,7 +43,13 @@ def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
         )
 
     or_queries = []
-    for group_idx, group in enumerate(cohort.groups):
+    groups = cohort.groups
+
+    if not groups:
+        # No person can match a cohort that has no match groups
+        return "0 = 1", {}
+
+    for group_idx, group in enumerate(groups):
         if group.get("action_id") or group.get("event_id"):
             entity_query, entity_params = get_entity_cohort_subquery(cohort, group, group_idx)
             params = {**params, **entity_params}
@@ -172,8 +178,7 @@ def is_precalculated_query(cohort: Cohort) -> bool:
     if (
         cohort.last_calculation
         and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
-        and not settings.DEBUG
-        and not settings.TEST
+        and settings.USE_PRECALCULATED_CH_COHORT_PEOPLE
     ):
         return True
     else:
@@ -204,7 +209,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
     from ee.clickhouse.models.property import parse_prop_clauses
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
-    filter_query, filter_params = parse_prop_clauses(filters.properties, team.pk, table_name="pid")
+    filter_query, filter_params = parse_prop_clauses(filters.properties, team.pk, table_name="pdi")
 
     results = sync_execute(GET_PERSON_IDS_BY_FILTER.format(distinct_query=filter_query, query=""), filter_params,)
 

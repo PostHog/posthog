@@ -489,6 +489,7 @@ export interface PluginType {
     is_global: boolean
     organization_id: string
     organization_name: string
+    metrics?: Record<string, StoredMetricMathOperations>
 }
 
 export interface PluginConfigType {
@@ -883,3 +884,5 @@ export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus
 }
+
+export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

@@ -294,6 +294,7 @@ class TestPluginAPI(APIBaseTest):
                 "organization_id": response.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 "capabilities": {},
+                "metrics": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -328,6 +329,7 @@ class TestPluginAPI(APIBaseTest):
                 "organization_id": response.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 "capabilities": {},
+                "metrics": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -363,6 +365,7 @@ class TestPluginAPI(APIBaseTest):
                 "organization_id": response2.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 "capabilities": {},
+                "metrics": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -474,6 +477,7 @@ class TestPluginAPI(APIBaseTest):
                 "organization_id": response.json()["organization_id"],
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 "capabilities": {},
+                "metrics": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)

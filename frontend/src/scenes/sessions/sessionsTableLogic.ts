@@ -10,6 +10,11 @@ import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLog
 
 type SessionRecordingId = string
 
+export enum ExpandState {
+    Expanded,
+    Collapsed,
+}
+
 interface Params {
     date?: string
     properties?: any
@@ -63,7 +68,8 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         loadSessionEvents: (session: SessionType) => ({ session }),
         addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
         setLastAppliedFilters: (filters: SessionsPropertyFilter[]) => ({ filters }),
-        setExpandAllRows: (expandAllRows: boolean) => ({ expandAllRows }),
+        toggleExpandSessionRows: true,
+        onExpandedRowsChange: true,
         setShowOnlyMatches: (showOnlyMatches: boolean) => ({ showOnlyMatches }),
     }),
     reducers: {
@@ -108,10 +114,18 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 setLastAppliedFilters: (_, { filters }) => filters,
             },
         ],
-        expandAllRows: [
-            false,
+        rowExpandState: [
+            ExpandState.Collapsed,
             {
-                setExpandAllRows: (_, { expandAllRows }) => expandAllRows,
+                toggleExpandSessionRows: (state) =>
+                    state === ExpandState.Expanded ? ExpandState.Collapsed : ExpandState.Expanded,
+            },
+        ],
+        manualRowExpansion: [
+            true,
+            {
+                onExpandedRowsChange: () => true,
+                toggleExpandSessionRows: () => false,
             },
         ],
         showOnlyMatches: [
@@ -175,9 +189,23 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                     })
                 ),
         ],
-        expandedRowKeys: [
-            (selectors) => [selectors.sessions],
-            (sessions: SessionType[]): string[] => sessions?.map((s) => s.global_session_id) || [],
+        expandedRowKeysProps: [
+            (selectors) => [selectors.sessions, selectors.rowExpandState, selectors.manualRowExpansion],
+            (
+                sessions,
+                rowExpandState,
+                manualRowExpansion
+            ): {
+                expandedRowKeys?: string[]
+            } => {
+                if (manualRowExpansion) {
+                    return {}
+                } else if (rowExpandState === ExpandState.Collapsed) {
+                    return { expandedRowKeys: [] }
+                } else {
+                    return { expandedRowKeys: sessions.map((s) => s.global_session_id) || [] }
+                }
+            },
         ],
     },
     listeners: ({ values, actions, props }) => ({
@@ -233,7 +261,10 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         },
     }),
     actionToUrl: ({ values }) => {
-        const buildURL = (overrides: Partial<Params> = {}): [string, Params, Record<string, any>] => {
+        const buildURL = (
+            overrides: Partial<Params> = {},
+            replace = false
+        ): [string, Params, Record<string, any>, { replace: boolean }] => {
             const today = dayjs().startOf('day').format('YYYY-MM-DD')
 
             const { properties } = router.values.searchParams
@@ -246,12 +277,12 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 ...overrides,
             }
 
-            return [router.values.location.pathname, params, router.values.hashParams]
+            return [router.values.location.pathname, params, router.values.hashParams, { replace }]
         }
 
         return {
-            setFilters: () => buildURL(),
-            loadSessions: () => buildURL(),
+            setFilters: () => buildURL({}, true),
+            loadSessions: () => buildURL({}, true),
             setSessionRecordingId: () => buildURL(),
             closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
         }
