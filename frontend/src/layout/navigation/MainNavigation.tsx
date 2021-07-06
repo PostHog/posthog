@@ -9,7 +9,7 @@ import {
     PushpinFilled,
     PlusOutlined,
     SettingOutlined,
-    HomeOutlined,
+    InboxOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -261,7 +261,7 @@ export function MainNavigation(): JSX.Element {
                         />
                     )}
                     {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
-                        <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to="/home" />
+                        <MenuItem title="Overview" icon={<InboxOutlined />} identifier="home" to="/overview" />
                     )}
                     <MenuItem
                         title="Insights"
