@@ -69,7 +69,7 @@ export function Insights(): JSX.Element {
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(trendsLogic())
     const { refreshCohort, saveCohortWithFilters } = useActions(trendsLogic())
-    const { funnelPersonsEnabled, clickhouseEnabled } = useValues(funnelLogic)
+    const { funnelPersonsEnabled } = useValues(funnelLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
 
@@ -374,7 +374,6 @@ export function Insights(): JSX.Element {
                                 </div>
                             </Card>
                             {!funnelPersonsEnabled &&
-                                !clickhouseEnabled &&
                                 !showErrorMessage &&
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
