@@ -98,6 +98,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     CAPTURE_INTERNAL_METRICS: boolean
     PLUGIN_SERVER_ACTION_MATCHING: 0 | 1 | 2
     PISCINA_USE_ATOMICS: boolean
+    PISCINA_ATOMICS_TIMEOUT: number
 }
 
 export interface Hub extends PluginsServerConfig {

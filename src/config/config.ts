@@ -75,6 +75,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CAPTURE_INTERNAL_METRICS: false,
         PLUGIN_SERVER_ACTION_MATCHING: 2,
         PISCINA_USE_ATOMICS: true,
+        PISCINA_ATOMICS_TIMEOUT: 5000,
     }
 }
 
@@ -130,6 +131,8 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
             'whether plugin server action matching results should be used (transition period setting)',
         PISCINA_USE_ATOMICS:
             'corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)',
+        PISCINA_ATOMICS_TIMEOUT:
+            '(advanced) corresponds to the length of time a piscina worker should block for when looking for tasks',
     }
 }
 
