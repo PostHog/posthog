@@ -11,7 +11,6 @@ import { EntityTypes, FilterType, FunnelResult, FunnelStep, PathType, PersonType
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelBarLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
@@ -37,7 +36,7 @@ async function pollFunnel(params: Record<string, any>): Promise<FunnelResult> {
     return result
 }
 
-export const cleanFunnelParams = (filters: FilterType): FilterType => {
+const cleanFunnelParams = (filters: FilterType): FilterType => {
     return {
         ...filters,
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
@@ -48,7 +47,6 @@ export const cleanFunnelParams = (filters: FilterType): FilterType => {
         ...(filters.interval ? { interval: filters.interval } : {}),
         ...(filters.properties ? { properties: filters.properties } : {}),
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
-        ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
         interval: autocorrectInterval(filters),
         insight: ViewType.FUNNELS,
     }
@@ -74,7 +72,6 @@ export const funnelLogic = kea<funnelLogicType>({
         setStepsWithCountLoading: (stepsWithCountLoading: boolean) => ({ stepsWithCountLoading }),
         loadConversionWindow: (days: number) => ({ days }),
         setConversionWindowInDays: (days: number) => ({ days }),
-        openPersonsModal: (step: FunnelStep, stepNumber: number) => ({ step, stepNumber }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         setBarGraphLayout: (barGraphLayout: FunnelBarLayout) => ({ barGraphLayout }),
     }),
@@ -226,11 +223,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 return !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled)
             },
         ],
-        funnelPersonsEnabled: [
-            () => [featureFlagLogic.selectors.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL],
-        ],
-        clickhouseEnabled: [() => [selectors.preflight], (preflight) => preflight?.is_clickhouse_enabled],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -271,19 +263,6 @@ export const funnelLogic = kea<funnelLogicType>({
             await breakpoint(1000)
             actions.setConversionWindowInDays(days)
             actions.loadResults()
-        },
-        openPersonsModal: ({ step, stepNumber }) => {
-            trendsLogic().actions.setShowingPeople(true)
-            trendsLogic().actions.loadPeople(
-                { id: step.action_id, name: step.name, properties: [], type: step.type },
-                `Persons who completed Step #${stepNumber} - "${step.name}"`,
-                '',
-                '',
-                '',
-                true,
-                '',
-                stepNumber
-            )
         },
     }),
     actionToUrl: ({ values, props }) => ({

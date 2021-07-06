@@ -2,7 +2,6 @@ import { kea } from 'kea'
 
 import api from 'lib/api'
 import { autocorrectInterval, errorToast, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
-import { toParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
 import {
@@ -21,7 +20,7 @@ import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { cleanFunnelParams, funnelLogic } from 'scenes/funnels/funnelLogic'
+
 interface TrendResponse {
     result: TrendResult[]
     next?: string
@@ -33,12 +32,12 @@ export interface IndexedTrendResult extends TrendResult {
 
 export interface TrendPeople {
     people: PersonType[]
+    breakdown_value?: string
     count: number
-    day: string | number
+    day?: string | number
+    next?: string
     label: string
     action: ActionFilter | 'session'
-    breakdown_value?: string
-    next?: string
     loadingMore?: boolean
 }
 
@@ -199,12 +198,11 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         loadPeople: (
             action: ActionFilter | 'session', // todo, refactor this session string param out
             label: string,
-            date_from: string | number,
-            date_to: string | number,
+            date_from?: string | number,
+            date_to?: string | number,
             breakdown_value?: string,
             saveOriginal?: boolean,
-            searchTerm?: string,
-            funnelStep?: number
+            searchTerm?: string
         ) => ({
             action,
             label,
@@ -213,7 +211,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             breakdown_value,
             saveOriginal,
             searchTerm,
-            funnelStep,
         }),
         saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         loadMorePeople: true,
@@ -225,7 +222,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             count: number,
             action: ActionFilter | 'session',
             label: string,
-            day: string | number,
+            day?: string | number,
             breakdown_value?: string,
             next?: string
         ) => ({
@@ -249,7 +246,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             count: number,
             action: ActionFilter | 'session',
             label: string,
-            day: string | number,
+            day?: string | number,
             breakdown_value?: string,
             next?: string
         ) => ({
@@ -454,11 +451,12 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             }
         },
         loadPeople: async (
-            { label, action, date_from, date_to, breakdown_value, saveOriginal, searchTerm, funnelStep },
+            { label, action, date_from, date_to, breakdown_value, saveOriginal, searchTerm },
             breakpoint
         ) => {
             let people = []
             const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
+
             if (values.filters.insight === ViewType.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
                     { label, action, target_date: date_from, lifecycle_type: breakdown_value },
@@ -473,11 +471,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 )
                 actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
                 people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
-            } else if (funnelStep) {
-                const params = { ...funnelLogic().values.filters, funnel_step: funnelStep }
-                const cleanedParams = cleanFunnelParams(params)
-                const funnelParams = toParams(cleanedParams)
-                people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
             } else {
                 const filterParams = parsePeopleParams(
                     { label, action, date_from, date_to, breakdown_value },

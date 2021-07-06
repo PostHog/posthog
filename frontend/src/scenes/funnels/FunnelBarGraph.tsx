@@ -8,9 +8,9 @@ import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { ArrowBottomRightOutlined } from 'lib/components/icons'
 import { funnelLogic } from './funnelLogic'
+import { useValues } from 'kea'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
-import { useActions, useValues } from 'kea'
 import { FunnelBarLayout } from 'lib/constants'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 
@@ -30,20 +30,17 @@ interface FunnelBarGraphProps {
 interface BarProps {
     percentage: number
     name?: string
-    onBarClick?: () => void
     layout?: FunnelBarLayout
 }
 
 type LabelPosition = 'inside' | 'outside'
 
-function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal }: BarProps): JSX.Element {
+function Bar({ percentage, name, layout = FunnelBarLayout.horizontal }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
-    const { funnelPersonsEnabled } = useValues(funnelLogic)
     const dimensionProperty = layout === FunnelBarLayout.horizontal ? 'width' : 'height'
-    const cursorType = funnelPersonsEnabled ? 'pointer' : ''
 
     function decideLabelPosition(): void {
         // Place label inside or outside bar, based on whether it fits
@@ -76,16 +73,7 @@ function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal
 
     return (
         <div className="funnel-bar-wrapper">
-            <div
-                ref={barRef}
-                className="funnel-bar"
-                style={{ [dimensionProperty]: `${percentage}%`, cursor: cursorType }}
-                onClick={() => {
-                    if (funnelPersonsEnabled && onBarClick) {
-                        onBarClick()
-                    }
-                }}
-            >
+            <div ref={barRef} className="funnel-bar" style={{ [dimensionProperty]: `${percentage}%` }}>
                 <div
                     ref={labelRef}
                     className={`funnel-bar-percentage ${labelPosition}`}
@@ -150,8 +138,7 @@ function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepReferenc
 }
 
 export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
-    const { stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(funnelLogic)
-    const { openPersonsModal } = useActions(funnelLogic)
+    const { stepReference, barGraphLayout: layout } = useValues(funnelLogic)
     const steps = [...stepsParam].sort((a, b) => a.order - b.order)
 
     return (
@@ -178,8 +165,8 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                     <div>
                                         <span className="text-muted">Average time:</span>
                                         <ValueInspectorButton
-                                            style={{ paddingLeft: 4, paddingRight: 0 }}
                                             onClick={() => {}}
+                                            style={{ paddingLeft: 4, paddingRight: 0 }}
                                             disabled
                                             title="Average time elapsed between completing this step and starting the next one."
                                         >
@@ -192,15 +179,14 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                         <Bar
                             percentage={calcPercentage(step.count, basisStep.count)}
                             name={step.name}
-                            onBarClick={() => openPersonsModal(step, i + 1)}
                             layout={layout}
                         />
                         <footer>
                             <div className="funnel-step-metadata">
                                 <ValueInspectorButton
                                     icon={<ArrowRightOutlined style={{ color: 'var(--success)' }} />}
-                                    onClick={() => openPersonsModal(step, i + 1)}
-                                    disabled={!funnelPersonsEnabled}
+                                    onClick={() => {}}
+                                    disabled
                                 >
                                     {step.count} completed
                                 </ValueInspectorButton>
@@ -208,8 +194,8 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                     <span>
                                         <ValueInspectorButton
                                             icon={<ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />}
-                                            onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
-                                            disabled={!funnelPersonsEnabled}
+                                            onClick={() => {}}
+                                            disabled
                                             style={{ paddingRight: '0.25em' }}
                                         >
                                             {steps[i - 1].count - step.count} dropped off
