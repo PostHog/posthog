@@ -398,9 +398,9 @@ export function humanFriendlyDuration(d: string | number, maxUnits?: number): st
 
     let units: string[] = []
     if (days > 0) {
-        units = [dayDisplay, hDisplay]
+        units = [dayDisplay, hDisplay].filter(Boolean)
     } else {
-        units = [hDisplay, mDisplay, sDisplay]
+        units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
     }
     return units.slice(0, maxUnits).join('')
 }
