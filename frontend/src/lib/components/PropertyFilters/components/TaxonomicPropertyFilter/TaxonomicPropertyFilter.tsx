@@ -15,6 +15,8 @@ import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilt
 import { taxonomicPropertyFilterLogic } from 'lib/components/PropertyFilters/taxonomicPropertyFilterLogic'
 
 import './TaxonomicPropertyFilter.scss'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { cohortsModel } from '~/models/cohortsModel'
 
 export enum DisplayMode {
     PROPERTY_SELECT,
@@ -32,8 +34,35 @@ export function TaxonomicPropertyFilter({
     const initialDisplayMode =
         key && type !== 'cohort' ? DisplayMode.OPERATOR_VALUE_SELECT : DisplayMode.PROPERTY_SELECT
     const filterKey = `${pageKey}-${index}`
-    const logic = taxonomicPropertyFilterLogic({ key: filterKey, initialDisplayMode })
-    const { personProperties, cohorts, searchQuery, displayMode } = useValues(logic)
+    const groups = [
+        {
+            key: 'events',
+            name: 'Event properties',
+            type: 'event',
+            endpoint: 'api/projects/@current/property_definitions',
+        },
+        {
+            key: 'persons',
+            name: 'Person properties',
+            type: 'person',
+            dataSource: personPropertiesModel.values.personProperties.map((property) => ({
+                ...property,
+                key: property.name,
+            })),
+        },
+        {
+            key: 'cohorts',
+            name: 'Cohort',
+            type: 'cohort',
+            dataSource: cohortsModel.values.cohorts.map((cohort) => ({
+                ...cohort,
+                key: cohort.id,
+                name: cohort.name || '',
+            })),
+        },
+    ]
+    const logic = taxonomicPropertyFilterLogic({ key: filterKey, initialDisplayMode, groups })
+    const { searchQuery, displayMode } = useValues(logic)
     const { setSearchQuery, setSelectedItemKey, setDisplayMode } = useActions(logic)
 
     return (
@@ -48,26 +77,7 @@ export function TaxonomicPropertyFilter({
                     />
                     <InfiniteSelectResults
                         filterKey={filterKey}
-                        groups={[
-                            {
-                                key: 'events',
-                                name: 'Event properties',
-                                type: 'event',
-                                endpoint: 'api/projects/@current/property_definitions',
-                            },
-                            {
-                                key: 'persons',
-                                name: 'Person properties',
-                                type: 'person',
-                                dataSource: personProperties,
-                            },
-                            {
-                                key: 'cohorts',
-                                name: 'Cohort',
-                                type: 'cohort',
-                                dataSource: cohorts,
-                            },
-                        ]}
+                        groups={groups}
                         onSelect={(newType, newKey, name) => {
                             const newOperator = name === '$active_feature_flags' ? PropertyOperator.IContains : operator
                             setSelectedItemKey(newKey)

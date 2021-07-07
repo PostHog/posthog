@@ -1,5 +1,5 @@
 import React from 'react'
-import { Tabs } from 'antd'
+import { Tabs, Tag } from 'antd'
 import { SelectedItem } from 'lib/components/SelectBox'
 import { InfiniteList } from './InfiniteList'
 import { StaticVirtualizedList } from './StaticVirtualizedList'
@@ -27,7 +27,7 @@ export interface InfiniteSelectResultsProps {
 
 export function InfiniteSelectResults({ filterKey, groups, onSelect }: InfiniteSelectResultsProps): JSX.Element {
     const filterLogic = taxonomicPropertyFilterLogic({ key: filterKey })
-    const { activeTabKey, searchQuery, selectedItemKey } = useValues(filterLogic)
+    const { activeTabKey, searchQuery, selectedItemKey, groupMetadata } = useValues(filterLogic)
     const { setActiveTabKey } = useActions(filterLogic)
     const handleSelect = (type: string, key: string | number, name: string): void => {
         onSelect(type, key, name)
@@ -40,29 +40,37 @@ export function InfiniteSelectResults({ filterKey, groups, onSelect }: InfiniteS
             tabPosition="top"
             animated={false}
         >
-            {groups.map(({ key, name, type, endpoint, dataSource }) => (
-                <Tabs.TabPane tab={name} key={key} active={activeTabKey === key}>
-                    {endpoint && !dataSource ? (
-                        <InfiniteList
-                            filterKey={filterKey}
-                            tabKey={key}
-                            type={type}
-                            endpoint={endpoint}
-                            searchQuery={searchQuery}
-                            onSelect={handleSelect}
-                            selectedItemKey={selectedItemKey}
-                        />
-                    ) : (
-                        <StaticVirtualizedList
-                            type={type}
-                            dataSource={dataSource || []}
-                            searchQuery={searchQuery}
-                            onSelect={handleSelect}
-                            selectedItemKey={selectedItemKey}
-                        />
-                    )}
-                </Tabs.TabPane>
-            ))}
+            {groups.map(({ key, type, endpoint, dataSource }) => {
+                const { name, count, active } = groupMetadata[key] || {}
+                const title = (
+                    <>
+                        {name} {count != null && <Tag>{count}</Tag>}
+                    </>
+                )
+                return (
+                    <Tabs.TabPane tab={title} key={key} active={active}>
+                        {endpoint && !dataSource ? (
+                            <InfiniteList
+                                filterKey={filterKey}
+                                tabKey={key}
+                                type={type}
+                                endpoint={endpoint}
+                                searchQuery={searchQuery}
+                                onSelect={handleSelect}
+                                selectedItemKey={selectedItemKey}
+                            />
+                        ) : (
+                            <StaticVirtualizedList
+                                type={type}
+                                dataSource={dataSource || []}
+                                searchQuery={searchQuery}
+                                onSelect={handleSelect}
+                                selectedItemKey={selectedItemKey}
+                            />
+                        )}
+                    </Tabs.TabPane>
+                )
+            })}
         </Tabs>
     )
 }

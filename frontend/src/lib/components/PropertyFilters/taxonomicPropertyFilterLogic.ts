@@ -1,15 +1,23 @@
 import { kea } from 'kea'
 import { AnyPropertyFilter } from '~/types'
 import { DisplayMode } from './components/TaxonomicPropertyFilter/TaxonomicPropertyFilter'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
-import { cohortsModel } from '~/models/cohortsModel'
 import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
+import { SelectResultGroup } from './components/TaxonomicPropertyFilter/InfiniteSelectResults'
 
-export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
+type GroupMetadataEntry = {
+    name: string
+    active?: boolean
+    count: number | null
+}
+
+type GroupMetadata = Record<string, GroupMetadataEntry>
+
+export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType<GroupMetadata>>({
     props: {} as {
         key: string
         onChange?: null | ((filters: AnyPropertyFilter[]) => void)
         initialDisplayMode?: DisplayMode
+        groups?: SelectResultGroup[]
     },
     key: (props) => props.key,
 
@@ -20,6 +28,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         setDisplayMode: (displayMode: DisplayMode) => ({
             displayMode,
         }),
+        setGroupMetadata: (groupMetadata: GroupMetadata) => ({ groupMetadata }),
+        setGroupMetadataEntry: (key: string, groupMetadataEntry: any) => ({ key, groupMetadataEntry }),
         setActiveTabKey: (activeTabKey: string) => ({ activeTabKey }),
     }),
 
@@ -42,6 +52,16 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 setDisplayMode: (_, { displayMode }) => displayMode,
             },
         ],
+        groupMetadata: [
+            {} as GroupMetadata,
+            {
+                setGroupMetadata: (_, { groupMetadata }) => groupMetadata,
+                setGroupMetadataEntry: (state, { key, groupMetadataEntry }) => ({
+                    ...state,
+                    [key]: groupMetadataEntry,
+                }),
+            },
+        ],
         activeTabKey: [
             null as string | null,
             {
@@ -50,25 +70,16 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
     }),
 
-    selectors: {
-        personProperties: [
-            () => [],
-            () => {
-                return personPropertiesModel.values.personProperties.map((property) => ({
-                    ...property,
-                    key: property.name,
-                }))
-            },
-        ],
-        cohorts: [
-            () => [],
-            () => {
-                return cohortsModel.values.cohorts.map((cohort) => ({
-                    ...cohort,
-                    key: cohort.id,
-                    name: cohort.name || '',
-                }))
-            },
-        ],
-    },
+    events: ({ actions, props }) => ({
+        afterMount: () => {
+            const metadata: GroupMetadata = {}
+            props.groups?.forEach(({ key, name, dataSource }) => {
+                metadata[key] = {
+                    name,
+                    count: dataSource?.length ?? null,
+                }
+            })
+            actions.setGroupMetadata(metadata)
+        },
+    }),
 })
