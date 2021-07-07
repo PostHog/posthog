@@ -40,8 +40,8 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         union_query = self.get_step_counts_without_aggregation_query()
 
         return f"""
-            SELECT person_id, steps_initial as steps {self._get_step_time_avgs(max_steps)} FROM (
-                SELECT person_id, steps_initial, max(steps_initial) over (PARTITION BY person_id) as max_steps {self._get_step_time_names(max_steps)} FROM (
+            SELECT person_id, steps {self._get_step_time_avgs(max_steps)} FROM (
+                SELECT person_id, steps, max(steps) over (PARTITION BY person_id) as max_steps {self._get_step_time_names(max_steps)} FROM (
                         {union_query}
                 )
             ) GROUP BY person_id, steps
@@ -66,7 +66,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             """
 
             formatted_query = f"""
-                SELECT *, {sorting_condition} AS steps_initial {self._get_step_times(max_steps)} FROM (
+                SELECT *, {sorting_condition} AS steps {self._get_step_times(max_steps)} FROM (
                         {inner_query}
                     ) WHERE step_0 = 1"""
 

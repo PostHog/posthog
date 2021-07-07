@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Type
 
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -9,6 +9,7 @@ from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels import (
     ClickhouseFunnel,
+    ClickhouseFunnelBase,
     ClickhouseFunnelStrict,
     ClickhouseFunnelTrends,
     ClickhouseFunnelUnordered,
@@ -81,7 +82,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
 
-        funnel_order_class = ClickhouseFunnel
+        funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
         if filter.funnel_order_type == FunnelOrderType.UNORDERED:
             funnel_order_class = ClickhouseFunnelUnordered
         elif filter.funnel_order_type == FunnelOrderType.STRICT:
