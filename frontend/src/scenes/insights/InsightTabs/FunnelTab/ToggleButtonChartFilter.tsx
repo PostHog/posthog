@@ -22,15 +22,11 @@ export function ToggleButtonChartFilter({
     const options = [
         {
             value: ChartDisplayType.FunnelViz,
-            label: 'Funnel conversion',
+            label: 'Steps',
         },
         {
             value: ChartDisplayType.ActionsLineGraphLinear,
-            label: (
-                <Tooltip title="Track how this funnel's conversion rate is trending over time">
-                    Historical conversion
-                </Tooltip>
-            ),
+            label: <Tooltip title="Track how this funnel's conversion rate is trending over time">Historical</Tooltip>,
         },
     ]
 
