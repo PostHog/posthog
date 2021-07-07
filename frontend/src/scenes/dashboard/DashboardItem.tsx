@@ -312,22 +312,6 @@ export function DashboardItem({
                                         />
                                     </Tooltip>
                                 ))}
-                            <Tooltip
-                                title={
-                                    <i>
-                                        Last updated:{' '}
-                                        {item.last_refresh ? dayjs(item.last_refresh).fromNow() : 'recently'}
-                                    </i>
-                                }
-                            >
-                                <ReloadOutlined
-                                    style={{ cursor: 'pointer', marginTop: -3 }}
-                                    onClick={() => {
-                                        loadResults(true)
-                                        reportDashboardItemRefreshed(item)
-                                    }}
-                                />
-                            </Tooltip>
                             {dashboardMode !== DashboardMode.Internal && (
                                 <Dropdown
                                     placement="bottomRight"
@@ -340,6 +324,27 @@ export function DashboardItem({
                                                 onClick={() => router.actions.push(link)}
                                             >
                                                 {viewText}
+                                            </Menu.Item>
+                                            <Menu.Item
+                                                data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
+                                                icon={<ReloadOutlined />}
+                                                onClick={() => {
+                                                    loadResults(true)
+                                                    reportDashboardItemRefreshed(item)
+                                                }}
+                                            >
+                                                <Tooltip
+                                                    title={
+                                                        <i>
+                                                            Last updated:{' '}
+                                                            {item.last_refresh
+                                                                ? dayjs(item.last_refresh).fromNow()
+                                                                : 'recently'}
+                                                        </i>
+                                                    }
+                                                >
+                                                    Refresh
+                                                </Tooltip>
                                             </Menu.Item>
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-rename'}
