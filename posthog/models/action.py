@@ -9,10 +9,20 @@ from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 from rest_hooks.signals import raw_hook_event
 from sentry_sdk import capture_exception
 
+from posthog.models.entity import Entity
 from posthog.redis import get_client
+
+
+class ActionManager(models.Manager):
+    def get_from_entity(self, entity: Entity) -> "Action":
+        try:
+            return Action.objects.get(id=entity.id)
+        except:
+            raise ValidationError(f"Action ID {entity.id} does not exist.")
 
 
 class Action(models.Model):
@@ -20,6 +30,20 @@ class Action(models.Model):
         indexes = [
             models.Index(fields=["team_id", "-updated_at"]),
         ]
+
+    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
+    deleted: models.BooleanField = models.BooleanField(default=False)
+    events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
+    post_to_slack: models.BooleanField = models.BooleanField(default=False)
+    slack_message_format: models.CharField = models.CharField(default="", max_length=200, blank=True)
+    is_calculating: models.BooleanField = models.BooleanField(default=False)
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
+
+    objects: ActionManager = ActionManager()
 
     def calculate_events(self, start=None, end=None):
         recalculate_all = False
@@ -89,18 +113,6 @@ class Action(models.Model):
         raw_hook_event.send(
             sender=None, event_name="action_performed", instance=self, payload=payload, user=event.team,
         )
-
-    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
-    deleted: models.BooleanField = models.BooleanField(default=False)
-    events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
-    post_to_slack: models.BooleanField = models.BooleanField(default=False)
-    slack_message_format: models.CharField = models.CharField(default="", max_length=200, blank=True)
-    is_calculating: models.BooleanField = models.BooleanField(default=False)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
 
     def __str__(self):
         return self.name

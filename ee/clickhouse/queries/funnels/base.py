@@ -252,7 +252,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
     def _build_step_query(self, entity: Entity, index: int, entity_name: str) -> str:
         filters = self._build_filters(entity, index)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = Action.objects.get(pk=entity.id)
+            action = Action.objects.get_from_entity(entity)
             for action_step in action.steps.all():
                 self.params[entity_name].append(action_step.event)
             action_query, action_params = format_action_filter(action, "{}_step_{}".format(entity_name, index))
