@@ -163,11 +163,6 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         )
         return instance
 
-    @action(methods=["GET"], detail=True)
-    def count(self, request: request.Request) -> Response:
-        action = self.get_object()
-        return Response({"count": action.count})
-
 
 def get_actions(queryset: QuerySet, params: dict, team_id: int) -> QuerySet:
     queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
@@ -310,6 +305,11 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             "next": next_url,
             "previous": current_url[1:],
         }
+
+    @action(methods=["GET"], detail=True)
+    def count(self, request: request.Request, **kwargs) -> Response:
+        count = self.get_queryset().first().count
+        return Response({"count": count})
 
 
 def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:

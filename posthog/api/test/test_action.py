@@ -253,6 +253,8 @@ def factory_test_action_api(event_factory):
             event_factory(event="another event", team=self.team, distinct_id="test")
             # test team leakage
             event_factory(event="custom event", team=team2, distinct_id="test")
+
+            action.calculate_events()
             response = self.client.get(f"/api/action/{action.id}/count").json()
             self.assertEqual(response, {"count": 1})
 

@@ -37,7 +37,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestActionApi(ClickhouseTestMixin, factory_test_action_api(_create_event)):
+class TestActionApi(ClickhouseTestMixin, factory_test_action_api(_create_event)):  # type: ignore
     pass
 
 
