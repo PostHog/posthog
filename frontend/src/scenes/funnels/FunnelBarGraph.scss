@@ -95,13 +95,22 @@ $glyph_height: 22px;
 
         header {
             padding-top: 4px;
+            position: relative;
 
             .funnel-step-title {
                 font-weight: 700;
             }
 
             .funnel-step-metadata {
-                justify-content: flex-end;
+                position: absolute;
+                bottom: 0;
+
+                &.vertical {
+                    left: 0;
+                }
+                &.horizontal {
+                    right: 0;
+                }
             }
 
             .property-key-info {
