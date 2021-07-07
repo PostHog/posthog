@@ -23,6 +23,15 @@ class ClickhouseFunnelNew(ClickhouseFunnelBase):
         ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
 
+    def _get_people_columns(self, max_steps: int):
+        cols: List[str] = []
+
+        for i in range(max_steps):
+            cols.append(f"groupArrayIf(100)(DISTINCT person_id, steps = {i + 1}) step_people_{i + 1}")
+
+        formatted = ", ".join(cols)
+        return f", {formatted}" if formatted else ""
+
     def get_step_counts_query(self):
         steps_per_person_query = self._get_steps_per_person_query()
         max_steps = len(self._filter.entities)

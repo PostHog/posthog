@@ -299,15 +299,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         return ", ".join(cols)
 
-    def _get_people_columns(self, max_steps: int):
-        cols: List[str] = []
-
-        for i in range(max_steps):
-            cols.append(f"groupArrayIf(100)(DISTINCT person_id, steps = {i + 1}) step_people_{i + 1}")
-
-        formatted = ", ".join(cols)
-        return f", {formatted}" if formatted else ""
-
     def _get_step_time_avgs(self, max_steps: int):
         conditions: List[str] = []
         for i in range(1, max_steps):
