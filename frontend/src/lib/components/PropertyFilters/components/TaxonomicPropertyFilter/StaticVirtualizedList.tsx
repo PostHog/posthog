@@ -2,8 +2,25 @@ import React from 'react'
 import { List } from 'antd'
 import VirtualizedList from 'react-virtualized/dist/commonjs/List'
 import { ListRowProps, ListRowRenderer, AutoSizer } from 'react-virtualized'
+import Fuse from 'fuse.js'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectResult } from './InfiniteSelectResults'
+
+const fuseCache: Record<string, Fuse<SelectResult>> = {}
+
+export const searchItems = (sources: SelectResult[], groupType: string, search?: string): SelectResult[] => {
+    if (!search) {
+        return sources
+    }
+
+    if (!fuseCache[groupType]) {
+        fuseCache[groupType] = new Fuse(sources, {
+            keys: ['name'],
+            threshold: 0.3,
+        })
+    }
+    return fuseCache[groupType].search(search).map((result) => result.item)
+}
 
 interface StaticVirtualizedListProps {
     type: string
@@ -20,11 +37,7 @@ export function StaticVirtualizedList({
     onSelect,
     selectedItemKey,
 }: StaticVirtualizedListProps): JSX.Element {
-    let items = dataSource
-    if (searchQuery) {
-        // TODO use Fuse
-        items = dataSource.filter(({ name }) => name.match(searchQuery))
-    }
+    const items = searchItems(dataSource, type, searchQuery)
 
     const renderItem: ListRowRenderer = ({ index, style }: ListRowProps) => {
         const item = items[index]
