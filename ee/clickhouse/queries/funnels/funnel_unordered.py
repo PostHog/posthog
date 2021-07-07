@@ -2,8 +2,6 @@ from typing import List
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
-MAX_INT_32 = 2147483647
-
 
 class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     """
