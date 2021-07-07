@@ -13,6 +13,7 @@ from ee.clickhouse.queries.funnels import (
     ClickhouseFunnelTrends,
     ClickhouseFunnelUnordered,
 )
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
 from ee.clickhouse.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
 from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
@@ -85,6 +86,8 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             funnel_order_class = ClickhouseFunnelUnordered
         elif filter.funnel_order_type == FunnelOrderType.STRICT:
             funnel_order_class = ClickhouseFunnelStrict
+        elif filter.funnel_order_type == FunnelOrderType.ORDERED:
+            funnel_order_class = ClickhouseFunnelNew
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
             return {
