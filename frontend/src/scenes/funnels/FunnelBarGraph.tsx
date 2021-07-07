@@ -159,11 +159,11 @@ function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeIns
     function decideTextVisible(): void {
         // Show/hide label position based on whether both items fit horizontally
         const wrapperWidth = wrapperRef.current?.clientWidth ?? null
-        const infoTextWidth = infoTextRef.current?.clientWidth ?? null
-        const buttonWidth = buttonRef.current?.clientWidth ?? null
+        const infoTextWidth = infoTextRef.current?.offsetWidth ?? null
+        const buttonWidth = buttonRef.current?.offsetWidth ?? null
 
         if (wrapperWidth !== null && infoTextWidth !== null && buttonWidth !== null) {
-            if (infoTextWidth + buttonWidth < wrapperWidth) {
+            if (infoTextWidth + buttonWidth <= wrapperWidth) {
                 setInfoTextVisible(true)
                 return
             }
