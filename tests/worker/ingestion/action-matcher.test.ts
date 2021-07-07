@@ -16,6 +16,7 @@ import { UUIDT } from '../../../src/utils/utils'
 import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/action-matcher'
 import { commonUserId } from '../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../helpers/sql'
+import { KafkaProducerWrapper } from './../../../src/utils/db/kafka-producer-wrapper'
 
 describe('ActionMatcher', () => {
     let hub: Hub
@@ -726,15 +727,6 @@ describe('ActionMatcher', () => {
                 },
             ])
 
-            const randomPerson = await hub.db.createPerson(
-                DateTime.local(),
-                {},
-                actionDefinition.team_id,
-                null,
-                true,
-                new UUIDT().toString(),
-                ['random']
-            )
             const cohortPerson = await hub.db.createPerson(
                 DateTime.local(),
                 {},
@@ -775,6 +767,63 @@ describe('ActionMatcher', () => {
                 await actionMatcher.match(
                     eventExamplePersonUnknown,
                     await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonUnknown.distinct_id)
+                )
+            ).toEqual([])
+        })
+
+        it('returns a match in case of a CH static cohort match', async () => {
+            // Static cohorts are stored in their own ClickHouse table, hence this path has its own test
+            const testCohortStatic = await hub.db.createCohort({
+                name: 'Test',
+                created_by_id: commonUserId,
+                team_id: 2,
+                is_static: true,
+            })
+
+            const actionDefinition: Action = await createTestAction([
+                {
+                    properties: [{ type: 'cohort', key: 'id', value: testCohortStatic.id }],
+                },
+            ])
+
+            const eventExamplePersonOk: PluginEvent = createTestEvent({
+                event: 'trigger a webhook',
+                distinct_id: 'static_cohort_person',
+            })
+
+            await hub.db.createPerson(
+                DateTime.local(),
+                {},
+                actionDefinition.team_id,
+                null,
+                true,
+                new UUIDT().toString(),
+                [eventExamplePersonOk.distinct_id]
+            )
+
+            hub.db.kafkaProducer = {} as KafkaProducerWrapper
+
+            // mocking the query to not have to create a whole kafka produce
+            // topic to insert a person into person_static_cohort
+            jest.spyOn(hub.db, 'clickhouseQuery')
+                .mockReturnValueOnce({
+                    rows: 1,
+                } as any)
+                .mockReturnValueOnce({
+                    rows: 0,
+                } as any)
+
+            expect(
+                await actionMatcher.match(
+                    eventExamplePersonOk,
+                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonOk.distinct_id)
+                )
+            ).toEqual([actionDefinition])
+
+            expect(
+                await actionMatcher.match(
+                    eventExamplePersonOk,
+                    await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonOk.distinct_id)
                 )
             ).toEqual([])
         })
