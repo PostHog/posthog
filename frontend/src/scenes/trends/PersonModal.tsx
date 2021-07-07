@@ -2,16 +2,20 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { TrendPeople, parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
-import { DownloadOutlined } from '@ant-design/icons'
+import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input, Row } from 'antd'
-import { PersonsTable } from 'scenes/persons/PersonsTable'
+import { deepLinkToPersonSessions, PersonsTable } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter } from '~/types'
 import { ACTION_TYPE, EVENT_TYPE } from 'lib/constants'
 import { personsModalLogic } from './personsModalLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-
+import Col from 'antd/es/grid/col'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { midEllipsis } from 'lib/utils'
+import { Link } from 'lib/components/Link'
+import './PersonModal.scss'
 // Utility function to handle filter conversion required for deeplinking to person -> sessions
 const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
     if (!people?.action) {
@@ -66,19 +70,44 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
             onOk={closeModal}
             onCancel={closeModal}
             footer={
-                <Row style={{ justifyContent: 'space-between' }}>
-                    {featureFlags['save-cohort-on-modal'] &&
-                        (view === ViewType.TRENDS || view === ViewType.STICKINESS || view === ViewType.FUNNELS) && (
-                            <div>
-                                <Button type="primary" onClick={onSaveCohort}>
-                                    Save as cohort
+                <Row style={{ justifyContent: 'space-between', alignItems: 'center', padding: '6px 0px' }}>
+                    <Row style={{ alignItems: 'center' }}>
+                        {true &&
+                            (view === ViewType.TRENDS || view === ViewType.STICKINESS || view === ViewType.FUNNELS) && (
+                                <div style={{paddingRight: 8}}>
+                                    <Button onClick={onSaveCohort}>
+                                        <UsergroupAddOutlined />
+                                        Save as cohort
+                                    </Button>
+                                </div>
+                            )}
+                        {people &&
+                            <>
+                                <Button
+                                    icon={<DownloadOutlined />}
+                                    href={`/api/action/people.csv?/?${parsePeopleParams(
+                                        {
+                                            label: people.label,
+                                            action: people.action,
+                                            date_from: people.day,
+                                            date_to: people.day,
+                                            breakdown_value: people.breakdown_value,
+                                        },
+                                        filters
+                                    )})}`}
+                                    title="Download CSV"
+                                >
+                                    Download CSV
                                 </Button>
-                            </div>
-                        )}
+                            </>
+                        }
+                    </Row>
                     <Button onClick={closeModal}>Close</Button>
                 </Row>
             }
-            width={800}
+            width={600}
+            bodyStyle={{ padding: 0, maxHeight: 500, overflowY: 'scroll'}}
+            className="person-modal"
         >
             {people ? (
                 <>
@@ -96,21 +125,15 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                 flexDirection: 'column',
                                 width: '100%',
                                 alignItems: 'flex-start',
+                                padding: '0px 16px'
                             }}
                         >
-                            <span style={{ paddingBottom: 12 }}>
-                                Showing{' '}
-                                <b>
-                                    {people.count > 99 ? '99' : people.count} of {people.count}
-                                </b>{' '}
-                                persons
-                            </span>
-                            {funnelPersonsEnabled && (
+                            {true && (
                                 <>
                                     <Input.Search
                                         allowClear
                                         enterButton
-                                        placeholder="search person by email, name, or ID"
+                                        placeholder="Search person by email, name, or ID"
                                         style={{ width: '100%', flexGrow: 1 }}
                                         onChange={(e) => {
                                             setSearchTerm(e.target.value)
@@ -125,15 +148,18 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                                 : setFirstLoadedPeople(firstLoadedPeople)
                                         }
                                     />
-                                    <div className="text-muted text-small">
-                                        You can also filter persons that have a certain property set (e.g.{' '}
-                                        <code>has:email</code> or <code>has:name</code>)
-                                    </div>
                                 </>
                             )}
+                            <span style={{ paddingTop: 9 }}>
+                                Showing{' '}
+                                <b>
+                                    {people.count > 99 ? '99' : people.count} of {people.count}
+                                </b>{' '}
+                                persons
+                            </span>
                         </div>
                     </div>
-                    <div className="text-right">
+                    {/* <div className="text-right">
                         <Button
                             icon={<DownloadOutlined />}
                             href={`/api/action/people.csv?/?${parsePeopleParams(
@@ -149,14 +175,38 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                             style={{ marginBottom: '1rem' }}
                             title="Download CSV"
                         />
-                    </div>
-                    <PersonsTable
+                    </div> */}
+                    {/* <PersonsTable
                         loading={!people?.people}
                         people={people.people}
                         sessionsFilters={convertToSessionFilters(people, filters)}
                         date={people?.day ? dayjs(people.day).format('YYYY-MM-DD') : undefined}
                         backTo="Insights"
-                    />
+                    /> */}
+                    <Col style={{background: '#FAFAFA'}}>
+                        {people?.people.map(person => (
+                            <Row key={person.id} style={{justifyContent: 'space-between', alignItems: 'center', padding: 8, borderBottom: '1px solid #D9D9D9'}}>
+                                <Col>
+                                    <span className="text-default"><strong>{person.properties.email}</strong></span>
+                                    <div className="text-small">
+                                        <CopyToClipboardInline
+                                            explicitValue={person.distinct_ids[0]}
+                                            tooltipMessage=""
+                                            iconStyle={{ color: 'var(--primary)' }}
+                                            iconPosition="end"
+                                        >
+                                            {midEllipsis(person.distinct_ids[0], 32)}
+                                        </CopyToClipboardInline>
+                                    </div>
+                                </Col>
+                                <Button>
+                                    <Link to={deepLinkToPersonSessions(person, convertToSessionFilters(people, filters), people?.day ? dayjs(people.day).format('YYYY-MM-DD') : '', 'Insights')}>
+                                        View details
+                                    </Link>
+                                </Button>
+                            </Row>
+                        ))}
+                    </Col>
                     <div
                         style={{
                             margin: '1rem',
