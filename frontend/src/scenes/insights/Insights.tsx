@@ -67,10 +67,9 @@ export function Insights(): JSX.Element {
     } = useValues(insightLogic)
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
-    const { showingPeople } = useValues(trendsLogic({ dashboardItemId: null, view: activeView, filters: allFilters }))
-    const { refreshCohort, saveCohortWithFilters } = useActions(
-        trendsLogic({ dashboardItemId: null, view: activeView, filters: allFilters })
-    )
+    const trendsLogicLoaded = trendsLogic({ dashboardItemId: null, view: activeView, filters: allFilters })
+    const { showingPeople } = useValues(trendsLogicLoaded)
+    const { refreshCohort, saveCohortWithFilters } = useActions(trendsLogicLoaded)
 
     const { funnelPersonsEnabled } = useValues(funnelLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
