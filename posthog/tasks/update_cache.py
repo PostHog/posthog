@@ -72,7 +72,7 @@ def update_dashboard_items_cache(dashboard: Dashboard) -> None:
         update_dashboard_item_cache(item, dashboard)
 
 
-def update_dashboard_item_cache(dashboard_item: DashboardItem, dashboard: Optional[DashboardItem]) -> None:
+def update_dashboard_item_cache(dashboard_item: DashboardItem, dashboard: Optional[Dashboard]) -> None:
     cache_key, cache_type, payload = dashboard_item_update_task_params(dashboard_item, dashboard)
     update_cache_item(cache_key, cache_type, payload)
 
