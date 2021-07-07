@@ -74,7 +74,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
 
-        if filter.funnel_viz_type == FunnelVizType.TRENDS:
+        if filter.funnel_viz_type == FunnelVizType.TRENDS or filter.display == TRENDS_LINEAR:
             return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run()}
         elif filter.funnel_order_type == FunnelOrderType.UNORDERED:
             return {"result": ClickhouseFunnelUnordered(team=team, filter=filter).run()}

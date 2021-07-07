@@ -1,4 +1,4 @@
-import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag, Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -13,6 +13,7 @@ import {
     InfoCircleOutlined,
     DownOutlined,
     GlobalOutlined,
+    LineChartOutlined,
 } from '@ant-design/icons'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
@@ -26,14 +27,17 @@ import { endWithPunctation } from '../../../lib/utils'
 import { canInstallPlugins } from '../access'
 import { LinkButton } from 'lib/components/LinkButton'
 import { PluginUpdateButton } from './PluginUpdateButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-export function ExtraPluginButtons({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
+export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
         <Space>
-            <LinkButton to={url} target="_blank" rel="noopener noreferrer" disabled={disabled}>
-                <InfoCircleOutlined />
-                <span className="show-over-500">About</span>
-            </LinkButton>
+            <Tooltip title="About">
+                <LinkButton to={url} target="_blank" rel="noopener noreferrer" disabled={disabled}>
+                    <InfoCircleOutlined />
+                </LinkButton>
+            </Tooltip>
         </Space>
     )
 }
@@ -76,11 +80,19 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } = useActions(
-        pluginsLogic
-    )
+    const {
+        editPlugin,
+        toggleEnabled,
+        installPlugin,
+        resetPluginConfigError,
+        rearrange,
+        showPluginLogs,
+        showPluginMetrics,
+    } = useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <Col
@@ -180,7 +192,7 @@ export function PluginCard({
                     </Col>
                     <Col>
                         <Space>
-                            {url && <ExtraPluginButtons url={url} disabled={rearranging} />}
+                            {url && <PluginAboutButton url={url} disabled={rearranging} />}
                             {showUpdateButton && pluginId ? (
                                 <PluginUpdateButton
                                     updateStatus={updateStatus}
@@ -189,25 +201,37 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
-                                    <Button
-                                        className="padding-under-500"
-                                        disabled={rearranging}
-                                        onClick={() => showPluginLogs(pluginId)}
-                                        data-attr="plugin-logs"
-                                    >
-                                        <UnorderedListOutlined />
-                                        <span className="show-over-500">Logs</span>
-                                    </Button>
-                                    <Button
-                                        type="primary"
-                                        className="padding-under-500"
-                                        disabled={rearranging}
-                                        onClick={() => editPlugin(pluginId)}
-                                        data-attr="plugin-configure"
-                                    >
-                                        <SettingOutlined />
-                                        <span className="show-over-500">Configure</span>
-                                    </Button>
+                                    {featureFlags[FEATURE_FLAGS.PLUGIN_METRICS] &&
+                                    Object.keys(plugin.metrics || {}).length > 0 ? (
+                                        <Space>
+                                            <Tooltip title="Metrics">
+                                                <Button onClick={() => showPluginMetrics(pluginId)}>
+                                                    <LineChartOutlined />
+                                                </Button>
+                                            </Tooltip>
+                                        </Space>
+                                    ) : null}
+                                    <Tooltip title="Logs">
+                                        <Button
+                                            className="padding-under-500"
+                                            disabled={rearranging}
+                                            onClick={() => showPluginLogs(pluginId)}
+                                            data-attr="plugin-logs"
+                                        >
+                                            <UnorderedListOutlined />
+                                        </Button>
+                                    </Tooltip>
+                                    <Tooltip title="Configure">
+                                        <Button
+                                            type="primary"
+                                            className="padding-under-500"
+                                            disabled={rearranging}
+                                            onClick={() => editPlugin(pluginId)}
+                                            data-attr="plugin-configure"
+                                        >
+                                            <SettingOutlined />
+                                        </Button>
+                                    </Tooltip>
                                 </>
                             ) : !pluginId ? (
                                 <Button
