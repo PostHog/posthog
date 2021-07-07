@@ -538,10 +538,10 @@ export function PropertyKeyInfo({
     }
 
     const innerContent = (
-        <div className="property-key-info">
+        <span className="property-key-info">
             <span className="property-key-info-logo" />
             {data.label}
-        </div>
+        </span>
     )
 
     return disablePopover ? (

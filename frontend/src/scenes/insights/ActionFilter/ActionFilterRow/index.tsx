@@ -131,7 +131,7 @@ export function ActionFilterRow({
                 </Row>
             )}
 
-            <Row gutter={8} align="middle" className={!horizontalUI ? 'mt' : ''}>
+            <Row gutter={8} align="middle" className={!horizontalUI ? 'mt' : ''} wrap={!fullWidth}>
                 {horizontalUI && !singleFilter && filterCount > 1 && (
                     <Col>
                         <Button

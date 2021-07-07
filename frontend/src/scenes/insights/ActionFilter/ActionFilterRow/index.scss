@@ -58,18 +58,11 @@
     }
 }
 .row-action-btn {
-    &:focus {
+    padding: 0 4px;
+    &:hover,
+    &:focus,
+    &.visible {
         border: 1px solid $primary;
-    }
-    &.delete {
-        padding: 0 4px;
-    }
-    &.show-filters {
-        padding: 0 8px;
-        &:hover,
-        &.visible {
-            border: 1px solid $primary;
-        }
     }
 }
 .action-row-striped {
