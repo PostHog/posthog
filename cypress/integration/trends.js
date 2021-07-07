@@ -40,7 +40,7 @@ describe('Trends', () => {
 
     it('Apply specific filter on default pageview event', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.get('div.property-key-info').contains('Pageview').click() // Tooltip is shown with description
+        cy.get('.property-key-info').contains('Pageview').click() // Tooltip is shown with description
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
 
         // Apply a property filter
@@ -54,7 +54,7 @@ describe('Trends', () => {
 
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.get('div.property-key-info').contains('Pageview').click()
+        cy.get('.property-key-info').contains('Pageview').click()
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
         cy.get('[data-attr=property-filter-dropdown]').click()
