@@ -1,11 +1,10 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { billingLogicType } from './billingLogicType'
-import { PlanInterface, UserType, BillingType, PreflightStatus } from '~/types'
+import { PlanInterface, BillingType } from '~/types'
 import { sceneLogic, Scene } from 'scenes/sceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import posthog from 'posthog-js'
-import { userLogic } from 'scenes/userLogic'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -13,10 +12,9 @@ export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of e
 export enum BillingAlertType {
     SetupBilling = 'setup_billing',
     UsageNearLimit = 'usage_near_limit',
-    ClickhouseLicenseMissing = 'clickhouse_license_missing',
 }
 
-export const billingLogic = kea<billingLogicType<PlanInterface, UserType, BillingType, PreflightStatus, Scene>>({
+export const billingLogic = kea<billingLogicType<BillingAlertType>>({
     actions: {
         registerInstrumentationProps: true,
     },
@@ -85,20 +83,8 @@ export const billingLogic = kea<billingLogicType<PlanInterface, UserType, Billin
             },
         ],
         alertToShow: [
-            (s) => [
-                s.eventAllocation,
-                s.billing,
-                sceneLogic.selectors.scene,
-                preflightLogic.selectors.preflight,
-                userLogic.selectors.user,
-            ],
-            (
-                eventAllocation: number | null,
-                billing: BillingType,
-                scene: Scene,
-                preflight: PreflightStatus,
-                user: UserType
-            ): BillingAlertType | undefined => {
+            (s) => [s.eventAllocation, s.billing, sceneLogic.selectors.scene],
+            (eventAllocation: number | null, billing: BillingType, scene: Scene): BillingAlertType | undefined => {
                 // Determines which billing alert/warning to show to the user (if any)
 
                 // Priority 1: In-progress incomplete billing setup
@@ -114,17 +100,6 @@ export const billingLogic = kea<billingLogicType<PlanInterface, UserType, Billin
                     billing.current_usage / eventAllocation >= ALLOCATION_THRESHOLD_ALERT
                 ) {
                     return BillingAlertType.UsageNearLimit
-                }
-
-                // Priority 3: Clickhouse enabled without a Clickhouse license
-                // In practical terms, this would be priority 1 for self-hosted (as the other alerts are cloud-based only)
-                if (
-                    !preflight?.cloud &&
-                    preflight?.is_clickhouse_enabled &&
-                    !user?.organization?.available_features.includes('clickhouse') &&
-                    scene !== Scene.InstanceLicenses
-                ) {
-                    return BillingAlertType.ClickhouseLicenseMissing
                 }
             },
         ],

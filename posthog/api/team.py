@@ -9,7 +9,7 @@ from posthog.api.shared import TeamBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token
+from posthog.models.utils import generate_random_token, generate_random_token_project
 from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, ProjectMembershipNecessaryPermissions
 
 
@@ -102,7 +102,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
         if self.request.method == "POST" or self.request.method == "DELETE":
-            organization = cast(User, self.request.user).organization
+            organization = getattr(self.request.user, "organization", None)
 
             if not organization:
                 raise exceptions.ValidationError("You need to belong to an organization.")
@@ -124,7 +124,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
-            team = cast(User, self.request.user).team
+            team = getattr(self.request.user, "team", None)
             if team is None:
                 raise exceptions.NotFound("Current project not found.")
             return team
@@ -140,6 +140,6 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     @action(methods=["PATCH"], detail=True)
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        team.api_token = generate_random_token()
+        team.api_token = generate_random_token_project()
         team.save()
         return response.Response(TeamSerializer(team).data)

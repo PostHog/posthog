@@ -1277,7 +1277,9 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/78323924?v=4",
       "profile": "https://github.com/pietrodevpiccini",
       "contributions": [
-        "code"
+        "code",
+        "test",
+        "ideas"
       ]
     },
     {
@@ -1344,6 +1346,33 @@
       "contributions": [
         "doc",
         "ideas"
+      ]
+    },
+    {
+      "login": "smallbrownbike",
+      "name": "Eli Kinsey",
+      "avatar_url": "https://avatars.githubusercontent.com/u/28248250?v=4",
+      "profile": "http://ekinsey.dev",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "marcopchen",
+      "name": "Marco Chen",
+      "avatar_url": "https://avatars.githubusercontent.com/u/33271308?v=4",
+      "profile": "https://www.marcopchen.com/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "chidexebere",
+      "name": "Chidiebere Onyegbuchulem",
+      "avatar_url": "https://avatars.githubusercontent.com/u/25040059?v=4",
+      "profile": "https://conye.netlify.app/",
+      "contributions": [
+        "code"
       ]
     }
   ],

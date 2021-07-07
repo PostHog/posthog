@@ -16,7 +16,7 @@ import {
     DashboardItemType,
 } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
-import dayjs from 'dayjs'
+import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
@@ -30,11 +30,11 @@ export enum DashboardEventSource {
     Toast = 'toast',
     Browser = 'browser',
     AddDescription = 'add_description',
+    MainNavigation = 'main_nav',
+    DashboardsList = 'dashboards_list',
 }
 
-export const eventUsageLogic = kea<
-    eventUsageLogicType<AnnotationType, FilterType, DashboardType, PersonType, DashboardMode, DashboardEventSource>
->({
+export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
     connect: [preflightLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
@@ -74,13 +74,13 @@ export const eventUsageLogic = kea<
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
         reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
-        reportDashboardRefreshed: (lastRefreshed?: string | dayjs.Dayjs | null) => ({ lastRefreshed }),
+        reportDashboardRefreshed: (lastRefreshed?: string | Dayjs | null) => ({ lastRefreshed }),
         reportDashboardItemRefreshed: (dashboardItem: DashboardItemType) => ({ dashboardItem }),
-        reportDashboardDateRangeChanged: (dateFrom?: string | dayjs.Dayjs, dateTo?: string | dayjs.Dayjs | null) => ({
+        reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs, dateTo?: string | Dayjs | null) => ({
             dateFrom,
             dateTo,
         }),
-        reportDashboardPinToggled: (pinned: boolean, source: 'more_dropdown' | 'main_nav' | 'dashboards_list') => ({
+        reportDashboardPinToggled: (pinned: boolean, source: DashboardEventSource) => ({
             pinned,
             source,
         }),
@@ -118,7 +118,12 @@ export const eventUsageLogic = kea<
         reportInsightFilterUpdated: (index: number, name: string | null, type?: EntityType) => ({ type, index, name }),
         reportInsightFilterRemoved: (index: number) => ({ index }),
         reportInsightFilterAdded: (newLength: number) => ({ newLength }),
-        reportInsightFilterSet: (filters: Array<{ id: string | number | null; type?: EntityType }>) => ({ filters }),
+        reportInsightFilterSet: (
+            filters: Array<{
+                id: string | number | null
+                type?: EntityType
+            }>
+        ) => ({ filters }),
         reportEntityFilterVisibilitySet: (index: number, visible: boolean) => ({ index, visible }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
@@ -154,7 +159,14 @@ export const eventUsageLogic = kea<
                 posthog.capture('annotation viewed', properties)
             }
         },
-        reportPersonDetailViewed: async ({ person }: { person: PersonType }, breakpoint) => {
+        reportPersonDetailViewed: async (
+            {
+                person,
+            }: {
+                person: PersonType
+            },
+            breakpoint
+        ) => {
             await breakpoint(500)
 
             let custom_properties_count = 0
@@ -192,9 +204,9 @@ export const eventUsageLogic = kea<
                 date_to,
                 filter_test_accounts,
                 formula,
-                filters_count: filters.properties?.length || 0, // Only counts general filters (i.e. not per-event filters)
-                events_count: filters.events?.length || 0, // Number of event lines in insights graph; number of steps in funnel
-                actions_count: filters.actions?.length || 0, // Number of action lines in insights graph; number of steps in funnel
+                filters_count: filters.properties?.length || 0,
+                events_count: filters.events?.length || 0,
+                actions_count: filters.actions?.length || 0,
             }
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
@@ -250,7 +262,7 @@ export const eventUsageLogic = kea<
                 sample_items_count: 0,
                 item_count: dashboard.items.length,
                 created_by_system: !dashboard.created_by,
-                has_share_token: hasShareToken, // if the dashboard is being viewed in `public` mode
+                has_share_token: hasShareToken,
             }
 
             for (const item of dashboard.items) {

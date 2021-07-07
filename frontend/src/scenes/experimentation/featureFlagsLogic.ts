@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { featureFlagsLogicType } from './featureFlagsLogicType'
 import { FeatureFlagType } from '~/types'
 
-export const featureFlagsLogic = kea<featureFlagsLogicType<FeatureFlagType>>({
+export const featureFlagsLogic = kea<featureFlagsLogicType>({
     loaders: ({ values }) => ({
         featureFlags: {
             __default: [] as FeatureFlagType[],

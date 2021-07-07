@@ -172,7 +172,7 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
                 return (
                     <>
                         {count.toLocaleString()}
-                        {item.action.math === 'dau' && (
+                        {item.action && item.action.math === 'dau' && (
                             <Tooltip title="Keep in mind this is just the sum of all values in the row, not the unique users across the entire time period (i.e. this number may contain duplicate users).">
                                 <InfoCircleOutlined style={{ marginLeft: 4, color: 'var(--primary-alt)' }} />
                             </Tooltip>

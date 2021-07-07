@@ -1,19 +1,18 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Card, Col, Drawer, Row, Spin } from 'antd'
+import { Button, Card, Col, Drawer, Row, Spin, Table } from 'antd'
 import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
-import { PlusOutlined } from '@ant-design/icons'
-import { Table } from 'antd'
-import { PushpinFilled, PushpinOutlined, DeleteOutlined, AppstoreAddOutlined } from '@ant-design/icons'
+import { AppstoreAddOutlined, DeleteOutlined, PlusOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
-import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { DashboardType } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { ColumnType } from 'antd/lib/table'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -32,7 +31,9 @@ export function Dashboards(): JSX.Element {
                 return (
                     <span
                         onClick={() =>
-                            pinned ? unpinDashboard(id, 'dashboards_list') : pinDashboard(id, 'dashboards_list')
+                            pinned
+                                ? unpinDashboard(id, DashboardEventSource.DashboardsList)
+                                : pinDashboard(id, DashboardEventSource.DashboardsList)
                         }
                         style={{ color: 'rgba(0, 0, 0, 0.85)', cursor: 'pointer' }}
                     >

@@ -7,7 +7,7 @@ import React from 'react'
 import { DashboardItemType } from '~/types'
 import { insightRouterLogicType } from './InsightRouterType'
 
-const insightRouterLogic = kea<insightRouterLogicType<DashboardItemType>>({
+const insightRouterLogic = kea<insightRouterLogicType>({
     actions: {
         loadInsight: (id: string) => ({ id }),
         setError: true,
@@ -39,8 +39,10 @@ const insightRouterLogic = kea<insightRouterLogicType<DashboardItemType>>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/i/:id': ({ id }: { id: string }) => {
-            actions.loadInsight(id)
+        '/i/:id': ({ id }) => {
+            if (id) {
+                actions.loadInsight(id)
+            }
         },
     }),
 })

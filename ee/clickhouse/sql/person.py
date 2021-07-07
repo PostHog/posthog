@@ -181,7 +181,7 @@ INNER JOIN (
     SELECT person_id, distinct_id
     FROM ({latest_distinct_id_sql})
     WHERE team_id = %(team_id)s
-) AS pid ON p.id = pid.person_id
+) AS pdi ON p.id = pdi.person_id
 WHERE team_id = %(team_id)s
   {distinct_query}
 """.format(
@@ -197,9 +197,9 @@ INNER JOIN (
     SELECT person_id, distinct_id
     FROM ({latest_distinct_id_sql})
     WHERE team_id = %(team_id)s
-) AS pid ON p.id = pid.person_id
+) AS pdi ON p.id = pdi.person_id
 WHERE team_id = %(team_id)s
-  AND pid.distinct_id = %(distinct_id)s
+  AND pdi.distinct_id = %(distinct_id)s
   {distinct_query}
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL,
@@ -301,4 +301,13 @@ AND person_id IN
     )
     WHERE 1 = 1 {filters}
 )
+"""
+
+GET_PERSON_PROPERTIES_COUNT = """
+SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
+FROM person
+ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) as keysAndValues
+WHERE team_id = %(team_id)s
+GROUP BY tupleElement(keysAndValues, 1)
+ORDER BY count DESC, key ASC
 """

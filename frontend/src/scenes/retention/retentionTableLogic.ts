@@ -49,15 +49,7 @@ export function defaultFilters(filters: Record<string, any>): Record<string, any
     }
 }
 
-export const retentionTableLogic = kea<
-    retentionTableLogicType<
-        RetentionTablePayload,
-        RetentionTrendPayload,
-        RetentionTablePeoplePayload,
-        RetentionTrendPeoplePayload,
-        ActionType
-    >
->({
+export const retentionTableLogic = kea<retentionTableLogicType>({
     key: (props) => {
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
@@ -154,13 +146,13 @@ export const retentionTableLogic = kea<
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.filters, router.values.hashParams]
+            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
         },
         setProperties: () => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.filters, router.values.hashParams]
+            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
         },
     }),
     urlToAction: ({ actions, values, key }) => ({

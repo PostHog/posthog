@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
+export const ingestionLogic = kea<ingestionLogicType>({
     connect: {
         actions: [teamLogic, ['updateCurrentTeamSuccess']],
     },
@@ -95,24 +95,24 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
 
     urlToAction: ({ actions }) => ({
         '/ingestion': () => actions.setState(null, null, false),
-        '/ingestion/verify': (_: any, { platform, framework }: Record<string, string>) => {
+        '/ingestion/verify': (_: any, { platform, framework }) => {
             actions.setState(
                 platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
                 framework,
                 true
             )
         },
-        '/ingestion/api': (_: any, { platform }: Record<string, string>) => {
+        '/ingestion/api': (_: any, { platform }) => {
             actions.setState(
                 platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
                 API,
                 false
             )
         },
-        '/ingestion(/:platform)(/:framework)': ({ platform, framework }: Record<string, string>) => {
+        '/ingestion(/:platform)(/:framework)': ({ platform, framework }) => {
             actions.setState(
                 platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
-                framework,
+                framework as Framework,
                 false
             )
         },
@@ -132,7 +132,7 @@ export const ingestionLogic = kea<ingestionLogicType<PlatformType, Framework>>({
     }),
 })
 
-function getUrl(values: typeof ingestionLogic['values']): string | [string, Record<string, undefined | string>] {
+function getUrl(values: ingestionLogicType['values']): string | [string, Record<string, undefined | string>] {
     const { platform, framework, verify } = values
 
     let url = '/ingestion'

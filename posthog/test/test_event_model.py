@@ -550,23 +550,6 @@ class TestPreCalculation(BaseTest):
         self.assertEqual(action.events.count(), 0)
 
 
-class TestSendToSlack(BaseTest):
-    @patch("celery.current_app.send_task")
-    def test_send_to_slack(self, patch_post_to_slack):
-        self.team.slack_incoming_webhook = "http://slack.com/hook"
-        self.team.save()
-        action_user_paid = Action.objects.create(team=self.team, name="user paid", post_to_slack=True)
-        ActionStep.objects.create(action=action_user_paid, event="user paid")
-
-        event = Event.objects.create(team=self.team, event="user paid", site_url="http://testserver")
-        calculate_actions_from_last_calculation()
-        calculate_actions_from_last_calculation()  # intentionally twice to make sure the hook fires once
-        self.assertEqual(patch_post_to_slack.call_count, 1)
-        patch_post_to_slack.assert_has_calls(
-            [call("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, "http://testserver"))]
-        )
-
-
 class TestSelectors(BaseTest):
     def test_selector_splitting(self):
         selector1 = Selector("div > span > a")

@@ -41,6 +41,8 @@ export interface UserType {
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
+    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
+    posthog_version?: string
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -129,7 +131,7 @@ export interface TeamType extends TeamBasicType {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     session_recording_retention_period_days: number | null
-    test_account_filters: FilterType[]
+    test_account_filters: AnyPropertyFilter[]
     data_attributes: string[]
 }
 
@@ -192,12 +194,18 @@ export type EditorProps = {
     dataAttributes?: string[]
 }
 
+export type PropertyFilterValue = string | number | (string | number)[] | null
+
 export interface PropertyFilter {
     key: string
-    operator: string | null
+    operator: PropertyOperator | null
     type: string
-    value: string | number | (string | number)[]
+    value: PropertyFilterValue
 }
+
+export type EmptyPropertyFilter = Partial<PropertyFilter>
+
+export type AnyPropertyFilter = PropertyFilter | EmptyPropertyFilter
 
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
@@ -216,7 +224,7 @@ export enum PropertyOperator {
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
-    value: string | number | Array<string | number> | null
+    value: PropertyFilterValue
     label?: string
 }
 
@@ -353,6 +361,11 @@ export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
 
+export enum PersonsTabType {
+    EVENTS = 'events',
+    SESSIONS = 'sessions',
+}
+
 export interface EventType {
     elements: ElementType[]
     elements_hash: string | null
@@ -377,11 +390,18 @@ export interface SessionType {
     length: number
     start_time: string
     end_time: string
-    session_recordings: Array<{ id: string; viewed: boolean }>
+    session_recordings: SessionTypeSessionRecording[]
     start_url?: string
     end_url?: string
     email?: string
     matching_events: Array<number | string>
+}
+
+export interface SessionTypeSessionRecording {
+    id: string
+    viewed: boolean
+    /** Length of recording in seconds */
+    recording_duration: number
 }
 
 export interface BillingType {
@@ -469,6 +489,7 @@ export interface PluginType {
     is_global: boolean
     organization_id: string
     organization_name: string
+    metrics?: Record<string, StoredMetricMathOperations>
 }
 
 export interface PluginConfigType {
@@ -528,15 +549,17 @@ export interface AnnotationType {
     creation_type?: string
 }
 
-export type DisplayType =
-    | 'ActionsLineGraph'
-    | 'ActionsLineGraphCumulative'
-    | 'ActionsTable'
-    | 'ActionsPie'
-    | 'ActionsBar'
-    | 'ActionsBarValue'
-    | 'PathsViz'
-    | 'FunnelViz'
+export enum ChartDisplayType {
+    ActionsLineGraphLinear = 'ActionsLineGraph',
+    ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
+    ActionsTable = 'ActionsTable',
+    ActionsPieChart = 'ActionsPie',
+    ActionsBarChart = 'ActionsBar',
+    ActionsBarChartValue = 'ActionsBarValue',
+    PathsViz = 'PathsViz',
+    FunnelViz = 'FunnelViz',
+}
+
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
@@ -553,7 +576,7 @@ export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_
 
 export interface FilterType {
     insight?: InsightType
-    display?: DisplayType
+    display?: ChartDisplayType
     interval?: string // TODO: Move to IntervalType
     date_from?: string
     date_to?: string
@@ -580,6 +603,8 @@ export interface FilterType {
     people_action?: any
     formula?: any
     filter_test_accounts?: boolean
+    from_dashboard?: boolean
+    funnel_step?: number
 }
 
 export interface SystemStatusSubrows {
@@ -655,6 +680,24 @@ export interface TrendResultWithAggregate extends TrendResult {
     aggregated_value: number
 }
 
+export interface FunnelStep {
+    action_id: string
+    average_time: number
+    count: number
+    name: string
+    order: number
+    people: string[]
+    type: EntityType
+    labels?: string[]
+}
+
+export interface FunnelResult {
+    is_cached: boolean
+    last_refresh: string | null
+    result: FunnelStep[]
+    type: 'Funnel'
+}
+
 export interface ChartParams {
     dashboardItemId?: number
     color?: string
@@ -665,7 +708,7 @@ export interface ChartParams {
 }
 
 export interface FeatureFlagGroupType {
-    properties: PropertyFilter[]
+    properties: AnyPropertyFilter[]
     rollout_percentage: number | null
 }
 interface FeatureFlagFilters {
@@ -708,6 +751,7 @@ export interface PreflightStatus {
     celery: boolean
     ee_available?: boolean
     is_clickhouse_enabled?: boolean
+    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
     db_backend?: 'postgres' | 'clickhouse'
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
@@ -792,7 +836,6 @@ export interface PropertyDefinition {
     tags?: string[]
     volume_30_day: number | null
     query_usage_30_day: number | null
-    owner?: UserBasicType | null
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
@@ -842,3 +885,5 @@ export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus
 }
+
+export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

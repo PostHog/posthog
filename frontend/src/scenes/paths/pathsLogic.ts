@@ -50,7 +50,7 @@ interface PathNode {
     value: number
 }
 
-export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterType, PathNode>>({
+export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     key: (props) => {
         return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
     },
@@ -181,10 +181,10 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
     },
     actionToUrl: ({ values }) => ({
         setProperties: () => {
-            return ['/insights', values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
         },
         setFilter: () => {
-            return ['/insights', values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
         },
     }),
     urlToAction: ({ actions, values, key }) => ({

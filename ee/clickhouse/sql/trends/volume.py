@@ -43,8 +43,8 @@ SELECT DISTINCT person_id FROM (
                     WHERE team_id = %(team_id)s
                 )
             WHERE team_id = %(team_id)s
-        ) as pid
-        ON events.distinct_id = pid.distinct_id
+        ) AS pdi
+        ON events.distinct_id = pdi.distinct_id
         WHERE team_id = %(team_id)s {entity_query} {filters} {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp, person_id
     ) e WHERE e.timestamp <= d.timestamp AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
 ) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}

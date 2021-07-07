@@ -34,9 +34,9 @@ style files without adding already imported styles. */
     --cyan: #17a2b8;
     --pink: #e83e8c;
     --white: #f4f6ff;
-    --maroon: #800000;
+    --maroon: #7f0000;
     --mint: #aaffc3;
-    --olive: #808000;
+    --olive: #807500;
     --navy: #000075;
     --orange: #f58231;
     --lime: #bfef45;
@@ -69,6 +69,11 @@ style files without adding already imported styles. */
 .text-extra-small {
     @extend .text-default;
     font-size: 10px;
+}
+
+.text-xxs {
+    @extend .text-default;
+    font-size: 8px;
 }
 
 .page-title-row {
@@ -472,7 +477,7 @@ code.code {
     font-size: 12px;
 }
 
-.graph-series-letter {
+.graph-series-glyph {
     border-radius: 50%;
     border: 2px solid $text_default;
     font-weight: bold;

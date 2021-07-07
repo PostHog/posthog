@@ -26,18 +26,7 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
     })
 }
 
-export const pluginsLogic = kea<
-    pluginsLogicType<
-        PluginType,
-        PluginConfigType,
-        PluginRepositoryEntry,
-        PluginTypeWithConfig,
-        PluginInstallationType,
-        PluginUpdateStatusType,
-        PluginTab,
-        PluginForm
-    >
->({
+export const pluginsLogic = kea<pluginsLogicType<PluginForm>>({
     actions: {
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
@@ -72,6 +61,8 @@ export const pluginsLogic = kea<
         cancelRearranging: true,
         showPluginLogs: (id: number) => ({ id }),
         hidePluginLogs: true,
+        showPluginMetrics: (id: number) => ({ id }),
+        hidePluginMetrics: true,
     },
 
     loaders: ({ actions, values }) => ({
@@ -391,6 +382,13 @@ export const pluginsLogic = kea<
                 showPluginLogs: (_, { id }) => id,
             },
         ],
+        showingMetricsPluginId: [
+            null as number | null,
+            {
+                showPluginMetrics: (_, { id }) => id,
+                hidePluginMetrics: () => null,
+            },
+        ],
     },
 
     selectors: {
@@ -524,6 +522,11 @@ export const pluginsLogic = kea<
             (s) => [s.lastShownLogsPluginId, s.installedPlugins],
             (lastShownLogsPluginId, installedPlugins) =>
                 lastShownLogsPluginId ? installedPlugins.find((plugin) => plugin.id === lastShownLogsPluginId) : null,
+        ],
+        showingMetricsPlugin: [
+            (s) => [s.showingMetricsPluginId, s.installedPlugins],
+            (showingMetricsPluginId, installedPlugins) =>
+                showingMetricsPluginId ? installedPlugins.find((plugin) => plugin.id === showingMetricsPluginId) : null,
         ],
     },
 

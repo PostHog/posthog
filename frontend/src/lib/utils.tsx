@@ -29,6 +29,10 @@ export function uuid(): string {
     )
 }
 
+export function isObjectEmpty(obj: Record<string, any>): boolean {
+    return obj && Object.keys(obj).length === 0 && obj.constructor === Object
+}
+
 export function toParams(obj: Record<string, any>): string {
     function handleVal(val: any): string {
         if (dayjs.isDayjs(val)) {
@@ -281,7 +285,9 @@ export function formatPropertyLabel(
         : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${operatorMap[operator]}`
-                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${value || ''}`)
+                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${
+                        value && value.length === 1 && value[0] === '' ? '(empty string)' : value || ''
+                    } `)
 }
 
 export function formatProperty(property: Record<string, any>): string {
@@ -862,7 +868,7 @@ function hexToRGB(hex: string): { r: number; g: number; b: number } {
     const originalColor = hasPoundSign ? originalString.slice(1) : originalString
 
     if (originalColor.length !== 6) {
-        console.log('Incorrectly formatted color string.')
+        console.warn(`Incorrectly formatted color string: ${hex}.`)
         return { r: 0, g: 0, b: 0 }
     }
 

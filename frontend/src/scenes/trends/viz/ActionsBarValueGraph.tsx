@@ -6,14 +6,14 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { TrendResultWithAggregate } from '~/types'
+import { FilterType, TrendResultWithAggregate } from '~/types'
 
 interface Props {
     dashboardItemId?: number | null
     view: ViewType
     color?: string
     inSharedMode?: boolean | null
-    filters?: Record<string, unknown>
+    filters?: Partial<FilterType>
     cachedResults?: any
 }
 
@@ -35,7 +35,11 @@ export function ActionsBarValueGraph({
     function updateData(): void {
         const _data = [...results] as TrendResultWithAggregate[]
         _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
-        const colorList = getChartColors(color)
+
+        // If there are more series than colors, we reuse colors sequentially so all series are colored
+        const rawColorList = getChartColors(color)
+        const colorList = results.map((_, idx) => rawColorList[idx % rawColorList.length])
+
         const days = results.length > 0 ? results[0].days : []
         setData([
             {
@@ -79,8 +83,8 @@ export function ActionsBarValueGraph({
                               const { dataset } = point
                               const action = dataset.actions[point.index]
                               const label = dataset.labels[point.index]
-                              const date_from = filtersParam?.date_from
-                              const date_to = filtersParam?.date_to
+                              const date_from = filtersParam?.date_from || ''
+                              const date_to = filtersParam?.date_to || ''
                               const breakdownValue = dataset.breakdownValues[point.index]
                                   ? dataset.breakdownValues[point.index]
                                   : null

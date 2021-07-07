@@ -17,6 +17,7 @@ import { PluginTab, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { SortableContainer, SortableElement, SortableHandle } from 'react-sortable-hoc'
 import { canConfigurePlugins, canGloballyManagePlugins, canInstallPlugins } from '../../access'
 import { LogsDrawer } from '../../plugin/LogsDrawer'
+import { MetricsDrawer } from '../../plugin/MetricsDrawer'
 
 type HandleProps = { children?: JSX.Element }
 const DragColumn = SortableHandle<HandleProps>(({ children }: HandleProps) => (
@@ -260,6 +261,7 @@ export function InstalledTab(): JSX.Element {
                 ) : null}
             </div>
             <LogsDrawer />
+            <MetricsDrawer />
         </>
     )
 }

@@ -1,4 +1,3 @@
-import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -12,6 +11,7 @@ from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog.ee import is_clickhouse_enabled
+from posthog.models.utils import sane_repr
 
 from .action import Action
 from .event import Event
@@ -247,6 +247,8 @@ class Cohort(models.Model):
                 filter = Filter(data=group)
                 filters |= Q(properties_to_Q(filter.properties, team_id=self.team_id, is_person_query=True))
         return filters
+
+    __repr__ = sane_repr("id", "name", "last_calculation")
 
 
 class CohortPeople(models.Model):
