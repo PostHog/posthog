@@ -95,7 +95,7 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict
 def populate_entity_params(entity: Entity) -> Tuple[Dict, Dict]:
     params, content_sql_params = {}, {}
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        action = Action.objects.get_from_entity(entity)
+        action = entity.get_action()
         action_query, action_params = format_action_filter(action)
         params = {**action_params}
         content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}

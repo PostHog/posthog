@@ -9,20 +9,10 @@ from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
 from rest_hooks.signals import raw_hook_event
 from sentry_sdk import capture_exception
 
-from posthog.models.entity import Entity
 from posthog.redis import get_client
-
-
-class ActionManager(models.Manager):
-    def get_from_entity(self, entity: Entity) -> "Action":
-        try:
-            return Action.objects.get(id=entity.id)
-        except:
-            raise ValidationError(f"Action ID {entity.id} does not exist.")
 
 
 class Action(models.Model):
@@ -42,8 +32,6 @@ class Action(models.Model):
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
-
-    objects: ActionManager = ActionManager()
 
     def calculate_events(self, start=None, end=None):
         recalculate_all = False

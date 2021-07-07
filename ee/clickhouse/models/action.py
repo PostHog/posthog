@@ -90,7 +90,7 @@ def filter_event(
 
 def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team=True) -> Tuple[str, Dict]:
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        action = Action.objects.get_from_entity(entity)
+        action = entity.get_action()
         entity_filter, params = format_action_filter(action, prepend=prepend, filter_by_team=filter_by_team)
     else:
         key = f"{prepend}_event"

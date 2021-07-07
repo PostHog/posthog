@@ -3,7 +3,6 @@ from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Exists, OuterRef, Q
 
-from posthog.models import cohort
 from posthog.utils import is_valid_regex
 
 ValueT = Union[str, int, List[str]]
