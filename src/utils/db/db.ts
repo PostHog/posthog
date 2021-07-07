@@ -566,13 +566,29 @@ export class DB {
         return insertResult.rows[0]
     }
 
-    public async doesPersonBelongToCohort(cohortId: number, personId: Person['id']): Promise<boolean> {
-        const selectResult = await this.postgresQuery(
+    public async doesPersonBelongToCohort(cohortId: number, person: Person, teamId: Team['id']): Promise<boolean> {
+        if (this.kafkaProducer) {
+            const chResult = await this.clickhouseQuery(
+                `SELECT 1 FROM person_static_cohort
+                WHERE
+                    team_id = ${teamId}
+                    AND cohort_id = ${cohortId}
+                    AND person_id = '${escapeClickHouseString(person.uuid)}'
+                LIMIT 1`
+            )
+
+            if (chResult.rows > 0) {
+                // Cohort is static and our person belongs to it
+                return true
+            }
+        }
+
+        const psqlResult = await this.postgresQuery(
             `SELECT EXISTS (SELECT 1 FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2);`,
-            [cohortId, personId],
+            [cohortId, person.id],
             'doesPersonBelongToCohort'
         )
-        return selectResult.rows[0].exists
+        return psqlResult.rows[0].exists
     }
 
     public async addPersonToCohort(cohortId: number, personId: Person['id']): Promise<CohortPeople> {
