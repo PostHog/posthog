@@ -169,7 +169,7 @@ export class EventsProcessor {
                     return now.plus(DateTime.fromISO(data['timestamp']).diff(sentAt))
                 } catch (error) {
                     status.error('⚠️', 'Error when handling timestamp:', error)
-                    Sentry.captureException(error)
+                    Sentry.captureException(error, { extra: { data, now, sentAt } })
                 }
             }
             return DateTime.fromISO(data['timestamp'])
