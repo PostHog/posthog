@@ -75,9 +75,11 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
+        self.assertEqual(len(result[0]["people"]), 1)
 
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 1)
+        self.assertEqual(len(result[1]["people"]), 1)
 
     def test_basic_funnel_with_repeat_steps(self):
         filters = {
@@ -104,7 +106,9 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
+        self.assertEqual(len(result[0]["people"]), 2)
         self.assertEqual(result[1]["count"], 1)
+        self.assertEqual(len(result[1]["people"]), 1)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -173,10 +177,15 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         self.assertEqual(result[1]["name"], "$pageview")
         self.assertEqual(result[4]["name"], "$pageview")
         self.assertEqual(result[0]["count"], 5)
+        self.assertEqual(len(result[0]["people"]), 5)
         self.assertEqual(result[1]["count"], 4)
+        self.assertEqual(len(result[1]["people"]), 4)
         self.assertEqual(result[2]["count"], 3)
+        self.assertEqual(len(result[2]["people"]), 3)
         self.assertEqual(result[3]["count"], 2)
+        self.assertEqual(len(result[3]["people"]), 2)
         self.assertEqual(result[4]["count"], 1)
+        self.assertEqual(len(result[4]["people"]), 1)
         # check ordering of people in every step
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -289,10 +298,15 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         self.assertEqual(result[1]["name"], "$pageview")
         self.assertEqual(result[4]["name"], "$pageview")
         self.assertEqual(result[0]["count"], 5)
+        self.assertEqual(len(result[0]["people"]), 5)
         self.assertEqual(result[1]["count"], 4)
+        self.assertEqual(len(result[1]["people"]), 4)
         self.assertEqual(result[2]["count"], 1)
+        self.assertEqual(len(result[2]["people"]), 1)
         self.assertEqual(result[3]["count"], 1)
+        self.assertEqual(len(result[3]["people"]), 1)
         self.assertEqual(result[4]["count"], 1)
+        self.assertEqual(len(result[4]["people"]), 1)
         # check ordering of people in every step
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -358,7 +372,9 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
 
         self.assertEqual(result[0]["name"], "sign up")
         self.assertEqual(result[0]["count"], 2)
+        self.assertEqual(len(result[0]["people"]), 2)
         self.assertEqual(result[1]["count"], 1)
+        self.assertEqual(len(result[1]["people"]), 1)
         # check ordering of people in first step
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -752,7 +768,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                     "action_id": "sign up",
                     "name": "sign up",
                     "order": 0,
-                    "people": [],
+                    "people": [person1.uuid],
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
@@ -762,7 +778,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                     "action_id": "play movie",
                     "name": "play movie",
                     "order": 1,
-                    "people": [],
+                    "people": [person1.uuid],
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 3600.0,
@@ -772,7 +788,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                     "action_id": "buy",
                     "name": "buy",
                     "order": 2,
-                    "people": [],
+                    "people": [person1.uuid],
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 7200.0,
@@ -787,7 +803,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                     "action_id": "sign up",
                     "name": "sign up",
                     "order": 0,
-                    "people": [],
+                    "people": [person2.uuid],
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
@@ -797,7 +813,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                     "action_id": "play movie",
                     "name": "play movie",
                     "order": 1,
-                    "people": [],
+                    "people": [person2.uuid],
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 7200.0,
@@ -879,7 +895,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                     "action_id": "sign up",
                     "name": "sign up",
                     "order": 0,
-                    "people": [],
+                    "people": [person1.uuid],
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
@@ -889,7 +905,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                     "action_id": "play movie",
                     "name": "play movie",
                     "order": 1,
-                    "people": [],
+                    "people": [person1.uuid],
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 3600.0,
@@ -899,7 +915,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                     "action_id": "buy",
                     "name": "buy",
                     "order": 2,
-                    "people": [],
+                    "people": [person1.uuid],
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 7200.0,
@@ -914,7 +930,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                     "action_id": "sign up",
                     "name": "sign up",
                     "order": 0,
-                    "people": [],
+                    "people": [person2.uuid],
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
@@ -924,7 +940,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
                     "action_id": "play movie",
                     "name": "play movie",
                     "order": 1,
-                    "people": [],
+                    "people": [person2.uuid],
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 7200.0,
