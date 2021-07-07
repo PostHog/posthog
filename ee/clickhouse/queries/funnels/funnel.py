@@ -1,15 +1,9 @@
 from typing import List
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
-from ee.clickhouse.sql.funnels.funnel import FUNNEL_SQL
 
 
 class ClickhouseFunnel(ClickhouseFunnelBase):
-    def get_query(self, format_properties):
-        return FUNNEL_SQL.format(**format_properties)
-
-
-class ClickhouseFunnelNew(ClickhouseFunnelBase):
     def get_query(self, format_properties):
 
         steps_per_person_query = self.get_step_counts_query()

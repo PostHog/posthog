@@ -7,8 +7,13 @@ from rest_framework.response import Response
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.funnels import ClickhouseFunnel, ClickhouseFunnelTrends, ClickhouseFunnelUnordered
-from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
+from ee.clickhouse.queries.funnels import (
+    ClickhouseFunnel,
+    ClickhouseFunnelStrict,
+    ClickhouseFunnelTimeToConvert,
+    ClickhouseFunnelTrends,
+    ClickhouseFunnelUnordered,
+)
 from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
@@ -76,8 +81,12 @@ class ClickhouseInsightsViewSet(InsightViewSet):
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS or filter.display == TRENDS_LINEAR:
             return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run()}
+        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
+            return {"result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run()}
         elif filter.funnel_order_type == FunnelOrderType.UNORDERED:
             return {"result": ClickhouseFunnelUnordered(team=team, filter=filter).run()}
+        elif filter.funnel_order_type == FunnelOrderType.STRICT:
+            return {"result": ClickhouseFunnelStrict(team=team, filter=filter).run()}
         else:
             return {"result": ClickhouseFunnel(team=team, filter=filter).run()}
 

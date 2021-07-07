@@ -2,7 +2,7 @@ import operator
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel, ClickhouseFunnelNew
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
@@ -38,10 +38,6 @@ def _create_event(**kwargs):
 
 
 class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
-    pass
-
-
-class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew, _create_event, _create_person)):  # type: ignore
     def _get_people_at_step(self, filter, funnel_step):
         person_filter = filter.with_data({"funnel_step": funnel_step})
         result = ClickhouseFunnelPersons(person_filter, self.team)._exec_query()
@@ -59,7 +55,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
@@ -92,7 +88,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -132,7 +128,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -240,7 +236,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1_stopped_after_signup = _create_person(
@@ -358,7 +354,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -407,7 +403,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -479,7 +475,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -624,6 +620,41 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
             self._get_people_at_step(filter, 5), [],
         )
 
+    def test_funnel_conversion_window(self):
+        ids_to_compare = []
+        for i in range(10):
+            person = _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            ids_to_compare.append(str(person.uuid))
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-02 00:00:00")
+
+        for i in range(10, 25):
+            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-10 00:00:00")
+
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-14 00:00:00",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+
+        filter = Filter(data={**data})
+        results = ClickhouseFunnel(filter, self.team).run()
+
+        self.assertEqual(results[0]["count"], 25)
+        self.assertEqual(results[1]["count"], 10)
+        self.assertEqual(results[2]["count"], 0)
+
+        self.assertCountEqual([str(id) for id in self._get_people_at_step(filter, 2)], ids_to_compare)
+
     def test_funnel_step_conversion_times(self):
 
         filters = {
@@ -635,7 +666,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -718,7 +749,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -845,7 +876,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$browser": "Chrome"})
@@ -972,7 +1003,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         for num in range(10):
             for i in range(num):
