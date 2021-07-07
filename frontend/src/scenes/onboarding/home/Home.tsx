@@ -64,7 +64,7 @@ export function Home(): JSX.Element {
             <div style={{ marginBottom: 128 }}>
                 <Space direction="vertical">
                     <PageHeader
-                        title="Overview"
+                        title="Home"
                         caption={
                             teamHasData ? undefined : 'Welcome to PostHog! Install one of our libraries to get started.'
                         }

@@ -160,7 +160,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
 
 export const redirects: Record<string, string | ((params: Params) => any)> = {
     '/': '/insights',
-    '/home': '/overview',
     '/plugins': '/project/plugins',
     '/actions': '/events/actions',
     '/organization/members': '/organization/settings',
@@ -203,7 +202,7 @@ export const routes: Record<string, Scene> = {
     '/ingestion': Scene.Ingestion,
     '/ingestion/*': Scene.Ingestion,
     '/setup': Scene.OnboardingSetup,
-    '/overview': Scene.Home,
+    '/home': Scene.Home,
 }
 
 export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneConfig>>({
