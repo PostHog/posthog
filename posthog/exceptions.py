@@ -25,6 +25,7 @@ def exception_reporting(exception: Exception, *args, **kwargs) -> None:
     Determines which exceptions to report and sends them to Sentry.
     Used through drf-exceptions-hog
     """
+    print(exception)
     if not isinstance(exception, APIException):
         capture_exception(exception)
 

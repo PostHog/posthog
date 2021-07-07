@@ -100,20 +100,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         return sync_execute(query, self.params)
 
-    def _get_steps_per_person_query(self):
-        formatted_query = ""
-        max_steps = len(self._filter.entities)
-        if max_steps >= 2:
-            formatted_query = self.build_step_subquery(2, max_steps)
-        else:
-            formatted_query = self._get_inner_event_query()
-
-        return f"""
-        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {self._get_step_times(max_steps)} {self._get_breakdown_prop()} FROM (
-            {formatted_query}
-        ) WHERE step_0 = 1
-        """
-
     def _get_step_times(self, max_steps: int):
         conditions: List[str] = []
         for i in range(1, max_steps):
@@ -124,34 +110,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         formatted = ", ".join(conditions)
         return f", {formatted}" if formatted else ""
 
-    def build_step_subquery(self, level_index: int, max_steps: int):
-        if level_index >= max_steps:
-            return f"""
-            SELECT 
-            person_id,
-            timestamp,
-            {self.get_partition_cols(1, max_steps)}
-            {self._get_breakdown_prop()}
-            FROM ({self._get_inner_event_query()})
-            """
-        else:
-            return f"""
-            SELECT 
-            person_id,
-            timestamp,
-            {self.get_partition_cols(level_index, max_steps)}
-            {self._get_breakdown_prop()}
-            FROM (
-                SELECT 
-                person_id,
-                timestamp,
-                {self.get_comparison_cols(level_index, max_steps)}
-                {self._get_breakdown_prop()}
-                FROM ({self.build_step_subquery(level_index + 1, max_steps)})
-            )
-            """
-
-    def get_partition_cols(self, level_index: int, max_steps: int):
+    def _get_partition_cols(self, level_index: int, max_steps: int):
         cols: List[str] = []
         for i in range(0, max_steps):
             cols.append(f"step_{i}")
@@ -164,17 +123,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 cols.append(
                     f"min(latest_{i}) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
-        return ", ".join(cols)
-
-    def get_comparison_cols(self, level_index: int, max_steps: int):
-        cols: List[str] = []
-        for i in range(0, max_steps):
-            cols.append(f"step_{i}")
-            if i < level_index:
-                cols.append(f"latest_{i}")
-            else:
-                comparison = self._get_comparison_at_step(i, level_index)
-                cols.append(f"if({comparison}, NULL, latest_{i}) as latest_{i}")
         return ", ".join(cols)
 
     def _get_comparison_at_step(self, index: int, level_index: int):
@@ -309,6 +257,12 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     @abstractmethod
     def get_query(self, format_properties):
+        pass
+
+    def get_step_counts_query(self):
+        pass
+
+    def get_step_counts_without_aggregation_query(self):
         pass
 
     def _get_breakdown_select_prop(self) -> str:

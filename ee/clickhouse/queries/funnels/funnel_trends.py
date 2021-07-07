@@ -1,7 +1,10 @@
 from datetime import date, datetime, timedelta
-from typing import Union
+from typing import Type, Union
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
+from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
+from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
 from posthog.constants import BREAKDOWN
 from posthog.models.filters.filter import Filter
@@ -45,11 +48,14 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     If no people have reached step {from_step} in the period, {conversion_rate} is zero.
     """
 
-    def __init__(self, filter: Filter, team: Team) -> None:
+    def __init__(self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase]) -> None:
         # TODO: allow breakdown
         if BREAKDOWN in filter._data:
             del filter._data[BREAKDOWN]
+
         super().__init__(filter, team)
+
+        self.funnel_order = funnel_order_class(filter, team)
 
     def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
@@ -61,7 +67,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return self._summarize_data(self._exec_query())
 
     def get_query(self, format_properties) -> str:
-        steps_per_person_query = self._get_steps_per_person_query()
+
+        steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
+        # expects multiple rows for same person, first event time, steps taken.
+        self.params.update(self.funnel_order.params)
+
         num_intervals, seconds_in_interval, _ = get_time_diff(
             self._filter.interval or "day", self._filter.date_from, self._filter.date_to, team_id=self._team.pk
         )

@@ -16,7 +16,18 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
 
         max_steps = len(self._filter.entities)
 
-        partition_select = self.get_partition_cols(1, max_steps)
+        formatted_query = self.get_step_counts_without_aggregation_query()
+
+        return f"""
+            SELECT person_id, max(steps) AS steps {self._get_step_time_avgs(max_steps)} FROM (
+                {formatted_query}
+            ) GROUP BY person_id
+        """
+
+    def get_step_counts_without_aggregation_query(self):
+        max_steps = len(self._filter.entities)
+
+        partition_select = self._get_partition_cols(1, max_steps)
         sorting_condition = self._get_sorting_condition(max_steps, max_steps)
 
         inner_query = f"""
@@ -32,13 +43,9 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
                     {inner_query}
                 ) WHERE step_0 = 1"""
 
-        return f"""
-            SELECT person_id, max(steps) AS steps {self._get_step_time_avgs(max_steps)} FROM (
-                {formatted_query}
-            ) GROUP BY person_id
-        """
+        return formatted_query
 
-    def get_partition_cols(self, level_index: int, max_steps: int):
+    def _get_partition_cols(self, level_index: int, max_steps: int):
         cols: List[str] = []
         for i in range(0, max_steps):
             cols.append(f"step_{i}")
