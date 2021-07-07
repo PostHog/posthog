@@ -536,6 +536,7 @@ export function PropertyKeyInfo({
             </Typography.Text>
         )
     }
+
     const innerContent = (
         <div className="property-key-info">
             <span className="property-key-info-logo" />
@@ -549,12 +550,7 @@ export function PropertyKeyInfo({
         <Popover
             overlayStyle={{ maxWidth: 500 }}
             placement="right"
-            title={
-                <span>
-                    <span className="property-key-info-logo" />
-                    {data.label}
-                </span>
-            }
+            title={innerContent}
             content={
                 <span>
                     {data.examples ? (
