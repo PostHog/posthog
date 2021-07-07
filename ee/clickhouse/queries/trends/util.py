@@ -101,7 +101,7 @@ def populate_entity_params(entity: Entity) -> Tuple[Dict, Dict]:
             params = {**action_params}
             content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}
         except:
-            raise ValidationError("Action does not exist")
+            raise ValidationError(f"Action ID {entity.id} does not exist.")
     else:
         content_sql_params = {"entity_query": "AND event = %(event)s"}
         params = {"event": entity.id}

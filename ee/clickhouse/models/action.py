@@ -94,7 +94,7 @@ def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team
             action = Action.objects.get(pk=entity.id)
             entity_filter, params = format_action_filter(action, prepend=prepend, filter_by_team=filter_by_team)
         except Action.DoesNotExist:
-            raise ValidationError("This action does not exist")
+            raise ValidationError(f"Action ID {entity.id} does not exist.")
     else:
         key = f"{prepend}_event"
         entity_filter = f"event = %({key})s"
