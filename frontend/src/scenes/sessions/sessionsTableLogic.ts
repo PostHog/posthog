@@ -7,6 +7,7 @@ import { sessionsTableLogicType } from './sessionsTableLogicType'
 import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import fromEntries from 'object.fromentries'
 
 type SessionRecordingId = string
 
@@ -180,7 +181,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 sessions: SessionType[],
                 showOnlyMatches: boolean
             ): Record<string, EventType[] | undefined> =>
-                Object.fromEntries(
+                fromEntries(
                     Object.entries(loadedSessionEvents).map(([id, events]) => {
                         const setOfMatchedEventIds = new Set(
                             sessions.find((s) => s.global_session_id === id)?.matching_events || []
