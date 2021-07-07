@@ -39,6 +39,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PersonModal } from 'scenes/trends/PersonModal'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -70,6 +71,8 @@ export function Insights(): JSX.Element {
     const trendsLogicLoaded = trendsLogic({ dashboardItemId: null, view: activeView, filters: allFilters })
     const { showingPeople } = useValues(trendsLogicLoaded)
     const { refreshCohort, saveCohortWithFilters } = useActions(trendsLogicLoaded)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
 
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
@@ -374,7 +377,9 @@ export function Insights(): JSX.Element {
                                     </div>
                                 </div>
                             </Card>
-                            {!showErrorMessage &&
+                            {(!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ||
+                                (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && !preflight?.is_clickhouse_enabled)) &&
+                                !showErrorMessage &&
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && (
