@@ -4,7 +4,7 @@ from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
 
 class ClickhouseFunnel(ClickhouseFunnelBase):
-    def get_query(self, format_properties):
+    def get_query(self):
 
         steps_per_person_query = self.get_step_counts_query()
         max_steps = len(self._filter.entities)

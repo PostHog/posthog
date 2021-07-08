@@ -23,7 +23,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     Here, `step_i` (0 indexed) signifies the number of people that did at least `i+1` steps.
     """
 
-    def get_query(self, format_properties):
+    def get_query(self):
 
         max_steps = len(self._filter.entities)
 
@@ -114,25 +114,3 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             return f"arraySum([{','.join(basic_conditions)}, 1])"
         else:
             return "1"
-
-    # TODO: copied from funnel.py. Once the new funnel query replaces old one, the base format_results function can use this
-    def _format_results(self, results):
-        # Format of this is [step order, person count (that reached that step), array of person uuids]
-        steps = []
-        total_people = 0
-
-        for step in reversed(self._filter.entities):
-
-            if results[0] and len(results[0]) > 0:
-                total_people += results[0][step.order]
-
-            serialized_result = self._serialize_step(step, total_people, [])
-            if step.order > 0:
-                serialized_result.update(
-                    {"average_conversion_time": results[0][step.order + len(self._filter.entities) - 1]}
-                )
-            else:
-                serialized_result.update({"average_conversion_time": None})
-            steps.append(serialized_result)
-
-        return steps[::-1]  #  reverse

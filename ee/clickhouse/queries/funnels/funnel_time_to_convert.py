@@ -13,7 +13,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
     def _format_results(self, results: list) -> list:
         return results
 
-    def get_query(self, format_properties) -> str:
+    def get_query(self) -> str:
         steps_per_person_query = self.funnel_order.get_step_counts_query()
         self.params.update(self.funnel_order.params)
         # expects 1 person per row, whatever their max step is, and the step conversion times for this person

@@ -4,7 +4,7 @@ from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
 
 class ClickhouseFunnelStrict(ClickhouseFunnelBase):
-    def get_query(self, format_properties):
+    def get_query(self):
         max_steps = len(self._filter.entities)
         return f"""
         SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} FROM (
@@ -56,25 +56,3 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
                     f"min(latest_{i}) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) latest_{i}"
                 )
         return ", ".join(cols)
-
-    # TODO: copied from funnel.py. Once the new funnel query replaces old one, the base format_results function can use this
-    def _format_results(self, results):
-        # Format of this is [step order, person count (that reached that step), array of person uuids]
-        steps = []
-        total_people = 0
-
-        for step in reversed(self._filter.entities):
-
-            if results[0] and len(results[0]) > 0:
-                total_people += results[0][step.order]
-
-            serialized_result = self._serialize_step(step, total_people, [])
-            if step.order > 0:
-                serialized_result.update(
-                    {"average_conversion_time": results[0][step.order + len(self._filter.entities) - 1]}
-                )
-            else:
-                serialized_result.update({"average_conversion_time": None})
-            steps.append(serialized_result)
-
-        return steps[::-1]  #  reverse
