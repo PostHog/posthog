@@ -384,18 +384,27 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-export function humanFriendlyDuration(d: string | number): string {
+export function humanFriendlyDuration(d: string | number, maxUnits?: number): string {
+    // Convert `d` (seconds) to a human-readable duration string.
+    // Example: `1d 10hrs 9mins 8s`
     d = Number(d)
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
     const s = Math.floor((d % 3600) % 60)
 
-    const dayDisplay = days > 0 ? days + 'd ' : ''
-    const hDisplay = h > 0 ? h + (h == 1 ? 'hr ' : 'hrs ') : ''
-    const mDisplay = m > 0 ? m + (m == 1 ? 'min ' : 'mins ') : ''
+    const dayDisplay = days > 0 ? days + 'd' : ''
+    const hDisplay = h > 0 ? h + (h == 1 ? 'hr' : 'hrs') : ''
+    const mDisplay = m > 0 ? m + (m == 1 ? 'min' : 'mins') : ''
     const sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
-    return days > 0 ? dayDisplay + hDisplay : hDisplay + mDisplay + sDisplay
+
+    let units: string[] = []
+    if (days > 0) {
+        units = [dayDisplay, hDisplay].filter(Boolean)
+    } else {
+        units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
+    }
+    return units.slice(0, maxUnits).join(' ')
 }
 
 export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {

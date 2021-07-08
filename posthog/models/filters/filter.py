@@ -30,6 +30,7 @@ from posthog.models.filters.mixins.funnel import (
     FunnelPersonsStepMixin,
     FunnelTypeMixin,
     FunnelWindowDaysMixin,
+    HistogramMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
 
@@ -57,6 +58,7 @@ class Filter(
     FunnelFromToStepsMixin,
     FunnelPersonsStepMixin,
     FunnelTypeMixin,
+    HistogramMixin,
     BaseFilter,
 ):
     """
