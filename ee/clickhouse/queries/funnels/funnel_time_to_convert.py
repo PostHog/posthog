@@ -1,12 +1,15 @@
 from typing import Type
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
 
 class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
-    def __init__(self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase]) -> None:
+    def __init__(
+        self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
+    ) -> None:
         super().__init__(filter, team)
         self.funnel_order = funnel_order_class(filter, team)
 
