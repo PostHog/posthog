@@ -101,24 +101,23 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
         # Converted from 0 to 1 in 82_800 s
 
-        with self.settings(DEBUG=1):
-            response = self.client.post(
-                "/api/insight/funnel/",
-                {
-                    "insight": "funnels",
-                    "funnel_viz_type": "time_to_convert",
-                    "interval": "day",
-                    "date_from": "2021-06-07 00:00:00",
-                    "date_to": "2021-06-13 23:59:59",
-                    "funnel_to_step": 1,
-                    "funnel_window_days": 7,
-                    "events": [
-                        {"id": "step one", "order": 0},
-                        {"id": "step two", "order": 1},
-                        {"id": "step three", "order": 2},
-                    ],
-                },
-            )
+        response = self.client.post(
+            "/api/insight/funnel/",
+            {
+                "insight": "funnels",
+                "funnel_viz_type": "time_to_convert",
+                "interval": "day",
+                "date_from": "2021-06-07 00:00:00",
+                "date_to": "2021-06-13 23:59:59",
+                "funnel_to_step": 1,
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            },
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
