@@ -52,7 +52,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             """
 
             formatted_query = f"""
-                SELECT *, {sorting_condition} AS steps {self._get_step_times(max_steps)} FROM (
+                SELECT *, {sorting_condition} AS steps_initial {self._get_step_times(max_steps)} FROM (
                         {inner_query}
                     ) WHERE step_0 = 1"""
 
@@ -63,10 +63,39 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         union_formatted_query = " UNION ALL ".join(union_queries)
 
         return f"""
-        SELECT person_id, max(steps) AS steps {self._get_step_time_avgs(max_steps)} FROM (
-                {union_formatted_query}
-        ) GROUP BY person_id
+        SELECT person_id, steps_initial as steps {self._get_step_time_avgs(max_steps)} FROM (
+            SELECT person_id, steps_initial, max(steps_initial) over (PARTITION BY person_id) as max_steps {self._get_step_time_names(max_steps)} FROM (
+                    {union_formatted_query}
+            )
+        ) GROUP BY person_id, steps
+        HAVING steps = max_steps
         """
+
+    def _get_step_time_names(self, max_steps: int):
+        names = []
+        for i in range(1, max_steps):
+            names.append(f"step_{i}_average_conversion_time")
+
+        formatted = ",".join(names)
+        return f", {formatted}" if formatted else ""
+
+    def _get_step_times(self, max_steps: int):
+        conditions: List[str] = []
+
+        conversion_times_elements = []
+        for i in range(max_steps):
+            conversion_times_elements.append(f"latest_{i}")
+
+        conditions.append(f"arraySort([{','.join(conversion_times_elements)}]) as conversion_times")
+
+        for i in range(1, max_steps):
+            conditions.append(
+                f"if(isNotNull(conversion_times[{i+1}]), dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_average_conversion_time"
+            )
+            # array indices in ClickHouse are 1-based :shrug:
+
+        formatted = ", ".join(conditions)
+        return f", {formatted}" if formatted else ""
 
     def get_sorting_condition(self, max_steps: int):
 
@@ -76,7 +105,10 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
                 f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY, 1, 0)"
             )
 
-        return f"arraySum([{','.join(basic_conditions)}, 1])"
+        if basic_conditions:
+            return f"arraySum([{','.join(basic_conditions)}, 1])"
+        else:
+            return "1"
 
     # TODO: copied from funnel.py. Once the new funnel query replaces old one, the base format_results function can use this
     def _format_results(self, results):

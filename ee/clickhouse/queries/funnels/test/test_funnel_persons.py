@@ -166,33 +166,3 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_window_days_to_milliseconds(self):
         one_day = FunnelWindowDaysMixin.milliseconds_from_days(1)
         self.assertEqual(one_day, 86_400_000)
-
-    def test_basic_conversion_window(self):
-        self._create_sample_data()
-        data = {
-            "insight": INSIGHT_FUNNELS,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "funnel_step": 1,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        filter = Filter(data={**data, "funnel_window_days": 1,})
-        results = ClickhouseFunnel(filter, self.team)._exec_query()
-        self.assertEqual(1, len(results))
-        self.assertEqual(1, results[0][MAX_STEP_COLUMN])
-        self.assertEqual(250, results[0][COUNT_COLUMN])
-        self.assertEqual(100, len(results[0][PERSON_ID_COLUMN]))
-
-        filter = Filter(data={**data, "funnel_window_days": 2,})
-        results = ClickhouseFunnel(filter, self.team)._exec_query()
-        self.assertEqual(1, len(results))
-        self.assertEqual(2, results[0][MAX_STEP_COLUMN])
-        self.assertEqual(250, results[0][COUNT_COLUMN])
-        self.assertEqual(100, len(results[0][PERSON_ID_COLUMN]))

@@ -34,6 +34,14 @@ export const actionEditLogic = kea({
         ],
     }),
 
+    loaders: ({ props }) => ({
+        actionCount: {
+            loadActionCount: async () => {
+                return (await api.get('api/action/' + props.id + '/count')).count
+            },
+        },
+    }),
+
     listeners: ({ values, props, actions }) => ({
         saveAction: async () => {
             let action = { ...values.action }
@@ -62,7 +70,9 @@ export const actionEditLogic = kea({
 
     events: ({ actions, props }) => ({
         afterMount: async () => {
-            if (!props.id) {
+            if (props.id) {
+                actions.loadActionCount()
+            } else {
                 actions.setAction({ name: '', steps: [{ isNew: uuid() }] })
             }
         },

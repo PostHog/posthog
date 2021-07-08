@@ -13,6 +13,7 @@ import {
     HotKeys,
     GlobalHotKeys,
     EntityType,
+    DashboardItemType,
 } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { Dayjs } from 'dayjs'
@@ -74,6 +75,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
         reportDashboardRefreshed: (lastRefreshed?: string | Dayjs | null) => ({ lastRefreshed }),
+        reportDashboardItemRefreshed: (dashboardItem: DashboardItemType) => ({ dashboardItem }),
         reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs, dateTo?: string | Dayjs | null) => ({
             dateFrom,
             dateTo,

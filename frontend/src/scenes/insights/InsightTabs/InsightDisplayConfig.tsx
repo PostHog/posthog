@@ -50,6 +50,7 @@ const showChartFilter = function (activeView: ViewType): boolean {
         case ViewType.STICKINESS:
         case ViewType.SESSIONS:
         case ViewType.RETENTION:
+            return true
         case ViewType.FUNNELS:
             return !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]
         case ViewType.LIFECYCLE:

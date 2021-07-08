@@ -69,8 +69,12 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
 
 def update_dashboard_items_cache(dashboard: Dashboard) -> None:
     for item in DashboardItem.objects.filter(dashboard=dashboard, filters__isnull=False).exclude(filters={}):
-        cache_key, cache_type, payload = dashboard_item_update_task_params(item, dashboard)
-        update_cache_item(cache_key, cache_type, payload)
+        update_dashboard_item_cache(item, dashboard)
+
+
+def update_dashboard_item_cache(dashboard_item: DashboardItem, dashboard: Optional[Dashboard]) -> None:
+    cache_key, cache_type, payload = dashboard_item_update_task_params(dashboard_item, dashboard)
+    update_cache_item(cache_key, cache_type, payload)
 
 
 def get_cache_type(filter: FilterType) -> CacheType:
