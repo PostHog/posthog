@@ -46,27 +46,25 @@ class ClickhouseFunnelBase(ABC, Funnel):
     def _format_results(self, results):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
-        relevant_people = []
         total_people = 0
 
         for step in reversed(self._filter.entities):
-            # Clickhouse step order starts at one, hence the +1
-            result_step = [x for x in results if step.order + 1 == x[0]]
-            if len(result_step) > 0:
-                total_people += result_step[0][1]
-                relevant_people += result_step[0][2]
-            steps.append(self._serialize_step(step, total_people, relevant_people[0:100]))
+
+            if results[0] and len(results[0]) > 0:
+                total_people += results[0][step.order]
+
+            serialized_result = self._serialize_step(step, total_people, [])
+            if step.order > 0:
+                serialized_result.update(
+                    {"average_conversion_time": results[0][step.order + len(self._filter.entities) - 1]}
+                )
+            else:
+                serialized_result.update({"average_conversion_time": None})
+            steps.append(serialized_result)
 
         return steps[::-1]  #  reverse
 
     def _exec_query(self) -> List[Tuple]:
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            self._filter.properties,
-            self._team.pk,
-            prepend="global",
-            allow_denormalized_props=True,
-            filter_test_accounts=self._filter.filter_test_accounts,
-        )
 
         # format default dates
         data = {}
@@ -76,27 +74,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             data.update({"date_to": timezone.now()})
         self._filter = self._filter.with_data(data)
 
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(
-            filter=self._filter, table="events.", team_id=self._team.pk
-        )
-        self.params.update(prop_filter_params)
-        steps = [self._build_step_query(entity, index, "events") for index, entity in enumerate(self._filter.entities)]
-
-        format_properties = {
-            "team_id": self._team.id,
-            "steps": ", ".join(steps),
-            "filters": prop_filters.replace("uuid IN", "events.uuid IN", 1),
-            "parsed_date_from": parsed_date_from,
-            "parsed_date_to": parsed_date_to,
-            "top_level_groupby": "",
-            "extra_select": "",
-            "extra_groupby": "",
-            "within_time": FunnelWindowDaysMixin.microseconds_from_days(self._filter.funnel_window_days),
-            "latest_distinct_id_sql": GET_LATEST_PERSON_DISTINCT_ID_SQL,
-            "offset": self._filter.offset,
-        }
-
-        query = self.get_query(format_properties)
+        query = self.get_query()
 
         return sync_execute(query, self.params)
 
@@ -256,7 +234,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return f", {formatted}" if formatted else ""
 
     @abstractmethod
-    def get_query(self, format_properties):
+    def get_query(self):
         pass
 
     def get_step_counts_query(self):

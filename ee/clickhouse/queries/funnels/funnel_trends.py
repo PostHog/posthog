@@ -63,7 +63,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     def perform_query(self):
         return self._summarize_data(self._exec_query())
 
-    def get_query(self, format_properties) -> str:
+    def get_query(self) -> str:
 
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
         # expects multiple rows for same person, first event time, steps taken.
