@@ -61,7 +61,9 @@ class ClickhouseSessionsList(SessionsList):
 
         self._add_person_properties(result)
 
-        return filter_sessions_by_recordings(self.team, result, self.filter), pagination
+        if self.filter.limit_by_recordings:
+            return filter_sessions_by_recordings(self.team, result, self.filter), pagination
+        return result, pagination
 
     def fetch_distinct_ids(
         self, action_filters: ActionFiltersSQL, date_from: str, date_to: str, limit: int, distinct_id_offset: int
