@@ -30,7 +30,7 @@ from posthog.models import Action, Cohort, Filter, Team
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 
-def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
+def format_person_query(cohort: Cohort, index: int, **kwargs) -> Tuple[str, Dict[str, Any]]:
     filters = []
     params: Dict[str, Any] = {}
 
@@ -38,8 +38,8 @@ def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
 
     if cohort.is_static:
         return (
-            f"{custom_match_field} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s)",
-            {"cohort_id": cohort.pk, "team_id": cohort.team_id},
+            f"{custom_match_field} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %(cohort_id_{index})s AND team_id = %(team_id)s)",
+            {f"cohort_id_{index}": cohort.pk, "team_id": cohort.team_id},
         )
 
     or_queries = []
@@ -175,6 +175,7 @@ def parse_cohort_timestamps(start_time: Optional[str], end_time: Optional[str]) 
 
 
 def is_precalculated_query(cohort: Cohort) -> bool:
+
     if (
         cohort.last_calculation
         and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
@@ -185,9 +186,11 @@ def is_precalculated_query(cohort: Cohort) -> bool:
         return False
 
 
-def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
+def format_filter_query(cohort: Cohort, index: int = 0) -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
-    person_query, params = get_precalculated_query(cohort) if is_precalculated else format_person_query(cohort)
+    person_query, params = (
+        get_precalculated_query(cohort, index) if is_precalculated else format_person_query(cohort, index)
+    )
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query, latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
@@ -195,13 +198,14 @@ def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
     return person_id_query, params
 
 
-def get_precalculated_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
+def get_precalculated_query(cohort: Cohort, index: int, **kwargs) -> Tuple[str, Dict[str, Any]]:
     custom_match_field = kwargs.get("custom_match_field", "person_id")
+    filter_query = GET_PERSON_ID_BY_COHORT_ID.format(index=index)
     return (
         f"""
-        {custom_match_field} IN ({GET_PERSON_ID_BY_COHORT_ID})
+        {custom_match_field} IN ({filter_query})
         """,
-        {"team_id": cohort.team_id, "cohort_id": cohort.pk},
+        {"team_id": cohort.team_id, f"cohort_id_{index}": cohort.pk},
     )
 
 
@@ -231,7 +235,7 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 
 def recalculate_cohortpeople(cohort: Cohort):
-    cohort_filter, cohort_params = format_person_query(cohort, custom_match_field="id")
+    cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id")
 
     cohort_filter = GET_PERSON_IDS_BY_FILTER.format(distinct_query="AND " + cohort_filter, query="")
 

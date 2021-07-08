@@ -324,8 +324,8 @@ class ClickhouseTrendsBreakdown:
     def _parse_breakdown_cohorts(self, cohorts: BaseManager) -> Tuple[List[str], Dict]:
         queries = []
         params: Dict[str, Any] = {}
-        for cohort in cohorts:
-            person_id_query, cohort_filter_params = format_filter_query(cohort)
+        for idx, cohort in enumerate(cohorts):
+            person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
             params = {**params, **cohort_filter_params}
             cohort_query = person_id_query.replace(
                 "SELECT distinct_id", "SELECT distinct_id, {} as value".format(cohort.pk)
