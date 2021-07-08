@@ -1,5 +1,6 @@
 from typing import Type
 
+from django.db import connection
 from rest_framework import filters, mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -22,6 +23,13 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
         raise EnterpriseFeatureException()
 
 
+def is_pg_trgm_installed():
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM pg_extension WHERE extname = 'pg_trgm'")
+        row = cursor.fetchone()
+    return bool(row[0])
+
+
 class PropertyDefinitionViewSet(
     StructuredViewSetMixin,
     mixins.ListModelMixin,
@@ -33,6 +41,9 @@ class PropertyDefinitionViewSet(
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
     ordering = "name"
+    pg_trgm_installed = is_pg_trgm_installed()
+    filter_backends = [] if pg_trgm_installed else [filters.SearchFilter]
+    search_fields = [] if pg_trgm_installed else ["name"]
 
     def get_queryset(self):
         if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
@@ -60,7 +71,7 @@ class PropertyDefinitionViewSet(
                 )
                 return ee_property_definitions
         objects = PropertyDefinition.objects
-        if "search" in self.request.query_params:
+        if self.pg_trgm_installed and "search" in self.request.query_params:
             objects = objects.filter(name__trigram_similar=self.request.query_params["search"])
         else:
             objects = objects.all()
