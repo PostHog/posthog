@@ -13,6 +13,7 @@ interface InfiniteListProps {
     searchQuery?: string
     onSelect: (type: string, id: string | number, name: string) => void
     selectedItemKey: string | number | null
+    updateCount: (count: number) => void
 }
 
 export function InfiniteList({
@@ -23,6 +24,7 @@ export function InfiniteList({
     searchQuery,
     onSelect,
     selectedItemKey,
+    updateCount,
 }: InfiniteListProps): JSX.Element {
     const key = `${filterKey}-${tabKey}`
     const logic = infiniteListLogic({ key, filterKey, type, endpoint, searchQuery })
@@ -51,6 +53,10 @@ export function InfiniteList({
     useEffect(() => {
         loadItems({ newSearchQuery: searchQuery })
     }, [searchQuery])
+
+    useEffect(() => {
+        updateCount(totalCount)
+    }, [totalCount])
 
     return (
         <div style={{ minHeight: '200px' }}>

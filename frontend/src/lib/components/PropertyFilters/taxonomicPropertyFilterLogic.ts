@@ -12,7 +12,7 @@ type GroupMetadataEntry = {
 
 type GroupMetadata = Record<string, GroupMetadataEntry>
 
-export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType<GroupMetadata>>({
+export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType<GroupMetadata, GroupMetadataEntry>>({
     props: {} as {
         key: string
         onChange?: null | ((filters: AnyPropertyFilter[]) => void)
@@ -29,7 +29,10 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             displayMode,
         }),
         setGroupMetadata: (groupMetadata: GroupMetadata) => ({ groupMetadata }),
-        setGroupMetadataEntry: (key: string, groupMetadataEntry: any) => ({ key, groupMetadataEntry }),
+        setGroupMetadataEntry: (key: string, groupMetadataEntry: Partial<GroupMetadataEntry>) => ({
+            key,
+            groupMetadataEntry,
+        }),
         setActiveTabKey: (activeTabKey: string) => ({ activeTabKey }),
     }),
 
@@ -58,7 +61,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 setGroupMetadata: (_, { groupMetadata }) => groupMetadata,
                 setGroupMetadataEntry: (state, { key, groupMetadataEntry }) => ({
                     ...state,
-                    [key]: groupMetadataEntry,
+                    [key]: { ...state[key], ...groupMetadataEntry },
                 }),
             },
         ],

@@ -4,6 +4,7 @@ import { SelectedItem } from 'lib/components/SelectBox'
 import { InfiniteList } from './InfiniteList'
 import { StaticVirtualizedList } from './StaticVirtualizedList'
 import { useActions, useValues } from 'kea'
+import Fuse from 'fuse.js'
 import { taxonomicPropertyFilterLogic } from '../../taxonomicPropertyFilterLogic'
 
 export interface SelectResult extends Omit<SelectedItem, 'key'> {
@@ -25,12 +26,31 @@ export interface InfiniteSelectResultsProps {
     onSelect: (type: string, id: string | number, name: string) => void
 }
 
+const fuseCache: Record<string, Fuse<SelectResult>> = {}
+
+const searchItems = (sources: SelectResult[], groupType: string, search?: string): SelectResult[] => {
+    if (!search) {
+        return sources
+    }
+
+    if (!fuseCache[groupType]) {
+        fuseCache[groupType] = new Fuse(sources, {
+            keys: ['name'],
+            threshold: 0.3,
+        })
+    }
+    return fuseCache[groupType].search(search).map((result) => result.item)
+}
+
 export function InfiniteSelectResults({ filterKey, groups, onSelect }: InfiniteSelectResultsProps): JSX.Element {
     const filterLogic = taxonomicPropertyFilterLogic({ key: filterKey })
     const { activeTabKey, searchQuery, selectedItemKey, groupMetadata } = useValues(filterLogic)
-    const { setActiveTabKey } = useActions(filterLogic)
+    const { setActiveTabKey, setGroupMetadataEntry } = useActions(filterLogic)
     const handleSelect = (type: string, key: string | number, name: string): void => {
         onSelect(type, key, name)
+    }
+    const updateCount = (key: string) => (count: number): void => {
+        setGroupMetadataEntry(key, { count })
     }
 
     return (
@@ -42,14 +62,14 @@ export function InfiniteSelectResults({ filterKey, groups, onSelect }: InfiniteS
         >
             {groups.map(({ key, type, endpoint, dataSource }) => {
                 const { name, count, active } = groupMetadata[key] || {}
-                const title = (
-                    <>
-                        {name} {count != null && <Tag>{count}</Tag>}
-                    </>
-                )
-                return (
-                    <Tabs.TabPane tab={title} key={key} active={active}>
-                        {endpoint && !dataSource ? (
+                if (endpoint && !dataSource) {
+                    const title = (
+                        <>
+                            {name} {count != null && <Tag>{count}</Tag>}
+                        </>
+                    )
+                    return (
+                        <Tabs.TabPane tab={title} key={key} active={active}>
                             <InfiniteList
                                 filterKey={filterKey}
                                 tabKey={key}
@@ -58,18 +78,28 @@ export function InfiniteSelectResults({ filterKey, groups, onSelect }: InfiniteS
                                 searchQuery={searchQuery}
                                 onSelect={handleSelect}
                                 selectedItemKey={selectedItemKey}
+                                updateCount={updateCount(key)}
                             />
-                        ) : (
+                        </Tabs.TabPane>
+                    )
+                } else {
+                    const searchResults = searchItems(dataSource || [], type, searchQuery)
+                    const title = (
+                        <>
+                            {name} <Tag>{searchResults.length}</Tag>
+                        </>
+                    )
+                    return (
+                        <Tabs.TabPane tab={title} key={key} active={active}>
                             <StaticVirtualizedList
                                 type={type}
-                                dataSource={dataSource || []}
-                                searchQuery={searchQuery}
+                                dataSource={searchResults}
                                 onSelect={handleSelect}
                                 selectedItemKey={selectedItemKey}
                             />
-                        )}
-                    </Tabs.TabPane>
-                )
+                        </Tabs.TabPane>
+                    )
+                }
             })}
         </Tabs>
     )
