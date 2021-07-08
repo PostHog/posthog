@@ -68,5 +68,5 @@ GROUP BY person_id HAVING count(*) {count_operator} %(count)s
 """
 
 GET_PERSON_ID_BY_COHORT_ID = """
-SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s GROUP BY person_id, cohort_id, team_id HAVING sum(sign) > 0
+SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id_{index})s GROUP BY person_id, cohort_id, team_id HAVING sum(sign) > 0
 """
