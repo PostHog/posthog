@@ -79,7 +79,7 @@ export const funnelLogic = kea<funnelLogicType>({
         openPersonsModal: (step: FunnelStep, stepNumber: number) => ({ step, stepNumber }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         setBarGraphLayout: (barGraphLayout: FunnelBarLayout) => ({ barGraphLayout }),
-        setTimeConversionBins: (timeConversionBins: any) => ({ timeConversionBins }),
+        setTimeConversionBins: (timeConversionBins: number[]) => ({ timeConversionBins }),
     }),
 
     connect: {
@@ -89,12 +89,12 @@ export const funnelLogic = kea<funnelLogicType>({
 
     loaders: ({ props, values, actions }) => ({
         results: [
-            [] as FunnelStep[],
+            [] as FunnelStep[] | number[],
             {
-                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[]> => {
+                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[] | number[]> => {
                     actions.setStepsWithCountLoading(true)
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
-                        return props.cachedResults as FunnelStep[]
+                        return props.cachedResults as FunnelStep[] | number[]
                     }
 
                     const { from_dashboard } = values.filters
@@ -129,9 +129,10 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
-                    actions.setSteps(result.result)
                     if (params.display === ChartDisplayType.FunnelsHistogram) {
-                        actions.setTimeConversionBins(result.result)
+                        actions.setTimeConversionBins(result.result as number[])
+                    } else {
+                        actions.setSteps(result.result as FunnelStep[])
                     }
                     return result.result
                 },
@@ -226,7 +227,7 @@ export const funnelLogic = kea<funnelLogicType>({
         propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
         isValidFunnel: [
             () => [selectors.stepsWithCount, selectors.timeConversionBins],
-            (stepsWithCount: FunnelStep[], timeConversionBins: any[]) => {
+            (stepsWithCount: FunnelStep[], timeConversionBins: number[]) => {
                 return (
                     (stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1) ||
                     timeConversionBins.length > 0

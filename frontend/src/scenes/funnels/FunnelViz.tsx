@@ -17,7 +17,7 @@ import { FunnelHistogram } from './FunnelHistogram'
 
 interface FunnelVizProps extends Omit<ChartParams, 'view'> {
     steps: FunnelStep[]
-    timeConversionBins: any[]
+    timeConversionBins: number[]
 }
 
 export function FunnelViz({

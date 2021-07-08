@@ -696,7 +696,7 @@ export interface FunnelStep {
 export interface FunnelResult {
     is_cached: boolean
     last_refresh: string | null
-    result: FunnelStep[]
+    result: FunnelStep[] | number[]
     type: 'Funnel'
 }
 
