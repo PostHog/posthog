@@ -1,12 +1,22 @@
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from typing import Type
+
+from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
+from posthog.models.filters.filter import Filter
+from posthog.models.team import Team
 
 
-class ClickhouseFunnelTimeToConvert(ClickhouseFunnel):
+class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
+    def __init__(self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase]) -> None:
+        super().__init__(filter, team)
+        self.funnel_order = funnel_order_class(filter, team)
+
     def _format_results(self, results: list) -> list:
         return results
 
     def get_query(self, format_properties) -> str:
-        steps_per_person_query = self._get_steps_per_person_query()
+        steps_per_person_query = self.funnel_order.get_step_counts_query()
+        self.params.update(self.funnel_order.params)
+        # expects 1 person per row, whatever their max step is, and the step conversion times for this person
 
         # Conversion to which step (from the immediately preceding one) should be calculated
         to_step = self._filter.funnel_to_step

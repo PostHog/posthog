@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
@@ -36,10 +36,24 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     def get_step_counts_query(self):
 
         max_steps = len(self._filter.entities)
+
+        union_query = self.get_step_counts_without_aggregation_query()
+
+        return f"""
+            SELECT person_id, steps {self._get_step_time_avgs(max_steps)} FROM (
+                SELECT person_id, steps, max(steps) over (PARTITION BY person_id) as max_steps {self._get_step_time_names(max_steps)} FROM (
+                        {union_query}
+                )
+            ) GROUP BY person_id, steps
+            HAVING steps = max_steps
+        """
+
+    def get_step_counts_without_aggregation_query(self):
+        max_steps = len(self._filter.entities)
         union_queries = []
         entities_to_use = list(self._filter.entities)
 
-        partition_select = self.get_partition_cols(1, max_steps)
+        partition_select = self._get_partition_cols(1, max_steps)
         sorting_condition = self.get_sorting_condition(max_steps)
 
         for i in range(max_steps):
@@ -52,7 +66,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             """
 
             formatted_query = f"""
-                SELECT *, {sorting_condition} AS steps_initial {self._get_step_times(max_steps)} FROM (
+                SELECT *, {sorting_condition} AS steps {self._get_step_times(max_steps)} FROM (
                         {inner_query}
                     ) WHERE step_0 = 1"""
 
@@ -60,16 +74,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             entities_to_use.append(entities_to_use.pop(0))
             union_queries.append(formatted_query)
 
-        union_formatted_query = " UNION ALL ".join(union_queries)
-
-        return f"""
-        SELECT person_id, steps_initial as steps {self._get_step_time_avgs(max_steps)} FROM (
-            SELECT person_id, steps_initial, max(steps_initial) over (PARTITION BY person_id) as max_steps {self._get_step_time_names(max_steps)} FROM (
-                    {union_formatted_query}
-            )
-        ) GROUP BY person_id, steps
-        HAVING steps = max_steps
-        """
+        return " UNION ALL ".join(union_queries)
 
     def _get_step_time_names(self, max_steps: int):
         names = []

@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Type
 
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -9,6 +9,7 @@ from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels import (
     ClickhouseFunnel,
+    ClickhouseFunnelBase,
     ClickhouseFunnelStrict,
     ClickhouseFunnelTimeToConvert,
     ClickhouseFunnelTrends,
@@ -78,16 +79,24 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
 
-        if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run()}
-        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            return {"result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run()}
-        elif filter.funnel_order_type == FunnelOrderType.UNORDERED:
-            return {"result": ClickhouseFunnelUnordered(team=team, filter=filter).run()}
+        funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
+        if filter.funnel_order_type == FunnelOrderType.UNORDERED:
+            funnel_order_class = ClickhouseFunnelUnordered
         elif filter.funnel_order_type == FunnelOrderType.STRICT:
-            return {"result": ClickhouseFunnelStrict(team=team, filter=filter).run()}
+            funnel_order_class = ClickhouseFunnelStrict
+
+        if filter.funnel_viz_type == FunnelVizType.TRENDS:
+            return {
+                "result": ClickhouseFunnelTrends(team=team, filter=filter, funnel_order_class=funnel_order_class).run()
+            }
+        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
+            return {
+                "result": ClickhouseFunnelTimeToConvert(
+                    team=team, filter=filter, funnel_order_class=funnel_order_class
+                ).run()
+            }
         else:
-            return {"result": ClickhouseFunnel(team=team, filter=filter).run()}
+            return {"result": funnel_order_class(team=team, filter=filter).run()}
 
     @cached_function()
     def calculate_retention(self, request: Request) -> Dict[str, Any]:
