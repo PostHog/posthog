@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { TrendPeople, parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
-import { DownloadOutlined, UsergroupAddOutlined, PlusOutlined } from '@ant-design/icons'
+import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input, Row } from 'antd'
 import { deepLinkToPersonSessions } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,6 +16,7 @@ import { midEllipsis } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import './PersonModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
 // Utility function to handle filter conversion required for deeplinking to person -> sessions
 const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
     if (!people?.action) {
@@ -191,6 +192,14 @@ interface PersonRowProps {
 
 export function PersonRow({ person, people, filters }: PersonRowProps): JSX.Element {
     const [showProperties, setShowProperties] = useState(false)
+    const expandProps = {
+        record: '',
+        onExpand: () => setShowProperties(!showProperties),
+        expanded: showProperties,
+        expandable: Object.keys(person.properties).length > 0,
+        prefixCls: 'ant-table',
+    } as ExpandIconProps
+
     return (
         <Col
             key={person.id}
@@ -202,12 +211,7 @@ export function PersonRow({ person, people, filters }: PersonRowProps): JSX.Elem
         >
             <Row style={{ justifyContent: 'space-between' }}>
                 <Row>
-                    <Button
-                        size="small"
-                        icon={<PlusOutlined />}
-                        style={{ alignSelf: 'center', marginRight: 16 }}
-                        onClick={() => setShowProperties(!showProperties)}
-                    />
+                    <ExpandIcon {...expandProps}>{undefined}</ExpandIcon>
                     <Col>
                         <span className="text-default">
                             <strong>{person.properties.email}</strong>
@@ -238,7 +242,7 @@ export function PersonRow({ person, people, filters }: PersonRowProps): JSX.Elem
                 </Button>
             </Row>
             {showProperties && (
-                <Row style={{ paddingTop: 16 }}>
+                <Row className="person-modal-properties" style={{ paddingTop: 16 }}>
                     <PropertiesTable properties={person.properties} />
                 </Row>
             )}
