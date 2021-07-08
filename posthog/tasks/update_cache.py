@@ -150,10 +150,6 @@ def dashboard_item_update_task_params(
     return cache_key, cache_type, payload
 
 
-def import_from(module: str, name: str) -> Any:
-    return getattr(importlib.import_module(module), name)
-
-
 def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type: CacheType) -> List[Dict[str, Any]]:
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
