@@ -1381,7 +1381,8 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/34659256?v=4",
       "profile": "https://mhmd.dev",
       "contributions": [
-        "code"
+        "code",
+        "bug"
       ]
     }
   ],
