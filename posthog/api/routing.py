@@ -8,7 +8,6 @@ from rest_framework_extensions.settings import extensions_api_settings
 from posthog.api.utils import get_token
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.utils import load_data_from_request
 
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
@@ -72,7 +71,7 @@ class StructuredViewSetMixin(NestedViewSetMixin):
             del parents_query_dict[source]
         if parents_query_dict:
             try:
-                return queryset.filter(**parents_query_dict)
+                return queryset.filter(team=self.team, **parents_query_dict)
             except ValueError:
                 raise NotFound()
         else:
