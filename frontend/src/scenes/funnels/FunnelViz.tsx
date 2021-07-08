@@ -11,8 +11,9 @@ import { router } from 'kea-router'
 import { IllustrationDanger } from 'lib/components/icons'
 import { InputNumber } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { ChartParams, FunnelStep } from '~/types'
+import { ChartDisplayType, ChartParams, FunnelStep } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FunnelHistogram } from './FunnelHistogram'
 
 interface FunnelVizProps extends Omit<ChartParams, 'view'> {
     steps: FunnelStep[]
@@ -142,6 +143,10 @@ export function FunnelViz({
                 />
             </>
         ) : null
+    }
+
+    if (filters.display == ChartDisplayType.FunnelsHistogram) {
+        return steps && steps.length > 0 ? <FunnelHistogram /> : null
     }
 
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
