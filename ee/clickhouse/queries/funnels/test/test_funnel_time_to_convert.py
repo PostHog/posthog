@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytz
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels import ClickhouseFunnelNew, ClickhouseFunnelStrict, ClickhouseFunnelUnordered
+from ee.clickhouse.queries.funnels import ClickhouseFunnel, ClickhouseFunnelStrict, ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
@@ -61,7 +61,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnelNew)
+        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnel)
         results = funnel_trends.run()
 
         # Autobinned using the maximum time to convert

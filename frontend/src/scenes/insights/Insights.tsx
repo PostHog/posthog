@@ -71,7 +71,6 @@ export function Insights(): JSX.Element {
     const { showingPeople } = useValues(trendsLogicLoaded)
     const { refreshCohort, saveCohortWithFilters } = useActions(trendsLogicLoaded)
 
-    const { funnelPersonsEnabled } = useValues(funnelLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
 
@@ -375,8 +374,7 @@ export function Insights(): JSX.Element {
                                     </div>
                                 </div>
                             </Card>
-                            {!funnelPersonsEnabled &&
-                                !showErrorMessage &&
+                            {!showErrorMessage &&
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && (

@@ -2,9 +2,6 @@ from datetime import date, datetime, timedelta
 from typing import Type, Union
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
-from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
-from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
 from posthog.constants import BREAKDOWN
 from posthog.models.filters.filter import Filter

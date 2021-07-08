@@ -11,12 +11,10 @@ from ee.clickhouse.queries.funnels import (
     ClickhouseFunnel,
     ClickhouseFunnelBase,
     ClickhouseFunnelStrict,
+    ClickhouseFunnelTimeToConvert,
     ClickhouseFunnelTrends,
     ClickhouseFunnelUnordered,
 )
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
-from ee.clickhouse.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
-from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
@@ -87,8 +85,6 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             funnel_order_class = ClickhouseFunnelUnordered
         elif filter.funnel_order_type == FunnelOrderType.STRICT:
             funnel_order_class = ClickhouseFunnelStrict
-        elif filter.funnel_order_type == FunnelOrderType.ORDERED:
-            funnel_order_class = ClickhouseFunnelNew
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
             return {
