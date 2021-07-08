@@ -264,3 +264,87 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(
             self._get_people_at_step(filter, 4), [person8.uuid,],
         )
+
+    def test_basic_strict_funnel_conversion_times(self):
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "events": [
+                    {"id": "user signed up", "order": 0},
+                    {"id": "$pageview", "order": 1},
+                    {"id": "insight viewed", "order": 2},
+                ],
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 23:59:59",
+            }
+        )
+
+        funnel = ClickhouseFunnelStrict(filter, self.team)
+
+        person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="stopped_after_signup1", timestamp="2021-05-02 00:00:00"
+        )
+
+        person2_stopped_after_one_pageview = _create_person(
+            distinct_ids=["stopped_after_pageview1"], team_id=self.team.pk
+        )
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="stopped_after_pageview1",
+            timestamp="2021-05-02 00:00:00",
+        )
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="stopped_after_pageview1", timestamp="2021-05-02 01:00:00"
+        )
+
+        person3_stopped_after_insight_view = _create_person(
+            distinct_ids=["stopped_after_insightview"], team_id=self.team.pk
+        )
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="stopped_after_insightview",
+            timestamp="2021-05-02 00:00:00",
+        )
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="stopped_after_insightview", timestamp="2021-05-02 02:00:00"
+        )
+        _create_event(
+            team=self.team,
+            event="insight viewed",
+            distinct_id="stopped_after_insightview",
+            timestamp="2021-05-02 04:00:00",
+        )
+
+        result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[1]["name"], "$pageview")
+        self.assertEqual(result[2]["name"], "insight viewed")
+        self.assertEqual(result[0]["count"], 3)
+
+        self.assertEqual(result[1]["average_conversion_time"], 5400)
+        # 1 hour for Person 2, 2 hours for Person 3, average = 1.5 hours
+
+        self.assertEqual(result[2]["average_conversion_time"], 7200)
+        # 2 hours for Person 3
+
+        self.assertCountEqual(
+            self._get_people_at_step(filter, 1),
+            [
+                person1_stopped_after_signup.uuid,
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_insight_view.uuid,
+            ],
+        )
+
+        self.assertCountEqual(
+            self._get_people_at_step(filter, 2),
+            [person2_stopped_after_one_pageview.uuid, person3_stopped_after_insight_view.uuid],
+        )
+
+        self.assertCountEqual(
+            self._get_people_at_step(filter, 3), [person3_stopped_after_insight_view.uuid],
+        )

@@ -100,6 +100,7 @@ TOOLBAR_COOKIE_SECURE = secure_cookies
 SESSION_COOKIE_SECURE = secure_cookies
 CSRF_COOKIE_SECURE = secure_cookies
 SECURE_SSL_REDIRECT = secure_cookies
+SECURE_REDIRECT_EXEMPT = [r"^_health/?"]
 
 if not TEST:
     if os.getenv("SENTRY_DSN"):

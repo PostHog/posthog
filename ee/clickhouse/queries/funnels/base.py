@@ -2,10 +2,12 @@ from abc import ABC, abstractmethod
 from typing import List, Tuple
 
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.breakdown_props import get_breakdown_event_prop_values, get_breakdown_person_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
@@ -95,6 +97,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         }
 
         query = self.get_query(format_properties)
+
         return sync_execute(query, self.params)
 
     def _get_steps_per_person_query(self):
@@ -106,7 +109,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             formatted_query = self._get_inner_event_query()
 
         return f"""
-        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {self._get_step_times(max_steps)} FROM (
+        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {self._get_step_times(max_steps)} {self._get_breakdown_prop()} FROM (
             {formatted_query}
         ) WHERE step_0 = 1
         """
@@ -128,6 +131,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             person_id,
             timestamp,
             {self.get_partition_cols(1, max_steps)}
+            {self._get_breakdown_prop()}
             FROM ({self._get_inner_event_query()})
             """
         else:
@@ -136,11 +140,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
             person_id,
             timestamp,
             {self.get_partition_cols(level_index, max_steps)}
+            {self._get_breakdown_prop()}
             FROM (
                 SELECT 
                 person_id,
                 timestamp,
                 {self.get_comparison_cols(level_index, max_steps)}
+                {self._get_breakdown_prop()}
                 FROM ({self.build_step_subquery(level_index + 1, max_steps)})
             )
             """
@@ -215,24 +221,17 @@ class ClickhouseFunnelBase(ABC, Funnel):
         steps = ", ".join(all_step_cols)
 
         select_prop = self._get_breakdown_select_prop()
+        breakdown_conditions = self._get_breakdown_conditions()
+        extra_conditions = "AND prop != ''" if select_prop else ""
+        extra_conditions += f"AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
 
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
             event_query=event_query,
             steps_condition=steps_conditions,
             select_prop=select_prop,
-            extra_conditions=("AND prop != ''" if select_prop else ""),
+            extra_conditions=extra_conditions,
         )
-
-    def _get_breakdown_select_prop(self) -> str:
-        if self._filter.breakdown:
-            self.params.update({"breakdown": self._filter.breakdown})
-            if self._filter.breakdown_type == "person":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
-            elif self._filter.breakdown_type == "event":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
-
-        return ""
 
     def _get_steps_conditions(self, length: int) -> str:
         step_conditions: List[str] = []
@@ -311,3 +310,36 @@ class ClickhouseFunnelBase(ABC, Funnel):
     @abstractmethod
     def get_query(self, format_properties):
         pass
+
+    def _get_breakdown_select_prop(self) -> str:
+        if self._filter.breakdown:
+            self.params.update({"breakdown": self._filter.breakdown})
+            if self._filter.breakdown_type == "person":
+                return f", JSONExtractRaw(person_props, %(breakdown)s) as prop"
+            elif self._filter.breakdown_type == "event":
+                return f", JSONExtractRaw(properties, %(breakdown)s) as prop"
+
+        return ""
+
+    def _get_breakdown_conditions(self) -> str:
+        if self._filter.breakdown:
+            limit = 5
+            first_entity = next(x for x in self._filter.entities if x.order == 0)
+            if not first_entity:
+                ValidationError("An entity with order 0 was not provided")
+            values = []
+            if self._filter.breakdown_type == "person":
+                values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, 5)
+            elif self._filter.breakdown_type == "event":
+                values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, 5)
+            self.params.update({"breakdown_values": values})
+
+            return "prop IN %(breakdown_values)s"
+        else:
+            return ""
+
+    def _get_breakdown_prop(self) -> str:
+        if self._filter.breakdown:
+            return ", prop"
+        else:
+            return ""

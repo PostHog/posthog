@@ -24,6 +24,7 @@ import {
     DeliveredProcedureOutlined,
     BarChartOutlined,
     SaveOutlined,
+    ReloadOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
@@ -38,6 +39,7 @@ import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType } fro
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 dayjs.extend(relativeTime)
 
@@ -228,6 +230,8 @@ export function DashboardItem({
         preventLoading,
     }
 
+    const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
+    const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
     const { results, resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
     const previousLoading = usePrevious(resultsLoading)
 
@@ -320,6 +324,27 @@ export function DashboardItem({
                                                 onClick={() => router.actions.push(link)}
                                             >
                                                 {viewText}
+                                            </Menu.Item>
+                                            <Menu.Item
+                                                data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
+                                                icon={<ReloadOutlined />}
+                                                onClick={() => {
+                                                    loadResults(true)
+                                                    reportDashboardItemRefreshed(item)
+                                                }}
+                                            >
+                                                <Tooltip
+                                                    title={
+                                                        <i>
+                                                            Last updated:{' '}
+                                                            {item.last_refresh
+                                                                ? dayjs(item.last_refresh).fromNow()
+                                                                : 'recently'}
+                                                        </i>
+                                                    }
+                                                >
+                                                    Refresh
+                                                </Tooltip>
                                             </Menu.Item>
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-rename'}

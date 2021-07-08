@@ -7,8 +7,14 @@ import { sessionsTableLogicType } from './sessionsTableLogicType'
 import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import fromEntries from 'object.fromentries'
 
 type SessionRecordingId = string
+
+export enum ExpandState {
+    Expanded,
+    Collapsed,
+}
 
 interface Params {
     date?: string
@@ -63,7 +69,8 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         loadSessionEvents: (session: SessionType) => ({ session }),
         addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
         setLastAppliedFilters: (filters: SessionsPropertyFilter[]) => ({ filters }),
-        setExpandAllRows: (expandAllRows: boolean) => ({ expandAllRows }),
+        toggleExpandSessionRows: true,
+        onExpandedRowsChange: true,
         setShowOnlyMatches: (showOnlyMatches: boolean) => ({ showOnlyMatches }),
     }),
     reducers: {
@@ -108,10 +115,18 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 setLastAppliedFilters: (_, { filters }) => filters,
             },
         ],
-        expandAllRows: [
-            false,
+        rowExpandState: [
+            ExpandState.Collapsed,
             {
-                setExpandAllRows: (_, { expandAllRows }) => expandAllRows,
+                toggleExpandSessionRows: (state) =>
+                    state === ExpandState.Expanded ? ExpandState.Collapsed : ExpandState.Expanded,
+            },
+        ],
+        manualRowExpansion: [
+            true,
+            {
+                onExpandedRowsChange: () => true,
+                toggleExpandSessionRows: () => false,
             },
         ],
         showOnlyMatches: [
@@ -166,7 +181,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 sessions: SessionType[],
                 showOnlyMatches: boolean
             ): Record<string, EventType[] | undefined> =>
-                Object.fromEntries(
+                fromEntries(
                     Object.entries(loadedSessionEvents).map(([id, events]) => {
                         const setOfMatchedEventIds = new Set(
                             sessions.find((s) => s.global_session_id === id)?.matching_events || []
@@ -175,9 +190,23 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                     })
                 ),
         ],
-        expandedRowKeys: [
-            (selectors) => [selectors.sessions],
-            (sessions: SessionType[]): string[] => sessions?.map((s) => s.global_session_id) || [],
+        expandedRowKeysProps: [
+            (selectors) => [selectors.sessions, selectors.rowExpandState, selectors.manualRowExpansion],
+            (
+                sessions,
+                rowExpandState,
+                manualRowExpansion
+            ): {
+                expandedRowKeys?: string[]
+            } => {
+                if (manualRowExpansion) {
+                    return {}
+                } else if (rowExpandState === ExpandState.Collapsed) {
+                    return { expandedRowKeys: [] }
+                } else {
+                    return { expandedRowKeys: sessions.map((s) => s.global_session_id) || [] }
+                }
+            },
         ],
     },
     listeners: ({ values, actions, props }) => ({

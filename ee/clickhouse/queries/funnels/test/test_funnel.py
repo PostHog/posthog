@@ -1,7 +1,8 @@
+import operator
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel, ClickhouseFunnelNew
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
@@ -37,10 +38,6 @@ def _create_event(**kwargs):
 
 
 class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
-    pass
-
-
-class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew, _create_event, _create_person)):  # type: ignore
     def _get_people_at_step(self, filter, funnel_step):
         person_filter = filter.with_data({"funnel_step": funnel_step})
         result = ClickhouseFunnelPersons(person_filter, self.team)._exec_query()
@@ -58,7 +55,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
@@ -74,9 +71,11 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
+        self.assertEqual(len(result[0]["people"]), 1)
 
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 1)
+        self.assertEqual(len(result[1]["people"]), 1)
 
     def test_basic_funnel_with_repeat_steps(self):
         filters = {
@@ -89,7 +88,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -103,7 +102,9 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
+        self.assertEqual(len(result[0]["people"]), 2)
         self.assertEqual(result[1]["count"], 1)
+        self.assertEqual(len(result[1]["people"]), 1)
 
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -127,7 +128,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -172,10 +173,15 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         self.assertEqual(result[1]["name"], "$pageview")
         self.assertEqual(result[4]["name"], "$pageview")
         self.assertEqual(result[0]["count"], 5)
+        self.assertEqual(len(result[0]["people"]), 5)
         self.assertEqual(result[1]["count"], 4)
+        self.assertEqual(len(result[1]["people"]), 4)
         self.assertEqual(result[2]["count"], 3)
+        self.assertEqual(len(result[2]["people"]), 3)
         self.assertEqual(result[3]["count"], 2)
+        self.assertEqual(len(result[3]["people"]), 2)
         self.assertEqual(result[4]["count"], 1)
+        self.assertEqual(len(result[4]["people"]), 1)
         # check ordering of people in every step
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -230,7 +236,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1_stopped_after_signup = _create_person(
@@ -288,10 +294,15 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         self.assertEqual(result[1]["name"], "$pageview")
         self.assertEqual(result[4]["name"], "$pageview")
         self.assertEqual(result[0]["count"], 5)
+        self.assertEqual(len(result[0]["people"]), 5)
         self.assertEqual(result[1]["count"], 4)
+        self.assertEqual(len(result[1]["people"]), 4)
         self.assertEqual(result[2]["count"], 1)
+        self.assertEqual(len(result[2]["people"]), 1)
         self.assertEqual(result[3]["count"], 1)
+        self.assertEqual(len(result[3]["people"]), 1)
         self.assertEqual(result[4]["count"], 1)
+        self.assertEqual(len(result[4]["people"]), 1)
         # check ordering of people in every step
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -343,7 +354,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -357,7 +368,9 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
 
         self.assertEqual(result[0]["name"], "sign up")
         self.assertEqual(result[0]["count"], 2)
+        self.assertEqual(len(result[0]["people"]), 2)
         self.assertEqual(result[1]["count"], 1)
+        self.assertEqual(len(result[1]["people"]), 1)
         # check ordering of people in first step
         self.assertCountEqual(
             self._get_people_at_step(filter, 1),
@@ -390,7 +403,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -462,7 +475,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
@@ -607,6 +620,41 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
             self._get_people_at_step(filter, 5), [],
         )
 
+    def test_funnel_conversion_window(self):
+        ids_to_compare = []
+        for i in range(10):
+            person = _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            ids_to_compare.append(str(person.uuid))
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-02 00:00:00")
+
+        for i in range(10, 25):
+            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-10 00:00:00")
+
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-14 00:00:00",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+
+        filter = Filter(data={**data})
+        results = ClickhouseFunnel(filter, self.team).run()
+
+        self.assertEqual(results[0]["count"], 25)
+        self.assertEqual(results[1]["count"], 10)
+        self.assertEqual(results[2]["count"], 0)
+
+        self.assertCountEqual([str(id) for id in self._get_people_at_step(filter, 2)], ids_to_compare)
+
     def test_funnel_step_conversion_times(self):
 
         filters = {
@@ -618,7 +666,7 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         }
 
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnelNew(filter, self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
 
         # event
         person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
@@ -687,3 +735,303 @@ class TestFunnelNew(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnelNew
         self.assertEqual(result[0]["average_conversion_time"], None)
         self.assertEqual(result[1]["average_conversion_time"], 6000)
         self.assertEqual(result[2]["average_conversion_time"], 5400)
+
+    def test_funnel_step_breakdown_event(self):
+
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        # event
+        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T13:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="buy",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T15:00:00Z",
+        )
+
+        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person2",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T16:00:00Z",
+        )
+
+        result = funnel.run()
+        self.assertEqual(
+            result[0],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "order": 0,
+                    "people": [person1.uuid],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": "Chrome",
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "order": 1,
+                    "people": [person1.uuid],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 3600.0,
+                    "breakdown": "Chrome",
+                },
+                {
+                    "action_id": "buy",
+                    "name": "buy",
+                    "order": 2,
+                    "people": [person1.uuid],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 7200.0,
+                    "breakdown": "Chrome",
+                },
+            ],
+        )
+        self.assertEqual(
+            result[1],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "order": 0,
+                    "people": [person2.uuid],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": "Safari",
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "order": 1,
+                    "people": [person2.uuid],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 7200.0,
+                    "breakdown": "Safari",
+                },
+                {
+                    "action_id": "buy",
+                    "name": "buy",
+                    "order": 2,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": "Safari",
+                },
+            ],
+        )
+
+    def test_funnel_step_breakdown_person(self):
+
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "person",
+            "breakdown": "$browser",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        # event
+        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$browser": "Chrome"})
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            properties={"key": "val"},
+            timestamp="2020-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person1",
+            properties={"key": "val"},
+            timestamp="2020-01-01T13:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="buy",
+            distinct_id="person1",
+            properties={"key": "val"},
+            timestamp="2020-01-01T15:00:00Z",
+        )
+
+        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={"$browser": "Safari"})
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            properties={"key": "val"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person2",
+            properties={"key": "val"},
+            timestamp="2020-01-02T16:00:00Z",
+        )
+
+        result = funnel.run()
+        self.assertEqual(
+            result[0],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "order": 0,
+                    "people": [person1.uuid],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": "Chrome",
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "order": 1,
+                    "people": [person1.uuid],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 3600.0,
+                    "breakdown": "Chrome",
+                },
+                {
+                    "action_id": "buy",
+                    "name": "buy",
+                    "order": 2,
+                    "people": [person1.uuid],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 7200.0,
+                    "breakdown": "Chrome",
+                },
+            ],
+        )
+        self.assertEqual(
+            result[1],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "order": 0,
+                    "people": [person2.uuid],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": "Safari",
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "order": 1,
+                    "people": [person2.uuid],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 7200.0,
+                    "breakdown": "Safari",
+                },
+                {
+                    "action_id": "buy",
+                    "name": "buy",
+                    "order": 2,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": "Safari",
+                },
+            ],
+        )
+
+    def test_funnel_step_breakdown_limit(self):
+
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "some_breakdown_val",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        for num in range(10):
+            for i in range(num):
+                _create_person(distinct_ids=[f"person_{num}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=f"person_{num}_{i}",
+                    properties={"key": "val", "some_breakdown_val": f"{num}"},
+                    timestamp="2020-01-01T12:00:00Z",
+                )
+                _create_event(
+                    team=self.team,
+                    event="play movie",
+                    distinct_id=f"person_{num}_{i}",
+                    properties={"key": "val", "some_breakdown_val": f"{num}"},
+                    timestamp="2020-01-01T13:00:00Z",
+                )
+                _create_event(
+                    team=self.team,
+                    event="buy",
+                    distinct_id=f"person_{num}_{i}",
+                    properties={"key": "val", "some_breakdown_val": f"{num}"},
+                    timestamp="2020-01-01T15:00:00Z",
+                )
+
+        result = funnel.run()
+
+        # assert that we give 5 at a time at most and that those values are the most popular ones
+        breakdown_vals = sorted([res[0]["breakdown"] for res in result])
+        self.assertEqual(["5", "6", "7", "8", "9"], breakdown_vals)
