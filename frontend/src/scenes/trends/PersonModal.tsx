@@ -1,8 +1,8 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { TrendPeople, parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
-import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
+import { DownloadOutlined, UsergroupAddOutlined, PlusOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input, Row } from 'antd'
 import { deepLinkToPersonSessions } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -15,6 +15,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import './PersonModal.scss'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
 // Utility function to handle filter conversion required for deeplinking to person -> sessions
 const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
     if (!people?.action) {
@@ -157,43 +158,9 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                     </div>
                     <Col style={{ background: '#FAFAFA' }}>
                         {people?.people.map((person) => (
-                            <Row
-                                key={person.id}
-                                style={{
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    padding: '14px 8px',
-                                    borderBottom: '1px solid #D9D9D9',
-                                }}
-                            >
-                                <Col>
-                                    <span className="text-default">
-                                        <strong>{person.properties.email}</strong>
-                                    </span>
-                                    <div className="text-small text-muted-alt">
-                                        <CopyToClipboardInline
-                                            explicitValue={person.distinct_ids[0]}
-                                            tooltipMessage=""
-                                            iconStyle={{ color: 'var(--primary)' }}
-                                            iconPosition="end"
-                                        >
-                                            {midEllipsis(person.distinct_ids[0], 32)}
-                                        </CopyToClipboardInline>
-                                    </div>
-                                </Col>
-                                <Button>
-                                    <Link
-                                        to={deepLinkToPersonSessions(
-                                            person,
-                                            convertToSessionFilters(people, filters),
-                                            people?.day ? dayjs(people.day).format('YYYY-MM-DD') : '',
-                                            'Insights'
-                                        )}
-                                    >
-                                        View details
-                                    </Link>
-                                </Button>
-                            </Row>
+                            <div key={person.id}>
+                                <PersonRow person={person} people={people} filters={filters} />
+                            </div>
                         ))}
                     </Col>
                     <div
@@ -213,5 +180,68 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                 <p>Loading users...</p>
             )}
         </Modal>
+    )
+}
+
+interface PersonRowProps {
+    person: any
+    people: any
+    filters: any
+}
+
+export function PersonRow({ person, people, filters }: PersonRowProps): JSX.Element {
+    const [showProperties, setShowProperties] = useState(false)
+    return (
+        <Col
+            key={person.id}
+            style={{
+                alignItems: 'center',
+                padding: '14px 8px',
+                borderBottom: '1px solid #D9D9D9',
+            }}
+        >
+            <Row style={{ justifyContent: 'space-between' }}>
+                <Row>
+                    <Button
+                        size="small"
+                        icon={<PlusOutlined />}
+                        style={{ alignSelf: 'center', marginRight: 16 }}
+                        onClick={() => setShowProperties(!showProperties)}
+                    />
+                    <Col>
+                        <span className="text-default">
+                            <strong>{person.properties.email}</strong>
+                        </span>
+                        <div className="text-small text-muted-alt">
+                            <CopyToClipboardInline
+                                explicitValue={person.distinct_ids[0]}
+                                tooltipMessage=""
+                                iconStyle={{ color: 'var(--primary)' }}
+                                iconPosition="end"
+                            >
+                                {midEllipsis(person.distinct_ids[0], 32)}
+                            </CopyToClipboardInline>
+                        </div>
+                    </Col>
+                </Row>
+                <Button>
+                    <Link
+                        to={deepLinkToPersonSessions(
+                            person,
+                            convertToSessionFilters(people, filters),
+                            people?.day ? dayjs(people.day).format('YYYY-MM-DD') : '',
+                            'Insights'
+                        )}
+                    >
+                        View details
+                    </Link>
+                </Button>
+            </Row>
+            {showProperties && (
+                <Row style={{ paddingTop: 16 }}>
+                    <PropertiesTable properties={person.properties} />
+                </Row>
+            )}
+        </Col>
     )
 }
