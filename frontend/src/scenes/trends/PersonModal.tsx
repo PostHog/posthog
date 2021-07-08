@@ -4,13 +4,12 @@ import dayjs from 'dayjs'
 import { TrendPeople, parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input, Row } from 'antd'
-import { deepLinkToPersonSessions, PersonsTable } from 'scenes/persons/PersonsTable'
+import { deepLinkToPersonSessions } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter } from '~/types'
 import { ACTION_TYPE, EVENT_TYPE } from 'lib/constants'
 import { personsModalLogic } from './personsModalLogic'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import Col from 'antd/es/grid/col'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
@@ -48,7 +47,6 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
     const { searchTerm } = useValues(personsModalLogic)
     const { setSearchTerm } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { funnelPersonsEnabled } = useValues(funnelLogic)
     const title =
         filters.shown_as === 'Stickiness'
             ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
@@ -72,16 +70,16 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
             footer={
                 <Row style={{ justifyContent: 'space-between', alignItems: 'center', padding: '6px 0px' }}>
                     <Row style={{ alignItems: 'center' }}>
-                        {true &&
+                        {featureFlags['save-cohort-on-modal'] &&
                             (view === ViewType.TRENDS || view === ViewType.STICKINESS || view === ViewType.FUNNELS) && (
-                                <div style={{paddingRight: 8}}>
+                                <div style={{ paddingRight: 8 }}>
                                     <Button onClick={onSaveCohort}>
                                         <UsergroupAddOutlined />
                                         Save as cohort
                                     </Button>
                                 </div>
                             )}
-                        {people &&
+                        {people && (
                             <>
                                 <Button
                                     icon={<DownloadOutlined />}
@@ -100,13 +98,13 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                     Download CSV
                                 </Button>
                             </>
-                        }
+                        )}
                     </Row>
                     <Button onClick={closeModal}>Close</Button>
                 </Row>
             }
             width={600}
-            bodyStyle={{ padding: 0, maxHeight: 500, overflowY: 'scroll'}}
+            bodyStyle={{ padding: 0, maxHeight: 500, overflowY: 'scroll' }}
             className="person-modal"
         >
             {people ? (
@@ -125,30 +123,28 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                 flexDirection: 'column',
                                 width: '100%',
                                 alignItems: 'flex-start',
-                                padding: '0px 16px'
+                                padding: '0px 16px',
                             }}
                         >
-                            {true && (
-                                <>
-                                    <Input.Search
-                                        allowClear
-                                        enterButton
-                                        placeholder="Search person by email, name, or ID"
-                                        style={{ width: '100%', flexGrow: 1 }}
-                                        onChange={(e) => {
-                                            setSearchTerm(e.target.value)
-                                            if (!e.target.value) {
-                                                setFirstLoadedPeople(firstLoadedPeople)
-                                            }
-                                        }}
-                                        value={searchTerm}
-                                        onSearch={(term) =>
-                                            term
-                                                ? setPersonsModalFilters(term, people)
-                                                : setFirstLoadedPeople(firstLoadedPeople)
+                            {featureFlags['persons-modal-search'] && (
+                                <Input.Search
+                                    allowClear
+                                    enterButton
+                                    placeholder="Search person by email, name, or ID"
+                                    style={{ width: '100%', flexGrow: 1 }}
+                                    onChange={(e) => {
+                                        setSearchTerm(e.target.value)
+                                        if (!e.target.value) {
+                                            setFirstLoadedPeople(firstLoadedPeople)
                                         }
-                                    />
-                                </>
+                                    }}
+                                    value={searchTerm}
+                                    onSearch={(term) =>
+                                        term
+                                            ? setPersonsModalFilters(term, people)
+                                            : setFirstLoadedPeople(firstLoadedPeople)
+                                    }
+                                />
                             )}
                             <span style={{ paddingTop: 9 }}>
                                 Showing{' '}
@@ -159,36 +155,22 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                             </span>
                         </div>
                     </div>
-                    {/* <div className="text-right">
-                        <Button
-                            icon={<DownloadOutlined />}
-                            href={`/api/action/people.csv?/?${parsePeopleParams(
-                                {
-                                    label: people.label,
-                                    action: people.action,
-                                    date_from: people.day,
-                                    date_to: people.day,
-                                    breakdown_value: people.breakdown_value,
-                                },
-                                filters
-                            )})}`}
-                            style={{ marginBottom: '1rem' }}
-                            title="Download CSV"
-                        />
-                    </div> */}
-                    {/* <PersonsTable
-                        loading={!people?.people}
-                        people={people.people}
-                        sessionsFilters={convertToSessionFilters(people, filters)}
-                        date={people?.day ? dayjs(people.day).format('YYYY-MM-DD') : undefined}
-                        backTo="Insights"
-                    /> */}
-                    <Col style={{background: '#FAFAFA'}}>
-                        {people?.people.map(person => (
-                            <Row key={person.id} style={{justifyContent: 'space-between', alignItems: 'center', padding: 8, borderBottom: '1px solid #D9D9D9'}}>
+                    <Col style={{ background: '#FAFAFA' }}>
+                        {people?.people.map((person) => (
+                            <Row
+                                key={person.id}
+                                style={{
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '14px 8px',
+                                    borderBottom: '1px solid #D9D9D9',
+                                }}
+                            >
                                 <Col>
-                                    <span className="text-default"><strong>{person.properties.email}</strong></span>
-                                    <div className="text-small">
+                                    <span className="text-default">
+                                        <strong>{person.properties.email}</strong>
+                                    </span>
+                                    <div className="text-small text-muted-alt">
                                         <CopyToClipboardInline
                                             explicitValue={person.distinct_ids[0]}
                                             tooltipMessage=""
@@ -200,7 +182,14 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                     </div>
                                 </Col>
                                 <Button>
-                                    <Link to={deepLinkToPersonSessions(person, convertToSessionFilters(people, filters), people?.day ? dayjs(people.day).format('YYYY-MM-DD') : '', 'Insights')}>
+                                    <Link
+                                        to={deepLinkToPersonSessions(
+                                            person,
+                                            convertToSessionFilters(people, filters),
+                                            people?.day ? dayjs(people.day).format('YYYY-MM-DD') : '',
+                                            'Insights'
+                                        )}
+                                    >
                                         View details
                                     </Link>
                                 </Button>
