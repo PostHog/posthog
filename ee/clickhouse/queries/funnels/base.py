@@ -243,12 +243,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
     def get_step_counts_without_aggregation_query(self):
         pass
 
-    def get_step_counts_query(self):
-        pass
-
-    def get_step_counts_without_aggregation_query(self):
-        pass
-
     def _get_breakdown_select_prop(self) -> str:
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
