@@ -2,7 +2,7 @@ import importlib
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 from celery import group
 from dateutil.relativedelta import relativedelta
@@ -165,6 +165,7 @@ def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, 
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
 
+    insight_class: Union[Type[Funnel]]
     if is_clickhouse_enabled():
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
             insight_class = ClickhouseFunnelTrends
