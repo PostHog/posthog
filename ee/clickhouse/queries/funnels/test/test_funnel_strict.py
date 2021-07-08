@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictPersons
@@ -35,8 +36,11 @@ def _create_event(**kwargs):
 
 
 class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
-    def _get_people_at_step(self, filter, funnel_step):
-        person_filter = filter.with_data({"funnel_step": funnel_step})
+
+    maxDiff = None
+
+    def _get_people_at_step(self, filter, funnel_step, breakdown_value=None):
+        person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
         result = ClickhouseFunnelStrictPersons(person_filter, self.team)._exec_query()
         return [row[0] for row in result]
 
@@ -348,3 +352,336 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(
             self._get_people_at_step(filter, 3), [person3_stopped_after_insight_view.uuid],
         )
+
+    def test_funnel_step_breakdown_event(self):
+
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelStrict(filter, self.team)
+
+        # event
+        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T13:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="buy",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T15:00:00Z",
+        )
+
+        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person2",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T16:00:00Z",
+        )
+
+        person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person3",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="blah",
+            distinct_id="person3",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T15:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person3",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T16:00:00Z",
+        )
+
+        result = funnel.run()
+        self.assertEqual(
+            result[0],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": '"Chrome"',
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "order": 1,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 3600.0,
+                    "breakdown": '"Chrome"',
+                },
+                {
+                    "action_id": "buy",
+                    "name": "buy",
+                    "order": 2,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 7200.0,
+                    "breakdown": '"Chrome"',
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_people_at_step(filter, 1, '"Chrome"'), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, '"Chrome"'), [person1.uuid])
+        self.assertEqual(
+            result[1],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "order": 0,
+                    "people": [],
+                    "count": 2,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": '"Safari"',
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "order": 1,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 7200.0,
+                    "breakdown": '"Safari"',
+                },
+                {
+                    "action_id": "buy",
+                    "name": "buy",
+                    "order": 2,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": '"Safari"',
+                },
+            ],
+        )
+
+        self.assertCountEqual(self._get_people_at_step(filter, 1, '"Safari"'), [person2.uuid, person3.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, '"Safari"'), [person2.uuid])
+
+    def test_funnel_step_breakdown_person(self):
+
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "person",
+            "breakdown": "$browser",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelStrict(filter, self.team)
+
+        # event
+        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$browser": "Chrome"})
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            properties={"key": "val"},
+            timestamp="2020-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person1",
+            properties={"key": "val"},
+            timestamp="2020-01-01T13:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="buy",
+            distinct_id="person1",
+            properties={"key": "val"},
+            timestamp="2020-01-01T15:00:00Z",
+        )
+
+        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={"$browser": "Safari"})
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            properties={"key": "val"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person2",
+            properties={"key": "val"},
+            timestamp="2020-01-02T16:00:00Z",
+        )
+
+        result = funnel.run()
+        self.assertEqual(
+            result[0],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": '"Chrome"',
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "order": 1,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 3600.0,
+                    "breakdown": '"Chrome"',
+                },
+                {
+                    "action_id": "buy",
+                    "name": "buy",
+                    "order": 2,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 7200.0,
+                    "breakdown": '"Chrome"',
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_people_at_step(filter, 1, '"Chrome"'), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, '"Chrome"'), [person1.uuid])
+
+        self.assertEqual(
+            result[1],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": '"Safari"',
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "order": 1,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 7200.0,
+                    "breakdown": '"Safari"',
+                },
+                {
+                    "action_id": "buy",
+                    "name": "buy",
+                    "order": 2,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": '"Safari"',
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_people_at_step(filter, 1, '"Safari"'), [person2.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 3, '"Safari"'), [])
+
+    def test_funnel_step_breakdown_limit(self):
+
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "some_breakdown_val",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelStrict(filter, self.team)
+
+        for num in range(10):
+            for i in range(num):
+                _create_person(distinct_ids=[f"person_{num}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=f"person_{num}_{i}",
+                    properties={"key": "val", "some_breakdown_val": num},
+                    timestamp="2020-01-01T12:00:00Z",
+                )
+                _create_event(
+                    team=self.team,
+                    event="play movie",
+                    distinct_id=f"person_{num}_{i}",
+                    properties={"key": "val", "some_breakdown_val": num},
+                    timestamp="2020-01-01T13:00:00Z",
+                )
+                _create_event(
+                    team=self.team,
+                    event="buy",
+                    distinct_id=f"person_{num}_{i}",
+                    properties={"key": "val", "some_breakdown_val": num},
+                    timestamp="2020-01-01T15:00:00Z",
+                )
+
+        result = funnel.run()
+
+        # assert that we give 5 at a time at most and that those values are the most popular ones
+        breakdown_vals = sorted([res[0]["breakdown"] for res in result])
+        self.assertEqual(["5", "6", "7", "8", "9"], breakdown_vals)

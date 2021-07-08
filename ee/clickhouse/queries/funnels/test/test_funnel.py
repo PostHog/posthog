@@ -38,8 +38,11 @@ def _create_event(**kwargs):
 
 
 class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
-    def _get_people_at_step(self, filter, funnel_step):
-        person_filter = filter.with_data({"funnel_step": funnel_step})
+
+    maxDiff = None
+
+    def _get_people_at_step(self, filter, funnel_step, breakdown_value=None):
+        person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
         result = ClickhouseFunnelPersons(person_filter, self.team)._exec_query()
         return [row[0] for row in result]
 
@@ -791,6 +794,15 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             timestamp="2020-01-02T16:00:00Z",
         )
 
+        person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person3",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
+
         result = funnel.run()
         self.assertEqual(
             result[0],
@@ -803,7 +815,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
-                    "breakdown": "Chrome",
+                    "breakdown": '"Chrome"',
                 },
                 {
                     "action_id": "play movie",
@@ -813,7 +825,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 3600.0,
-                    "breakdown": "Chrome",
+                    "breakdown": '"Chrome"',
                 },
                 {
                     "action_id": "buy",
@@ -823,10 +835,12 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 7200.0,
-                    "breakdown": "Chrome",
+                    "breakdown": '"Chrome"',
                 },
             ],
         )
+        self.assertCountEqual(self._get_people_at_step(filter, 1, '"Chrome"'), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, '"Chrome"'), [person1.uuid])
         self.assertEqual(
             result[1],
             [
@@ -834,11 +848,11 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     "action_id": "sign up",
                     "name": "sign up",
                     "order": 0,
-                    "people": [person2.uuid],
-                    "count": 1,
+                    "people": [person2.uuid, person3.uuid],
+                    "count": 2,
                     "type": "events",
                     "average_conversion_time": None,
-                    "breakdown": "Safari",
+                    "breakdown": '"Safari"',
                 },
                 {
                     "action_id": "play movie",
@@ -848,7 +862,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 7200.0,
-                    "breakdown": "Safari",
+                    "breakdown": '"Safari"',
                 },
                 {
                     "action_id": "buy",
@@ -858,10 +872,13 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     "count": 0,
                     "type": "events",
                     "average_conversion_time": None,
-                    "breakdown": "Safari",
+                    "breakdown": '"Safari"',
                 },
             ],
         )
+
+        self.assertCountEqual(self._get_people_at_step(filter, 1, '"Safari"'), [person2.uuid, person3.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, '"Safari"'), [person2.uuid])
 
     def test_funnel_step_breakdown_person(self):
 
@@ -930,7 +947,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
-                    "breakdown": "Chrome",
+                    "breakdown": '"Chrome"',
                 },
                 {
                     "action_id": "play movie",
@@ -940,7 +957,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 3600.0,
-                    "breakdown": "Chrome",
+                    "breakdown": '"Chrome"',
                 },
                 {
                     "action_id": "buy",
@@ -950,10 +967,13 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 7200.0,
-                    "breakdown": "Chrome",
+                    "breakdown": '"Chrome"',
                 },
             ],
         )
+        self.assertCountEqual(self._get_people_at_step(filter, 1, '"Chrome"'), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, '"Chrome"'), [person1.uuid])
+
         self.assertEqual(
             result[1],
             [
@@ -965,7 +985,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
-                    "breakdown": "Safari",
+                    "breakdown": '"Safari"',
                 },
                 {
                     "action_id": "play movie",
@@ -975,7 +995,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 7200.0,
-                    "breakdown": "Safari",
+                    "breakdown": '"Safari"',
                 },
                 {
                     "action_id": "buy",
@@ -985,10 +1005,12 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     "count": 0,
                     "type": "events",
                     "average_conversion_time": None,
-                    "breakdown": "Safari",
+                    "breakdown": '"Safari"',
                 },
             ],
         )
+        self.assertCountEqual(self._get_people_at_step(filter, 1, '"Safari"'), [person2.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 3, '"Safari"'), [])
 
     def test_funnel_step_breakdown_limit(self):
 
@@ -1012,21 +1034,21 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                     team=self.team,
                     event="sign up",
                     distinct_id=f"person_{num}_{i}",
-                    properties={"key": "val", "some_breakdown_val": f"{num}"},
+                    properties={"key": "val", "some_breakdown_val": num},
                     timestamp="2020-01-01T12:00:00Z",
                 )
                 _create_event(
                     team=self.team,
                     event="play movie",
                     distinct_id=f"person_{num}_{i}",
-                    properties={"key": "val", "some_breakdown_val": f"{num}"},
+                    properties={"key": "val", "some_breakdown_val": num},
                     timestamp="2020-01-01T13:00:00Z",
                 )
                 _create_event(
                     team=self.team,
                     event="buy",
                     distinct_id=f"person_{num}_{i}",
-                    properties={"key": "val", "some_breakdown_val": f"{num}"},
+                    properties={"key": "val", "some_breakdown_val": num},
                     timestamp="2020-01-01T15:00:00Z",
                 )
 
