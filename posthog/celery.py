@@ -124,14 +124,15 @@ def redis_heartbeat():
 
 CLICKHOUSE_TABLES = [
     "events",
-    "sharded_events",
     "person",
-    "sharded_person",
     "person_distinct_id",
-    "sharded_person_distinct_id",
     "session_recording_events",
-    "sharded_session_recording_events",
 ]
+
+if settings.CLICKHOUSE_REPLICATION:
+    CLICKHOUSE_TABLES.extend(
+        ["sharded_events", "sharded_person", "sharded_person_distinct_id", "sharded_session_recording_events",]
+    )
 
 
 @app.task(ignore_result=True)
