@@ -217,6 +217,10 @@ function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepReferenc
     }
 }
 
+function humanizeStepCount(count: number): string {
+    return count > 9999 ? humanizeNumber(count, 2) : count.toLocaleString()
+}
+
 export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
     const { stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(funnelLogic)
     const { openPersonsModal } = useActions(funnelLogic)
@@ -241,36 +245,49 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                             <div className="funnel-step-title">
                                 <PropertyKeyInfo value={step.name} />
                             </div>
-                            <div className={`funnel-step-metadata ${layout}`}>
+                            <div className={`funnel-step-metadata funnel-time-metadata ${layout}`}>
                                 {step.average_time >= 0 + Number.EPSILON ? (
                                     <AverageTimeInspector onClick={() => {}} averageTime={step.average_time} disabled />
                                 ) : null}
                             </div>
                         </header>
-                        <div className="funnel-step-metadata">
-                            <ValueInspectorButton
-                                icon={<ArrowRightOutlined style={{ color: 'var(--success)' }} />}
-                                onClick={() => openPersonsModal(step, i + 1)}
-                                disabled={!funnelPersonsEnabled}
-                            >
-                                {step.count} completed
-                            </ValueInspectorButton>
-                            {i > 0 && step.order > 0 && steps[i - 1]?.count > step.count && (
-                                <span>
-                                    <ValueInspectorButton
-                                        icon={<ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />}
-                                        onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
-                                        disabled={!funnelPersonsEnabled}
-                                        style={{ paddingRight: '0.25em' }}
-                                    >
-                                        {steps[i - 1].count - step.count} dropped off
-                                    </ValueInspectorButton>
-                                    <span style={{ color: 'var(--primary-alt)', padding: '8px 0' }}>
-                                        ({humanizeNumber(100 - calcPercentage(step.count, steps[i - 1].count), 2)}% from
-                                        previous step)
+                        <div className="funnel-conversion-metadata funnel-step-metadata">
+                            <div className="center-flex">
+                                <ValueInspectorButton
+                                    onClick={() => openPersonsModal(step, i + 1)}
+                                    disabled={!funnelPersonsEnabled && false}
+                                >
+                                    <span className="value-inspector-button-icon">
+                                        <ArrowRightOutlined style={{ color: 'var(--success)' }} />
                                     </span>
+                                    <b>{humanizeStepCount(step.count)}</b>
+                                </ValueInspectorButton>
+                                <span className="text-muted-alt">
+                                    ({step.order > 0 ? calcPercentage(step.count, steps[i - 1].count) : '100'}
+                                    %)
                                 </span>
-                            )}
+                            </div>
+                            <div className="text-muted-alt text-small">completed step</div>
+                            <div className="center-flex">
+                                <ValueInspectorButton
+                                    onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
+                                    disabled={!funnelPersonsEnabled}
+                                    style={{ paddingRight: '0.25em' }}
+                                >
+                                    <span
+                                        className="value-inspector-button-icon"
+                                        style={{ padding: '4px 6px', marginRight: 10 }} // This custom icon requires special handling
+                                    >
+                                        <ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />
+                                    </span>
+                                    <b>{humanizeStepCount(step.order > 0 ? steps[i - 1].count - step.count : 0)}</b>
+                                </ValueInspectorButton>
+                                <span className="text-muted-alt">
+                                    ({step.order > 0 ? 100 - calcPercentage(step.count, steps[i - 1].count) : 0}
+                                    %)
+                                </span>
+                            </div>
+                            <div className="text-muted-alt text-small">dropped off</div>
                         </div>
 
                         <Bar

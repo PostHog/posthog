@@ -47,10 +47,6 @@ $glyph_height: 22px;
         }
 
         .funnel-step-metadata {
-            display: flex;
-            flex-grow: 1;
-            flex-wrap: wrap;
-
             .ant-btn.funnel-inspect-button {
                 color: $primary;
 
@@ -86,6 +82,27 @@ $glyph_height: 22px;
             }
         }
 
+        .center-flex {
+            display: flex;
+            align-items: center;
+        }
+
+        .funnel-conversion-metadata {
+            font-size: 1rem;
+            height: 98px;
+
+            .funnel-inspect-button {
+                font-size: 1.1rem;
+                margin-left: -2em;
+
+                .value-inspector-button-icon {
+                    background-color: white; // Ensures the series line gets cut off
+                    padding: 4px 0;
+                    margin-right: 12px;
+                }
+            }
+        }
+
         header,
         footer {
             min-height: 32px;
@@ -101,7 +118,10 @@ $glyph_height: 22px;
                 font-weight: bold;
             }
 
-            .funnel-step-metadata {
+            .funnel-time-metadata {
+                display: flex;
+                flex-grow: 1;
+                flex-wrap: wrap;
                 position: absolute;
                 bottom: 0;
 
@@ -117,29 +137,12 @@ $glyph_height: 22px;
                 flex-wrap: wrap;
             }
         }
-
-        footer {
-            .funnel-step-metadata {
-                justify-content: space-between;
-
-                .ant-btn.funnel-inspect-button {
-                    padding-left: 0;
-                    padding-right: 0.5em;
-                }
-
-                & > span {
-                    display: flex;
-                    flex-wrap: wrap;
-                    line-height: 16px;
-                }
-            }
-        }
     }
 
     .funnel-bar-wrapper {
         height: 32px;
         margin: 4px 0;
-        background-color: #e7e8ee;
+        background-color: $funnel_background;
         border-radius: 4px;
 
         .funnel-bar {
