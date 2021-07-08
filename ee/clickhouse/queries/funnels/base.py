@@ -65,14 +65,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return steps[::-1]  #  reverse
 
     def _exec_query(self) -> List[Tuple]:
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            self._filter.properties,
-            self._team.pk,
-            prepend="global",
-            allow_denormalized_props=True,
-            filter_test_accounts=self._filter.filter_test_accounts,
-        )
-        # TODO: can I remove this? - doesn't seem like it's used appropriately in new funnels?
 
         # format default dates
         data = {}
@@ -81,8 +73,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if not self._filter._date_to:
             data.update({"date_to": timezone.now()})
         self._filter = self._filter.with_data(data)
-
-        self.params.update(prop_filter_params)
 
         query = self.get_query()
 
