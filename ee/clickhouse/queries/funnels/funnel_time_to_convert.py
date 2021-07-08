@@ -1,7 +1,7 @@
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnelNew
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 
 
-class ClickhouseFunnelTimeToConvert(ClickhouseFunnelNew):
+class ClickhouseFunnelTimeToConvert(ClickhouseFunnel):
     def _format_results(self, results: list) -> list:
         return results
 
