@@ -2,7 +2,7 @@ import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 're
 import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Button } from 'antd'
+import { Button, ButtonProps } from 'antd'
 import { ArrowRightOutlined } from '@ant-design/icons'
 import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
@@ -104,7 +104,7 @@ function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal
 
 interface ValueInspectorButtonProps {
     icon?: JSX.Element
-    onClick: (e?: React.SyntheticEvent) => any
+    onClick: (e?: React.MouseEvent) => void
     children: React.ReactNode
     disabled?: boolean
     style?: React.CSSProperties
@@ -132,7 +132,7 @@ function ValueInspectorButton({
         children: <span className="funnel-inspect-label">{children}</span>,
     }
     if (refProp) {
-        const InnerComponent: ForwardRefRenderFunction<any, typeof refProp> = (_, ref) => (
+        const InnerComponent: ForwardRefRenderFunction<HTMLElement | null, ButtonProps> = (_, ref) => (
             <Button ref={ref} {...props} />
         )
         const RefComponent = React.forwardRef(InnerComponent)
@@ -144,7 +144,7 @@ function ValueInspectorButton({
 }
 
 interface AverageTimeInspectorProps {
-    onClick: (e?: React.SyntheticEvent) => any
+    onClick: (e?: React.MouseEvent) => void
     disabled?: boolean
     averageTime: number
 }

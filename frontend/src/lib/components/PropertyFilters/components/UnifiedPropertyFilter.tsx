@@ -199,7 +199,7 @@ export function UnifiedPropertyFilter({ index, onComplete }: PropertyFilterInter
         },
     ]
 
-    const onClick = (e: React.SyntheticEvent): void => {
+    const onClick = (e: React.MouseEvent): void => {
         e.preventDefault()
         if (!open) {
             reportPropertySelectOpened()

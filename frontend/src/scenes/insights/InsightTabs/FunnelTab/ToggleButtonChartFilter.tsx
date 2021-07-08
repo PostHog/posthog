@@ -22,7 +22,7 @@ export function ToggleButtonChartFilter({
     const options = [
         {
             value: ChartDisplayType.FunnelViz,
-            label: 'Steps',
+            label: <Tooltip title="Track users' progress between steps of the funnel">Conversion steps</Tooltip>,
         },
         {
             value: ChartDisplayType.ActionsLineGraphLinear,
