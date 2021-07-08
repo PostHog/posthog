@@ -23,7 +23,6 @@ from posthog.constants import (
     INSIGHT_PATHS,
     INSIGHT_SESSIONS,
     INSIGHT_STICKINESS,
-    TRENDS_LINEAR,
     TRENDS_STICKINESS,
     FunnelOrderType,
     FunnelVizType,
@@ -79,7 +78,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
 
-        if filter.funnel_viz_type == FunnelVizType.TRENDS or filter.display == TRENDS_LINEAR:
+        if filter.funnel_viz_type == FunnelVizType.TRENDS:
             return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run()}
         elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
             return {"result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run()}
