@@ -29,7 +29,12 @@ interface PersonsTableType {
     date?: string
 }
 
-export const deepLinkToPersonSessions = (person: PersonType, sessionsFilters?: Partial<SessionsPropertyFilter>[], date?: string, backTo?: string): string =>
+export const deepLinkToPersonSessions = (
+    person: PersonType,
+    sessionsFilters?: Partial<SessionsPropertyFilter>[],
+    date?: string,
+    backTo?: string
+): string =>
     combineUrl(
         `/person/${encodeURIComponent(person.distinct_ids[0])}`,
         { filters: sessionsFilters, date },
@@ -52,7 +57,6 @@ export function PersonsTable({
     sessionsFilters = [],
     date = '',
 }: PersonsTableType): JSX.Element {
-
     const topRef = useRef<HTMLSpanElement>(null)
 
     const columns: ResizableColumnType<PersonType>[] = [
@@ -62,7 +66,10 @@ export function PersonsTable({
             span: 6,
             render: function Render(person: PersonType) {
                 return (
-                    <Link to={deepLinkToPersonSessions(person, sessionsFilters, date, backTo)} data-attr="goto-person-email">
+                    <Link
+                        to={deepLinkToPersonSessions(person, sessionsFilters, date, backTo)}
+                        data-attr="goto-person-email"
+                    >
                         <PersonHeader person={person} />
                     </Link>
                 )
