@@ -24,7 +24,6 @@ from posthog.constants import (
     INSIGHT_PATHS,
     INSIGHT_SESSIONS,
     INSIGHT_STICKINESS,
-    TRENDS_LINEAR,
     TRENDS_STICKINESS,
     FunnelOrderType,
     FunnelVizType,
