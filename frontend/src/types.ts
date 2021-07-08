@@ -558,7 +558,7 @@ export enum ChartDisplayType {
     ActionsBarChartValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
-    FunnelsHistogram = 'FunnelsHistogram'
+    FunnelsHistogram = 'FunnelsHistogram',
 }
 
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
@@ -606,6 +606,7 @@ export interface FilterType {
     filter_test_accounts?: boolean
     from_dashboard?: boolean
     funnel_step?: number
+    funnel_viz_type?: string
 }
 
 export interface SystemStatusSubrows {

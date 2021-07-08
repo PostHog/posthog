@@ -17,11 +17,13 @@ import { FunnelHistogram } from './FunnelHistogram'
 
 interface FunnelVizProps extends Omit<ChartParams, 'view'> {
     steps: FunnelStep[]
+    timeConversionBins: any[]
 }
 
 export function FunnelViz({
     steps: stepsParam,
     filters: defaultFilters,
+    timeConversionBins,
     dashboardItemId,
     cachedResults,
     inSharedMode,
@@ -144,9 +146,8 @@ export function FunnelViz({
             </>
         ) : null
     }
-
     if (filters.display == ChartDisplayType.FunnelsHistogram) {
-        return steps && steps.length > 0 ? <FunnelHistogram /> : null
+        return timeConversionBins && timeConversionBins.length > 0 ? <FunnelHistogram /> : null
     }
 
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {

@@ -421,6 +421,7 @@ function FunnelInsight(): JSX.Element {
         isValidFunnel,
         stepsWithCountLoading,
         filters: { display },
+        timeConversionBins,
     } = useValues(funnelLogic({}))
     const { featureFlags } = useValues(featureFlagLogic)
     const { autoCalculate } = useValues(funnelLogic())
@@ -430,7 +431,7 @@ function FunnelInsight(): JSX.Element {
         <div style={fluidHeight ? {} : { height: 300, position: 'relative' }}>
             {stepsWithCountLoading && <Loading />}
             {isValidFunnel ? (
-                <FunnelViz steps={stepsWithCount} />
+                <FunnelViz steps={stepsWithCount} timeConversionBins={timeConversionBins} />
             ) : (
                 !stepsWithCountLoading && (
                     <div

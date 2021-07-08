@@ -30,8 +30,8 @@ export function ToggleButtonChartFilter({
         },
         {
             value: ChartDisplayType.FunnelsHistogram,
-            label: 'Time to convert'
-        }
+            label: 'Time to convert',
+        },
     ]
 
     return (

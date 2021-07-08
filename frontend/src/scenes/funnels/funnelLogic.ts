@@ -7,7 +7,7 @@ import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
-import { EntityTypes, FilterType, FunnelResult, FunnelStep, PathType, PersonType } from '~/types'
+import { ChartDisplayType, EntityTypes, FilterType, FunnelResult, FunnelStep, PathType, PersonType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelBarLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -49,6 +49,8 @@ export const cleanFunnelParams = (filters: FilterType): FilterType => {
         ...(filters.properties ? { properties: filters.properties } : {}),
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
         ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
+        ...(filters.funnel_viz_type ? { funnel_viz_type: filters.funnel_viz_type } : {}),
+        ...(filters.funnel_step ? { funnel_to_step: filters.funnel_step } : {}),
         interval: autocorrectInterval(filters),
         insight: ViewType.FUNNELS,
     }
@@ -77,6 +79,7 @@ export const funnelLogic = kea<funnelLogicType>({
         openPersonsModal: (step: FunnelStep, stepNumber: number) => ({ step, stepNumber }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         setBarGraphLayout: (barGraphLayout: FunnelBarLayout) => ({ barGraphLayout }),
+        setTimeConversionBins: (timeConversionBins: any) => ({ timeConversionBins }),
     }),
 
     connect: {
@@ -102,7 +105,6 @@ export const funnelLogic = kea<funnelLogicType>({
                         ...cleanedParams,
                         funnel_window_days: values.conversionWindowInDays,
                     }
-
                     let result: FunnelResult
 
                     const queryId = uuid()
@@ -111,7 +113,6 @@ export const funnelLogic = kea<funnelLogicType>({
                     const eventCount = params.events?.length || 0
                     const actionCount = params.actions?.length || 0
                     const interval = params.interval || ''
-
                     try {
                         result = await pollFunnel(params)
                         eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
@@ -129,6 +130,9 @@ export const funnelLogic = kea<funnelLogicType>({
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                     actions.setSteps(result.result)
+                    if (params.display === ChartDisplayType.FunnelsHistogram) {
+                        actions.setTimeConversionBins(result.result)
+                    }
                     return result.result
                 },
             },
@@ -189,6 +193,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
             },
         ],
+        timeConversionBins: [
+            [],
+            {
+                setTimeConversionBins: (_, { timeConversionBins }) => timeConversionBins,
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
@@ -215,9 +225,12 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
         isValidFunnel: [
-            () => [selectors.stepsWithCount],
-            (stepsWithCount: FunnelStep[]) => {
-                return stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1
+            () => [selectors.stepsWithCount, selectors.timeConversionBins],
+            (stepsWithCount: FunnelStep[], timeConversionBins: any[]) => {
+                return (
+                    (stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1) ||
+                    timeConversionBins.length > 0
+                )
             },
         ],
         autoCalculate: [
