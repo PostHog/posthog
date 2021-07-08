@@ -31,7 +31,7 @@ $glyph_height: 22px;
                 left: 0;
                 width: calc(#{$series_container_width} / 2 + 1px);
                 box-sizing: border-box;
-                border-right: 2px solid $border;
+                border-right: 2px solid $bg_mid;
 
                 &.before {
                     top: 0;
@@ -98,7 +98,7 @@ $glyph_height: 22px;
             position: relative;
 
             .funnel-step-title {
-                font-weight: 700;
+                font-weight: bold;
             }
 
             .funnel-step-metadata {
@@ -145,7 +145,7 @@ $glyph_height: 22px;
         .funnel-bar {
             position: relative;
             height: 100%;
-            background: #3b4b87;
+            background: $funnel_default;
             border-radius: 4px;
             transition: width 0.2s ease, height 0.2s ease;
 
@@ -210,7 +210,7 @@ $glyph_height: 22px;
             header {
                 flex-wrap: wrap;
                 margin: 0.4em 0;
-                height: 5em;
+                height: 3.4em;
                 align-items: flex-start;
 
                 .property-key-info {

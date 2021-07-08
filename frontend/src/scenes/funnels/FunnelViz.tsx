@@ -1,3 +1,4 @@
+// DEPRECATED: This file has been deprecated in favor of FunnelBarGraph.tsx
 import React, { useRef, useEffect, useState } from 'react'
 import FunnelGraph from 'funnel-graph-js'
 import { Loading, humanFriendlyDuration } from 'lib/utils'

@@ -184,7 +184,7 @@ function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeIns
         <div ref={wrapperRef}>
             <span
                 ref={infoTextRef}
-                className="text-muted"
+                className="text-muted-alt"
                 style={{ paddingRight: 4, display: 'inline-block', visibility: infoTextVisible ? undefined : 'hidden' }}
             >
                 Average time:
@@ -247,39 +247,38 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                 ) : null}
                             </div>
                         </header>
+                        <div className="funnel-step-metadata">
+                            <ValueInspectorButton
+                                icon={<ArrowRightOutlined style={{ color: 'var(--success)' }} />}
+                                onClick={() => openPersonsModal(step, i + 1)}
+                                disabled={!funnelPersonsEnabled}
+                            >
+                                {step.count} completed
+                            </ValueInspectorButton>
+                            {i > 0 && step.order > 0 && steps[i - 1]?.count > step.count && (
+                                <span>
+                                    <ValueInspectorButton
+                                        icon={<ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />}
+                                        onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
+                                        disabled={!funnelPersonsEnabled}
+                                        style={{ paddingRight: '0.25em' }}
+                                    >
+                                        {steps[i - 1].count - step.count} dropped off
+                                    </ValueInspectorButton>
+                                    <span style={{ color: 'var(--primary-alt)', padding: '8px 0' }}>
+                                        ({humanizeNumber(100 - calcPercentage(step.count, steps[i - 1].count), 2)}% from
+                                        previous step)
+                                    </span>
+                                </span>
+                            )}
+                        </div>
+
                         <Bar
                             percentage={calcPercentage(step.count, basisStep.count)}
                             name={step.name}
                             onBarClick={() => openPersonsModal(step, i + 1)}
                             layout={layout}
                         />
-                        <footer>
-                            <div className="funnel-step-metadata">
-                                <ValueInspectorButton
-                                    icon={<ArrowRightOutlined style={{ color: 'var(--success)' }} />}
-                                    onClick={() => openPersonsModal(step, i + 1)}
-                                    disabled={!funnelPersonsEnabled}
-                                >
-                                    {step.count} completed
-                                </ValueInspectorButton>
-                                {i > 0 && step.order > 0 && steps[i - 1]?.count > step.count && (
-                                    <span>
-                                        <ValueInspectorButton
-                                            icon={<ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />}
-                                            onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
-                                            disabled={!funnelPersonsEnabled}
-                                            style={{ paddingRight: '0.25em' }}
-                                        >
-                                            {steps[i - 1].count - step.count} dropped off
-                                        </ValueInspectorButton>
-                                        <span style={{ color: 'var(--primary-alt)', padding: '8px 0' }}>
-                                            ({humanizeNumber(100 - calcPercentage(step.count, steps[i - 1].count), 2)}%
-                                            from previous step)
-                                        </span>
-                                    </span>
-                                )}
-                            </div>
-                        </footer>
                     </section>
                 )
             })}
