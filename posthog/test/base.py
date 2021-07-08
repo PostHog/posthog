@@ -67,7 +67,7 @@ class ErrorResponsesMixin:
         }
 
     def validation_error_response(
-        self, message: str = "Malformed request", code: str = "invalid", attr: Optional[str] = None,
+        self, message: str = "Malformed request", code: str = "invalid_input", attr: Optional[str] = None,
     ) -> Dict[str, Optional[str]]:
         return {
             "type": "validation_error",

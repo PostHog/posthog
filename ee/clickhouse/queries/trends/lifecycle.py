@@ -57,7 +57,7 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
-                action = Action.objects.get(pk=entity.id)
+                action = entity.get_action()
                 event_query, event_params = format_action_filter(action)
             except:
                 return "", {}, self._parse_result(filter, entity)
@@ -130,7 +130,7 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
-                action = Action.objects.get(pk=entity.id)
+                action = entity.get_action()
                 event_query, event_params = format_action_filter(action)
             except:
                 return []

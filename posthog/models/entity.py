@@ -1,6 +1,9 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.models.action import Action
 from posthog.models.filters.mixins.property import PropertyMixin
 
 
@@ -63,3 +66,13 @@ class Entity(PropertyMixin):
             return False
 
         return True
+
+    def get_action(self) -> Action:
+        if self.type != TREND_FILTER_TYPE_ACTIONS:
+            raise ValueError(
+                f"Action can only be fetched for entities of type {TREND_FILTER_TYPE_ACTIONS}, not {self.type}!"
+            )
+        try:
+            return Action.objects.get(id=self.id)
+        except:
+            raise ValidationError(f"Action ID {self.id} does not exist!")

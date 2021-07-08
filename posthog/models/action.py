@@ -21,6 +21,18 @@ class Action(models.Model):
             models.Index(fields=["team_id", "-updated_at"]),
         ]
 
+    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
+    deleted: models.BooleanField = models.BooleanField(default=False)
+    events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
+    post_to_slack: models.BooleanField = models.BooleanField(default=False)
+    slack_message_format: models.CharField = models.CharField(default="", max_length=200, blank=True)
+    is_calculating: models.BooleanField = models.BooleanField(default=False)
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
+
     def calculate_events(self, start=None, end=None):
         recalculate_all = False
         if start is None and end is None:
@@ -89,18 +101,6 @@ class Action(models.Model):
         raw_hook_event.send(
             sender=None, event_name="action_performed", instance=self, payload=payload, user=event.team,
         )
-
-    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
-    deleted: models.BooleanField = models.BooleanField(default=False)
-    events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
-    post_to_slack: models.BooleanField = models.BooleanField(default=False)
-    slack_message_format: models.CharField = models.CharField(default="", max_length=200, blank=True)
-    is_calculating: models.BooleanField = models.BooleanField(default=False)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
 
     def __str__(self):
         return self.name

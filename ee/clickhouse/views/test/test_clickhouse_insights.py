@@ -261,3 +261,9 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response.json(), {"result": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1],]},
         )
+
+    def test_funnel_invalid_action_handled(self):
+        response = self.client.post("/api/insight/funnel/", {"actions": [{"id": 666, "type": "actions", "order": 0},]},)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), self.validation_error_response("Action ID 666 does not exist!"))
