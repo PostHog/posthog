@@ -33,8 +33,6 @@ class PropertyDefinitionViewSet(
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
     ordering = "name"
-    filter_backends = [filters.SearchFilter]
-    search_fields = ["name"]
 
     def get_queryset(self):
         if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
@@ -61,7 +59,9 @@ class PropertyDefinitionViewSet(
                     params={"team_id": self.request.user.team.id, "names": names},  # type: ignore
                 )
                 return ee_property_definitions
-        return self.filter_queryset_by_parents_lookups(PropertyDefinition.objects.all()).order_by(self.ordering)
+        return self.filter_queryset_by_parents_lookups(
+            PropertyDefinition.objects.filter(name__trigram_similar=self.request.query_params["search"])
+        ).order_by(self.ordering)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
