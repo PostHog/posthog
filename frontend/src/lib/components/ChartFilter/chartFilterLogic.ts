@@ -18,18 +18,11 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
         ],
     },
     listeners: ({ values }) => ({
-        setChartFilter: (filter) => {
+        setChartFilter: () => {
             const { display, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
             searchParams.display = values.chartFilter
 
-            if (filter.filter === ChartDisplayType.FunnelsHistogram) {
-                searchParams.funnel_viz_type = 'time_to_convert'
-                searchParams.funnel_to_step = 1
-            } else {
-                delete searchParams.funnel_viz_type
-                delete searchParams.funnel_to_step
-            }
             if (!objectsEqual(display, values.chartFilter)) {
                 router.actions.replace(pathname, searchParams)
             }

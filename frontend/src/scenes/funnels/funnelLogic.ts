@@ -80,6 +80,7 @@ export const funnelLogic = kea<funnelLogicType>({
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         setBarGraphLayout: (barGraphLayout: FunnelBarLayout) => ({ barGraphLayout }),
         setTimeConversionBins: (timeConversionBins: number[]) => ({ timeConversionBins }),
+        changeHistogramStep: (histogramStep: number) => ({ histogramStep }),
     }),
 
     connect: {
@@ -106,13 +107,13 @@ export const funnelLogic = kea<funnelLogicType>({
                         funnel_window_days: values.conversionWindowInDays,
                     }
                     let result: FunnelResult
-
                     const queryId = uuid()
                     insightLogic.actions.startQuery(queryId)
 
                     const eventCount = params.events?.length || 0
                     const actionCount = params.actions?.length || 0
                     const interval = params.interval || ''
+                    let binsResult
                     try {
                         result = await pollFunnel(params)
                         eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
@@ -129,10 +130,25 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
+                    actions.setSteps(result.result as FunnelStep[])
                     if (params.display === ChartDisplayType.FunnelsHistogram) {
-                        actions.setTimeConversionBins(result.result as number[])
-                    } else {
-                        actions.setSteps(result.result as FunnelStep[])
+                        try {
+                            params.funnel_viz_type = 'time_to_convert'
+                            params.funnel_to_step = values.histogramStep
+                            binsResult = await pollFunnel(params)
+                        } catch (e) {
+                            insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
+                            eventUsageLogic.actions.reportFunnelCalculated(
+                                eventCount,
+                                actionCount,
+                                interval,
+                                false,
+                                e.message
+                            )
+                            return []
+                        }
+                        insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
+                        actions.setTimeConversionBins(binsResult.result as number[])
                     }
                     return result.result
                 },
@@ -198,6 +214,12 @@ export const funnelLogic = kea<funnelLogicType>({
             [],
             {
                 setTimeConversionBins: (_, { timeConversionBins }) => timeConversionBins,
+            },
+        ],
+        histogramStep: [
+            1,
+            {
+                changeHistogramStep: (_, { histogramStep }) => histogramStep,
             },
         ],
     }),
@@ -298,6 +320,9 @@ export const funnelLogic = kea<funnelLogicType>({
                 '',
                 stepNumber
             )
+        },
+        changeHistogramStep: () => {
+            actions.loadResults()
         },
     }),
     actionToUrl: ({ values, props }) => ({
