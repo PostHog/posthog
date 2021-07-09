@@ -5,6 +5,7 @@ import warnings
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.operations import TrigramExtension
 from django.db import migrations
+from django.db.migrations.operations.models import IndexOperation
 
 
 class TrigramExtensionSuppressExceptions(TrigramExtension):
@@ -33,7 +34,7 @@ class TrigramExtensionSuppressExceptions(TrigramExtension):
             pass
 
 
-class AddIndexSuppressExceptions(migrations.AddIndex):
+class AddIndexSuppressExceptions(migrations.AddIndex, IndexOperation):
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         try:
             return super().database_forwards(app_label, schema_editor, from_state, to_state)
