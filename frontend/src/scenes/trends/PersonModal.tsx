@@ -170,7 +170,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                         }}
                     >
                         {people?.next && (
-                            <Button type="primary" onClick={loadMorePeople}>
+                            <Button type="primary" style={{ color: 'white' }} onClick={loadMorePeople}>
                                 {loadingMorePeople ? <Spin /> : 'Load more people'}
                             </Button>
                         )}
