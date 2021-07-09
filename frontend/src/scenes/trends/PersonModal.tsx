@@ -3,14 +3,13 @@ import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { TrendPeople, parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
-import { Modal, Button, Spin, Input, Row } from 'antd'
+import { Modal, Button, Spin, Input, Row, Col } from 'antd'
 import { deepLinkToPersonSessions } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter } from '~/types'
-import { ACTION_TYPE, EVENT_TYPE } from 'lib/constants'
+import { ACTION_TYPE, EVENT_TYPE, FEATURE_FLAGS } from 'lib/constants'
 import { personsModalLogic } from './personsModalLogic'
-import Col from 'antd/es/grid/col'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import { Link } from 'lib/components/Link'
@@ -128,7 +127,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                 padding: '0px 16px',
                             }}
                         >
-                            {featureFlags['persons-modal-search'] && (
+                            {featureFlags[FEATURE_FLAGS.PERSONS_MODAL_SEARCH] && (
                                 <Input.Search
                                     allowClear
                                     enterButton
