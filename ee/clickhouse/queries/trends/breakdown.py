@@ -186,7 +186,7 @@ class ClickhouseTrendsBreakdown:
             return breakdown_query, params, self._parse_trend_result(filter, entity)
 
     def _breakdown_cohort_params(self, team_id: int, filter: Filter, entity: Entity):
-        cohort_queries, cohort_ids, cohort_params = format_breakdown_cohort_join_query(team_id, filter, entity)
+        cohort_queries, cohort_ids, cohort_params = format_breakdown_cohort_join_query(team_id, filter, entity=entity)
         params = {"values": cohort_ids, **cohort_params}
         breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL
         breakdown_filter_params = {"cohort_queries": cohort_queries}
