@@ -15,7 +15,7 @@ import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { endWithPunctation } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
-import { ExtraPluginButtons } from '../plugin/PluginCard'
+import { PluginAboutButton } from '../plugin/PluginCard'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 function EnabledDisabledSwitch({
@@ -190,7 +190,7 @@ export function PluginDrawer(): JSX.Element {
                                         ) : editingPlugin.plugin_type === 'source' ? (
                                             <SourcePluginTag />
                                         ) : null}
-                                        {editingPlugin.url && <ExtraPluginButtons url={editingPlugin.url} />}
+                                        {editingPlugin.url && <PluginAboutButton url={editingPlugin.url} />}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', marginTop: 5 }}>
                                         <Form.Item

@@ -3,6 +3,7 @@ from typing import Any, Callable, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query import Prefetch
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from ee.clickhouse.client import sync_execute
@@ -32,7 +33,7 @@ class ClickhouseLifecycle(LifecycleTrend):
         elif interval == "month":
             return relativedelta(months=1), "1 MONTH", "1 DAY"
         else:
-            raise ValueError("{interval} not supported")
+            raise ValidationError("{interval} not supported")
 
     def _format_lifecycle_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
         date_from = filter.date_from
@@ -56,7 +57,7 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
-                action = Action.objects.get(pk=entity.id)
+                action = entity.get_action()
                 event_query, event_params = format_action_filter(action)
             except:
                 return "", {}, self._parse_result(filter, entity)
@@ -129,7 +130,7 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
-                action = Action.objects.get(pk=entity.id)
+                action = entity.get_action()
                 event_query, event_params = format_action_filter(action)
             except:
                 return []

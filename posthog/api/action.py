@@ -73,7 +73,6 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
 
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
     steps = ActionStepSerializer(many=True, required=False)
-    count = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -86,18 +85,12 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             "steps",
             "created_at",
             "deleted",
-            "count",
             "is_calculating",
             "last_calculated_at",
             "created_by",
             "team_id",
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
-
-    def get_count(self, action: Action) -> Optional[int]:
-        if hasattr(action, "count"):
-            return action.count  # type: ignore
-        return None
 
     def _calculate_action(self, action: Action) -> None:
         calculate_action.delay(action_id=action.pk)
@@ -312,6 +305,11 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             "next": next_url,
             "previous": current_url[1:],
         }
+
+    @action(methods=["GET"], detail=True)
+    def count(self, request: request.Request, **kwargs) -> Response:
+        count = self.get_queryset().first().count
+        return Response({"count": count})
 
 
 def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:

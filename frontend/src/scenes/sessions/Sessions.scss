@@ -193,7 +193,62 @@
 }
 
 .sessions-event-highlighted {
-    background-color: #fdedc9;
+    background-color: $yellow_50;
+    font-weight: bold;
+}
+
+.ant-table-tbody > tr.ant-table-row:hover.sessions-event-highlighted > td {
+    background-color: $yellow_100;
+}
+
+.sessions-matching-events-icon {
+    color: $bg_navy;
+    display: flex;
+    align-items: center;
+
+    .badge-text {
+        background-color: $yellow_50;
+        height: 1.1rem;
+        min-width: 1.1rem;
+        line-height: 1.1rem;
+        font-weight: 600;
+        white-space: nowrap;
+        text-align: center;
+        border-radius: 10px;
+        box-shadow: 0 0 0 1px $bg_light;
+        padding: 0 4px;
+        font-size: 9px;
+    }
+}
+
+.sessions-event-matching-events-icon {
+    color: $warning;
+    font-size: 1.4em;
+}
+
+.sessions-view-actions {
+    margin-top: $default_spacing;
+    margin-bottom: $default_spacing;
+    display: flex;
+
+    .sessions-view-actions-left-items {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        flex-grow: 1;
+
+        .action {
+            display: flex;
+            align-items: center;
+            flex-wrap: nowrap;
+        }
+    }
+
+    .sessions-view-actions-right-items {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+    }
 }
 
 @media (max-width: $md) {

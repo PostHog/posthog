@@ -1,14 +1,32 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
-import { parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
+import { TrendPeople, parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined } from '@ant-design/icons'
-import { Modal, Button, Spin, Input } from 'antd'
+import { Modal, Button, Spin, Input, Row } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter } from '~/types'
+import { ACTION_TYPE, EVENT_TYPE } from 'lib/constants'
 import { personsModalLogic } from './personsModalLogic'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
+
+// Utility function to handle filter conversion required for deeplinking to person -> sessions
+const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
+    if (!people?.action) {
+        return []
+    }
+    const actions: ActionFilter[] = people.action === 'session' ? (filters.events as ActionFilter[]) : [people.action]
+    return actions.map((a) => ({
+        key: 'id',
+        value: a.id,
+        label: a.name as string,
+        type: a.type === EntityTypes.ACTIONS ? ACTION_TYPE : EVENT_TYPE,
+        properties: [...(a.properties || []), ...(filters.properties || [])] as EventPropertyFilter[], // combine global properties into action/event filter
+    }))
+}
+
 interface Props {
     visible: boolean
     view: ViewType
@@ -26,12 +44,16 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
     const { searchTerm } = useValues(personsModalLogic)
     const { setSearchTerm } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { funnelPersonsEnabled } = useValues(funnelLogic)
     const title =
         filters.shown_as === 'Stickiness'
             ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
             : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie'
             ? `"${people?.label}"`
+            : filters.insight === ViewType.FUNNELS
+            ? `${people?.label}`
             : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
+
     const closeModal = (): void => {
         setShowingPeople(false)
         setSearchTerm('')
@@ -39,11 +61,23 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
 
     return (
         <Modal
-            title={title}
+            title={<strong>{title}</strong>}
             visible={visible}
             onOk={closeModal}
             onCancel={closeModal}
-            footer={<Button onClick={closeModal}>Close</Button>}
+            footer={
+                <Row style={{ justifyContent: 'space-between' }}>
+                    {featureFlags['save-cohort-on-modal'] &&
+                        (view === ViewType.TRENDS || view === ViewType.STICKINESS || view === ViewType.FUNNELS) && (
+                            <div>
+                                <Button type="primary" onClick={onSaveCohort}>
+                                    Save as cohort
+                                </Button>
+                            </div>
+                        )}
+                    <Button onClick={closeModal}>Close</Button>
+                </Row>
+            }
             width={800}
         >
             {people ? (
@@ -71,7 +105,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                 </b>{' '}
                                 persons
                             </span>
-                            {featureFlags[FEATURE_FLAGS.PERSONS_MODAL_FILTERING] && (
+                            {funnelPersonsEnabled && (
                                 <>
                                     <Input.Search
                                         allowClear
@@ -97,14 +131,6 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                     </div>
                                 </>
                             )}
-                            {featureFlags['save-cohort-on-modal'] &&
-                                (view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
-                                    <div>
-                                        <Button type="primary" onClick={onSaveCohort}>
-                                            Save cohort
-                                        </Button>
-                                    </div>
-                                )}
                         </div>
                     </div>
                     <div className="text-right">
@@ -124,7 +150,13 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                             title="Download CSV"
                         />
                     </div>
-                    <PersonsTable loading={!people?.people} people={people.people} />
+                    <PersonsTable
+                        loading={!people?.people}
+                        people={people.people}
+                        sessionsFilters={convertToSessionFilters(people, filters)}
+                        date={people?.day ? dayjs(people.day).format('YYYY-MM-DD') : undefined}
+                        backTo="Insights"
+                    />
                     <div
                         style={{
                             margin: '1rem',

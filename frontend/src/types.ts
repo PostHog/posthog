@@ -361,6 +361,11 @@ export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
 
+export enum PersonsTabType {
+    EVENTS = 'events',
+    SESSIONS = 'sessions',
+}
+
 export interface EventType {
     elements: ElementType[]
     elements_hash: string | null
@@ -484,6 +489,7 @@ export interface PluginType {
     is_global: boolean
     organization_id: string
     organization_name: string
+    metrics?: Record<string, StoredMetricMathOperations>
 }
 
 export interface PluginConfigType {
@@ -598,6 +604,7 @@ export interface FilterType {
     formula?: any
     filter_test_accounts?: boolean
     from_dashboard?: boolean
+    funnel_step?: number
 }
 
 export interface SystemStatusSubrows {
@@ -680,7 +687,7 @@ export interface FunnelStep {
     name: string
     order: number
     people: string[]
-    type: string
+    type: EntityType
     labels?: string[]
 }
 
@@ -878,3 +885,5 @@ export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus
 }
+
+export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

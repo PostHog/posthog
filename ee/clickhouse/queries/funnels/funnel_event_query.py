@@ -6,7 +6,7 @@ from posthog.models.action import Action
 
 
 class FunnelEventQuery(ClickhouseEventQuery):
-    def get_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
+    def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
         _fields = (
             f"{self.EVENT_TABLE_ALIAS}.event as event, {self.EVENT_TABLE_ALIAS}.team_id as team_id, {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id, {self.EVENT_TABLE_ALIAS}.timestamp as timestamp, {self.EVENT_TABLE_ALIAS}.properties as properties, {self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
@@ -20,7 +20,12 @@ class FunnelEventQuery(ClickhouseEventQuery):
         prop_query, prop_params = self._get_props(prop_filters)
         self.params.update(prop_params)
 
-        entity_query, entity_params = self._get_entity_query(entities, entity_name)
+        if skip_entity_filter:
+            entity_query = ""
+            entity_params: Dict[str, Any] = {}
+        else:
+            entity_query, entity_params = self._get_entity_query(entities, entity_name)
+
         self.params.update(entity_params)
 
         query = f"""
@@ -44,7 +49,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
 
         for entity in entities_to_use:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                action = Action.objects.get(pk=entity.id)
+                action = entity.get_action()
                 for action_step in action.steps.all():
                     events.append(action_step.event)
             else:

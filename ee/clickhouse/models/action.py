@@ -1,6 +1,7 @@
 from typing import Dict, List, Tuple
 
 from django.forms.models import model_to_dict
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter
@@ -89,11 +90,8 @@ def filter_event(
 
 def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team=True) -> Tuple[str, Dict]:
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        try:
-            action = Action.objects.get(pk=entity.id)
-            entity_filter, params = format_action_filter(action, prepend=prepend, filter_by_team=filter_by_team)
-        except Action.DoesNotExist:
-            raise ValueError("This action does not exist")
+        action = entity.get_action()
+        entity_filter, params = format_action_filter(action, prepend=prepend, filter_by_team=filter_by_team)
     else:
         key = f"{prepend}_event"
         entity_filter = f"event = %({key})s"

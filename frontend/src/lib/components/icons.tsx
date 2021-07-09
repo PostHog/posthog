@@ -1,5 +1,8 @@
 // Loads custom icons (some icons may come from a third-party library)
 import React, { CSSProperties } from 'react'
+import { ArrowUpOutlined } from '@ant-design/icons'
+
+import './icons.scss'
 
 export function IconMenu(): JSX.Element {
     // FontAwesome
@@ -108,6 +111,19 @@ export function IconEvents(): JSX.Element {
                 fillRule="evenodd"
                 clipRule="evenodd"
                 d="M5.03308 6.36616L15.9802 0L26.915 6.28364L16.0753 11.9525L5.03308 6.36616Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
+export function IconEventsShort({ size = 32 }: { size: number }): JSX.Element {
+    return (
+        <svg width={size} height={size} viewBox={`0 0 32 32`} fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M15.882 4L5.366 9.455l10.607 4.787 10.412-4.858L15.883 4zM5.333 17.038l4.79-2.475 5.785 2.496 5.496-2.514 4.948 2.433-10.412 4.857-10.607-4.797zm.314 7.23l4.226-2.192 6.024 2.578 6.14-2.829 4.63 2.369-10.429 4.86-10.59-4.786z"
                 fill="currentColor"
             />
         </svg>
@@ -382,5 +398,39 @@ export function SortableDragIcon({ style }: { style?: CSSProperties }): JSX.Elem
                 fill="currentColor"
             />
         </svg>
+    )
+}
+
+// Antd arrows rotated at convenient angles
+
+export function ArrowTopLeftOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <span className="anticon anticon-wraper-arrow topLeft">
+            <ArrowUpOutlined style={style} />
+        </span>
+    )
+}
+
+export function ArrowTopRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <span className="anticon anticon-wraper-arrow topRight">
+            <ArrowUpOutlined style={style} />
+        </span>
+    )
+}
+
+export function ArrowBottomRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <span className="anticon anticon-wraper-arrow bottomRight">
+            <ArrowUpOutlined style={style} />
+        </span>
+    )
+}
+
+export function ArrowBottomLeftOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <span className="anticon anticon-wraper-arrow bottomLeft">
+            <ArrowUpOutlined style={style} />
+        </span>
     )
 }

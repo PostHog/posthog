@@ -7,7 +7,13 @@ import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
-import { FilterType, FunnelResult, FunnelStep, PersonType } from '~/types'
+import { EntityTypes, FilterType, FunnelResult, FunnelStep, PathType, PersonType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS, FunnelBarLayout } from 'lib/constants'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
@@ -31,7 +37,7 @@ async function pollFunnel(params: Record<string, any>): Promise<FunnelResult> {
     return result
 }
 
-const cleanFunnelParams = (filters: FilterType): FilterType => {
+export const cleanFunnelParams = (filters: FilterType): FilterType => {
     return {
         ...filters,
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
@@ -42,6 +48,7 @@ const cleanFunnelParams = (filters: FilterType): FilterType => {
         ...(filters.interval ? { interval: filters.interval } : {}),
         ...(filters.properties ? { properties: filters.properties } : {}),
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
         interval: autocorrectInterval(filters),
         insight: ViewType.FUNNELS,
     }
@@ -58,15 +65,23 @@ export const funnelLogic = kea<funnelLogicType>({
     actions: () => ({
         setSteps: (steps: FunnelStep[]) => ({ steps }),
         clearFunnel: true,
-        setFilters: (filters: FilterType, refresh: boolean = false) => ({ filters, refresh }),
+        setFilters: (filters: FilterType, refresh = false, mergeWithExisting = true) => ({
+            filters,
+            refresh,
+            mergeWithExisting,
+        }),
         saveFunnelInsight: (name: string) => ({ name }),
         setStepsWithCountLoading: (stepsWithCountLoading: boolean) => ({ stepsWithCountLoading }),
         loadConversionWindow: (days: number) => ({ days }),
         setConversionWindowInDays: (days: number) => ({ days }),
+        openPersonsModal: (step: FunnelStep, stepNumber: number) => ({ step, stepNumber }),
+        setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
+        setBarGraphLayout: (barGraphLayout: FunnelBarLayout) => ({ barGraphLayout }),
     }),
 
     connect: {
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
+        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
     },
 
     loaders: ({ props, values, actions }) => ({
@@ -132,7 +147,8 @@ export const funnelLogic = kea<funnelLogicType>({
         filters: [
             (props.filters || {}) as FilterType,
             {
-                setFilters: (state, { filters }) => ({ ...state, ...filters }),
+                setFilters: (state, { filters, mergeWithExisting }) =>
+                    mergeWithExisting ? { ...state, ...filters } : filters,
                 clearFunnel: (state) => ({ new_entity: state.new_entity }),
             },
         ],
@@ -159,6 +175,18 @@ export const funnelLogic = kea<funnelLogicType>({
                 setConversionWindowInDays: (state, { days }) => {
                     return days >= 1 && days <= 365 ? Math.round(days) : state
                 },
+            },
+        ],
+        stepReference: [
+            FunnelStepReference.total as FunnelStepReference,
+            {
+                setStepReference: (_, { stepReference }) => stepReference,
+            },
+        ],
+        barGraphLayout: [
+            FunnelBarLayout.vertical as FunnelBarLayout,
+            {
+                setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
             },
         ],
     }),
@@ -192,6 +220,17 @@ export const funnelLogic = kea<funnelLogicType>({
                 return stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1
             },
         ],
+        autoCalculate: [
+            () => [selectors.featureFlags, selectors.preflight],
+            (featureFlags, preflight) => {
+                return !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled)
+            },
+        ],
+        funnelPersonsEnabled: [
+            () => [selectors.featureFlags, selectors.preflight],
+            (featureFlags, preflight) =>
+                featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL] && preflight?.is_clickhouse_enabled,
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -202,7 +241,10 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setStepsWithCountLoading(false)
         },
         setFilters: ({ refresh }) => {
-            if (refresh) {
+            // FUNNEL_BAR_VIZ removes the Calculate button
+            // Query performance is suboptimal on psql
+            const { autoCalculate } = values
+            if (refresh || autoCalculate) {
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
@@ -230,16 +272,29 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setConversionWindowInDays(days)
             actions.loadResults()
         },
+        openPersonsModal: ({ step, stepNumber }) => {
+            trendsLogic().actions.setShowingPeople(true)
+            trendsLogic().actions.loadPeople(
+                { id: step.action_id, name: step.name, properties: [], type: step.type },
+                `Persons who completed Step #${stepNumber} - "${step.name}"`,
+                '',
+                '',
+                '',
+                true,
+                '',
+                stepNumber
+            )
+        },
     }),
     actionToUrl: ({ values, props }) => ({
         setSteps: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', values.propertiesForUrl]
+                return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
             }
         },
         clearFunnel: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', { insight: ViewType.FUNNELS }]
+                return ['/insights', { insight: ViewType.FUNNELS }, undefined, { replace: true }]
             }
         },
     }),
@@ -268,7 +323,22 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
 
                 if (!objectsEqual(_filters, paramsToCheck)) {
-                    actions.setFilters(cleanFunnelParams(searchParams), !isStepsEmpty(paramsToCheck))
+                    const cleanedParams = cleanFunnelParams(searchParams)
+
+                    if (isStepsEmpty(cleanedParams)) {
+                        const event = eventDefinitionsModel.values.eventNames.includes(PathType.PageView)
+                            ? PathType.PageView
+                            : eventDefinitionsModel.values.eventNames[0]
+                        cleanedParams.events = [
+                            {
+                                id: event,
+                                name: event,
+                                type: EntityTypes.EVENTS,
+                                order: 0,
+                            },
+                        ]
+                    }
+                    actions.setFilters(cleanedParams, true, false)
                 }
             }
         },
