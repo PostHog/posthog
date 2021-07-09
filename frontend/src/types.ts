@@ -685,7 +685,7 @@ export interface TrendResultWithAggregate extends TrendResult {
 
 export interface FunnelStep {
     action_id: string
-    average_time: number
+    average_conversion_time: number
     count: number
     name: string
     order: number

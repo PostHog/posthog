@@ -146,7 +146,7 @@ export function FunnelViz({
             </>
         ) : null
     }
-    if (filters.display == ChartDisplayType.FunnelsHistogram) {
+    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && filters.display == ChartDisplayType.FunnelsHistogram) {
         return timeConversionBins && timeConversionBins.length > 0 ? <FunnelHistogram /> : null
     }
 

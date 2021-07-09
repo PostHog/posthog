@@ -242,8 +242,12 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                 <PropertyKeyInfo value={step.name} />
                             </div>
                             <div className={`funnel-step-metadata ${layout}`}>
-                                {step.average_time >= 0 + Number.EPSILON ? (
-                                    <AverageTimeInspector onClick={() => {}} averageTime={step.average_time} disabled />
+                                {step.average_conversion_time >= 0 + Number.EPSILON ? (
+                                    <AverageTimeInspector
+                                        onClick={() => {}}
+                                        averageTime={step.average_conversion_time}
+                                        disabled
+                                    />
                                 ) : null}
                             </div>
                         </header>
