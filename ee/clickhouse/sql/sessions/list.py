@@ -18,6 +18,8 @@ SESSION_SQL = """
         dateDiff('second', toDateTime(arrayReduce('min', groupArray(timestamp))), toDateTime(arrayReduce('max', groupArray(timestamp)))) AS elapsed,
         arrayReduce('min', groupArray(timestamp)) as start_time,
         arrayReduce('max', groupArray(timestamp)) as end_time,
+        JSONExtractString(arrayElement(groupArray(properties), 1), '$current_url') as start_url,
+        JSONExtractString(arrayElement(groupArray(properties), -1), '$current_url') as end_url
         {filters_select_clause}
     FROM (
         SELECT
