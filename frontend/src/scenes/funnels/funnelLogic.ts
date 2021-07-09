@@ -7,7 +7,16 @@ import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
-import { ChartDisplayType, EntityTypes, FilterType, FunnelResult, FunnelStep, PathType, PersonType } from '~/types'
+import {
+    ChartDisplayType,
+    EntityTypes,
+    FilterType,
+    FunnelResult,
+    FunnelStep,
+    FunnelsTimeConversionResult,
+    PathType,
+    PersonType,
+} from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelBarLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -22,7 +31,7 @@ function wait(ms = 1000): Promise<any> {
 }
 const SECONDS_TO_POLL = 3 * 60
 
-async function pollFunnel(params: Record<string, any>): Promise<FunnelResult> {
+async function pollFunnel(params: Record<string, any>): Promise<FunnelResult & FunnelsTimeConversionResult> {
     const { refresh, ...bodyParams } = params
     let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
     const start = window.performance.now()
@@ -90,12 +99,12 @@ export const funnelLogic = kea<funnelLogicType>({
 
     loaders: ({ props, values, actions }) => ({
         results: [
-            [] as FunnelStep[] | number[],
+            [] as FunnelStep[],
             {
-                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[] | number[]> => {
+                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[]> => {
                     actions.setStepsWithCountLoading(true)
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
-                        return props.cachedResults as FunnelStep[] | number[]
+                        return props.cachedResults as FunnelStep[]
                     }
 
                     const { from_dashboard } = values.filters
@@ -113,7 +122,6 @@ export const funnelLogic = kea<funnelLogicType>({
                     const eventCount = params.events?.length || 0
                     const actionCount = params.actions?.length || 0
                     const interval = params.interval || ''
-                    let binsResult
                     try {
                         result = await pollFunnel(params)
                         eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
@@ -131,6 +139,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                     actions.setSteps(result.result as FunnelStep[])
+                    let binsResult: FunnelsTimeConversionResult
                     if (params.display === ChartDisplayType.FunnelsHistogram) {
                         try {
                             params.funnel_viz_type = 'time_to_convert'
@@ -147,7 +156,7 @@ export const funnelLogic = kea<funnelLogicType>({
                             )
                             return []
                         }
-                        insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
+                        insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, binsResult.last_refresh)
                         actions.setTimeConversionBins(binsResult.result as number[])
                     }
                     return result.result

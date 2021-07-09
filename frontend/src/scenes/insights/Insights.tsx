@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
+import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS, FUNNELS_HISTOGRAM } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -426,9 +426,16 @@ function FunnelInsight(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { autoCalculate } = useValues(funnelLogic())
     const fluidHeight = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display === FUNNEL_VIZ
+    const funnelHistogram = display === FUNNELS_HISTOGRAM
 
     return (
-        <div style={fluidHeight ? {} : { height: 300, position: 'relative' }}>
+        <div
+            style={
+                fluidHeight
+                    ? {}
+                    : { height: 300, position: 'relative', marginBottom: `${funnelHistogram ? '32px' : 0}` }
+            }
+        >
             {stepsWithCountLoading && <Loading />}
             {isValidFunnel ? (
                 <FunnelViz steps={stepsWithCount} timeConversionBins={timeConversionBins} />

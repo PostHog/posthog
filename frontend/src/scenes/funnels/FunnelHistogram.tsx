@@ -5,6 +5,11 @@ import React from 'react'
 import { LineGraph } from 'scenes/insights/LineGraph'
 import { funnelLogic } from './funnelLogic'
 
+interface TimeStepOption {
+    label: string
+    value: number
+}
+
 export function FunnelHistogram(): JSX.Element {
     const { timeConversionBins, stepsWithCount } = useValues(funnelLogic)
     const { changeHistogramStep } = useActions(funnelLogic)
@@ -12,8 +17,8 @@ export function FunnelHistogram(): JSX.Element {
     const binData = timeConversionBins.map((bin) => bin[1])
     const dataset = [{ data: binData, labels: labels, label: 'Time to convert', count: 3 }]
 
-    const stepsDropdown = []
-    stepsWithCount.forEach((step, idx) => {
+    const stepsDropdown: TimeStepOption[] = []
+    stepsWithCount.forEach((_, idx) => {
         if (stepsWithCount[idx + 1]) {
             stepsDropdown.push({ label: `Steps ${idx + 1} and ${idx + 2}`, value: idx + 1 })
         }
@@ -24,25 +29,18 @@ export function FunnelHistogram(): JSX.Element {
                 Steps
                 {stepsDropdown.length > 0 && (
                     <Select
-                        defaultValue={stepsDropdown[0]?.label}
-                        // value={barGraphLayout || FunnelBarLayout.vertical}
+                        defaultValue={stepsDropdown[0]?.value}
                         onChange={changeHistogramStep}
-                        bordered={false}
                         dropdownMatchSelectWidth={false}
                         data-attr="funnel-bar-layout-selector"
                         optionLabelProp="label"
+                        style={{ marginLeft: 8, marginBottom: 16 }}
                     >
-                        <Select.OptGroup label="Graph display options">
-                            {stepsDropdown.map((option) => (
-                                <Select.Option
-                                    key={option?.value}
-                                    value={option?.value || 1}
-                                    label={<>{option?.label}</>}
-                                >
-                                    {option?.label}
-                                </Select.Option>
-                            ))}
-                        </Select.OptGroup>
+                        {stepsDropdown.map((option) => (
+                            <Select.Option key={option?.value} value={option?.value || 1} label={<>{option?.label}</>}>
+                                {option?.label}
+                            </Select.Option>
+                        ))}
                     </Select>
                 )}
             </div>

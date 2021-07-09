@@ -607,6 +607,7 @@ export interface FilterType {
     from_dashboard?: boolean
     funnel_step?: number
     funnel_viz_type?: string
+    funnel_to_step?: number
 }
 
 export interface SystemStatusSubrows {
@@ -696,7 +697,14 @@ export interface FunnelStep {
 export interface FunnelResult {
     is_cached: boolean
     last_refresh: string | null
-    result: FunnelStep[] | number[]
+    result: FunnelStep[]
+    type: 'Funnel'
+}
+
+export interface FunnelsTimeConversionResult {
+    result: number[]
+    last_refresh: string | null
+    is_cached: boolean
     type: 'Funnel'
 }
 

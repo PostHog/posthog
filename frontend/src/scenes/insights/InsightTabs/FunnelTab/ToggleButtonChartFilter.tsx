@@ -30,7 +30,7 @@ export function ToggleButtonChartFilter({
         },
         {
             value: ChartDisplayType.FunnelsHistogram,
-            label: 'Time to convert',
+            label: <Tooltip title="Track how long it takes for users to convert">Time to convert</Tooltip>,
         },
     ]
 
