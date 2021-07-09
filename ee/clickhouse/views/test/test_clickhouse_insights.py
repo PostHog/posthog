@@ -180,39 +180,6 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][0]["count"], 7)
         self.assertEqual(response["result"][0]["data"], [100, 100, 0, 0, 0, 0, 0])
 
-    def test_funnel_trends_unordered_basic_post(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
-        _create_person(distinct_ids=["user_two"], team=self.team)
-        # user_one, funnel steps: one, two three
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-05 00:00:00")
-
-        # user_two, funnel steps: one, two, three
-        _create_event(event="step three", distinct_id="user_two", team=self.team, timestamp="2021-05-02 00:00:00")
-        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-03 00:00:00")
-        _create_event(event="step two", distinct_id="user_two", team=self.team, timestamp="2021-05-04 00:00:00")
-
-        response = self.client.post(
-            "/api/insight/funnel/",
-            {
-                "events": [
-                    {"id": "step one", "type": "events", "order": 0},
-                    {"id": "step two", "type": "events", "order": 1},
-                    {"id": "step three", "type": "events", "order": 2},
-                ],
-                "funnel_window_days": 7,
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 23:59:59",
-                "funnel_viz_type": "trends",
-                "funnel_order_type": "unordered",
-            },
-        ).json()
-
-        self.assertEqual(len(response["result"]), 1)
-        self.assertEqual(response["result"][0]["count"], 7)
-        self.assertEqual(response["result"][0]["data"], [100, 100, 0, 0, 0, 0, 0])
-
     def test_funnel_trends_strict_basic_post(self):
         _create_person(distinct_ids=["user_one"], team=self.team)
         _create_person(distinct_ids=["user_two"], team=self.team)

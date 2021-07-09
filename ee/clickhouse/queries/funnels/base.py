@@ -113,7 +113,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 if i > 0 and self._filter.entities[i].equals(self._filter.entities[i - 1]):
                     duplicate_event = 1
                 cols.append(
-                    f"min(latest_{i}) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
+                    f"min(latest_{i}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
         return ", ".join(cols)
 

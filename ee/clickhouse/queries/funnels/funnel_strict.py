@@ -59,6 +59,6 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
                 cols.append(f"latest_{i}")
             else:
                 cols.append(
-                    f"min(latest_{i}) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) latest_{i}"
+                    f"min(latest_{i}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) latest_{i}"
                 )
         return ", ".join(cols)
