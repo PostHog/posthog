@@ -2,6 +2,7 @@ from datetime import date, datetime, timedelta
 from typing import Type, Union
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
 from posthog.constants import BREAKDOWN
 from posthog.models.filters.filter import Filter
@@ -45,7 +46,9 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     If no people have reached step {from_step} in the period, {conversion_rate} is zero.
     """
 
-    def __init__(self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase]) -> None:
+    def __init__(
+        self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
+    ) -> None:
         # TODO: allow breakdown
         if BREAKDOWN in filter._data:
             del filter._data[BREAKDOWN]
