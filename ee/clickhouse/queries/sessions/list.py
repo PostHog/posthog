@@ -6,7 +6,7 @@ from ee.clickhouse.models.action import format_entity_filter
 from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.clickhouse_session_recording import filter_sessions_by_recordings
+from ee.clickhouse.queries.clickhouse_session_recording import join_with_session_recordings
 from ee.clickhouse.queries.sessions.clickhouse_sessions import set_default_dates
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.sessions.list import SESSION_SQL, SESSIONS_DISTINCT_ID_SQL
@@ -61,7 +61,7 @@ class ClickhouseSessionsList(SessionsList):
 
         self._add_person_properties(result)
 
-        return filter_sessions_by_recordings(self.team, result, self.filter), pagination
+        return join_with_session_recordings(self.team, result, self.filter), pagination
 
     def fetch_distinct_ids(
         self, action_filters: ActionFiltersSQL, date_from: str, date_to: str, limit: int, distinct_id_offset: int
