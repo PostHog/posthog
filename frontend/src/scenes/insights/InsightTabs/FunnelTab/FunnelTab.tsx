@@ -86,34 +86,35 @@ export function FunnelTab(): JSX.Element {
                         })
                     }}
                 />
-                {preflight?.is_clickhouse_enabled && (
-                    <>
-                        <hr />
-                        <h4 className="secondary">
-                            Breakdown by
-                            <Tooltip
-                                placement="right"
-                                title="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited."
-                            >
-                                <InfoCircleOutlined className="info-indicator" />
-                            </Tooltip>
-                        </h4>
-                        <Row align="middle">
-                            <BreakdownFilter
-                                filters={filters}
-                                onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
-                                    setFilters({ breakdown, breakdown_type })
-                                }
-                            />
-                            {filters.breakdown && (
-                                <CloseButton
-                                    onClick={(): void => setFilters({ breakdown: null, breakdown_type: null })}
-                                    style={{ marginTop: 1, marginLeft: 5 }}
+                {preflight?.is_clickhouse_enabled ||
+                    (true && (
+                        <>
+                            <hr />
+                            <h4 className="secondary">
+                                Breakdown by
+                                <Tooltip
+                                    placement="right"
+                                    title="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited."
+                                >
+                                    <InfoCircleOutlined className="info-indicator" />
+                                </Tooltip>
+                            </h4>
+                            <Row align="middle">
+                                <BreakdownFilter
+                                    filters={filters}
+                                    onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
+                                        setFilters({ breakdown, breakdown_type })
+                                    }
                                 />
-                            )}
-                        </Row>
-                    </>
-                )}
+                                {filters.breakdown && (
+                                    <CloseButton
+                                        onClick={(): void => setFilters({ breakdown: null, breakdown_type: null })}
+                                        style={{ marginTop: 1, marginLeft: 5 }}
+                                    />
+                                )}
+                            </Row>
+                        </>
+                    ))}
                 <TestAccountFilter filters={filters} onChange={setFilters} />
                 {!autoCalculate && (
                     <>

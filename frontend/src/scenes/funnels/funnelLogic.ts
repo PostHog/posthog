@@ -7,18 +7,13 @@ import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
-import { BreakdownType, EntityTypes, FilterType, FunnelResult, FunnelStep, PathType, PersonType } from '~/types'
+import { EntityTypes, FilterType, FunnelResult, FunnelStep, PathType, PersonType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelBarLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-
-type NullableFilterType = Omit<FilterType, 'breakdown' | 'breakdown_type'> & {
-    breakdown?: string | null
-    breakdown_type?: BreakdownType | null
-}
 
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
@@ -42,20 +37,21 @@ async function pollFunnel(params: Record<string, any>): Promise<FunnelResult> {
     return result
 }
 
-export const cleanFunnelParams = (filters: Partial<NullableFilterType>): FilterType => {
+export const cleanFunnelParams = (filters: Partial<FilterType>): FilterType => {
     return {
         ...filters,
-        date_from: filters.date_from || undefined,
-        date_to: filters.date_to || undefined,
-        actions: filters.actions || undefined,
-        events: filters.events || undefined,
-        display: filters.display || undefined,
-        properties: filters.properties || undefined,
-        filter_test_accounts: filters.filter_test_accounts || undefined,
-        funnel_step: filters.funnel_step || undefined,
+        ...(filters.date_from ? { date_from: filters.date_from } : {}),
+        ...(filters.date_to ? { date_to: filters.date_to } : {}),
+        ...(filters.actions ? { actions: filters.actions } : {}),
+        ...(filters.events ? { events: filters.events } : {}),
+        ...(filters.display ? { display: filters.display } : {}),
+        ...(filters.interval ? { interval: filters.interval } : {}),
+        ...(filters.properties ? { properties: filters.properties } : {}),
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
+        interval: autocorrectInterval(filters),
         breakdown: filters.breakdown || undefined,
         breakdown_type: filters.breakdown_type || undefined,
-        interval: autocorrectInterval(filters as FilterType),
         insight: ViewType.FUNNELS,
     }
 }
@@ -63,7 +59,7 @@ export const cleanFunnelParams = (filters: Partial<NullableFilterType>): FilterT
 const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
-export const funnelLogic = kea<funnelLogicType<NullableFilterType>>({
+export const funnelLogic = kea<funnelLogicType>({
     key: (props) => {
         return props.dashboardItemId || 'some_funnel'
     },
@@ -71,7 +67,7 @@ export const funnelLogic = kea<funnelLogicType<NullableFilterType>>({
     actions: () => ({
         setSteps: (steps: FunnelStep[]) => ({ steps }),
         clearFunnel: true,
-        setFilters: (filters: NullableFilterType, refresh = false, mergeWithExisting = true) => ({
+        setFilters: (filters: Partial<FilterType>, refresh = false, mergeWithExisting = true) => ({
             filters,
             refresh,
             mergeWithExisting,
@@ -151,7 +147,7 @@ export const funnelLogic = kea<funnelLogicType<NullableFilterType>>({
 
     reducers: ({ props }) => ({
         filters: [
-            (props.filters || {}) as NullableFilterType,
+            (props.filters || {}) as FilterType,
             {
                 setFilters: (state, { filters, mergeWithExisting }) =>
                     mergeWithExisting ? { ...state, ...filters } : filters,
@@ -197,7 +193,7 @@ export const funnelLogic = kea<funnelLogicType<NullableFilterType>>({
         ],
     }),
 
-    selectors: ({ selectors, values }) => ({
+    selectors: ({ selectors }) => ({
         peopleSorted: [
             () => [selectors.stepsWithCount, selectors.people],
             (steps, people) => {
@@ -237,7 +233,6 @@ export const funnelLogic = kea<funnelLogicType<NullableFilterType>>({
             (featureFlags, preflight) =>
                 featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL] && preflight?.is_clickhouse_enabled,
         ],
-        filters: [() => [], () => cleanFunnelParams(values.filters)],
     }),
 
     listeners: ({ actions, values, props }) => ({

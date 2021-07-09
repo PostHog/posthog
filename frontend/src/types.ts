@@ -583,8 +583,8 @@ export interface FilterType {
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
-    breakdown_type?: BreakdownType
-    breakdown?: string
+    breakdown_type?: BreakdownType | null
+    breakdown?: string | null
     breakdown_value?: string
     shown_as?: ShownAsType
     session?: string
