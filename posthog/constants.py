@@ -91,6 +91,7 @@ FUNNEL_TO_STEP = "funnel_to_step"
 FUNNEL_STEP = "funnel_step"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
+BIN_COUNT = "bin_count"
 
 
 class FunnelOrderType(str, Enum):

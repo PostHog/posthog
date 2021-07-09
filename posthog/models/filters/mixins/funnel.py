@@ -1,6 +1,7 @@
 from typing import Optional
 
 from posthog.constants import (
+    BIN_COUNT,
     DISPLAY,
     FUNNEL_FROM_STEP,
     FUNNEL_ORDER_TYPE,
@@ -89,7 +90,7 @@ class FunnelTypeMixin(BaseParamMixin):
     def funnel_viz_type(self) -> Optional[FunnelVizType]:
         funnel_viz_type = self._data.get(FUNNEL_VIZ_TYPE)
         if (
-            not funnel_viz_type is None
+            funnel_viz_type is None
             and self._data.get(INSIGHT) == INSIGHT_FUNNELS
             and self._data.get(DISPLAY) == TRENDS_LINEAR
         ):
@@ -106,3 +107,14 @@ class FunnelTypeMixin(BaseParamMixin):
         if self.funnel_viz_type:
             result[FUNNEL_VIZ_TYPE] = self.funnel_viz_type
         return result
+
+
+class HistogramMixin(BaseParamMixin):
+    @cached_property
+    def bin_count(self) -> Optional[int]:
+        bin_count = self._data.get(BIN_COUNT)
+        return int(bin_count) if bin_count else None
+
+    @include_dict
+    def histogram_to_dict(self):
+        return {"bin_count": self.bin_count} if self.bin_count else {}

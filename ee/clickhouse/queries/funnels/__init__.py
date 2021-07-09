@@ -1,3 +1,4 @@
+from .base import ClickhouseFunnelBase
 from .funnel import ClickhouseFunnel
 from .funnel_persons import ClickhouseFunnelPersons
 from .funnel_strict import ClickhouseFunnelStrict
