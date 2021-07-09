@@ -151,29 +151,6 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
             (selectors) => [selectors.filters, selectors.lastAppliedFilters],
             (filters, lastFilters): boolean => !equal(filters, lastFilters),
         ],
-        filteredSessions: [
-            (selectors) => [selectors.sessions, selectors.showOnlyMatches],
-            (sessions: SessionType[], showOnlyMatches: boolean): SessionType[] =>
-                sessions
-                    // only get sessions with matched events
-                    // !s?.events = clickhouse returns all events, postgres loads events on demand and doesn't populate `events`
-                    .filter((s) => !s?.events || !showOnlyMatches || s.matching_events.length > 0)
-                    // filter events
-                    .map((s) => {
-                        const setOfMatchedEventIds = new Set(s.matching_events)
-                        return {
-                            ...s,
-                            ...(s?.events
-                                ? {
-                                      events:
-                                          s?.events?.filter(
-                                              (e) => !showOnlyMatches || setOfMatchedEventIds.has(e.id)
-                                          ) || [],
-                                  }
-                                : {}),
-                        }
-                    }),
-        ],
         filteredSessionEvents: [
             (selectors) => [selectors.loadedSessionEvents, selectors.sessions, selectors.showOnlyMatches],
             (
