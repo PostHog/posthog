@@ -49,7 +49,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
 
         for entity in entities_to_use:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                action = Action.objects.get(pk=entity.id)
+                action = entity.get_action()
                 for action_step in action.steps.all():
                     events.append(action_step.event)
             else:

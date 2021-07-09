@@ -43,7 +43,7 @@ def parse_prop_clauses(
             except Cohort.DoesNotExist:
                 final.append("AND 0 = 1")  # If cohort doesn't exist, nothing can match
             else:
-                person_id_query, cohort_filter_params = format_filter_query(cohort)
+                person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
                 params = {**params, **cohort_filter_params}
                 final.append(
                     "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
