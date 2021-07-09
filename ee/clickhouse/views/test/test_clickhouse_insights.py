@@ -227,6 +227,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         _create_person(distinct_ids=["user c"], team=self.team)
 
         _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
+        _create_event(event="blah", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:30:00")
         _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
         # Converted from 0 to 1 in 3600 s
         _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
@@ -244,6 +245,90 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
             {
                 "insight": "funnels",
                 "funnel_viz_type": "time_to_convert",
+                "interval": "day",
+                "date_from": "2021-06-07 00:00:00",
+                "date_to": "2021-06-13 23:59:59",
+                "funnel_to_step": 1,
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(), {"result": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1],]},
+        )
+
+    def test_funnel_time_to_convert_auto_bins_strict(self):
+        _create_person(distinct_ids=["user a"], team=self.team)
+        _create_person(distinct_ids=["user b"], team=self.team)
+        _create_person(distinct_ids=["user c"], team=self.team)
+
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
+        _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
+        # Converted from 0 to 1 in 3600 s
+        _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
+
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
+        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
+        # Converted from 0 to 1 in 2200 s
+
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
+        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
+        # Converted from 0 to 1 in 82_800 s
+
+        response = self.client.post(
+            "/api/insight/funnel/",
+            {
+                "insight": "funnels",
+                "funnel_viz_type": "time_to_convert",
+                "funnel_order_type": "strict",
+                "interval": "day",
+                "date_from": "2021-06-07 00:00:00",
+                "date_to": "2021-06-13 23:59:59",
+                "funnel_to_step": 1,
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(), {"result": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1],]},
+        )
+
+    def test_funnel_time_to_convert_auto_bins_unordered(self):
+        _create_person(distinct_ids=["user a"], team=self.team)
+        _create_person(distinct_ids=["user b"], team=self.team)
+        _create_person(distinct_ids=["user c"], team=self.team)
+
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
+        _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
+        # Converted from 0 to 1 in 3600 s
+        _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
+
+        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
+        # Converted from 0 to 1 in 2200 s
+
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
+        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
+        # Converted from 0 to 1 in 82_800 s
+
+        response = self.client.post(
+            "/api/insight/funnel/",
+            {
+                "insight": "funnels",
+                "funnel_viz_type": "time_to_convert",
+                "funnel_order_type": "unordered",
                 "interval": "day",
                 "date_from": "2021-06-07 00:00:00",
                 "date_to": "2021-06-13 23:59:59",
