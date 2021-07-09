@@ -116,7 +116,6 @@ class ClickhouseSessionsList(SessionsList):
                 "end_time": result[4],
                 "start_url": result[5].strip('"') if isinstance(result[5], str) else result[5],
                 "end_url": result[5].strip('"') if isinstance(result[6], str) else result[5],
-                "properties": {},
                 "matching_events": list(sorted(set(flatten(result[7:])))),
             }
             for result in results

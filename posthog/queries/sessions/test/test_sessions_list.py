@@ -29,6 +29,21 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
                 response, _ = self.run_query(SessionsFilter(data={"properties": [{"key": "$os", "value": "Mac OS X"}]}))
                 self.assertEqual(len(response), 1)
 
+                self.assertEqual(
+                    set(response[0].keys()) - {"email"},
+                    {
+                        "distinct_id",
+                        "global_session_id",
+                        "length",
+                        "start_time",
+                        "end_time",
+                        "start_url",
+                        "end_url",
+                        "matching_events",
+                        "session_recordings",
+                    },
+                )
+
         def test_sessions_and_cohort(self):
             self.create_test_data()
             cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"email": "bla"}}])
