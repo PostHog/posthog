@@ -130,7 +130,7 @@ def format_breakdown_cohort_join_query(team_id: int, filter: Filter, **kwargs) -
     cohort_queries, params = _parse_breakdown_cohorts(cohorts)
     ids = [cohort.pk for cohort in cohorts]
     if "all" in filter.breakdown:
-        all_query, all_params = _format_all_query(team_id, filter, entity)
+        all_query, all_params = _format_all_query(team_id, filter, entity=entity)
         cohort_queries.append(all_query)
         params = {**params, **all_params}
         ids.append(0)
