@@ -79,7 +79,6 @@ class PersonFilter(filters.FilterSet):
 
 class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -87,7 +86,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.DjangoFilterBackend]
     filterset_class = PersonFilter
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
-
     lifecycle_class = LifecycleTrend
     retention_class = Retention
     stickiness_class = Stickiness
@@ -113,36 +111,24 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         return self._filter_request(self.request, super().get_queryset())
 
-    def get_person_properties(self) -> QuerySet:
+    @action(methods=["GET"], detail=False)
+    def properties(self, request: request.Request, **kwargs) -> response.Response:
+        result = self.get_properties(request)
+
+        return response.Response(result)
+
+    def get_properties(self, request) -> List[Dict[str, Any]]:
         class JsonKeys(Func):
             function = "jsonb_object_keys"
 
         people = self.get_queryset()
-        return (
+        people = (
             people.annotate(keys=JsonKeys("properties"))
             .values("keys")
             .annotate(count=Count("id"))
             .order_by("-count", "keys")
         )
-
-    @action(methods=["GET"], detail=False)
-    def properties(self, request: request.Request, **kwargs) -> response.Response:
-        properties = self.get_person_properties()
-        result = [{"name": property["keys"], "count": property["count"]} for property in properties]
-        return response.Response(result)
-
-    @action(methods=["GET"], detail=False)
-    def properties_paginated(self, request: request.Request, **kwargs) -> List[Dict[str, Any]]:
-        properties = self.get_person_properties()
-        count = properties.count()
-        limit = int(request.GET.get("limit", 100))
-        offset = int(request.GET.get("offset", 0))
-        properties = properties[offset : offset + limit]
-        result = {
-            "count": count,
-            "results": [{"name": property["keys"], "count": property["count"]} for property in properties],
-        }
-        return response.Response(result)
+        return [{"name": event["keys"], "count": event["count"]} for event in people]
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
