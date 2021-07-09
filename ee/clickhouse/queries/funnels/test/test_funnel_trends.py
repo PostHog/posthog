@@ -117,75 +117,60 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         funnel_trends = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)
         results = funnel_trends.perform_query()
-        self.assertEqual(len(results), 7)
 
-        day_1, day_2, day_3, day_4, day_5, day_6, day_7 = results
-
-        self.assertEqual(day_1["reached_from_step_count"], 1)
-        self.assertEqual(day_1["reached_to_step_count"], 0)
-        self.assertEqual(day_1["conversion_rate"], 0)
-        self.assertEqual(day_1["timestamp"], datetime(2021, 6, 7, 0, 0))
-        self.assertEqual(day_1["is_period_final"], True)
-
-        self.assertDictEqual(
-            day_2,
-            {
-                "reached_to_step_count": 0,
-                "is_period_final": True,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 8, 0, 0),
-            },
-        )
-        self.assertDictEqual(
-            day_3,
-            {
-                "reached_to_step_count": 0,
-                "is_period_final": True,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 9, 0, 0),
-            },
-        )
-        self.assertDictEqual(
-            day_4,
-            {
-                "reached_to_step_count": 0,
-                "is_period_final": True,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 10, 0, 0),
-            },
-        )
-        self.assertDictEqual(
-            day_5,
-            {
-                "reached_to_step_count": 0,
-                "is_period_final": True,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 11, 0, 0),
-            },
-        )
-        self.assertDictEqual(
-            day_6,
-            {
-                "reached_to_step_count": 0,
-                "is_period_final": True,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 12, 0, 0),
-            },
-        )
-        self.assertDictEqual(
-            day_7,
-            {
-                "reached_to_step_count": 0,
-                "is_period_final": True,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 13, 0, 0),
-            },
+        self.assertEqual(
+            results,
+            [
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 1,
+                    "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 0,
+                    "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 0,
+                    "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 0,
+                    "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 0,
+                    "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 0,
+                    "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 0,
+                    "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+            ],
         )
 
     # minute, hour, day, week, month
