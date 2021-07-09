@@ -83,9 +83,6 @@ class FunnelPersonsStepMixin(BaseParamMixin):
 
 
 class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
-
-    # first step is 0
-    # -1 means dropoff into step 1
     @cached_property
     def funnel_step_breakdown(self) -> Optional[str]:
         return self._data.get(FUNNEL_STEP_BREAKDOWN)
