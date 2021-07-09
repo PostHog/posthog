@@ -1,6 +1,7 @@
 from typing import List
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
+from posthog.models.cohort import Cohort
 
 
 class ClickhouseFunnel(ClickhouseFunnelBase):
@@ -66,7 +67,10 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
                 serialized_result.update({"average_conversion_time": None})
 
             if with_breakdown:
-                serialized_result.update({"breakdown": result[-1][1:-1]})  # strip quotes
+                resulting_breakdown = (
+                    result[-1][1:-1] if isinstance(result[-1], str) else Cohort.objects.get(pk=result[-1]).name
+                )
+                serialized_result.update({"breakdown": resulting_breakdown})  # strip quotes
 
             steps.append(serialized_result)
 

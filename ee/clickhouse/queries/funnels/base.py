@@ -7,7 +7,11 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.breakdown_props import get_breakdown_event_prop_values, get_breakdown_person_prop_values
+from ee.clickhouse.queries.breakdown_props import (
+    format_breakdown_cohort_join_query,
+    get_breakdown_event_prop_values,
+    get_breakdown_person_prop_values,
+)
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
@@ -221,13 +225,22 @@ class ClickhouseFunnelBase(ABC, Funnel):
         steps = ", ".join(all_step_cols)
 
         select_prop = self._get_breakdown_select_prop()
-        breakdown_conditions = self._get_breakdown_conditions()
-        extra_conditions = "AND prop != ''" if select_prop else ""
-        extra_conditions += f"AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
+        breakdown_conditions = ""
+        extra_conditions = ""
+        extra_join = ""
+
+        if self._filter.breakdown:
+            if self._filter.breakdown_type == "cohort":
+                extra_join = self._get_cohort_breakdown_join()
+            else:
+                breakdown_conditions = self._get_breakdown_conditions()
+                extra_conditions = "AND prop != ''" if select_prop else ""
+                extra_conditions += f"AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
 
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
             event_query=event_query,
+            extra_join=extra_join,
             steps_condition=steps_conditions,
             select_prop=select_prop,
             extra_conditions=extra_conditions,
@@ -318,8 +331,20 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 return f", JSONExtractRaw(person_props, %(breakdown)s) as prop"
             elif self._filter.breakdown_type == "event":
                 return f", JSONExtractRaw(properties, %(breakdown)s) as prop"
+            elif self._filter.breakdown_type == "cohort":
+                return ", value as prop"
 
         return ""
+
+    def _get_cohort_breakdown_join(self) -> str:
+        cohort_queries, _, cohort_params = format_breakdown_cohort_join_query(self._team.pk, self._filter)
+        self.params.update(cohort_params)
+        return f"""
+            INNER JOIN (
+                {cohort_queries}
+            ) cohort_join
+            ON events.distinct_id = cohort_join.distinct_id
+        """
 
     def _get_breakdown_conditions(self) -> str:
         if self._filter.breakdown:
@@ -329,9 +354,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 ValidationError("An entity with order 0 was not provided")
             values = []
             if self._filter.breakdown_type == "person":
-                values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, 5)
+                values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
             elif self._filter.breakdown_type == "event":
-                values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, 5)
+                values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
             self.params.update({"breakdown_values": values})
 
             return "prop IN %(breakdown_values)s"

@@ -8,6 +8,7 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
+from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
@@ -1035,3 +1036,26 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
         # assert that we give 5 at a time at most and that those values are the most popular ones
         breakdown_vals = sorted([res[0]["breakdown"] for res in result])
         self.assertEqual(["5", "6", "7", "8", "9"], breakdown_vals)
+
+    def test_funnel_cohort_breakdown(self):
+        # This caused some issues with SQL parsing
+        _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
+        _create_event(
+            team=self.team, event="sign up", distinct_id=f"person1", properties={}, timestamp="2020-01-02T12:00:00Z",
+        )
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", groups=[{"properties": {"key": "value"}}])
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "cohort",
+            "breakdown": [cohort.pk],
+        }
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        result = funnel.run()
+        self.assertEqual(len(result[0]), 3)
+        self.assertEqual(result[0][0]["breakdown"], "test_cohort")
