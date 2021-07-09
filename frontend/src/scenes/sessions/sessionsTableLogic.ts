@@ -151,21 +151,26 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
             (selectors) => [selectors.filters, selectors.lastAppliedFilters],
             (filters, lastFilters): boolean => !equal(filters, lastFilters),
         ],
+        // :NOTE: This recalculates whenever opening a new session or loading new sessions. Memoize per-session instead.
         filteredSessionEvents: [
             (selectors) => [selectors.loadedSessionEvents, selectors.sessions, selectors.showOnlyMatches],
             (
                 loadedSessionEvents: Record<string, EventType[] | undefined>,
                 sessions: SessionType[],
                 showOnlyMatches: boolean
-            ): Record<string, EventType[] | undefined> =>
-                fromEntries(
-                    Object.entries(loadedSessionEvents).map(([id, events]) => {
-                        const setOfMatchedEventIds = new Set(
-                            sessions.find((s) => s.global_session_id === id)?.matching_events || []
-                        )
-                        return [id, events?.filter((e) => !showOnlyMatches || setOfMatchedEventIds.has(e.id)) || []]
+            ): Record<string, EventType[] | undefined> => {
+                if (!showOnlyMatches) {
+                    return loadedSessionEvents
+                }
+
+                return fromEntries(
+                    sessions.map((session) => {
+                        const events = loadedSessionEvents[session.global_session_id] || []
+                        const matchingEvents = new Set(session.matching_events)
+                        return [session.global_session_id, events.filter((e) => matchingEvents.has(e.id))]
                     })
-                ),
+                )
+            },
         ],
         expandedRowKeysProps: [
             (selectors) => [selectors.sessions, selectors.rowExpandState, selectors.manualRowExpansion],
