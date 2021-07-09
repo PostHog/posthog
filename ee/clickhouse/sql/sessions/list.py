@@ -100,3 +100,19 @@ SESSION_SQL = """
         end_time DESC
     {sessions_limit}
 """
+
+SESSION_EVENTS = """
+SELECT
+    uuid,
+    event,
+    properties,
+    timestamp,
+    elements_chain
+FROM events
+WHERE team_id = %(team_id)s
+  AND event != '$feature_flag_called'
+  AND distinct_id = %(distinct_id)s
+  {date_from}
+  {date_to}
+ORDER BY timestamp
+"""
