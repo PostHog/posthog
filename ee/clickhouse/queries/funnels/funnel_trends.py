@@ -87,34 +87,31 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
 
         query = f"""
             SELECT
-                {interval_method}(toDateTime('{self._filter.date_from.strftime(TIMESTAMP_FORMAT)}') + number * {seconds_in_interval}) AS entrance_period_start,
+                entrance_period_start,
                 reached_from_step_count,
                 reached_to_step_count,
-                conversion_rate
-            FROM numbers({num_intervals}) AS period_offsets
-            LEFT OUTER JOIN (
+                if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0) AS conversion_rate
+            FROM (
                 SELECT
                     entrance_period_start,
-                    reached_from_step_count,
-                    reached_to_step_count,
-                    if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0) AS conversion_rate
+                    countIf({reached_from_step_count_condition}) AS reached_from_step_count,
+                    countIf({reached_to_step_count_condition}) AS reached_to_step_count
                 FROM (
                     SELECT
-                        entrance_period_start,
-                        countIf({reached_from_step_count_condition}) AS reached_from_step_count,
-                        countIf({reached_to_step_count_condition}) AS reached_to_step_count
+                        person_id,
+                        {interval_method}(timestamp) AS entrance_period_start,
+                        max(steps) AS steps_completed
                     FROM (
-                        SELECT
-                            person_id,
-                            {interval_method}(timestamp) AS entrance_period_start,
-                            max(steps) AS steps_completed
-                        FROM (
-                            {steps_per_person_query}
-                        ) GROUP BY person_id, entrance_period_start
-                    ) GROUP BY entrance_period_start
-                )
+                        {steps_per_person_query}
+                    ) GROUP BY person_id, entrance_period_start
+                ) GROUP BY entrance_period_start
             ) data
-            ON data.entrance_period_start = entrance_period_start
+            RIGHT JOIN (
+                SELECT
+                    {interval_method}(toDateTime('{self._filter.date_from.strftime(TIMESTAMP_FORMAT)}') + number * {seconds_in_interval}) AS entrance_period_start
+                FROM numbers({num_intervals}) AS period_offsets
+            ) fill
+            USING (entrance_period_start)
             ORDER BY entrance_period_start ASC
             SETTINGS allow_experimental_window_functions = 1"""
 
