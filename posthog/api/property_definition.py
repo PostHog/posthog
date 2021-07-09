@@ -24,10 +24,29 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
 
 
 def is_pg_trgm_installed():
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT COUNT(*) FROM pg_extension WHERE extname = 'pg_trgm'")
-        row = cursor.fetchone()
-    return bool(row[0])
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM pg_extension WHERE extname = 'pg_trgm'")
+            row = cursor.fetchone()
+            has_extension = bool(row) and bool(row[0])
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    i.relname as index_name
+                FROM
+                    pg_class i,
+                    pg_index ix
+                WHERE
+                    i.oid = ix.indexrelid
+                    and i.relname = 'index_property_definition_name';
+            """
+            )
+            row = cursor.fetchone()
+            has_index = bool(row) and bool(row[0])
+        return has_extension and has_index
+    except BaseException:
+        return False
 
 
 class PropertyDefinitionViewSet(
