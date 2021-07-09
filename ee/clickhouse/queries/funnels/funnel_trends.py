@@ -71,7 +71,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         # Expects multiple rows for same person, first event time, steps taken.
         self.params.update(self.funnel_order.params)
 
-        reached_from_step_count_condition, reached_to_step_count_condition = self.get_steps_reached_conditions()
+        reached_from_step_count_condition, reached_to_step_count_condition, _ = self.get_steps_reached_conditions()
         interval_method = get_trunc_func_ch(self._filter.interval)
         num_intervals, seconds_in_interval, _ = get_time_diff(
             self._filter.interval or "day", self._filter.date_from, self._filter.date_to, team_id=self._team.pk
@@ -98,7 +98,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
                     ) GROUP BY person_id, entrance_period_start
                 ) GROUP BY entrance_period_start
             ) data
-            RIGHT JOIN (
+            FULL OUTER JOIN (
                 SELECT
                     {interval_method}(toDateTime('{self._filter.date_from.strftime(TIMESTAMP_FORMAT)}') + number * {seconds_in_interval}) AS entrance_period_start
                 FROM numbers({num_intervals}) AS period_offsets
@@ -109,7 +109,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
 
         return query
 
-    def get_steps_reached_conditions(self) -> Tuple[str, str]:
+    def get_steps_reached_conditions(self) -> Tuple[str, str, str]:
         # How many steps must have been done to count for the denominator of a funnel trends data point
         from_step = self._filter.funnel_from_step or 1
         # How many steps must have been done to count for the numerator of a funnel trends data point
@@ -117,8 +117,9 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
 
         reached_from_step_count_condition = f"steps_completed >= {from_step}"
         reached_to_step_count_condition = f"steps_completed >= {to_step}"
+        did_not_reach_to_step_count_condition = f"steps_completed < {to_step}"  # Those who dropped off
 
-        return reached_from_step_count_condition, reached_to_step_count_condition
+        return reached_from_step_count_condition, reached_to_step_count_condition, did_not_reach_to_step_count_condition
 
     def _summarize_data(self, results):
         summary = [
