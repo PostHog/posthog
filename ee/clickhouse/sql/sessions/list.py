@@ -17,12 +17,7 @@ SESSION_SQL = """
         gid,
         dateDiff('second', toDateTime(arrayReduce('min', groupArray(timestamp))), toDateTime(arrayReduce('max', groupArray(timestamp)))) AS elapsed,
         arrayReduce('min', groupArray(timestamp)) as start_time,
-        groupArray(uuid) uuids,
-        groupArray(event) events,
-        groupArray(properties) properties,
-        groupArray(timestamp) timestamps,
-        groupArray(elements_chain) elements_chain,
-        arrayReduce('max', groupArray(timestamp)) as end_time
+        arrayReduce('max', groupArray(timestamp)) as end_time,
         {filters_select_clause}
     FROM (
         SELECT

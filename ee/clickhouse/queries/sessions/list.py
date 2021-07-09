@@ -107,38 +107,18 @@ class ClickhouseSessionsList(SessionsList):
                 session["email"] = distinct_to_person[session["distinct_id"]].properties.get("email")
 
     def _parse_list_results(self, results: List[Tuple]):
-        final = []
-        for result in results:
-            # events = []
-            # for i in range(len(result[4])):
-            #     event = [
-            #         result[4][i],  # uuid
-            #         result[5][i],  # event
-            #         result[6][i],  # properties
-            #         result[7][i],  # timestamp
-            #         None,  # team_id,
-            #         result[0],  # distinct_id
-            #         result[8][i],  # elements_chain
-            #         None,  # properties keys
-            #         None,  # properties values
-            #     ]
-            #     events.append(ClickhouseEventSerializer(event, many=False).data)
-
-            final.append(
-                {
-                    "distinct_id": result[0],
-                    "global_session_id": result[1],
-                    "length": result[2],
-                    "start_time": result[3],
-                    "end_time": result[9],
-                    "event_count": len(result[4]),
-                    # "events": list(events),
-                    "properties": {},
-                    "matching_events": list(sorted(set(flatten(result[10:])))),
-                }
-            )
-
-        return final
+        return [
+            {
+                "distinct_id": result[0],
+                "global_session_id": result[1],
+                "length": result[2],
+                "start_time": result[3],
+                "end_time": result[4],
+                "properties": {},
+                "matching_events": list(sorted(set(flatten(result[5:])))),
+            }
+            for result in results
+        ]
 
 
 def format_action_filters(filter: SessionsFilter) -> ActionFiltersSQL:
