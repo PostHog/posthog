@@ -114,8 +114,8 @@ class ClickhouseSessionsList(SessionsList):
                 "length": result[2],
                 "start_time": result[3],
                 "end_time": result[4],
-                "start_url": result[5].strip('"') if isinstance(result[5], str) else result[5],
-                "end_url": result[5].strip('"') if isinstance(result[6], str) else result[5],
+                "start_url": _process_url(result[5]),
+                "end_url": _process_url(result[6]),
                 "matching_events": list(sorted(set(flatten(result[7:])))),
             }
             for result in results
@@ -159,3 +159,11 @@ def format_action_filter_aggregate(entity: Entity, prepend: str):
         params = {**params, **filter_params}
 
     return filter_sql, params
+
+
+def _process_url(url: Optional[str]) -> Optional[str]:
+    if url is not None:
+        url = url.strip('"')
+    if url == "":
+        url = None
+    return url

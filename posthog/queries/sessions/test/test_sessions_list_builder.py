@@ -120,11 +120,11 @@ class TestSessionListBuilder(BaseTest):
         sessions = self.build(
             [
                 mock_event("1", now()),
-                mock_event("2", now() - relativedelta(minutes=3), current_url="http://foo.bar/landing"),
+                mock_event("2", now() - relativedelta(minutes=3), current_url="http://foo.bar/subpage"),
                 mock_event("2", now() - relativedelta(minutes=25)),
                 mock_event("1", now() - relativedelta(minutes=27)),
                 mock_event("1", now() - relativedelta(minutes=35)),
-                mock_event("2", now() - relativedelta(minutes=45), current_url="http://foo.bar/subpage"),
+                mock_event("2", now() - relativedelta(minutes=45), current_url="http://foo.bar/landing"),
             ],
             emails={"2": "foo@bar.com"},
         )
