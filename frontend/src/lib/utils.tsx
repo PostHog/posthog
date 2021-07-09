@@ -946,17 +946,3 @@ export function median(input: number[]): number {
     }
     return average([sorted[half - 1], sorted[half]])
 }
-
-export function buildUrl(url: string, queryParams?: Record<string, any>): string {
-    let result = url
-    if (queryParams) {
-        const initialChar = url.indexOf('?') !== -1 ? '&' : '?'
-        result += initialChar
-        const searchString = Object.entries(queryParams)
-            .filter(([, value]) => value !== undefined)
-            .map(([key, value]) => `${key}=${value}`)
-            .join('&')
-        result += searchString
-    }
-    return result
-}

@@ -1,6 +1,6 @@
 import { kea } from 'kea'
+import { combineUrl } from 'kea-router'
 import api from 'lib/api'
-import { buildUrl } from 'lib/utils'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { EventDefinitionStorage } from '~/models/eventDefinitionsModel'
 import { infiniteListLogicType } from './infiniteListLogicType'
@@ -52,11 +52,15 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOp
                     const shouldResetResults = typeof newSearchQuery === 'string'
                     if (shouldResetResults) {
                         actions.setSearchQuery(newSearchQuery as string)
-                        const url = buildUrl(props.endpoint, {
-                            search: newSearchQuery,
-                            limit,
-                            offset,
-                        })
+                        const { url } = combineUrl(
+                            props.endpoint,
+                            {
+                                search: newSearchQuery,
+                                limit,
+                                offset,
+                            },
+                            ''
+                        )
                         const response: EventDefinitionStorage = await api.get(url)
                         return {
                             results: response.results,
@@ -64,10 +68,14 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOp
                             count: response.count,
                         }
                     } else {
-                        const url = buildUrl(props.endpoint, {
-                            limit,
-                            offset,
-                        })
+                        const { url } = combineUrl(
+                            props.endpoint,
+                            {
+                                limit,
+                                offset,
+                            },
+                            ''
+                        )
                         const response: EventDefinitionStorage = await api.get(url)
                         return {
                             results: appendAtIndex(values.results, response.results, offset),

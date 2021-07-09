@@ -52,7 +52,7 @@ export function TaxonomicPropertyFilter({
         },
         {
             key: 'cohorts',
-            name: 'Cohort',
+            name: 'Cohorts',
             type: 'cohort',
             dataSource: cohortsModel.values.cohorts.map((cohort) => ({
                 ...cohort,
@@ -66,7 +66,7 @@ export function TaxonomicPropertyFilter({
     const { setSearchQuery, setSelectedItemKey, setDisplayMode } = useActions(logic)
 
     return (
-        <div style={{ minWidth: '25rem' }}>
+        <div style={{ minWidth: 'max(25rem, 40vw)' }}>
             {displayMode === DisplayMode.PROPERTY_SELECT && (
                 <>
                     <Input
