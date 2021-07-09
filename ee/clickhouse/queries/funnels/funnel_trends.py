@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Type, Union
+from typing import Tuple, Type, Union
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
@@ -67,23 +67,15 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return self._summarize_data(self._exec_query())
 
     def get_query(self) -> str:
-
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
-        # expects multiple rows for same person, first event time, steps taken.
+        # Expects multiple rows for same person, first event time, steps taken.
         self.params.update(self.funnel_order.params)
 
+        reached_from_step_count_condition, reached_to_step_count_condition = self.get_steps_reached_conditions()
+        interval_method = get_trunc_func_ch(self._filter.interval)
         num_intervals, seconds_in_interval, _ = get_time_diff(
             self._filter.interval or "day", self._filter.date_from, self._filter.date_to, team_id=self._team.pk
         )
-        interval_method = get_trunc_func_ch(self._filter.interval)
-
-        # How many steps must have been done to count for the denominator
-        from_step = self._filter.funnel_from_step or 1
-        # How many steps must have been done to count for the numerator
-        to_step = self._filter.funnel_to_step or len(self._filter.entities)
-
-        reached_from_step_count_condition = f"steps_completed >= {from_step}"
-        reached_to_step_count_condition = f"steps_completed >= {to_step}"
 
         query = f"""
             SELECT
@@ -116,6 +108,17 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             SETTINGS allow_experimental_window_functions = 1"""
 
         return query
+
+    def get_steps_reached_conditions(self) -> Tuple[str, str]:
+        # How many steps must have been done to count for the denominator of a funnel trends data point
+        from_step = self._filter.funnel_from_step or 1
+        # How many steps must have been done to count for the numerator of a funnel trends data point
+        to_step = self._filter.funnel_to_step or len(self._filter.entities)
+
+        reached_from_step_count_condition = f"steps_completed >= {from_step}"
+        reached_to_step_count_condition = f"steps_completed >= {to_step}"
+
+        return reached_from_step_count_condition, reached_to_step_count_condition
 
     def _summarize_data(self, results):
         summary = [
