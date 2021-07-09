@@ -141,8 +141,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         {
             title: 'Start Point',
             render: function RenderStartPoint(session: SessionType) {
-                const url = session.start_url || (session.events && session.events[0].properties?.$current_url)
-                return <span>{url ? stripHTTP(url) : 'N/A'}</span>
+                return <span>{session.start_url ? stripHTTP(session.start_url) : 'N/A'}</span>
             },
             ellipsis: true,
             span: 4,
@@ -150,10 +149,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         {
             title: 'End Point',
             render: function RenderEndPoint(session: SessionType) {
-                const url =
-                    session.end_url ||
-                    (session.events && session.events[session.events.length - 1].properties?.$current_url)
-                return <span>{url ? stripHTTP(url) : 'N/A'}</span>
+                return <span>{session.end_url ? stripHTTP(session.end_url) : 'N/A'}</span>
             },
             ellipsis: true,
             span: 4,
