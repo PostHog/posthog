@@ -234,6 +234,7 @@ export const FEATURE_FLAGS: Record<string, string> = {
     PLUGIN_METRICS: '4871-plugin-metrics',
     FUNNEL_BAR_VIZ: '4535-funnel-bar-viz',
     SESSIONS_TABLE: '4964-sessions-table',
+    PERSONS_MODAL_SEARCH: 'persons-modal-search',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'

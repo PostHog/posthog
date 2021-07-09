@@ -93,7 +93,7 @@ export function ProjectSettings(): JSX.Element {
                 </h2>
                 To integrate PostHog into your website and get event autocapture with no additional work, include the
                 following snippet in your&nbsp;website's&nbsp;HTML. Ideally, put it just above the&nbsp;
-                <code>{'<head>'}</code>&nbsp;tag.
+                <code>{'</head>'}</code>&nbsp;tag.
                 <br />
                 For more guidance, including on identifying users,{' '}
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
