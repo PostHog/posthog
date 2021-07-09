@@ -389,8 +389,8 @@ export interface SessionType {
     start_time: string
     end_time: string
     session_recordings: SessionTypeSessionRecording[]
-    start_url?: string | null
-    end_url?: string | null
+    start_url: string | null
+    end_url: string | null
     email?: string | null
     matching_events: Array<number | string>
 }
