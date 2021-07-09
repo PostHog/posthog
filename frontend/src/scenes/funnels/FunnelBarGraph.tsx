@@ -75,28 +75,26 @@ function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal
     })
 
     return (
-        <div className="funnel-bar-wrapper">
+        <div
+            ref={barRef}
+            className="funnel-bar"
+            style={{ [dimensionProperty]: `${percentage}%`, cursor: cursorType }}
+            onClick={() => {
+                if (funnelPersonsEnabled && onBarClick) {
+                    onBarClick()
+                }
+            }}
+        >
             <div
-                ref={barRef}
-                className="funnel-bar"
-                style={{ [dimensionProperty]: `${percentage}%`, cursor: cursorType }}
-                onClick={() => {
-                    if (funnelPersonsEnabled && onBarClick) {
-                        onBarClick()
-                    }
-                }}
+                ref={labelRef}
+                className={`funnel-bar-percentage ${labelPosition}`}
+                title={name ? `Users who did ${name}` : undefined}
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={percentage}
             >
-                <div
-                    ref={labelRef}
-                    className={`funnel-bar-percentage ${labelPosition}`}
-                    title={name ? `Users who did ${name}` : undefined}
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={percentage}
-                >
-                    {humanizeNumber(percentage, 2)}%
-                </div>
+                {humanizeNumber(percentage, 2)}%
             </div>
         </div>
     )
@@ -136,7 +134,6 @@ function ValueInspectorButton({
             <Button ref={ref} {...props} />
         )
         const RefComponent = React.forwardRef(InnerComponent)
-        // @ts-ignore ref type
         return <RefComponent ref={refProp} />
     } else {
         return <Button {...props} />
@@ -247,12 +244,14 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                 ) : null}
                             </div>
                         </header>
-                        <Bar
-                            percentage={calcPercentage(step.count, basisStep.count)}
-                            name={step.name}
-                            onBarClick={() => openPersonsModal(step, i + 1)}
-                            layout={layout}
-                        />
+                        <div className="funnel-bar-wrapper">
+                            <Bar
+                                percentage={calcPercentage(step.count, basisStep.count)}
+                                name={step.name}
+                                onBarClick={() => openPersonsModal(step, i + 1)}
+                                layout={layout}
+                            />
+                        </div>
                         <footer>
                             <div className="funnel-step-metadata">
                                 <ValueInspectorButton

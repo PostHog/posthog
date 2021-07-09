@@ -141,11 +141,13 @@ $glyph_height: 22px;
         margin: 4px 0;
         background-color: #e7e8ee;
         border-radius: 4px;
+        display: flex;
+        flex-direction: row;
 
         .funnel-bar {
             position: relative;
             height: 100%;
-            background: #3b4b87;
+            background: $primary;
             border-radius: 4px;
             transition: width 0.2s ease, height 0.2s ease;
 
@@ -223,12 +225,11 @@ $glyph_height: 22px;
             width: 56px;
             height: 300px;
             position: relative;
+            flex-direction: column-reverse;
 
             .funnel-bar {
-                position: absolute;
                 height: unset;
                 width: 100%;
-                bottom: 0;
 
                 .funnel-bar-percentage {
                     top: unset;
