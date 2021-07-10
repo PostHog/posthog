@@ -58,7 +58,9 @@ export function FunnelViz({
                 labels: steps.map(
                     (step) =>
                         `${step.name} (${step.count})  ${
-                            step.average_time ? 'Avg Time: ' + humanFriendlyDuration(step.average_time) || '' : ''
+                            step.average_conversion_time
+                                ? 'Avg Time: ' + humanFriendlyDuration(step.average_conversion_time) || ''
+                                : ''
                         }`
                 ),
                 values: steps.map((step) => step.count),

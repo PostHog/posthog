@@ -1,17 +1,20 @@
-import { Select } from 'antd'
+import { Col, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import React from 'react'
 import { LineGraph } from 'scenes/insights/LineGraph'
+import { calcPercentage, getReferenceStep } from './FunnelBarGraph'
 import { funnelLogic } from './funnelLogic'
 
 interface TimeStepOption {
     label: string
     value: number
+    average_conversion_time: number
+    count: number
 }
 
 export function FunnelHistogram(): JSX.Element {
-    const { timeConversionBins, stepsWithCount } = useValues(funnelLogic)
+    const { timeConversionBins, stepsWithCount, stepReference } = useValues(funnelLogic)
     const { changeHistogramStep } = useActions(funnelLogic)
     const labels = timeConversionBins.map((bin) => humanFriendlyDuration(`${bin[0]}`))
     const binData = timeConversionBins.map((bin) => bin[1])
@@ -20,9 +23,15 @@ export function FunnelHistogram(): JSX.Element {
     const stepsDropdown: TimeStepOption[] = []
     stepsWithCount.forEach((_, idx) => {
         if (stepsWithCount[idx + 1]) {
-            stepsDropdown.push({ label: `Steps ${idx + 1} and ${idx + 2}`, value: idx + 1 })
+            stepsDropdown.push({
+                label: `Steps ${idx + 1} and ${idx + 2}`,
+                value: idx + 1,
+                count: stepsWithCount[idx + 1].count,
+                average_conversion_time: stepsWithCount[idx + 1].average_conversion_time,
+            })
         }
     })
+
     return (
         <>
             <div>
@@ -36,11 +45,29 @@ export function FunnelHistogram(): JSX.Element {
                         optionLabelProp="label"
                         style={{ marginLeft: 8, marginBottom: 16 }}
                     >
-                        {stepsDropdown.map((option) => (
-                            <Select.Option key={option?.value} value={option?.value || 1} label={<>{option?.label}</>}>
-                                {option?.label}
-                            </Select.Option>
-                        ))}
+                        {stepsDropdown.map((option, i) => {
+                            const basisStep = getReferenceStep(stepsWithCount, stepReference, i)
+                            return (
+                                <Select.Option
+                                    key={option?.value}
+                                    value={option?.value || 1}
+                                    label={<>{option?.label}</>}
+                                >
+                                    <Col style={{ minWidth: 300 }}>
+                                        <Row style={{ justifyContent: 'space-between', padding: '8px 0px' }}>
+                                            <span className="l4">{option?.label}</span>
+                                            <span className="text-muted-alt-light">
+                                                Average time: {humanFriendlyDuration(option?.average_conversion_time)}
+                                            </span>
+                                        </Row>
+                                        <Row className="text-muted-alt-light">
+                                            Total conversion rate:{' '}
+                                            {humanizeNumber(calcPercentage(option.count, basisStep.count))}%
+                                        </Row>
+                                    </Col>
+                                </Select.Option>
+                            )
+                        })}
                     </Select>
                 )}
             </div>

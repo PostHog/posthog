@@ -14,7 +14,7 @@ import { useActions, useValues } from 'kea'
 import { FunnelBarLayout } from 'lib/constants'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 
-function calcPercentage(numerator: number, denominator: number): number {
+export function calcPercentage(numerator: number, denominator: number): number {
     return (numerator / denominator) * 100 || 0
 }
 
@@ -202,7 +202,7 @@ function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeIns
     )
 }
 
-function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepReference, index?: number): FunnelStep {
+export function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepReference, index?: number): FunnelStep {
     // Step to serve as denominator of percentage calculations.
     // step[0] is full-funnel conversion, previous is relative.
     if (!index || index <= 0) {
