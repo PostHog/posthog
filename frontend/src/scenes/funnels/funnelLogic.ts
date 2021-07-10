@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
-import { autocorrectInterval, objectsEqual, uuid } from 'lib/utils'
+import { autocorrectInterval, humanFriendlyDuration, objectsEqual, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -30,6 +30,13 @@ function wait(ms = 1000): Promise<any> {
     })
 }
 const SECONDS_TO_POLL = 3 * 60
+
+interface TimeStepOption {
+    label: string
+    value: number
+    average_conversion_time: number
+    count: number
+}
 
 async function pollFunnel(params: Record<string, any>): Promise<FunnelResult & FunnelsTimeConversionResult> {
     const { refresh, ...bodyParams } = params
@@ -68,7 +75,7 @@ export const cleanFunnelParams = (filters: FilterType): FilterType => {
 const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
-export const funnelLogic = kea<funnelLogicType>({
+export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
     key: (props) => {
         return props.dashboardItemId || 'some_funnel'
     },
@@ -261,7 +268,7 @@ export const funnelLogic = kea<funnelLogicType>({
             (stepsWithCount: FunnelStep[], timeConversionBins: number[]) => {
                 return (
                     (stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1) ||
-                    timeConversionBins.length > 0
+                    timeConversionBins?.length > 0
                 )
             },
         ],
@@ -275,6 +282,31 @@ export const funnelLogic = kea<funnelLogicType>({
             () => [selectors.featureFlags, selectors.preflight],
             (featureFlags, preflight) =>
                 featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL] && preflight?.is_clickhouse_enabled,
+        ],
+        histogramGraphData: [
+            () => [selectors.timeConversionBins],
+            (timeConversionBins) => {
+                const time = timeConversionBins.map((bin: number[]) => humanFriendlyDuration(`${bin[0]}`))
+                const personsAmount = timeConversionBins.map((bin: number[]) => bin[1])
+                return { time, personsAmount }
+            },
+        ],
+        histogramStepsDropdown: [
+            () => [selectors.stepsWithCount],
+            (stepsWithCount) => {
+                const stepsDropdown: TimeStepOption[] = []
+                stepsWithCount.forEach((_, idx) => {
+                    if (stepsWithCount[idx + 1]) {
+                        stepsDropdown.push({
+                            label: `Steps ${idx + 1} and ${idx + 2}`,
+                            value: idx + 1,
+                            count: stepsWithCount[idx + 1].count,
+                            average_conversion_time: stepsWithCount[idx + 1].average_conversion_time,
+                        })
+                    }
+                })
+                return stepsDropdown
+            },
         ],
     }),
 
