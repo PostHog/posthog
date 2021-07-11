@@ -682,13 +682,14 @@ export interface TrendResultWithAggregate extends TrendResult {
 
 export interface FunnelStep {
     action_id: string
-    average_time: number
+    average_conversion_time: number | null
     count: number
     name: string
     order: number
     people: string[]
     type: EntityType
     labels?: string[]
+    breakdown?: FunnelStep[]
 }
 
 export interface FunnelResult {
@@ -696,6 +697,10 @@ export interface FunnelResult {
     last_refresh: string | null
     result: FunnelStep[]
     type: 'Funnel'
+}
+
+export interface FunnelResultWithBreakdown extends Omit<FunnelResult, 'result'> {
+    result: FunnelStep[][]
 }
 
 export interface ChartParams {

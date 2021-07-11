@@ -7,7 +7,15 @@ import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
-import { EntityTypes, FilterType, FunnelResult, FunnelStep, PathType, PersonType } from '~/types'
+import {
+    EntityTypes,
+    FilterType,
+    FunnelResult,
+    FunnelResultWithBreakdown,
+    FunnelStep,
+    PathType,
+    PersonType,
+} from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelBarLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -15,14 +23,47 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
+import TEST_BREAKDOWN_DATA from './TEST_BREAKDOWN_DATA.json'
+
+function aggregateBreakdownResult({ result: breakdownList, ...apiResponse }: FunnelResultWithBreakdown): FunnelResult {
+    let result: FunnelStep[] = []
+    if (breakdownList.length) {
+        const steps = breakdownList[0].map((step, i) => ({
+            ...step,
+            count: breakdownList.reduce((total, breakdownSteps) => (total += breakdownSteps[i].count), 0),
+            breakdown: breakdownList.reduce((allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]], []),
+            average_conversion_time: null,
+            people: [],
+        }))
+        result = steps
+        // .map((step, i) => ({
+        //     ...step,
+        //     // people: breakdownList.reduce((people, breakdownSteps) => [...people, ...breakdownSteps[i].people], [] as string[]),
+        //     // average_conversion_time: average(breakdownList.reduce((times, breakdownSteps) => breakdownSteps[i].average_conversion_time >= 0 ? [...times, breakdownSteps[i].average_conversion_time] : times, [] as number[])),
+        //     // breakdown:
+        // }))
+    }
+    return {
+        ...apiResponse,
+        result,
+    }
+}
+
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
         setTimeout(resolve, ms)
     })
 }
+
 const SECONDS_TO_POLL = 3 * 60
 
-async function pollFunnel(params: Record<string, any>): Promise<FunnelResult> {
+interface FunnelRequestParams extends FilterType {
+    refresh?: boolean
+    from_dashboard?: boolean
+    funnel_window_days?: number
+}
+
+async function pollFunnel(params: FunnelRequestParams): Promise<FunnelResult> {
     const { refresh, ...bodyParams } = params
     let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
     const start = window.performance.now()
@@ -105,7 +146,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         funnel_window_days: values.conversionWindowInDays,
                     }
 
-                    let result: FunnelResult
+                    let result
 
                     const queryId = uuid()
                     insightLogic.actions.startQuery(queryId)
@@ -130,6 +171,12 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
+                    if (params.breakdown && values.clickhouseFeatures) {
+                        // const aggregatedResult = aggregateBreakdownResult(result as any)
+                        const aggregatedResult = aggregateBreakdownResult(TEST_BREAKDOWN_DATA as any) // TEMP
+                        actions.setSteps(aggregatedResult.result)
+                        return aggregatedResult.result
+                    }
                     actions.setSteps(result.result)
                     return result.result
                 },
@@ -222,9 +269,11 @@ export const funnelLogic = kea<funnelLogicType>({
                 return stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1
             },
         ],
-        autoCalculate: [
+        clickhouseFeatures: [
             () => [selectors.featureFlags, selectors.preflight],
             (featureFlags, preflight) => {
+                // Controls auto-calculation of results and ability to break down values
+                return true // TEMP
                 return !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled)
             },
         ],
@@ -245,8 +294,8 @@ export const funnelLogic = kea<funnelLogicType>({
         setFilters: ({ refresh }) => {
             // FUNNEL_BAR_VIZ removes the Calculate button
             // Query performance is suboptimal on psql
-            const { autoCalculate } = values
-            if (refresh || autoCalculate) {
+            const { clickhouseFeatures } = values
+            if (refresh || clickhouseFeatures) {
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)

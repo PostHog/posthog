@@ -423,7 +423,7 @@ function FunnelInsight(): JSX.Element {
         filters: { display },
     } = useValues(funnelLogic({}))
     const { featureFlags } = useValues(featureFlagLogic)
-    const { autoCalculate } = useValues(funnelLogic())
+    const { clickhouseFeatures } = useValues(funnelLogic())
     const fluidHeight = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display === FUNNEL_VIZ
 
     return (
@@ -439,8 +439,8 @@ function FunnelInsight(): JSX.Element {
                         }}
                     >
                         <span>
-                            Enter the details to your funnel {!autoCalculate && `and click 'calculate'`} to create a
-                            funnel visualization
+                            Enter the details to your funnel {!clickhouseFeatures && `and click 'calculate'`} to create
+                            a funnel visualization
                         </span>
                     </div>
                 )

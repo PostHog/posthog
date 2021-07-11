@@ -239,18 +239,34 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                 <PropertyKeyInfo value={step.name} />
                             </div>
                             <div className={`funnel-step-metadata ${layout}`}>
-                                {step.average_time >= 0 + Number.EPSILON ? (
-                                    <AverageTimeInspector onClick={() => {}} averageTime={step.average_time} disabled />
+                                {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (
+                                    <AverageTimeInspector
+                                        onClick={() => {}}
+                                        averageTime={step.average_conversion_time}
+                                        disabled
+                                    />
                                 ) : null}
                             </div>
                         </header>
                         <div className="funnel-bar-wrapper">
-                            <Bar
-                                percentage={calcPercentage(step.count, basisStep.count)}
-                                name={step.name}
-                                onBarClick={() => openPersonsModal(step, i + 1)}
-                                layout={layout}
-                            />
+                            {step.breakdown?.length ? (
+                                step.breakdown.map((breakdown) => (
+                                    <Bar
+                                        key={breakdown.action_id}
+                                        percentage={calcPercentage(breakdown.count, basisStep.count)}
+                                        name={breakdown.name}
+                                        onBarClick={() => openPersonsModal(step, i + 1 /*TODO*/)}
+                                        layout={layout}
+                                    />
+                                ))
+                            ) : (
+                                <Bar
+                                    percentage={calcPercentage(step.count, basisStep.count)}
+                                    name={step.name}
+                                    onBarClick={() => openPersonsModal(step, i + 1)}
+                                    layout={layout}
+                                />
+                            )}
                         </div>
                         <footer>
                             <div className="funnel-step-metadata">
