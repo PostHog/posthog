@@ -91,8 +91,10 @@ export const MATHS: Record<string, any> = {
         name: 'Weekly Active',
         description: (
             <>
-                Users active in the past week (7 days). This is a trailing count that aggregates distinct users in the
-                past 7 days for each day in the time series
+                Users active in the past week (7 days).
+                <br />
+                This is a trailing count that aggregates distinct users in the past 7 days for each day in the time
+                series
             </>
         ),
         onProperty: false,
@@ -115,7 +117,7 @@ export const MATHS: Record<string, any> = {
         name: 'Average',
         description: (
             <>
-                Event property average.
+                Average of a property value within an event or action.
                 <br />
                 <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 14.
@@ -128,7 +130,7 @@ export const MATHS: Record<string, any> = {
         name: 'Sum',
         description: (
             <>
-                Event property sum.
+                Sum of property values within an event or action.
                 <br />
                 <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
