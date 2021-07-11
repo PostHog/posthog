@@ -13,6 +13,7 @@ import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
 import { FunnelBarLayout } from 'lib/constants'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
+import { getChartColors } from 'lib/colors'
 
 function calcPercentage(numerator: number, denominator: number): number {
     return (numerator / denominator) * 100 || 0
@@ -32,11 +33,20 @@ interface BarProps {
     name?: string
     onBarClick?: () => void
     layout?: FunnelBarLayout
+    isBreakdown?: boolean
+    breakdownIndex?: number
 }
 
 type LabelPosition = 'inside' | 'outside'
 
-function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal }: BarProps): JSX.Element {
+function Bar({
+    percentage,
+    name,
+    onBarClick,
+    layout = FunnelBarLayout.horizontal,
+    isBreakdown = false,
+    breakdownIndex,
+}: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
@@ -46,6 +56,9 @@ function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal
     const cursorType = funnelPersonsEnabled ? 'pointer' : ''
 
     function decideLabelPosition(): void {
+        if (isBreakdown) {
+            return
+        }
         // Place label inside or outside bar, based on whether it fits
         if (layout === FunnelBarLayout.horizontal) {
             const barWidth = barRef.current?.clientWidth ?? null
@@ -69,6 +82,13 @@ function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal
         setLabelPosition('inside')
     }
 
+    function getSeriesColor(index?: number): string | undefined {
+        if (typeof index === 'number' && index >= 0) {
+            return getChartColors('white')[index]
+        }
+        return
+    }
+
     useResizeObserver({
         callback: useThrottledCallback(decideLabelPosition, 200),
         element: barRef,
@@ -78,24 +98,30 @@ function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal
         <div
             ref={barRef}
             className="funnel-bar"
-            style={{ [dimensionProperty]: `${percentage}%`, cursor: cursorType }}
+            style={{
+                [dimensionProperty]: `${percentage}%`,
+                cursor: cursorType,
+                backgroundColor: getSeriesColor(breakdownIndex),
+            }}
             onClick={() => {
                 if (funnelPersonsEnabled && onBarClick) {
                     onBarClick()
                 }
             }}
         >
-            <div
-                ref={labelRef}
-                className={`funnel-bar-percentage ${labelPosition}`}
-                title={name ? `Users who did ${name}` : undefined}
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={percentage}
-            >
-                {humanizeNumber(percentage, 2)}%
-            </div>
+            {!isBreakdown && (
+                <div
+                    ref={labelRef}
+                    className={`funnel-bar-percentage ${labelPosition}`}
+                    title={name ? `Users who did ${name}` : undefined}
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={percentage}
+                >
+                    {humanizeNumber(percentage, 2)}%
+                </div>
+            )}
         </div>
     )
 }
@@ -250,9 +276,11 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                         </header>
                         <div className="funnel-bar-wrapper">
                             {step.breakdown?.length ? (
-                                step.breakdown.map((breakdown) => (
+                                step.breakdown.map((breakdown, breakdownIndex) => (
                                     <Bar
                                         key={breakdown.action_id}
+                                        isBreakdown={true}
+                                        breakdownIndex={breakdownIndex}
                                         percentage={calcPercentage(breakdown.count, basisStep.count)}
                                         name={breakdown.name}
                                         onBarClick={() => openPersonsModal(step, i + 1 /*TODO*/)}
