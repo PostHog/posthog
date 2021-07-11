@@ -334,7 +334,7 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                             {step.breakdown?.length ? (
                                 step.breakdown.map((breakdown, index) => (
                                     <Bar
-                                        key={breakdown.action_id}
+                                        key={`${breakdown.action_id}-${step.breakdown_value}-${index}`}
                                         isBreakdown={true}
                                         breakdownIndex={index}
                                         breakdownMaxIndex={breakdownMaxIndex}

@@ -28,20 +28,14 @@ import TEST_BREAKDOWN_DATA from './TEST_BREAKDOWN_DATA.json'
 function aggregateBreakdownResult({ result: breakdownList, ...apiResponse }: FunnelResultWithBreakdown): FunnelResult {
     let result: FunnelStep[] = []
     if (breakdownList.length) {
-        const steps = breakdownList[0].map((step, i) => ({
+        result = breakdownList[0].map((step, i) => ({
             ...step,
+            breakdown_value: step.breakdown as any,
             count: breakdownList.reduce((total, breakdownSteps) => (total += breakdownSteps[i].count), 0),
             breakdown: breakdownList.reduce((allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]], []),
-            average_conversion_time: null,
+            average_conversion_time: null, // TODO API needs to return a weighted average.
             people: [],
         }))
-        result = steps
-        // .map((step, i) => ({
-        //     ...step,
-        //     // people: breakdownList.reduce((people, breakdownSteps) => [...people, ...breakdownSteps[i].people], [] as string[]),
-        //     // average_conversion_time: average(breakdownList.reduce((times, breakdownSteps) => breakdownSteps[i].average_conversion_time >= 0 ? [...times, breakdownSteps[i].average_conversion_time] : times, [] as number[])),
-        //     // breakdown:
-        // }))
     }
     return {
         ...apiResponse,
@@ -256,24 +250,16 @@ export const funnelLogic = kea<funnelLogicType>({
                 return people.sort((a, b) => score(b) - score(a))
             },
         ],
-        isStepsEmpty: [
-            () => [selectors.filters],
-            (filters: FilterType) => {
-                return isStepsEmpty(filters)
-            },
-        ],
+        isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],
         propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
         isValidFunnel: [
             () => [selectors.stepsWithCount],
-            (stepsWithCount: FunnelStep[]) => {
-                return stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1
-            },
+            (stepsWithCount: FunnelStep[]) => stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1,
         ],
         clickhouseFeatures: [
             () => [selectors.featureFlags, selectors.preflight],
             (featureFlags, preflight) => {
                 // Controls auto-calculation of results and ability to break down values
-                return true // TEMP
                 return !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled)
             },
         ],

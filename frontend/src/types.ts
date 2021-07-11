@@ -690,6 +690,7 @@ export interface FunnelStep {
     type: EntityType
     labels?: string[]
     breakdown?: FunnelStep[]
+    breakdown_value?: string
 }
 
 export interface FunnelResult {
