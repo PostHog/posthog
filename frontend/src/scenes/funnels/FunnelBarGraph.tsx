@@ -23,6 +23,35 @@ function humanizeOrder(order: number): number {
     return order + 1
 }
 
+function getSeriesColor(index?: number): string | undefined {
+    if (typeof index === 'number' && index >= 0) {
+        return getChartColors('white')[index]
+    }
+    return
+}
+
+function getBreakdownMaxIndex(breakdown?: FunnelStep[]): number | undefined {
+    // Returns the index of the last nonzero breakdown item
+    if (!breakdown) {
+        return
+    }
+    const nonZeroCounts = breakdown.map(({ count }, index) => ({ count, index })).filter(({ count }) => !!count)
+    if (!nonZeroCounts.length) {
+        return
+    }
+    return nonZeroCounts[nonZeroCounts.length - 1].index
+}
+
+function getSeriesPositionName(index?: number, breakdownMaxIndex?: number): 'first' | 'last' | 'only' | undefined {
+    if (!breakdownMaxIndex) {
+        return 'only'
+    }
+    if (typeof index === 'number') {
+        return index === 0 ? 'first' : index === breakdownMaxIndex ? 'last' : undefined
+    }
+    return
+}
+
 interface FunnelBarGraphProps {
     layout?: FunnelBarLayout
     steps: FunnelStep[]
@@ -35,6 +64,7 @@ interface BarProps {
     layout?: FunnelBarLayout
     isBreakdown?: boolean
     breakdownIndex?: number
+    breakdownMaxIndex?: number
 }
 
 type LabelPosition = 'inside' | 'outside'
@@ -46,6 +76,7 @@ function Bar({
     layout = FunnelBarLayout.horizontal,
     isBreakdown = false,
     breakdownIndex,
+    breakdownMaxIndex,
 }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
@@ -82,13 +113,6 @@ function Bar({
         setLabelPosition('inside')
     }
 
-    function getSeriesColor(index?: number): string | undefined {
-        if (typeof index === 'number' && index >= 0) {
-            return getChartColors('white')[index]
-        }
-        return
-    }
-
     useResizeObserver({
         callback: useThrottledCallback(decideLabelPosition, 200),
         element: barRef,
@@ -97,7 +121,7 @@ function Bar({
     return (
         <div
             ref={barRef}
-            className="funnel-bar"
+            className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
             style={{
                 [dimensionProperty]: `${percentage}%`,
                 cursor: cursorType,
@@ -251,6 +275,7 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                 const basisStep = getReferenceStep(steps, stepReference, i)
                 const showLineBefore = layout === FunnelBarLayout.horizontal && i > 0
                 const showLineAfter = layout === FunnelBarLayout.vertical || i < steps.length - 1
+                const breakdownMaxIndex = getBreakdownMaxIndex(step.breakdown)
                 return (
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
@@ -281,6 +306,7 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                         key={breakdown.action_id}
                                         isBreakdown={true}
                                         breakdownIndex={breakdownIndex}
+                                        breakdownMaxIndex={breakdownMaxIndex}
                                         percentage={calcPercentage(breakdown.count, basisStep.count)}
                                         name={breakdown.name}
                                         onBarClick={() => openPersonsModal(step, i + 1 /*TODO*/)}

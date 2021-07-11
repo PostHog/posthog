@@ -148,8 +148,19 @@ $glyph_height: 22px;
             position: relative;
             height: 100%;
             background: $primary;
-            border-radius: 4px;
             transition: width 0.2s ease, height 0.2s ease;
+
+            &.first {
+                border-radius: 4px 0 0 4px;
+            }
+
+            &.last {
+                border-radius: 0 4px 4px 0;
+            }
+
+            &.only {
+                border-radius: 4px;
+            }
 
             .funnel-bar-percentage {
                 position: absolute;
@@ -230,6 +241,14 @@ $glyph_height: 22px;
             .funnel-bar {
                 height: unset;
                 width: 100%;
+
+                &.first {
+                    border-radius: 0 0 4px 4px;
+                }
+
+                &.last {
+                    border-radius: 4px 4px 0 0;
+                }
 
                 .funnel-bar-percentage {
                     top: unset;
