@@ -37,11 +37,11 @@ export function FunnelHistogram(): JSX.Element {
                                     <Col style={{ minWidth: 300 }}>
                                         <Row style={{ justifyContent: 'space-between', padding: '8px 0px' }}>
                                             <span className="l4">{option?.label}</span>
-                                            <span className="text-muted-alt-light">
+                                            <span className="text-muted-alt">
                                                 Average time: {humanFriendlyDuration(option?.average_conversion_time)}
                                             </span>
                                         </Row>
-                                        <Row className="text-muted-alt-light">
+                                        <Row className="text-muted-alt">
                                             Total conversion rate:{' '}
                                             {humanizeNumber(calcPercentage(option.count, basisStep.count))}%
                                         </Row>
