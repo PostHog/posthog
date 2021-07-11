@@ -65,6 +65,7 @@ interface BarProps {
     isBreakdown?: boolean
     breakdownIndex?: number
     breakdownMaxIndex?: number
+    breakdownSumPercentage?: number
 }
 
 type LabelPosition = 'inside' | 'outside'
@@ -77,17 +78,46 @@ function Bar({
     isBreakdown = false,
     breakdownIndex,
     breakdownMaxIndex,
+    breakdownSumPercentage,
 }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
+    const [labelVisible, setLabelVisible] = useState(true)
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
     const { funnelPersonsEnabled } = useValues(funnelLogic)
     const dimensionProperty = layout === FunnelBarLayout.horizontal ? 'width' : 'height'
     const cursorType = funnelPersonsEnabled ? 'pointer' : ''
+    const hasBreakdownSum = isBreakdown && typeof breakdownSumPercentage === 'number'
+    const shouldShowLabel = !isBreakdown || (hasBreakdownSum && labelVisible)
 
     function decideLabelPosition(): void {
-        if (isBreakdown) {
+        if (hasBreakdownSum) {
+            // Label is always outside for breakdowns, but don't show if it doesn't fit in the wrapper
+            setLabelPosition('outside')
+            if (layout === FunnelBarLayout.horizontal) {
+                const barWidth = barRef.current?.clientWidth ?? null
+                const barOffset = barRef.current?.offsetLeft ?? null
+                const wrapperWidth = barRef.current?.parentElement?.clientWidth ?? null
+                const labelWidth = labelRef.current?.clientWidth ?? null
+                if (barWidth !== null && barOffset !== null && wrapperWidth !== null && labelWidth !== null) {
+                    if (wrapperWidth - (barWidth + barOffset) < labelWidth + LABEL_POSITION_OFFSET * 2) {
+                        setLabelVisible(false)
+                    } else {
+                        setLabelVisible(true)
+                    }
+                }
+            } else {
+                const barOffset = barRef.current?.offsetTop ?? null
+                const labelHeight = labelRef.current?.clientHeight ?? null
+                if (barOffset !== null && labelHeight !== null) {
+                    if (barOffset < labelHeight + LABEL_POSITION_OFFSET * 2) {
+                        setLabelVisible(false)
+                    } else {
+                        setLabelVisible(true)
+                    }
+                }
+            }
             return
         }
         // Place label inside or outside bar, based on whether it fits
@@ -133,7 +163,7 @@ function Bar({
                 }
             }}
         >
-            {!isBreakdown && (
+            {shouldShowLabel && (
                 <div
                     ref={labelRef}
                     className={`funnel-bar-percentage ${labelPosition}`}
@@ -141,9 +171,9 @@ function Bar({
                     role="progressbar"
                     aria-valuemin={0}
                     aria-valuemax={100}
-                    aria-valuenow={percentage}
+                    aria-valuenow={breakdownSumPercentage ?? percentage}
                 >
-                    {humanizeNumber(percentage, 2)}%
+                    {humanizeNumber(breakdownSumPercentage ?? percentage, 2)}%
                 </div>
             )}
         </div>
@@ -276,6 +306,7 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                 const showLineBefore = layout === FunnelBarLayout.horizontal && i > 0
                 const showLineAfter = layout === FunnelBarLayout.vertical || i < steps.length - 1
                 const breakdownMaxIndex = getBreakdownMaxIndex(step.breakdown)
+                const breakdownSum = step.breakdown?.reduce((sum, item) => sum + item.count, 0)
                 return (
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
@@ -301,12 +332,17 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                         </header>
                         <div className="funnel-bar-wrapper">
                             {step.breakdown?.length ? (
-                                step.breakdown.map((breakdown, breakdownIndex) => (
+                                step.breakdown.map((breakdown, index) => (
                                     <Bar
                                         key={breakdown.action_id}
                                         isBreakdown={true}
-                                        breakdownIndex={breakdownIndex}
+                                        breakdownIndex={index}
                                         breakdownMaxIndex={breakdownMaxIndex}
+                                        breakdownSumPercentage={
+                                            index === breakdownMaxIndex && breakdownSum
+                                                ? calcPercentage(breakdownSum, basisStep.count)
+                                                : undefined
+                                        }
                                         percentage={calcPercentage(breakdown.count, basisStep.count)}
                                         name={breakdown.name}
                                         onBarClick={() => openPersonsModal(step, i + 1 /*TODO*/)}
