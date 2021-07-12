@@ -13,7 +13,7 @@ from posthog.models import Event, Person, Team
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.base import entity_to_Q, properties_to_Q
-from posthog.queries.sessions.session_recording import filter_sessions_by_recordings
+from posthog.queries.sessions.session_recording import join_with_session_recordings
 from posthog.queries.sessions.sessions_list_builder import SessionListBuilder
 
 Session = Dict
@@ -63,7 +63,7 @@ class SessionsList:
         sessions_builder.build()
 
         return (
-            filter_sessions_by_recordings(self.team, sessions_builder.sessions, self.filter),
+            join_with_session_recordings(self.team, sessions_builder.sessions, self.filter),
             sessions_builder.pagination,
         )
 
