@@ -556,6 +556,7 @@ export enum ChartDisplayType {
     ActionsBarChartValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
+    FunnelsTimeToConvert = 'FunnelsTimeToConvert',
 }
 
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
@@ -603,6 +604,8 @@ export interface FilterType {
     filter_test_accounts?: boolean
     from_dashboard?: boolean
     funnel_step?: number
+    funnel_viz_type?: string // this and the below param is used for funnels time to convert, it'll be updated soon
+    funnel_to_step?: number
 }
 
 export interface SystemStatusSubrows {
@@ -680,7 +683,7 @@ export interface TrendResultWithAggregate extends TrendResult {
 
 export interface FunnelStep {
     action_id: string
-    average_time: number
+    average_conversion_time: number
     count: number
     name: string
     order: number
@@ -693,6 +696,13 @@ export interface FunnelResult {
     is_cached: boolean
     last_refresh: string | null
     result: FunnelStep[]
+    type: 'Funnel'
+}
+
+export interface FunnelsTimeConversionResult {
+    result: number[]
+    last_refresh: string | null
+    is_cached: boolean
     type: 'Funnel'
 }
 
