@@ -38,6 +38,7 @@ SETTINGS index_granularity=512
 
 KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
     table_name="kafka_" + PLUGIN_LOG_ENTRIES_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_PLUGIN_LOG_ENTRIES),
     extra_fields="",
 )
