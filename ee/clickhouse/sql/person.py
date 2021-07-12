@@ -115,7 +115,10 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
 )
 
 KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE, engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID), extra_fields="",
+    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
+    extra_fields="",
 )
 
 PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
