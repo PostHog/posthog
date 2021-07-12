@@ -86,6 +86,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
             data.update({"date_from": relative_date_parse("-7d")})
         if not self._filter._date_to:
             data.update({"date_to": timezone.now()})
+
+        if self._filter.breakdown and not self._filter.breakdown_type:
+            data.update({"breakdown_type": "event"})
+
         self._filter = self._filter.with_data(data)
 
         query = self.get_query()
@@ -271,7 +275,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
                 return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
-            elif self._filter.breakdown_type == "event" or not self._filter.breakdown_type:
+            elif self._filter.breakdown_type == "event":
                 return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
 
         return ""
@@ -285,7 +289,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             values = []
             if self._filter.breakdown_type == "person":
                 values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
-            elif self._filter.breakdown_type == "event" or not self._filter.breakdown_type:
+            elif self._filter.breakdown_type == "event":
                 values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
             self.params.update({"breakdown_values": values})
 
