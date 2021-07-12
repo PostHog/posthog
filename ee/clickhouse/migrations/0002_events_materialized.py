@@ -1,3 +1,3 @@
 from infi.clickhouse_orm import migrations
 
-operations = []
+operations = [migrations.RunSQL("SELECT 1")]
