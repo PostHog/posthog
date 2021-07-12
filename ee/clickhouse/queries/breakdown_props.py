@@ -59,7 +59,7 @@ def get_breakdown_person_prop_values(
         person_prop_filters=person_prop_filters,
         aggregate_operation=aggregate_operation,
         latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
-        **entity_format_params
+        **entity_format_params,
     )
     top_elements_array = _get_top_elements(
         filter=filter,
@@ -87,7 +87,7 @@ def get_breakdown_event_prop_values(
         parsed_date_to=parsed_date_to,
         prop_filters=prop_filters,
         aggregate_operation=aggregate_operation,
-        **entity_format_params
+        **entity_format_params,
     )
     top_elements_array = _get_top_elements(
         filter=filter,
@@ -114,13 +114,14 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
     prop_filters, prop_filter_params = parse_prop_clauses(
         props_to_filter, team_id, prepend="all_cohort_", table_name="all_events"
     )
-    query = """
+    query = f"""
             SELECT DISTINCT distinct_id, 0 as value
             FROM events all_events
-            WHERE team_id = {} {} {} {}
-            """.format(
-        team_id, parsed_date_from, parsed_date_to, prop_filters
-    )
+            WHERE team_id = {team_id} 
+            {parsed_date_from} 
+            {parsed_date_to} 
+            {prop_filters}
+            """
     return query, {**date_params, **prop_filter_params}
 
 
@@ -143,8 +144,6 @@ def _parse_breakdown_cohorts(cohorts: BaseManager) -> Tuple[List[str], Dict]:
     for idx, cohort in enumerate(cohorts):
         person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
         params = {**params, **cohort_filter_params}
-        cohort_query = person_id_query.replace(
-            "SELECT distinct_id", "SELECT distinct_id, {} as value".format(cohort.pk)
-        )
+        cohort_query = person_id_query.replace(f"SELECT distinct_id", "SELECT distinct_id, {cohort.pk} as value")
         queries.append(cohort_query)
     return queries, params
