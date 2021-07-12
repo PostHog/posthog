@@ -17,6 +17,7 @@ from posthog.constants import (
     DATE_TO,
     DISPLAY,
     EVENTS,
+    EXCLUSIONS,
     FILTER_TEST_ACCOUNTS,
     FORMULA,
     INSIGHT,
@@ -294,11 +295,22 @@ class EntitiesMixin(BaseParamMixin):
     def events(self) -> List[Entity]:
         return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_EVENTS]
 
+    @cached_property
+    def exclusions(self) -> List[Entity]:
+        _exclusions: List[Entity] = []
+        if self._data.get(EXCLUSIONS):
+            exclusion_list = self._data.get(EXCLUSIONS, [])
+            if isinstance(exclusion_list, str):
+                exclusions = json.loads(exclusion_list)
+            _exclusions.extend([Entity({**entity}) for entity in exclusions])
+        return _exclusions
+
     @include_dict
     def entities_to_dict(self):
         return {
             **({"events": [entity.to_dict() for entity in self.events]} if len(self.events) > 0 else {}),
             **({"actions": [entity.to_dict() for entity in self.actions]} if len(self.actions) > 0 else {}),
+            **({"exclusions": [entity.to_dict() for entity in self.exclusions]} if len(self.exclusions) > 0 else {}),
         }
 
 
