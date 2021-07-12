@@ -23,8 +23,6 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
-import TEST_BREAKDOWN_DATA from './TEST_BREAKDOWN_DATA.json'
-
 function aggregateBreakdownResult({ result: breakdownList, ...apiResponse }: FunnelResultWithBreakdown): FunnelResult {
     let result: FunnelStep[] = []
     if (breakdownList.length) {
@@ -111,7 +109,11 @@ export const funnelLogic = kea<funnelLogicType>({
         setStepsWithCountLoading: (stepsWithCountLoading: boolean) => ({ stepsWithCountLoading }),
         loadConversionWindow: (days: number) => ({ days }),
         setConversionWindowInDays: (days: number) => ({ days }),
-        openPersonsModal: (step: FunnelStep, stepNumber: number) => ({ step, stepNumber }),
+        openPersonsModal: (step: FunnelStep, stepNumber: number, breakdown_value?: string) => ({
+            step,
+            stepNumber,
+            breakdown_value,
+        }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         setBarGraphLayout: (barGraphLayout: FunnelBarLayout) => ({ barGraphLayout }),
     }),
@@ -166,8 +168,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                     if (params.breakdown && values.clickhouseFeatures) {
-                        // const aggregatedResult = aggregateBreakdownResult(result as any)
-                        const aggregatedResult = aggregateBreakdownResult(TEST_BREAKDOWN_DATA as any) // TEMP
+                        const aggregatedResult = aggregateBreakdownResult(result as any)
                         actions.setSteps(aggregatedResult.result)
                         return aggregatedResult.result
                     }
@@ -309,14 +310,14 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setConversionWindowInDays(days)
             actions.loadResults()
         },
-        openPersonsModal: ({ step, stepNumber }) => {
+        openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
             trendsLogic().actions.setShowingPeople(true)
             trendsLogic().actions.loadPeople(
                 { id: step.action_id, name: step.name, properties: [], type: step.type },
                 `Persons who completed Step #${stepNumber} - "${step.name}"`,
                 '',
                 '',
-                '',
+                breakdown_value || '',
                 true,
                 '',
                 stepNumber

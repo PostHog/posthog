@@ -383,7 +383,7 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                             }
                                             percentage={conversionRate}
                                             name={breakdown.name}
-                                            onBarClick={() => openPersonsModal(step, i + 1 /*TODO*/)}
+                                            onBarClick={() => openPersonsModal(step, i + 1, step.breakdown_value)}
                                             layout={layout}
                                             popoverTitle={
                                                 <span>
