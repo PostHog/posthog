@@ -2,7 +2,7 @@ import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 're
 import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Button, ButtonProps } from 'antd'
+import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined } from '@ant-design/icons'
 import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
@@ -14,6 +14,7 @@ import { useActions, useValues } from 'kea'
 import { FunnelBarLayout } from 'lib/constants'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { getChartColors } from 'lib/colors'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip'
 
 function calcPercentage(numerator: number, denominator: number): number {
     return (numerator / denominator) * 100 || 0
@@ -66,6 +67,8 @@ interface BarProps {
     breakdownIndex?: number
     breakdownMaxIndex?: number
     breakdownSumPercentage?: number
+    popoverTitle?: string | JSX.Element | null
+    popoverBody?: JSX.Element[]
 }
 
 type LabelPosition = 'inside' | 'outside'
@@ -79,6 +82,8 @@ function Bar({
     breakdownIndex,
     breakdownMaxIndex,
     breakdownSumPercentage,
+    popoverTitle = null,
+    popoverBody = [],
 }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
@@ -149,34 +154,46 @@ function Bar({
     })
 
     return (
-        <div
-            ref={barRef}
-            className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
-            style={{
-                [dimensionProperty]: `${percentage}%`,
-                cursor: cursorType,
-                backgroundColor: getSeriesColor(breakdownIndex),
-            }}
-            onClick={() => {
-                if (funnelPersonsEnabled && onBarClick) {
-                    onBarClick()
-                }
-            }}
+        <Popover
+            trigger="hover"
+            placement="right"
+            content={
+                <InsightTooltip
+                    chartType="funnel"
+                    altTitle={popoverTitle}
+                    bodyLines={popoverBody.map((component) => ({ component }))}
+                />
+            }
         >
-            {shouldShowLabel && (
-                <div
-                    ref={labelRef}
-                    className={`funnel-bar-percentage ${labelPosition}`}
-                    title={name ? `Users who did ${name}` : undefined}
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={breakdownSumPercentage ?? percentage}
-                >
-                    {humanizeNumber(breakdownSumPercentage ?? percentage, 2)}%
-                </div>
-            )}
-        </div>
+            <div
+                ref={barRef}
+                className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
+                style={{
+                    [dimensionProperty]: `${percentage}%`,
+                    cursor: cursorType,
+                    backgroundColor: getSeriesColor(breakdownIndex),
+                }}
+                onClick={() => {
+                    if (funnelPersonsEnabled && onBarClick) {
+                        onBarClick()
+                    }
+                }}
+            >
+                {shouldShowLabel && (
+                    <div
+                        ref={labelRef}
+                        className={`funnel-bar-percentage ${labelPosition}`}
+                        title={name ? `Users who did ${name}` : undefined}
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={breakdownSumPercentage ?? percentage}
+                    >
+                        {humanizeNumber(breakdownSumPercentage ?? percentage, 2)}%
+                    </div>
+                )}
+            </div>
+        </Popover>
     )
 }
 
@@ -279,6 +296,17 @@ function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeIns
     )
 }
 
+function MetricRow({ title, value }: { title: string; value: string | number }): JSX.Element {
+    return (
+        <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>
+            <div>{title}</div>
+            <div>
+                <strong>{value}</strong>
+            </div>
+        </div>
+    )
+}
+
 function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepReference, index?: number): FunnelStep {
     // Step to serve as denominator of percentage calculations.
     // step[0] is full-funnel conversion, previous is relative.
@@ -307,13 +335,16 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                 const showLineAfter = layout === FunnelBarLayout.vertical || i < steps.length - 1
                 const breakdownMaxIndex = getBreakdownMaxIndex(step.breakdown)
                 const breakdownSum = step.breakdown?.reduce((sum, item) => sum + item.count, 0)
+                const seriesGlyph = (
+                    <SeriesGlyph style={{ backgroundColor: '#fff', zIndex: 2 }}>
+                        {humanizeOrder(step.order)}
+                    </SeriesGlyph>
+                )
                 return (
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
                             <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
-                            <SeriesGlyph style={{ backgroundColor: '#fff', zIndex: 2 }}>
-                                {humanizeOrder(step.order)}
-                            </SeriesGlyph>
+                            {seriesGlyph}
                             <div className={`funnel-series-linebox ${showLineAfter ? 'after' : ''}`} />
                         </div>
                         <header>
@@ -332,23 +363,56 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                         </header>
                         <div className="funnel-bar-wrapper">
                             {step.breakdown?.length ? (
-                                step.breakdown.map((breakdown, index) => (
-                                    <Bar
-                                        key={`${breakdown.action_id}-${step.breakdown_value}-${index}`}
-                                        isBreakdown={true}
-                                        breakdownIndex={index}
-                                        breakdownMaxIndex={breakdownMaxIndex}
-                                        breakdownSumPercentage={
-                                            index === breakdownMaxIndex && breakdownSum
-                                                ? calcPercentage(breakdownSum, basisStep.count)
-                                                : undefined
-                                        }
-                                        percentage={calcPercentage(breakdown.count, basisStep.count)}
-                                        name={breakdown.name}
-                                        onBarClick={() => openPersonsModal(step, i + 1 /*TODO*/)}
-                                        layout={layout}
-                                    />
-                                ))
+                                step.breakdown.map((breakdown, index) => {
+                                    const conversionRate = calcPercentage(breakdown.count, basisStep.count)
+                                    return (
+                                        <Bar
+                                            key={`${breakdown.action_id}-${step.breakdown_value}-${index}`}
+                                            isBreakdown={true}
+                                            breakdownIndex={index}
+                                            breakdownMaxIndex={breakdownMaxIndex}
+                                            breakdownSumPercentage={
+                                                index === breakdownMaxIndex && breakdownSum
+                                                    ? calcPercentage(breakdownSum, basisStep.count)
+                                                    : undefined
+                                            }
+                                            percentage={conversionRate}
+                                            name={breakdown.name}
+                                            onBarClick={() => openPersonsModal(step, i + 1 /*TODO*/)}
+                                            layout={layout}
+                                            popoverTitle={
+                                                <span>
+                                                    <PropertyKeyInfo value={step.name} />
+                                                    {' • '}
+                                                    {breakdown.breakdown}
+                                                </span>
+                                            }
+                                            popoverBody={[
+                                                <MetricRow key={0} title="Completed step" value={breakdown.count} />,
+                                                <MetricRow
+                                                    key={1}
+                                                    title="Conversion rate"
+                                                    value={`${humanizeNumber(conversionRate, 2)}%`}
+                                                />,
+                                                <MetricRow key={2} title="Dropped off" value={`TODO`} />,
+                                                <MetricRow
+                                                    key={3}
+                                                    title="Decrease from previous step"
+                                                    value={`TODO`}
+                                                />,
+                                                breakdown.average_conversion_time ? (
+                                                    <MetricRow
+                                                        key={4}
+                                                        title="Average time on step"
+                                                        value={humanFriendlyDuration(breakdown.average_conversion_time)}
+                                                    />
+                                                ) : (
+                                                    <>{null}</>
+                                                ),
+                                            ]}
+                                        />
+                                    )
+                                })
                             ) : (
                                 <Bar
                                     percentage={calcPercentage(step.count, basisStep.count)}
