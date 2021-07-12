@@ -262,7 +262,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             values = []
             if self._filter.breakdown_type == "person":
                 values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, 5)
-            elif self._filter.breakdown_type == "event":
+            elif self._filter.breakdown_type == "event" or not self._filter.breakdown_type:
                 values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, 5)
             self.params.update({"breakdown_values": values})
 
