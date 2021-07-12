@@ -395,6 +395,33 @@ def factory_test_event_api(event_factory, person_factory, _):
                 response = self.client.get("/api/event/").json()
             self.assertEqual(len(response["results"]), 1)
 
+        def test_session_events(self):
+            another_team = Team.objects.create(organization=self.organization)
+
+            Person.objects.create(team=self.team, distinct_ids=["1"])
+            Person.objects.create(team=another_team, distinct_ids=["1"])
+
+            with freeze_time("2012-01-14T03:21:34.000Z"):
+                event_factory(team=self.team, event="1st action", distinct_id="1")
+
+            with freeze_time("2012-01-14T03:25:34.000Z"):
+                event_factory(team=self.team, event="2nd action", distinct_id="1")
+                event_factory(team=another_team, event="2nd action", distinct_id="1")
+                event_factory(team=self.team, event="2nd action", distinct_id="2")
+
+            with freeze_time("2012-01-15T03:59:35.000Z"):
+                event_factory(team=self.team, event="3rd action", distinct_id="1")
+
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                event_factory(team=self.team, event="4th action", distinct_id="1", properties={"$os": "Mac OS X"})
+
+            response = self.client.get(
+                f"/api/event/session_events?distinct_id=1&date_from=2012-01-14T03:25:34&date_to=2012-01-15T04:00:00"
+            ).json()
+            self.assertEqual(len(response["result"]), 2)
+            self.assertEqual(response["result"][0]["event"], "2nd action")
+            self.assertEqual(response["result"][1]["event"], "3rd action")
+
         @patch("posthog.api.event.EventViewSet.CSV_EXPORT_LIMIT", 1000)
         def test_events_csv_export_with_limit(self):
             with freeze_time("2012-01-15T04:01:34.000Z"):
