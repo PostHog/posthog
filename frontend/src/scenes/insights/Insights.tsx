@@ -352,7 +352,7 @@ export function Insights(): JSX.Element {
                                             </div>
                                         )}
                                         {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
-                                            <div className="text-muted-alt-light" style={{ marginLeft: 'auto' }}>
+                                            <div className="text-muted-alt" style={{ marginLeft: 'auto' }}>
                                                 Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
                                                 <Button
                                                     size="small"

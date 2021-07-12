@@ -32,6 +32,10 @@ export function ToggleButtonChartFilter({
             value: ChartDisplayType.FunnelsTimeToConvert,
             label: <Tooltip title="Track how long it takes for users to convert">Time to convert</Tooltip>,
         },
+        {
+            value: ChartDisplayType.ActionsLineGraphLinear,
+            label: <Tooltip title="Track how this funnel's conversion rate is trending over time">Historical</Tooltip>,
+        },
     ]
 
     return (
@@ -49,6 +53,7 @@ export function ToggleButtonChartFilter({
             disabled={disabled}
             options={options}
             optionType="button"
+            size="small"
         />
     )
 }
