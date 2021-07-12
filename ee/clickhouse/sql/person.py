@@ -142,7 +142,7 @@ FROM kafka_{table_name}
 
 PERSON_STATIC_COHORT_TABLE = "person_static_cohort"
 PERSON_STATIC_COHORT_BASE_SQL = """
-CREATE TABLE {table_name} ON CLUSTER {posthog}
+CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
     id UUID,
     person_id UUID,
