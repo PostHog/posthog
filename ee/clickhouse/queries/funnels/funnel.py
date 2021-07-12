@@ -5,15 +5,13 @@ from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
 class ClickhouseFunnel(ClickhouseFunnelBase):
     def get_query(self):
-
-        steps_per_person_query = self.get_step_counts_query()
         max_steps = len(self._filter.entities)
 
         breakdown_clause = self._get_breakdown_prop()
 
         return f"""
         SELECT {self._get_count_columns(max_steps)} {self._get_people_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
-                {steps_per_person_query}
+                {self.get_step_counts_query()}
         ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
 
@@ -66,7 +64,8 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
                 serialized_result.update({"average_conversion_time": None})
 
             if with_breakdown:
-                serialized_result.update({"breakdown": result[-1][1:-1]})  # strip quotes
+                serialized_result.update({"breakdown": result[-1]})
+                # important to not try and modify this value any how - as these are keys for fetching persons
 
             steps.append(serialized_result)
 

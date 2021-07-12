@@ -41,6 +41,9 @@ def _create_event(**kwargs):
 
 # override tests from test facotry if intervals are different
 class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTrends, _create_event, Person.objects.create, _create_action, _create_cohort)):  # type: ignore
+
+    maxDiff = None
+
     def test_breakdown_with_filter(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -104,7 +107,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             )
 
         self.assertListEqual(
-            [res["breakdown_value"] for res in event_response], ["none", "person1", "person2", "person3"]
+            sorted([res["breakdown_value"] for res in event_response]),
+            sorted(["none", "person1", "person2", "person3"]),
         )
 
         for response in event_response:
@@ -257,14 +261,19 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 self.team,
             )
 
-        self.assertEqual(response[1]["label"], "sign up - second url")
-        self.assertEqual(response[2]["label"], "sign up - first url")
+        response = sorted(response, key=lambda x: x["label"])
+        self.assertEqual(response[0]["label"], "sign up - first url")
+        self.assertEqual(response[1]["label"], "sign up - none")
+        self.assertEqual(response[2]["label"], "sign up - second url")
 
-        self.assertEqual(sum(response[1]["data"]), 1)
-        self.assertEqual(response[1]["breakdown_value"], "second url")
+        self.assertEqual(sum(response[0]["data"]), 1)
+        self.assertEqual(response[0]["breakdown_value"], "first url")
+
+        self.assertEqual(sum(response[1]["data"]), 0)
+        self.assertEqual(response[1]["breakdown_value"], "none")
 
         self.assertEqual(sum(response[2]["data"]), 1)
-        self.assertEqual(response[2]["breakdown_value"], "first url")
+        self.assertEqual(response[2]["breakdown_value"], "second url")
 
     def test_dau_with_breakdown_filtering(self):
         sign_up_action, _ = self._create_events()

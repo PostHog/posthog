@@ -4,6 +4,7 @@ from uuid import uuid4
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
+from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
@@ -37,9 +38,17 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
+class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_person)):  # type: ignore
+    maxDiff = None
+    pass
+
+
 class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
-    def _get_people_at_step(self, filter, funnel_step):
-        person_filter = filter.with_data({"funnel_step": funnel_step})
+
+    maxDiff = None
+
+    def _get_people_at_step(self, filter, funnel_step, breakdown_value=None):
+        person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
         result = ClickhouseFunnelPersons(person_filter, self.team)._exec_query()
         return [row[0] for row in result]
 
