@@ -25,10 +25,6 @@ export function ToggleButtonChartFilter({
             label: <Tooltip title="Track users' progress between steps of the funnel">Conversion steps</Tooltip>,
         },
         {
-            value: ChartDisplayType.ActionsLineGraphLinear,
-            label: <Tooltip title="Track how this funnel's conversion rate is trending over time">Historical</Tooltip>,
-        },
-        {
             value: ChartDisplayType.FunnelsTimeToConvert,
             label: <Tooltip title="Track how long it takes for users to convert">Time to convert</Tooltip>,
         },
