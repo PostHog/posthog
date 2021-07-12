@@ -131,7 +131,8 @@ class FunnelTrendsPersonsMixin(BaseParamMixin):
 
     @cached_property
     def drop_off(self) -> Optional[bool]:
-        return bool(self._data.get(DROP_OFF))
+        drop_off_raw = self._data.get(DROP_OFF)
+        return bool(drop_off_raw) if drop_off_raw is not None else None
 
     @include_dict
     def funnel_trends_persons_to_dict(self):
