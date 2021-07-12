@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import List, Tuple, Type, Union
+from typing import List, Optional, Tuple, Type, Union
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
@@ -60,8 +60,29 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     def _exec_query(self):
         return self._summarize_data(super()._exec_query())
 
-    def get_query(self) -> str:
+    def get_step_counts_without_aggregation_query(
+        self, *, specific_entrance_period_start: Optional[datetime] = None
+    ) -> str:
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
+        interval_method = get_trunc_func_ch(self._filter.interval)
+
+        # This is used by funnel trends when we only need data for one period, e.g. person per data point
+        if specific_entrance_period_start:
+            self.params["entrance_period_start"] = specific_entrance_period_start.strftime(TIMESTAMP_FORMAT)
+
+        return f"""
+            SELECT
+                person_id,
+                {interval_method}(timestamp) AS entrance_period_start,
+                max(steps) AS steps_completed
+            FROM (
+                {steps_per_person_query}
+            )
+            {"WHERE entrance_period_start = %(entrance_period_start)s" if specific_entrance_period_start else ""}
+            GROUP BY person_id, entrance_period_start"""
+
+    def get_query(self) -> str:
+        step_counts = self.get_step_counts_without_aggregation_query()
         # Expects multiple rows for same person, first event time, steps taken.
         self.params.update(self.funnel_order.params)
 
@@ -83,13 +104,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
                     countIf({reached_from_step_count_condition}) AS reached_from_step_count,
                     countIf({reached_to_step_count_condition}) AS reached_to_step_count
                 FROM (
-                    SELECT
-                        person_id,
-                        {interval_method}(timestamp) AS entrance_period_start,
-                        max(steps) AS steps_completed
-                    FROM (
-                        {steps_per_person_query}
-                    ) GROUP BY person_id, entrance_period_start
+                    {step_counts}
                 ) GROUP BY entrance_period_start
             ) data
             FULL OUTER JOIN (
@@ -109,10 +124,12 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         # How many steps must have been done to count for the numerator of a funnel trends data point
         to_step = self._filter.funnel_to_step or len(self._filter.entities)
 
-        reached_from_step_count_condition = f"steps_completed >= {from_step}"  # Those who converted OR dropped off
-        reached_to_step_count_condition = f"steps_completed >= {to_step}"  # Those who converted
-        did_not_reach_to_step_count_condition = f"steps_completed < {to_step}"  # Those who dropped off
-
+        # Those who converted OR dropped off
+        reached_from_step_count_condition = f"steps_completed >= {from_step}"
+        # Those who converted
+        reached_to_step_count_condition = f"steps_completed >= {to_step}"
+        # Those who dropped off
+        did_not_reach_to_step_count_condition = f"{reached_from_step_count_condition} AND steps_completed < {to_step}"
         return reached_from_step_count_condition, reached_to_step_count_condition, did_not_reach_to_step_count_condition
 
     def _summarize_data(self, results):
