@@ -163,7 +163,14 @@
             "isort"
         ]
     },
-    "browserslist": [
-        "defaults"
-    ]
+    "browserslist": {
+        "development": [
+            "last 2 chrome versions",
+            "last 2 firefox versions",
+            "last 2 edge versions"
+        ],
+        "production": [
+            "defaults"
+        ]
+    }
 }
