@@ -164,5 +164,8 @@
             "black",
             "isort"
         ]
-    }
+    },
+    "browserslist": [
+        "defaults"
+    ]
 }
