@@ -1,12 +1,10 @@
 import React, { useEffect, useRef } from 'react'
 import { responsiveMap } from 'antd/lib/_util/responsiveObserve'
 import { ANTD_EXPAND_BUTTON_WIDTH } from '../components/ResizableTable'
-import fromEntries from 'object.fromentries'
 
-const BREAKPOINT_MAP = fromEntries(
+const BREAKPOINT_MAP = Object.fromEntries(
     Object.entries(responsiveMap).map(([key, cssStatement]) => [key, parsePixelValue(cssStatement)])
 )
-
 const BREAKPOINT_VALUES = Object.values(BREAKPOINT_MAP).sort((a, b) => a - b)
 
 export function getMinColumnWidth(breakpoint: number): number {
