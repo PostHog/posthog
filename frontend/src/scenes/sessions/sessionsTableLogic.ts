@@ -165,9 +165,9 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
 
                 return fromEntries(
                     sessions.map((session) => {
-                        const events = loadedSessionEvents[session.global_session_id] || []
+                        const events = loadedSessionEvents[session.global_session_id]
                         const matchingEvents = new Set(session.matching_events)
-                        return [session.global_session_id, events.filter((e) => matchingEvents.has(e.id))]
+                        return [session.global_session_id, events?.filter((e) => matchingEvents.has(e.id))]
                     })
                 )
             },
