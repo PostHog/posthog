@@ -1,5 +1,8 @@
 // Loads custom icons (some icons may come from a third-party library)
 import React, { CSSProperties } from 'react'
+import { ArrowUpOutlined } from '@ant-design/icons'
+
+import './icons.scss'
 
 export function IconMenu(): JSX.Element {
     // FontAwesome
@@ -395,5 +398,39 @@ export function SortableDragIcon({ style }: { style?: CSSProperties }): JSX.Elem
                 fill="currentColor"
             />
         </svg>
+    )
+}
+
+// Antd arrows rotated at convenient angles
+
+export function ArrowTopLeftOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <span className="anticon anticon-wraper-arrow topLeft">
+            <ArrowUpOutlined style={style} />
+        </span>
+    )
+}
+
+export function ArrowTopRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <span className="anticon anticon-wraper-arrow topRight">
+            <ArrowUpOutlined style={style} />
+        </span>
+    )
+}
+
+export function ArrowBottomRightOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <span className="anticon anticon-wraper-arrow bottomRight">
+            <ArrowUpOutlined style={style} />
+        </span>
+    )
+}
+
+export function ArrowBottomLeftOutlined({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <span className="anticon anticon-wraper-arrow bottomLeft">
+            <ArrowUpOutlined style={style} />
+        </span>
     )
 }

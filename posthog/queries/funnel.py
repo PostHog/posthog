@@ -11,7 +11,7 @@ from django.utils import timezone
 from psycopg2 import sql
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
-from posthog.models import Action, Entity, Event, Filter, Person, Team
+from posthog.models import Entity, Event, Filter, Person, Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery, properties_to_Q
 from posthog.utils import format_label_date, get_daterange
@@ -92,7 +92,7 @@ class Funnel(BaseQuery):
 
     def _serialize_step(self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
-            name = Action.objects.get(team=self._team.pk, pk=step.id).name
+            name = step.get_action().name
         else:
             name = step.id
         return {

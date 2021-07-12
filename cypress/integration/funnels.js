@@ -1,3 +1,5 @@
+const TIMEOUT = 30000 // increase timeout for funnel viz as sometimes github actions can be slow
+
 describe('Funnels', () => {
     beforeEach(() => {
         // :TRICKY: Race condition populating the first dropdown in funnel
@@ -11,7 +13,7 @@ describe('Funnels', () => {
 
         cy.get('[data-attr=save-funnel-button]').click() // `save-funnel-button` is actually calculate, keeping around to avoid losing data
 
-        cy.get('[data-attr=funnel-viz]').should('exist')
+        cy.get('[data-attr=funnel-viz]', { timeout: TIMEOUT }).should('exist')
     })
 
     it('Add 1 action to funnel and navigate to persons', () => {
@@ -23,7 +25,7 @@ describe('Funnels', () => {
 
         cy.get('[data-attr=save-funnel-button]').click()
 
-        cy.get('[data-attr=funnel-viz]').should('exist')
+        cy.get('[data-attr=funnel-viz]', { timeout: TIMEOUT }).should('exist')
 
         cy.get('[data-attr="funnel-person"] a')
             .filter(':contains("@")')
@@ -50,7 +52,7 @@ describe('Funnels', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.contains('Last 30 days').click()
 
-        cy.get('[data-attr=funnel-viz]').should('exist')
+        cy.get('[data-attr=funnel-viz]', { timeout: TIMEOUT }).should('exist')
     })
 
     it('Add 2 actions to funnel', () => {
@@ -64,6 +66,6 @@ describe('Funnels', () => {
 
         cy.get('[data-attr=save-funnel-button]').click()
 
-        cy.get('[data-attr=funnel-viz]').should('exist')
+        cy.get('[data-attr=funnel-viz]', { timeout: TIMEOUT }).should('exist')
     })
 })

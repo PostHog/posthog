@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+from django.conf import settings
+from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
@@ -28,7 +30,7 @@ def _create_cohort(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     groups = kwargs.pop("groups")
-    cohort = Cohort.objects.create(team=team, name=name, groups=groups)
+    cohort = Cohort.objects.create(team=team, name=name, groups=groups, last_calculation=timezone.now())
     return cohort
 
 
@@ -600,3 +602,58 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 "2020-01-04",
             ],
         )
+
+    def test_breakdown_multiple_cohorts(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        cohort1 = _create_cohort(team=self.team, name="cohort_1", groups=[{"properties": {"key": "value"}}])
+        cohort2 = _create_cohort(team=self.team, name="cohort_2", groups=[{"properties": {"key_2": "value_2"}}])
+
+        cohort1.calculate_people()
+        cohort1.calculate_people_ch()
+
+        cohort2.calculate_people()
+        cohort2.calculate_people_ch()
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
+            with freeze_time("2020-01-04T13:01:01Z"):
+                res = ClickhouseTrends().run(
+                    Filter(
+                        data={
+                            "date_from": "-7d",
+                            "events": [{"id": "$pageview"}],
+                            "properties": [],
+                            "breakdown": [cohort1.pk, cohort2.pk],
+                            "breakdown_type": "cohort",
+                        }
+                    ),
+                    self.team,
+                )
+
+        self.assertEqual(res[0]["count"], 1)
+        self.assertEqual(res[1]["count"], 2)

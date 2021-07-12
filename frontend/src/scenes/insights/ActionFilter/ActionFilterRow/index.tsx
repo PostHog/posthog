@@ -121,17 +121,14 @@ export function ActionFilterRow({
     const orLabel = <div className="stateful-badge or width-locked">OR</div>
 
     return (
-        <div
-            className={`${horizontalUI ? 'action-row-striped' : ''} ${fullWidth ? 'full-width' : ''}`}
-            style={{ flexBasis: fullWidth ? '100%' : undefined }}
-        >
+        <div className={`${horizontalUI ? 'action-row-striped' : 'action-row'} ${fullWidth ? 'full-width' : ''}`}>
             {!horizontalUI && index > 0 && showOr && (
                 <Row align="middle" style={{ marginTop: 12 }}>
                     {orLabel}
                 </Row>
             )}
 
-            <Row gutter={8} align="middle" className={!horizontalUI ? 'mt' : ''}>
+            <Row gutter={8} align="middle" className={!horizontalUI ? 'mt' : ''} wrap={!fullWidth}>
                 {horizontalUI && !singleFilter && filterCount > 1 && (
                     <Col>
                         <Button
@@ -265,7 +262,7 @@ export function ActionFilterRow({
                 )}
 
             {visible && (
-                <div className="ml" style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                <div className="ml" style={{ maxWidth: '100%' }}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}

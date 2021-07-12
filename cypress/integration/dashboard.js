@@ -121,6 +121,6 @@ describe('Dashboard', () => {
         cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
         cy.get('[data-attr=dashboard-item-0] .dashboard-item-title a').click()
         cy.location('pathname').should('include', '/insights')
-        cy.get('[data-attr=funnel-viz]').should('exist')
+        cy.get('[data-attr=funnel-viz]', { timeout: 30000 }).should('exist')
     })
 })

@@ -5,6 +5,7 @@ from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.api.test.test_action import factory_test_action_api
 from posthog.api.test.test_action_people import action_people_test_factory
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE
 from posthog.models import Action, ActionStep, Cohort, Organization, Person
@@ -36,7 +37,11 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestAction(
+class TestActionApi(ClickhouseTestMixin, factory_test_action_api(_create_event)):  # type: ignore
+    pass
+
+
+class TestActionPeople(
     ClickhouseTestMixin, action_people_test_factory(_create_event, _create_person, _create_action, _create_cohort)  # type: ignore
 ):
     @patch("posthog.tasks.calculate_action.calculate_action.delay")
@@ -59,20 +64,6 @@ class TestAction(
         self.assertEqual(response.json()["name"], "ooh")
         self.assertEqual(response.json()["is_calculating"], False)
         self.assertFalse(patch_delay.called)
-
-    def test_only_get_count_on_retrieve(self):
-        team2 = Organization.objects.bootstrap(None, team_fields={"name": "bla"})[2]
-        action = Action.objects.create(team=self.team, name="bla")
-        ActionStep.objects.create(action=action, event="custom event")
-        _create_event(event="custom event", team=self.team, distinct_id="test")
-        _create_event(event="another event", team=self.team, distinct_id="test")
-        # test team leakage
-        _create_event(event="custom event", team=team2, distinct_id="test")
-        response = self.client.get("/api/action/").json()
-        self.assertEqual(response["results"][0]["count"], None)
-
-        response = self.client.get("/api/action/%s/" % action.pk).json()
-        self.assertEqual(response["count"], 1)
 
     def test_active_user_weekly_people(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})

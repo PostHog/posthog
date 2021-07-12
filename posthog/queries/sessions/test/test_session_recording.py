@@ -5,7 +5,7 @@ from freezegun import freeze_time
 from posthog.models import Person, User
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingEvent, SessionRecordingViewed
-from posthog.queries.sessions.session_recording import SessionRecording, filter_sessions_by_recordings
+from posthog.queries.sessions.session_recording import SessionRecording, join_with_session_recordings
 from posthog.test.base import BaseTest
 
 
@@ -75,7 +75,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
                 self.assertEqual([r["session_recordings"] for r in results], expected)
 
-        def test_filter_sessions_by_recordings(self):
+        def test_join_with_session_recordings(self):
             _, team2, user2 = User.objects.bootstrap("Test2", "sessions@posthog.com", None)
 
             SessionRecordingViewed.objects.create(team=self.team, user_id=self.user.pk, session_id="1")
@@ -157,6 +157,6 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
 
 class DjangoSessionRecordingTest(
-    session_recording_test_factory(SessionRecording, filter_sessions_by_recordings, SessionRecordingEvent.objects.create)  # type: ignore
+    session_recording_test_factory(SessionRecording, join_with_session_recordings, SessionRecordingEvent.objects.create)  # type: ignore
 ):
     pass

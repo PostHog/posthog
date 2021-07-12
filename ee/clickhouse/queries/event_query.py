@@ -199,9 +199,9 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         is_precalculated = is_precalculated_query(cohort)
 
         person_id_query, cohort_filter_params = (
-            get_precalculated_query(cohort, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
+            get_precalculated_query(cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
             if is_precalculated
-            else format_person_query(cohort, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
+            else format_person_query(cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
         )
 
         return person_id_query, cohort_filter_params

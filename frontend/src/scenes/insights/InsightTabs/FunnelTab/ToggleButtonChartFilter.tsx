@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Radio } from 'antd'
+import { Radio, Tooltip } from 'antd'
 import { ChartDisplayType } from '~/types'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 
@@ -22,11 +22,11 @@ export function ToggleButtonChartFilter({
     const options = [
         {
             value: ChartDisplayType.FunnelViz,
-            label: 'Funnel conversion',
+            label: <Tooltip title="Track users' progress between steps of the funnel">Conversion steps</Tooltip>,
         },
         {
             value: ChartDisplayType.ActionsLineGraphLinear,
-            label: 'Conversion trend',
+            label: <Tooltip title="Track how this funnel's conversion rate is trending over time">Historical</Tooltip>,
         },
     ]
 
