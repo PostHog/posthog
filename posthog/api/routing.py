@@ -82,7 +82,7 @@ class StructuredViewSetMixin(NestedViewSetMixin):
         if getattr(self, "_parents_query_dict", None) is not None:
             return cast(Dict[str, Any], self._parents_query_dict)
 
-        # used to override @current team if there's a token in the request
+        # used to override the last visited project if there's a token in the request
         team_from_request = self._get_team_from_request()
 
         if self.legacy_team_compatibility:
