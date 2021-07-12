@@ -144,6 +144,6 @@ def _parse_breakdown_cohorts(cohorts: BaseManager) -> Tuple[List[str], Dict]:
     for idx, cohort in enumerate(cohorts):
         person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
         params = {**params, **cohort_filter_params}
-        cohort_query = person_id_query.replace(f"SELECT distinct_id", "SELECT distinct_id, {cohort.pk} as value")
+        cohort_query = person_id_query.replace("SELECT distinct_id", f"SELECT distinct_id, {cohort.pk} as value")
         queries.append(cohort_query)
     return queries, params
