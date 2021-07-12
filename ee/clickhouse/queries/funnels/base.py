@@ -248,7 +248,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
                 return f", JSONExtractRaw(person_props, %(breakdown)s) as prop"
-            elif self._filter.breakdown_type == "event":
+            elif self._filter.breakdown_type == "event" or not self._filter.breakdown_type:
                 return f", JSONExtractRaw(properties, %(breakdown)s) as prop"
 
         return ""
