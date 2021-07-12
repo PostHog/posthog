@@ -166,11 +166,6 @@ if CLICKHOUSE_SECURE:
 
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
 
-_clickhouse_hosts = get_from_env("CLICKHOUSE_MIGRATION_HOSTS", CLICKHOUSE_HOST).split(",")
-CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS = [
-    f"{_clickhouse_http_protocol}{host}:{_clickhouse_http_port}/" for host in _clickhouse_hosts
-]
-
 IS_HEROKU = get_from_env("IS_HEROKU", False, type_cast=str_to_bool)
 
 # Kafka configs
