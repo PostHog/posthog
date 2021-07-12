@@ -101,8 +101,9 @@ export const funnelLogic = kea<funnelLogicType>({
                         ...(from_dashboard ? { from_dashboard } : {}),
                         ...cleanedParams,
                         funnel_window_days: values.conversionWindowInDays,
-                        breakdown: null,
-                        breakdown_type: null,
+                        ...(values.featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]
+                            ? { breakdown: null, breakdown_type: null }
+                            : {}),
                     }
 
                     let result: FunnelResult
