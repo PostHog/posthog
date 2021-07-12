@@ -154,6 +154,148 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid, person3.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
 
+        def test_funnel_step_breakdown_event_no_type(self):
+
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown": "$browser",
+            }
+
+            filter = Filter(data=filters)
+            funnel = Funnel(filter, self.team)
+
+            # event
+            person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="person1",
+                properties={"key": "val", "$browser": "Chrome"},
+                timestamp="2020-01-01T12:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="play movie",
+                distinct_id="person1",
+                properties={"key": "val", "$browser": "Chrome"},
+                timestamp="2020-01-01T13:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="buy",
+                distinct_id="person1",
+                properties={"key": "val", "$browser": "Chrome"},
+                timestamp="2020-01-01T15:00:00Z",
+            )
+
+            person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="person2",
+                properties={"key": "val", "$browser": "Safari"},
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="play movie",
+                distinct_id="person2",
+                properties={"key": "val", "$browser": "Safari"},
+                timestamp="2020-01-02T16:00:00Z",
+            )
+
+            person3 = _create_person(distinct_ids=["person3"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="person3",
+                properties={"key": "val", "$browser": "Safari"},
+                timestamp="2020-01-02T14:00:00Z",
+            )
+
+            result = funnel.run()
+            self.assertEqual(
+                result[0],
+                [
+                    {
+                        "action_id": "sign up",
+                        "name": "sign up",
+                        "order": 0,
+                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "count": 1,
+                        "type": "events",
+                        "average_conversion_time": None,
+                        "breakdown": "Chrome",
+                    },
+                    {
+                        "action_id": "play movie",
+                        "name": "play movie",
+                        "order": 1,
+                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "count": 1,
+                        "type": "events",
+                        "average_conversion_time": 3600.0,
+                        "breakdown": "Chrome",
+                    },
+                    {
+                        "action_id": "buy",
+                        "name": "buy",
+                        "order": 2,
+                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "count": 1,
+                        "type": "events",
+                        "average_conversion_time": 7200.0,
+                        "breakdown": "Chrome",
+                    },
+                ],
+            )
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [person1.uuid])
+            self.assertEqual(
+                result[1],
+                [
+                    {
+                        "action_id": "sign up",
+                        "name": "sign up",
+                        "order": 0,
+                        "people": [person2.uuid, person3.uuid]
+                        if Funnel == ClickhouseFunnel
+                        else [],  # backwards compatibility
+                        "count": 2,
+                        "type": "events",
+                        "average_conversion_time": None,
+                        "breakdown": "Safari",
+                    },
+                    {
+                        "action_id": "play movie",
+                        "name": "play movie",
+                        "order": 1,
+                        "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "count": 1,
+                        "type": "events",
+                        "average_conversion_time": 7200.0,
+                        "breakdown": "Safari",
+                    },
+                    {
+                        "action_id": "buy",
+                        "name": "buy",
+                        "order": 2,
+                        "people": [],
+                        "count": 0,
+                        "type": "events",
+                        "average_conversion_time": None,
+                        "breakdown": "Safari",
+                    },
+                ],
+            )
+
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid, person3.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
+
         def test_funnel_step_breakdown_person(self):
 
             filters = {
