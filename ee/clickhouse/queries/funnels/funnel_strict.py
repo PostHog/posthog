@@ -6,10 +6,13 @@ from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 class ClickhouseFunnelStrict(ClickhouseFunnelBase):
     def get_query(self):
         max_steps = len(self._filter.entities)
+
+        breakdown_clause = self._get_breakdown_prop()
+
         return f"""
-        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} FROM (
+        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
             {self.get_step_counts_query()}
-        ) SETTINGS allow_experimental_window_functions = 1
+        ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
 
     def get_step_counts_query(self):
@@ -17,11 +20,12 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         max_steps = len(self._filter.entities)
 
         formatted_query = self.get_step_counts_without_aggregation_query()
+        breakdown_clause = self._get_breakdown_prop()
 
         return f"""
-            SELECT person_id, max(steps) AS steps {self._get_step_time_avgs(max_steps)} FROM (
+            SELECT person_id, max(steps) AS steps {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
                 {formatted_query}
-            ) GROUP BY person_id
+            ) GROUP BY person_id {breakdown_clause}
         """
 
     def get_step_counts_without_aggregation_query(self):
@@ -29,12 +33,14 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
 
         partition_select = self._get_partition_cols(1, max_steps)
         sorting_condition = self._get_sorting_condition(max_steps, max_steps)
+        breakdown_clause = self._get_breakdown_prop()
 
         inner_query = f"""
             SELECT 
             person_id,
             timestamp,
             {partition_select}
+            {breakdown_clause}
             FROM ({self._get_inner_event_query(skip_entity_filter=True, skip_step_filter=True)})
         """
 
@@ -53,6 +59,6 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
                 cols.append(f"latest_{i}")
             else:
                 cols.append(
-                    f"min(latest_{i}) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) latest_{i}"
+                    f"min(latest_{i}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) latest_{i}"
                 )
         return ", ".join(cols)

@@ -6,6 +6,7 @@ from posthog.constants import (
     FUNNEL_FROM_STEP,
     FUNNEL_ORDER_TYPE,
     FUNNEL_STEP,
+    FUNNEL_STEP_BREAKDOWN,
     FUNNEL_TO_STEP,
     FUNNEL_VIZ_TYPE,
     FUNNEL_WINDOW_DAYS,
@@ -79,6 +80,16 @@ class FunnelPersonsStepMixin(BaseParamMixin):
     @include_dict
     def funnel_step_to_dict(self):
         return {FUNNEL_STEP: self.funnel_step} if self.funnel_step else {}
+
+
+class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
+    @cached_property
+    def funnel_step_breakdown(self) -> Optional[str]:
+        return self._data.get(FUNNEL_STEP_BREAKDOWN)
+
+    @include_dict
+    def funnel_step_to_dict(self):
+        return {FUNNEL_STEP_BREAKDOWN: self.funnel_step_breakdown} if self.funnel_step_breakdown else {}
 
 
 class FunnelTypeMixin(BaseParamMixin):

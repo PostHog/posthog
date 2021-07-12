@@ -1989,6 +1989,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
+                event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
                 self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
                 self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
                 self.assertDictContainsSubset({"breakdown_value": "person3", "aggregated_value": 1}, event_response[2])

@@ -43,26 +43,40 @@ class ClickhouseFunnelBase(ABC, Funnel):
         results = self._exec_query()
         return self._format_results(results)
 
-    def _format_results(self, results):
+    def _format_single_funnel(self, results, with_breakdown=False):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
         total_people = 0
 
         for step in reversed(self._filter.entities):
 
-            if results[0] and len(results[0]) > 0:
-                total_people += results[0][step.order]
+            if results and len(results) > 0:
+                total_people += results[step.order]
 
             serialized_result = self._serialize_step(step, total_people, [])
             if step.order > 0:
                 serialized_result.update(
-                    {"average_conversion_time": results[0][step.order + len(self._filter.entities) - 1]}
+                    {"average_conversion_time": results[step.order + len(self._filter.entities) - 1]}
                 )
             else:
                 serialized_result.update({"average_conversion_time": None})
+
+            if with_breakdown:
+                serialized_result.update({"breakdown": results[-1]})
+                # important to not try and modify this value any how - as these are keys for fetching persons
+
             steps.append(serialized_result)
 
         return steps[::-1]  #  reverse
+
+    def _format_results(self, results):
+        if not results or len(results) == 0:
+            return []
+
+        if self._filter.breakdown:
+            return [self._format_single_funnel(res, with_breakdown=True) for res in results]
+        else:
+            return self._format_single_funnel(results[0])
 
     def _exec_query(self) -> List[Tuple]:
 
@@ -99,7 +113,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 if i > 0 and self._filter.entities[i].equals(self._filter.entities[i - 1]):
                     duplicate_event = 1
                 cols.append(
-                    f"min(latest_{i}) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
+                    f"min(latest_{i}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
         return ", ".join(cols)
 
@@ -210,12 +224,21 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if step_num is None:
             raise ValueError("funnel_step should not be none")
 
+        conditions = []
         if step_num >= 0:
             self.params.update({"step_num": [i for i in range(step_num, max_steps + 1)]})
-            return "steps IN %(step_num)s"
+            conditions.append("steps IN %(step_num)s")
         else:
             self.params.update({"step_num": abs(step_num) - 1})
-            return "steps = %(step_num)s"
+            conditions.append("steps = %(step_num)s")
+
+        if self._filter.funnel_step_breakdown:
+            self.params.update(
+                {"breakdown_prop_value": [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]}
+            )
+            conditions.append("prop IN %(breakdown_prop_value)s")
+
+        return " AND ".join(conditions)
 
     def _get_count_columns(self, max_steps: int):
         cols: List[str] = []
@@ -247,9 +270,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return f", JSONExtractRaw(person_props, %(breakdown)s) as prop"
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
             elif self._filter.breakdown_type == "event":
-                return f", JSONExtractRaw(properties, %(breakdown)s) as prop"
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
 
         return ""
 
@@ -261,9 +284,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 ValidationError("An entity with order 0 was not provided")
             values = []
             if self._filter.breakdown_type == "person":
-                values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, 5)
+                values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
             elif self._filter.breakdown_type == "event":
-                values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, 5)
+                values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
             self.params.update({"breakdown_values": values})
 
             return "prop IN %(breakdown_values)s"
