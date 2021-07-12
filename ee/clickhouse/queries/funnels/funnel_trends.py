@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Tuple, Type, Union
+from typing import List, Tuple, Type, Union
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
@@ -57,14 +57,8 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
 
         self.funnel_order = funnel_order_class(filter, team)
 
-    def run(self, *args, **kwargs):
-        if len(self._filter.entities) == 0:
-            return []
-
-        return self._get_ui_response(self.perform_query())
-
-    def perform_query(self):
-        return self._summarize_data(self._exec_query())
+    def _exec_query(self):
+        return self._summarize_data(super()._exec_query())
 
     def get_query(self) -> str:
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
@@ -115,8 +109,8 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         # How many steps must have been done to count for the numerator of a funnel trends data point
         to_step = self._filter.funnel_to_step or len(self._filter.entities)
 
-        reached_from_step_count_condition = f"steps_completed >= {from_step}"
-        reached_to_step_count_condition = f"steps_completed >= {to_step}"
+        reached_from_step_count_condition = f"steps_completed >= {from_step}"  # Those who converted OR dropped off
+        reached_to_step_count_condition = f"steps_completed >= {to_step}"  # Those who converted
         did_not_reach_to_step_count_condition = f"steps_completed < {to_step}"  # Those who dropped off
 
         return reached_from_step_count_condition, reached_to_step_count_condition, did_not_reach_to_step_count_condition
@@ -135,7 +129,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return summary
 
     @staticmethod
-    def _get_ui_response(summary):
+    def _format_results(summary):
         count = len(summary)
         data = []
         days = []
