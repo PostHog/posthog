@@ -135,8 +135,8 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
             ).url
         },
     },
-    FunnelsHistogram: {
-        className: 'funnel-histogram',
+    FunnelsTimeToConvert: {
+        className: 'funnel-time-to-convert',
         element: FunnelHistogram,
         icon: BarChartOutlined,
         viewText: 'View time conversion',

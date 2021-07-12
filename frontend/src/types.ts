@@ -558,7 +558,7 @@ export enum ChartDisplayType {
     ActionsBarChartValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
-    FunnelsHistogram = 'FunnelsHistogram',
+    FunnelsTimeToConvert = 'FunnelsTimeToConvert',
 }
 
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
@@ -606,7 +606,7 @@ export interface FilterType {
     filter_test_accounts?: boolean
     from_dashboard?: boolean
     funnel_step?: number
-    funnel_viz_type?: string
+    funnel_viz_type?: string // this and the below param is used for funnels time to convert, it'll be updated soon
     funnel_to_step?: number
 }
 

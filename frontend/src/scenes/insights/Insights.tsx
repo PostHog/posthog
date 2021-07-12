@@ -6,7 +6,13 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS, FUNNELS_HISTOGRAM } from 'lib/constants'
+import {
+    FUNNEL_VIZ,
+    ACTIONS_TABLE,
+    ACTIONS_BAR_CHART_VALUE,
+    FEATURE_FLAGS,
+    FUNNELS_TIME_TO_CONVERT,
+} from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -335,7 +341,7 @@ export function Insights(): JSX.Element {
                             >
                                 <div>
                                     <Row style={{ justifyContent: 'space-between', marginTop: -8, marginBottom: 16 }}>
-                                        {allFilters.display === FUNNELS_HISTOGRAM && (
+                                        {allFilters.display === FUNNELS_TIME_TO_CONVERT && (
                                             <div>
                                                 Average time:{' '}
                                                 <span className="l4" style={{ color: 'var(--primary)' }}>
@@ -436,7 +442,7 @@ function FunnelInsight(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { autoCalculate } = useValues(funnelLogic())
     const fluidHeight = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display === FUNNEL_VIZ
-    const funnelHistogram = display === FUNNELS_HISTOGRAM
+    const funnelHistogram = display === FUNNELS_TIME_TO_CONVERT
 
     return (
         <div

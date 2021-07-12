@@ -147,7 +147,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                     actions.setSteps(result.result as FunnelStep[])
                     let binsResult: FunnelsTimeConversionResult
-                    if (params.display === ChartDisplayType.FunnelsHistogram) {
+                    if (params.display === ChartDisplayType.FunnelsTimeToConvert) {
                         try {
                             params.funnel_viz_type = 'time_to_convert'
                             params.funnel_to_step = values.histogramStep

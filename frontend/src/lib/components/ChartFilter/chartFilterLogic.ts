@@ -35,8 +35,8 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
             } else if (insight === ViewType.RETENTION) {
                 actions.setChartFilter(ChartDisplayType.ActionsTable)
             } else if (insight === ViewType.FUNNELS) {
-                if (display === ChartDisplayType.FunnelsHistogram) {
-                    actions.setChartFilter(ChartDisplayType.FunnelsHistogram)
+                if (display === ChartDisplayType.FunnelsTimeToConvert) {
+                    actions.setChartFilter(ChartDisplayType.FunnelsTimeToConvert)
                 } else {
                     actions.setChartFilter(ChartDisplayType.FunnelViz)
                 }

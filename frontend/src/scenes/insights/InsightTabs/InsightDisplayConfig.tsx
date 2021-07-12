@@ -8,7 +8,7 @@ import {
     ACTIONS_PIE_CHART,
     ACTIONS_TABLE,
     FEATURE_FLAGS,
-    FUNNELS_HISTOGRAM,
+    FUNNELS_TIME_TO_CONVERT,
 } from 'lib/constants'
 import React from 'react'
 import { ChartDisplayType, FilterType } from '~/types'
@@ -117,7 +117,7 @@ export function InsightDisplayConfig({
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
 
-                {showFunnelBarOptions && allFilters.display !== FUNNELS_HISTOGRAM && (
+                {showFunnelBarOptions && allFilters.display !== FUNNELS_TIME_TO_CONVERT && (
                     <>
                         <FunnelDisplayLayoutPicker />
                         <FunnelStepReferencePicker />
