@@ -222,8 +222,40 @@ export class DB {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard('LPushing redis key delayed. Waiting over 30 sec to lpush key', { key })
             try {
-                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
+                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string | string[])
                 return await client.lpush(key, serializedValue)
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
+    public redisLRange(key: string, startIndex: number, endIndex: number): Promise<string[]> {
+        return instrumentQuery(this.statsd, 'query.redisLRange', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('LRANGE delayed. Waiting over 30 sec to perform LRANGE', {
+                key,
+                startIndex,
+                endIndex,
+            })
+            try {
+                return await client.lrange(key, startIndex, endIndex)
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
+    public redisLLen(key: string): Promise<number> {
+        return instrumentQuery(this.statsd, 'query.redisLLen', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('LLEN delayed. Waiting over 30 sec to perform LLEN', {
+                key,
+            })
+            try {
+                return await client.llen(key)
             } finally {
                 clearTimeout(timeout)
                 await this.redisPool.release(client)
