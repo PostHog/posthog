@@ -11,6 +11,7 @@ export const ACTIONS_BAR_CHART = 'ActionsBar'
 export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
 export const PATHS_VIZ = 'PathsViz'
 export const FUNNEL_VIZ = 'FunnelViz'
+export const FUNNELS_TIME_TO_CONVERT = 'FunnelsTimeToConvert'
 
 export enum OrganizationMembershipLevel {
     Member = 1,
