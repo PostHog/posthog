@@ -39,6 +39,7 @@ def _create_event(**kwargs):
 
 
 class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_person)):  # type: ignore
+    maxDiff = None
     pass
 
 

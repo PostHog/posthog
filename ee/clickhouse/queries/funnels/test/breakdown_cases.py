@@ -379,42 +379,10 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
             )
 
             result = funnel.run()
+            result = sorted(result, key=lambda res: res[0]["breakdown"])
+
             self.assertEqual(
                 result[0],
-                [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "breakdown": "Chrome",
-                    },
-                ],
-            )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
-
-            self.assertEqual(
-                result[1],
-                [
-                    {
-                        "action_id": "sign up",
-                        "name": "sign up",
-                        "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
-                        "count": 1,
-                        "type": "events",
-                        "average_conversion_time": None,
-                        "breakdown": "Safari",
-                    },
-                ],
-            )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person1.uuid])
-
-            self.assertEqual(
-                result[2],
                 [
                     {
                         "action_id": "sign up",
@@ -431,6 +399,40 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
             self.assertCountEqual(self._get_people_at_step(filter, 1, "0"), [person1.uuid])
 
             self.assertEqual(
+                result[1],
+                [
+                    {
+                        "action_id": "sign up",
+                        "name": "sign up",
+                        "order": 0,
+                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "count": 1,
+                        "type": "events",
+                        "average_conversion_time": None,
+                        "breakdown": "Chrome",
+                    },
+                ],
+            )
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
+
+            self.assertEqual(
+                result[2],
+                [
+                    {
+                        "action_id": "sign up",
+                        "name": "sign up",
+                        "order": 0,
+                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
+                        "count": 1,
+                        "type": "events",
+                        "average_conversion_time": None,
+                        "breakdown": "Mac",
+                    },
+                ],
+            )
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Mac"), [person1.uuid])
+
+            self.assertEqual(
                 result[3],
                 [
                     {
@@ -441,11 +443,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
-                        "breakdown": '"Mac"',
+                        "breakdown": "Safari",
                     },
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, '"Mac"'), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person1.uuid])
 
         def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
 
