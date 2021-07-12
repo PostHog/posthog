@@ -87,7 +87,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
-                        "breakdown": '"Chrome"',
+                        "breakdown": "Chrome",
                     },
                     {
                         "action_id": "play movie",
@@ -97,7 +97,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 3600.0,
-                        "breakdown": '"Chrome"',
+                        "breakdown": "Chrome",
                     },
                     {
                         "action_id": "buy",
@@ -107,12 +107,12 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
-                        "breakdown": '"Chrome"',
+                        "breakdown": "Chrome",
                     },
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, '"Chrome"'), [person1.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, '"Chrome"'), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [person1.uuid])
             self.assertEqual(
                 result[1],
                 [
@@ -126,7 +126,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 2,
                         "type": "events",
                         "average_conversion_time": None,
-                        "breakdown": '"Safari"',
+                        "breakdown": "Safari",
                     },
                     {
                         "action_id": "play movie",
@@ -136,7 +136,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
-                        "breakdown": '"Safari"',
+                        "breakdown": "Safari",
                     },
                     {
                         "action_id": "buy",
@@ -146,13 +146,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 0,
                         "type": "events",
                         "average_conversion_time": None,
-                        "breakdown": '"Safari"',
+                        "breakdown": "Safari",
                     },
                 ],
             )
 
-            self.assertCountEqual(self._get_people_at_step(filter, 1, '"Safari"'), [person2.uuid, person3.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, '"Safari"'), [person2.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid, person3.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
 
         def test_funnel_step_breakdown_person(self):
 
@@ -221,7 +221,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
-                        "breakdown": '"Chrome"',
+                        "breakdown": "Chrome",
                     },
                     {
                         "action_id": "play movie",
@@ -231,7 +231,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 3600.0,
-                        "breakdown": '"Chrome"',
+                        "breakdown": "Chrome",
                     },
                     {
                         "action_id": "buy",
@@ -241,12 +241,12 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
-                        "breakdown": '"Chrome"',
+                        "breakdown": "Chrome",
                     },
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, '"Chrome"'), [person1.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, '"Chrome"'), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [person1.uuid])
 
             self.assertEqual(
                 result[1],
@@ -259,7 +259,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
-                        "breakdown": '"Safari"',
+                        "breakdown": "Safari",
                     },
                     {
                         "action_id": "play movie",
@@ -269,7 +269,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 7200.0,
-                        "breakdown": '"Safari"',
+                        "breakdown": "Safari",
                     },
                     {
                         "action_id": "buy",
@@ -279,12 +279,12 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 0,
                         "type": "events",
                         "average_conversion_time": None,
-                        "breakdown": '"Safari"',
+                        "breakdown": "Safari",
                     },
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, '"Safari"'), [person2.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 3, '"Safari"'), [])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 3, "Safari"), [])
 
         def test_funnel_step_breakdown_limit(self):
 
@@ -390,11 +390,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
-                        "breakdown": '"Chrome"',
+                        "breakdown": "Chrome",
                     },
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, '"Chrome"'), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
 
             self.assertEqual(
                 result[1],
@@ -407,11 +407,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
-                        "breakdown": '"Safari"',
+                        "breakdown": "Safari",
                     },
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, '"Safari"'), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person1.uuid])
 
             self.assertEqual(
                 result[2],
@@ -505,7 +505,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
-                        "breakdown": '"Chrome"',
+                        "breakdown": "Chrome",
                     },
                     {
                         "action_id": "play movie",
@@ -515,12 +515,12 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 0,
                         "type": "events",
                         "average_conversion_time": None,
-                        "breakdown": '"Chrome"',
+                        "breakdown": "Chrome",
                     },
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, '"Chrome"'), [person1.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, '"Chrome"'), [])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [])
 
             self.assertEqual(
                 result[1],
@@ -533,7 +533,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": None,
-                        "breakdown": '"Safari"',
+                        "breakdown": "Safari",
                     },
                     {
                         "action_id": "play movie",
@@ -543,11 +543,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "count": 1,
                         "type": "events",
                         "average_conversion_time": 3600,
-                        "breakdown": '"Safari"',
+                        "breakdown": "Safari",
                     },
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, '"Safari"'), [person1.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, '"Safari"'), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person1.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person1.uuid])
 
     return TestFunnelBreakdown

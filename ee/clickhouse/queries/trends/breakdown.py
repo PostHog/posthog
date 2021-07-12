@@ -215,7 +215,7 @@ class ClickhouseTrendsBreakdown:
             params,
             BREAKDOWN_PROP_JOIN_SQL,
             {},
-            "JSONExtractRaw(properties, %(key)s)",
+            "trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s))",
             None if filter.offset else NONE_BREAKDOWN_PROP_JOIN_SQL,
         )
 

@@ -212,17 +212,17 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual([val[0] for val in results], [person1.uuid, person2.uuid])
 
         results = ClickhouseFunnelPersons(
-            filter.with_data({"funnel_step_breakdown": '"Chrome"'}), self.team
+            filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team
         )._exec_query()
         print(results)
         self.assertCountEqual([val[0] for val in results], [person1.uuid])
 
         results = ClickhouseFunnelPersons(
-            filter.with_data({"funnel_step_breakdown": '"Safari"'}), self.team
+            filter.with_data({"funnel_step_breakdown": "Safari"}), self.team
         )._exec_query()
         self.assertCountEqual([val[0] for val in results], [person2.uuid])
 
         results = ClickhouseFunnelPersons(
-            filter.with_data({"funnel_step_breakdown": '"Safari", "Chrome"'}), self.team
+            filter.with_data({"funnel_step_breakdown": "Safari, Chrome"}), self.team
         )._exec_query()
         self.assertCountEqual([val[0] for val in results], [person2.uuid, person1.uuid])

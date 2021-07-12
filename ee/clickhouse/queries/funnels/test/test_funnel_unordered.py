@@ -78,7 +78,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
-                    "breakdown": '"Chrome"',
+                    "breakdown": "Chrome",
                 },
                 {
                     "action_id": "play movie",
@@ -88,12 +88,12 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "count": 0,
                     "type": "events",
                     "average_conversion_time": None,
-                    "breakdown": '"Chrome"',
+                    "breakdown": "Chrome",
                 },
             ],
         )
-        self.assertCountEqual(self._get_people_at_step(filter, 1, '"Chrome"'), [person1.uuid])
-        self.assertCountEqual(self._get_people_at_step(filter, 2, '"Chrome"'), [])
+        self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [])
 
         self.assertEqual(
             result[1],
@@ -106,7 +106,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
-                    "breakdown": '"Safari"',
+                    "breakdown": "Safari",
                 },
                 {
                     "action_id": "play movie",
@@ -116,12 +116,12 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 3600,
-                    "breakdown": '"Safari"',
+                    "breakdown": "Safari",
                 },
             ],
         )
-        self.assertCountEqual(self._get_people_at_step(filter, 1, '"Safari"'), [person1.uuid])
-        self.assertCountEqual(self._get_people_at_step(filter, 2, '"Safari"'), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person1.uuid])
 
 
 class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
