@@ -203,6 +203,7 @@ def clickhouse_mutation_count():
                 table,
                 count(1) AS freq
             FROM system.mutations
+            WHERE is_done = 0 
             GROUP BY table
             ORDER BY freq DESC
         """
