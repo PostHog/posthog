@@ -166,7 +166,7 @@ export class EventsProcessor {
                 try {
                     // timestamp and sent_at must both be in the same format: either both with or both without timezones
                     // otherwise we can't get a diff to add to now
-                    return now.plus(DateTime.fromISO(data['timestamp']).diff(sentAt))
+                    return now.plus(DateTime.fromJSDate(new Date(data['timestamp'])).diff(sentAt))
                 } catch (error) {
                     status.error('⚠️', 'Error when handling timestamp:', error)
                     Sentry.captureException(error, { extra: { data, now, sentAt } })
