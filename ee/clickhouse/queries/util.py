@@ -1,5 +1,6 @@
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -10,6 +11,26 @@ from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.queries.base import TIME_IN_SECONDS
 from posthog.types import FilterType
+
+COMMA_NEWLINE = ",\n"
+
+
+@dataclass()
+class CTE:
+    query: str
+    alias: str
+    is_scalar: bool
+
+
+def prefix_query_with_ctes(query: str, ctes: Sequence[CTE]) -> str:
+    return (
+        f"""
+    WITH
+        {COMMA_NEWLINE.join((f"( {cte.query} ) AS {cte.alias}" if cte.is_scalar else f"{cte.alias} AS ( {cte.query} )" for cte in ctes))}
+    {query}"""
+        if ctes
+        else query
+    )
 
 
 def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple[str, str, dict]:

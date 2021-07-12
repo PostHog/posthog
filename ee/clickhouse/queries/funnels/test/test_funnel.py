@@ -1,4 +1,3 @@
-import operator
 from uuid import uuid4
 
 from ee.clickhouse.models.event import create_event
