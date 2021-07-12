@@ -365,6 +365,11 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                             {step.breakdown?.length ? (
                                 step.breakdown.map((breakdown, index) => {
                                     const conversionRate = calcPercentage(breakdown.count, basisStep.count)
+                                    const previousStep = getReferenceStep(steps, FunnelStepReference.previous, i)
+                                    const previousCount = previousStep?.breakdown?.[index]?.count ?? 0
+                                    const dropoffCount = previousCount - breakdown.count
+                                    const conversionRateFromPrevious = calcPercentage(breakdown.count, previousCount)
+                                    const dropoffRateFromPrevious = 100 - conversionRateFromPrevious
                                     return (
                                         <Bar
                                             key={`${breakdown.action_id}-${step.breakdown_value}-${index}`}
@@ -387,29 +392,62 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                                     {breakdown.breakdown}
                                                 </span>
                                             }
-                                            popoverBody={[
-                                                <MetricRow key={0} title="Completed step" value={breakdown.count} />,
-                                                <MetricRow
-                                                    key={1}
-                                                    title="Conversion rate"
-                                                    value={`${humanizeNumber(conversionRate, 2)}%`}
-                                                />,
-                                                <MetricRow key={2} title="Dropped off" value={`TODO`} />,
-                                                <MetricRow
-                                                    key={3}
-                                                    title="Decrease from previous step"
-                                                    value={`TODO`}
-                                                />,
-                                                breakdown.average_conversion_time ? (
+                                            popoverBody={
+                                                [
                                                     <MetricRow
-                                                        key={4}
-                                                        title="Average time on step"
-                                                        value={humanFriendlyDuration(breakdown.average_conversion_time)}
-                                                    />
-                                                ) : (
-                                                    <>{null}</>
-                                                ),
-                                            ]}
+                                                        key={0}
+                                                        title="Completed step"
+                                                        value={breakdown.count}
+                                                    />,
+                                                    <MetricRow
+                                                        key={1}
+                                                        title="Conversion rate (total)"
+                                                        value={`${humanizeNumber(conversionRate, 2)}%`}
+                                                    />,
+                                                    ...(step.order !== 0
+                                                        ? [
+                                                              <MetricRow
+                                                                  key={1}
+                                                                  title={`Conversion rate (from step ${humanizeOrder(
+                                                                      previousStep.order
+                                                                  )})`}
+                                                                  value={`${humanizeNumber(
+                                                                      conversionRateFromPrevious,
+                                                                      2
+                                                                  )}%`}
+                                                              />,
+                                                              dropoffCount > 0 && (
+                                                                  <MetricRow
+                                                                      key={2}
+                                                                      title="Dropped off"
+                                                                      value={dropoffCount}
+                                                                  />
+                                                              ),
+                                                              dropoffCount > 0 && (
+                                                                  <MetricRow
+                                                                      key={3}
+                                                                      title={`Dropoff rate (from step ${humanizeOrder(
+                                                                          previousStep.order
+                                                                      )})`}
+                                                                      value={`${humanizeNumber(
+                                                                          dropoffRateFromPrevious,
+                                                                          2
+                                                                      )}%`}
+                                                                  />
+                                                              ),
+                                                          ]
+                                                        : []),
+                                                    breakdown.average_conversion_time && (
+                                                        <MetricRow
+                                                            key={4}
+                                                            title="Average time on step"
+                                                            value={humanFriendlyDuration(
+                                                                breakdown.average_conversion_time
+                                                            )}
+                                                        />
+                                                    ),
+                                                ].filter(Boolean) as JSX.Element[]
+                                            }
                                         />
                                     )
                                 })
