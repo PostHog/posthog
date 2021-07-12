@@ -152,7 +152,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         ],
         shouldLoadSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
-            (session, sessionEvents) => session && !session.events && !sessionEvents[session.global_session_id],
+            (session, sessionEvents) => session && !sessionEvents[session.global_session_id],
         ],
         highlightedSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
@@ -160,7 +160,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 if (!session) {
                     return []
                 }
-                const events = session.events || sessionEvents[session.global_session_id] || []
+                const events = sessionEvents[session.global_session_id] || []
                 return events.filter((e) => (session.matching_events || []).includes(e.id))
             },
         ],

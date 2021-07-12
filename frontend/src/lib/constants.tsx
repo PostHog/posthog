@@ -11,6 +11,7 @@ export const ACTIONS_BAR_CHART = 'ActionsBar'
 export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
 export const PATHS_VIZ = 'PathsViz'
 export const FUNNEL_VIZ = 'FunnelViz'
+export const FUNNELS_TIME_TO_CONVERT = 'FunnelsTimeToConvert'
 
 export enum OrganizationMembershipLevel {
     Member = 1,
@@ -234,6 +235,7 @@ export const FEATURE_FLAGS: Record<string, string> = {
     PLUGIN_METRICS: '4871-plugin-metrics',
     FUNNEL_BAR_VIZ: '4535-funnel-bar-viz',
     SESSIONS_TABLE: '4964-sessions-table',
+    PERSONS_MODAL_SEARCH: 'persons-modal-search',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
