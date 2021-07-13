@@ -107,6 +107,7 @@ jobs:
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_DATABASE: 'posthog_test'
+                  CLICKHOUSE_CLUSTER: 'posthog'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
               run: |
@@ -206,6 +207,7 @@ jobs:
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_DATABASE: 'posthog_test'
+                  CLICKHOUSE_CLUSTER: 'posthog'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
               run: |
@@ -218,6 +220,7 @@ jobs:
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_DATABASE: 'posthog_test'
+                  CLICKHOUSE_CLUSTER: 'posthog'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
               run: |
