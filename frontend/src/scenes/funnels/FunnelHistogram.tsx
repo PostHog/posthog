@@ -42,7 +42,7 @@ export function FunnelHistogram(): JSX.Element {
                                         <Row style={{ justifyContent: 'space-between', padding: '8px 0px' }}>
                                             <span className="l4">{option?.label}</span>
                                             <span className="text-muted-alt">
-                                                Average time: {humanFriendlyDuration(option?.average_conversion_time)}
+                                                Mean time: {humanFriendlyDuration(option?.average_conversion_time)}
                                             </span>
                                         </Row>
                                         <Row className="text-muted-alt">
@@ -57,36 +57,6 @@ export function FunnelHistogram(): JSX.Element {
                 )}
             </div>
             <Histogram data={histogramGraphData} layout={barGraphLayout} />
-            {/*<LineGraph*/}
-            {/*    data-attr="funnels-histogram"*/}
-            {/*    type="histogram"*/}
-            {/*    color={'white'}*/}
-            {/*    datasets={dataset}*/}
-            {/*    labels={histogramGraphData.time}*/}
-            {/*    dashboardItemId={null}*/}
-            {/*/>*/}
-            {/*<ResponsiveHistogram*/}
-            {/*    ariaLabel="My histogram of ..."*/}
-            {/*    orientation="vertical"*/}
-            {/*    // normalized={true}*/}
-            {/*    binCount={histogramGraphData.length}*/}
-            {/*    binType="numeric"*/}
-            {/*    renderTooltip={({datum, color}) => (*/}
-            {/*        <div>*/}
-            {/*            <strong style={{color}}>{datum.bin0} to {datum.bin1}</strong>*/}
-            {/*            <div><strong>count </strong>{datum.count}</div>*/}
-            {/*            <div><strong>cumulative </strong>{datum.cumulative}</div>*/}
-            {/*            <div><strong>density </strong>{datum.density}</div>*/}
-            {/*        </div>*/}
-            {/*    )}*/}
-            {/*>*/}
-            {/*    <BarSeries*/}
-            {/*        animated*/}
-            {/*        binnedData={histogramGraphData}*/}
-            {/*    />*/}
-            {/*    <XAxis/>*/}
-            {/*    <YAxis/>*/}
-            {/*</ResponsiveHistogram>*/}
         </>
     )
 }

@@ -343,7 +343,7 @@ export function Insights(): JSX.Element {
                                     <Row style={{ justifyContent: 'space-between', marginTop: -8, marginBottom: 16 }}>
                                         {allFilters.display === FUNNELS_TIME_TO_CONVERT && (
                                             <div>
-                                                Average time:{' '}
+                                                Mean time:{' '}
                                                 <span className="l4" style={{ color: 'var(--primary)' }}>
                                                     {humanFriendlyDuration(
                                                         stepsWithCount[histogramStep]?.average_conversion_time

@@ -15,5 +15,12 @@
         left: 0;
         margin-left: 0;
         margin-right: 0;
+
+        g#y-gridlines,
+        g#y-axis {
+            .domain {
+                display: none; // hide axis line
+            }
+        }
     }
 }

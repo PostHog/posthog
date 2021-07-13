@@ -183,14 +183,14 @@ function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeIns
                 className="text-muted"
                 style={{ paddingRight: 4, display: 'inline-block', visibility: infoTextVisible ? undefined : 'hidden' }}
             >
-                Average time:
+                Mean time:
             </span>
             <ValueInspectorButton
                 innerRef={buttonRef}
                 style={{ paddingLeft: 0, paddingRight: 0 }}
                 onClick={onClick}
                 disabled={disabled}
-                title="Average time elapsed between completing this step and starting the next one."
+                title="Mean time elapsed between completing this step and starting the next one."
             >
                 {humanFriendlyDuration(averageTime, 2)}
             </ValueInspectorButton>
