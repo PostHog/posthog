@@ -16,7 +16,8 @@ timestamp,
 {steps}
 {select_prop}
 FROM 
-({event_query})
+({event_query}) events
+{extra_join}
 WHERE ({steps_condition})
 {extra_conditions}
 """

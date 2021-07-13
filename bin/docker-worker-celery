@@ -64,6 +64,7 @@ if [ "$with_scheduler" == "true" ]; then
 fi
 
 FLAGS=()
+FLAGS+=("-Ofair")
 [ "$with_gossip" == "false" ]    && FLAGS+=("--without-gossip")
 [ "$with_mingle" == "false" ]    && FLAGS+=("--without-mingle")
 [ "$with_heartbeat" == "false" ] && FLAGS+=("--without-heartbeat")

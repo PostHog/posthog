@@ -604,6 +604,13 @@ class TestSelectors(BaseTest):
         self.assertEqual(selector1.parts[1].direct_descendant, True)
         self.assertEqual(selector1.parts[1].unique_order, 0)
 
+    def test_selector_attribute_with_spaces(self):
+        selector1 = Selector('  [data-id="foo bar]"]  ')
+
+        self.assertEqual(selector1.parts[0].data, {"attributes__attr__data-id": "foo bar]"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+
     def test_selector_with_spaces(self):
         selector1 = Selector("span    ")
 
