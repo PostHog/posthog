@@ -13,43 +13,16 @@ import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
 import { FunnelBarLayout } from 'lib/constants'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
-import { getChartColors } from 'lib/colors'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip'
 
-import { calcPercentage, getReferenceStep } from './funnelUtils'
-
-function humanizeOrder(order: number): number {
-    return order + 1
-}
-
-function getSeriesColor(index?: number): string | undefined {
-    if (typeof index === 'number' && index >= 0) {
-        return getChartColors('white')[index]
-    }
-    return
-}
-
-function getBreakdownMaxIndex(breakdown?: FunnelStep[]): number | undefined {
-    // Returns the index of the last nonzero breakdown item
-    if (!breakdown) {
-        return
-    }
-    const nonZeroCounts = breakdown.map(({ count }, index) => ({ count, index })).filter(({ count }) => !!count)
-    if (!nonZeroCounts.length) {
-        return
-    }
-    return nonZeroCounts[nonZeroCounts.length - 1].index
-}
-
-function getSeriesPositionName(index?: number, breakdownMaxIndex?: number): 'first' | 'last' | 'only' | undefined {
-    if (!breakdownMaxIndex) {
-        return 'only'
-    }
-    if (typeof index === 'number') {
-        return index === 0 ? 'first' : index === breakdownMaxIndex ? 'last' : undefined
-    }
-    return
-}
+import {
+    calcPercentage,
+    getReferenceStep,
+    humanizeOrder,
+    getSeriesColor,
+    getBreakdownMaxIndex,
+    getSeriesPositionName,
+} from './funnelUtils'
 
 interface FunnelBarGraphProps {
     layout?: FunnelBarLayout
