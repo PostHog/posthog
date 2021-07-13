@@ -9,6 +9,7 @@ services:
             POSTGRES_PASSWORD: posthog
         ports:
             - '5439:5432'
+            - '5432:5432'
     redis:
         image: 'redis:alpine'
         ports:
