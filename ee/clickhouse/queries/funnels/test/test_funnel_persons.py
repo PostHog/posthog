@@ -227,7 +227,6 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual([val[0] for val in results], [person2.uuid, person1.uuid])
 
     def test_funnel_cohort_breakdown_persons(self):
-        # This caused some issues with SQL parsing
         person = _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
         _create_event(
             team=self.team, event="sign up", distinct_id=f"person1", properties={}, timestamp="2020-01-02T12:00:00Z",
