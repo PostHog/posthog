@@ -23,7 +23,7 @@ from posthog.models.filters.mixins.utils import cached_property, include_dict
 class FunnelFromToStepsMixin(BaseParamMixin):
     @cached_property
     def funnel_from_step(self) -> Optional[int]:
-        if self._data.get(FUNNEL_FROM_STEP):
+        if self._data.get(FUNNEL_FROM_STEP) is not None:
             return int(self._data[FUNNEL_FROM_STEP])
         return None
 

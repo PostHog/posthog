@@ -91,6 +91,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown and not self._filter.breakdown_type:
             data.update({"breakdown_type": "event"})
 
+        for exclusion in self._filter.exclusions:
+            if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
+                raise ValidationError("Exclusion event needs to define funnel steps")
+
         self._filter = self._filter.with_data(data)
 
         query = self.get_query()
@@ -113,6 +117,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
+                for exclusion in self._filter.exclusions:
+                    if exclusion.funnel_from_step + 1 == i:
+                        cols.append(f"exclusion_latest_{exclusion.funnel_from_step}")
             else:
                 duplicate_event = 0
                 if i > 0 and self._filter.entities[i].equals(self._filter.entities[i - 1]):
@@ -129,13 +136,23 @@ class ClickhouseFunnelBase(ABC, Funnel):
                         )
         return ", ".join(cols)
 
-    def _get_comparison_at_step(self, index: int, level_index: int):
-        or_statements: List[str] = []
+    def _get_exclusion_condition(self):
+        if not self._filter.exclusions:
+            return ""
 
-        for i in range(level_index, index + 1):
-            or_statements.append(f"latest_{i} < latest_{level_index - 1}")
+        conditions = []
+        for exclusion in self._filter.exclusions:
+            from_time = f"latest_{exclusion.funnel_from_step}"
+            to_time = f"latest_{exclusion.funnel_to_step}"
+            exclusion_time = f"exclusion_latest_{exclusion.funnel_from_step}"
+            condition = f"if( {exclusion_time} > {from_time} AND {exclusion_time} < {to_time}, 1, 0)"
+            # TODO: check clipping for early drop offs? or discard them?
+            conditions.append(condition)
 
-        return " OR ".join(or_statements)
+        if conditions:
+            return f", arraySum([{','.join(conditions)}]) as exclusion"
+        else:
+            return ""
 
     def _get_sorting_condition(self, curr_index: int, max_steps: int):
 
@@ -213,19 +230,19 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _get_step_col(self, entity: Entity, index: int, entity_name: str, step_prefix: str = "") -> List[str]:
         step_cols: List[str] = []
-        condition = self._build_step_query(entity, index, entity_name)
+        condition = self._build_step_query(entity, index, entity_name, step_prefix)
         step_cols.append(f"if({condition}, 1, 0) as {step_prefix}step_{index}")
         step_cols.append(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
 
         return step_cols
 
-    def _build_step_query(self, entity: Entity, index: int, entity_name: str) -> str:
+    def _build_step_query(self, entity: Entity, index: int, entity_name: str, step_prefix: str) -> str:
         filters = self._build_filters(entity, index)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = entity.get_action()
             for action_step in action.steps.all():
                 self.params[entity_name].append(action_step.event)
-            action_query, action_params = format_action_filter(action, "{}_step_{}".format(entity_name, index))
+            action_query, action_params = format_action_filter(action, f"{entity_name}_{step_prefix}step_{index}")
             if action_query == "":
                 return ""
 
@@ -233,7 +250,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
             self.params[entity_name].append(entity.id)
-            event_param_key = f"{entity_name}_event_{index}"
+            event_param_key = f"{entity_name}_{step_prefix}event_{index}"
             self.params[event_param_key] = entity.id
             content_sql = f"event = %({event_param_key})s {filters}"
         return content_sql
