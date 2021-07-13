@@ -1,5 +1,4 @@
 import { kea } from 'kea'
-import { DisplayMode } from './TaxonomicPropertyFilter'
 import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
@@ -17,8 +16,9 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     actions: () => ({
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: string) => ({ activeTab }),
-        setDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         selectItem: (type: string, id: string | number, name: string) => ({ type, id, name }),
+        openDropdown: true,
+        closeDropdown: true,
     }),
 
     reducers: ({ selectors }) => ({
@@ -37,16 +37,11 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 setActiveTab: (_, { activeTab }) => activeTab,
             },
         ],
-        displayMode: [
-            // this works because:
-            // 1. you can use selectors for defaults
-            // 2. the filter selector asks for data that's stored outside this logic
-            (state: any) => {
-                const { key, type } = selectors.filter(state) || {}
-                return key && type !== 'cohort' ? DisplayMode.OPERATOR_VALUE_SELECT : DisplayMode.PROPERTY_SELECT
-            },
+        dropdownOpen: [
+            false,
             {
-                setDisplayMode: (_, { displayMode }) => displayMode,
+                openDropdown: () => true,
+                closeDropdown: () => false,
             },
         ],
     }),
@@ -75,8 +70,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     operator,
                     type
                 )
-                actions.setDisplayMode(DisplayMode.OPERATOR_VALUE_SELECT)
             }
+            actions.closeDropdown()
         },
     }),
 })

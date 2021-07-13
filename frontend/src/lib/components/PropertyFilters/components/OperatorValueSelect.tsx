@@ -68,7 +68,8 @@ export function OperatorValueSelect({
                         onSet={(newValue: string | number | string[] | null) => {
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
-                        autoFocus={!isMobile()}
+                        // open automatically only if new filter
+                        autoFocus={!isMobile() && value === null}
                     />
                 </Col>
             )}

@@ -3,7 +3,7 @@ Contains the property filter component w/ properties and cohorts separated in ta
 */
 import './TaxonomicPropertyFilter.scss'
 import React, { useMemo } from 'react'
-import { Button, Input } from 'antd'
+import { Button, Card, Dropdown, Input } from 'antd'
 import { useValues, useActions, BindLogic } from 'kea'
 import { PropertyFilterInternalProps } from '../PropertyFilter'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
@@ -13,11 +13,6 @@ import { SelectDownIcon } from 'lib/components/SelectDownIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
-
-export enum DisplayMode {
-    PROPERTY_SELECT = 'property_select',
-    OPERATOR_VALUE_SELECT = 'operator_value_select',
-}
 
 let uniqueMemoizedIndex = 0
 
@@ -31,31 +26,45 @@ export function TaxonomicPropertyFilter({
     const { setFilter } = useActions(propertyFilterLogic)
 
     const logic = taxonomicPropertyFilterLogic({ pageKey, filterIndex: index })
-    const { searchQuery, displayMode, filter } = useValues(logic)
-    const { setSearchQuery, setDisplayMode } = useActions(logic)
+    const { searchQuery, filter, dropdownOpen } = useValues(logic)
+    const { setSearchQuery, openDropdown, closeDropdown } = useActions(logic)
 
     return (
         <div className="taxonomic-property-filter">
             <BindLogic logic={taxonomicPropertyFilterLogic} props={{ pageKey, filterIndex: index }}>
-                {displayMode === DisplayMode.PROPERTY_SELECT && (
-                    <>
-                        <Input
-                            autoFocus
-                            placeholder="Search event or person properties"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                        />
-                        <InfiniteSelectResults pageKey={pageKey} filterIndex={index} />
-                    </>
-                )}
-                {displayMode === DisplayMode.OPERATOR_VALUE_SELECT && (
-                    <div className="taxonomic-filter-row">
-                        <Button onClick={() => setDisplayMode(DisplayMode.PROPERTY_SELECT)}>
-                            <div style={{ display: 'flex' }}>
-                                <PropertyKeyInfo value={filter?.key || ''} style={{ display: 'inline' }} />
-                                <SelectDownIcon />
-                            </div>
-                        </Button>
+                <div className="taxonomic-filter-row">
+                    <div>
+                        <Dropdown
+                            overlay={
+                                <Card className="taxonomic-filter-dropdown">
+                                    <Input
+                                        autoFocus
+                                        placeholder="Search event or person properties"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                    />
+                                    {dropdownOpen ? (
+                                        <InfiniteSelectResults pageKey={pageKey} filterIndex={index} />
+                                    ) : null}
+                                </Card>
+                            }
+                            visible={dropdownOpen}
+                            trigger={['click']}
+                            onVisibleChange={(visible) => {
+                                if (!visible) {
+                                    closeDropdown()
+                                }
+                            }}
+                        >
+                            <Button onClick={() => openDropdown()}>
+                                <div style={{ display: 'flex' }}>
+                                    <PropertyKeyInfo value={filter?.key || ''} style={{ display: 'inline' }} />
+                                    <SelectDownIcon />
+                                </div>
+                            </Button>
+                        </Dropdown>
+                    </div>
+                    {filter?.type && filter?.key && (
                         <OperatorValueSelect
                             type={filter?.type}
                             propkey={filter?.key}
@@ -82,8 +91,8 @@ export function TaxonomicPropertyFilter({
                                 },
                             }}
                         />
-                    </div>
-                )}
+                    )}
+                </div>
             </BindLogic>
         </div>
     )

@@ -1,4 +1,10 @@
-.taxonomic-property-filter {
+.taxonomic-filter-dropdown {
+    background: white;
+    padding: 10px;
+}
+
+.taxonomic-property-filter,
+.taxonomic-filter-dropdown {
     min-width: max(25rem, 40vw);
 
     .ant-list-item {
