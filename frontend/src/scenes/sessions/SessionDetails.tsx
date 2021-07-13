@@ -19,7 +19,7 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
 
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(50)
-    const events = session.events || filteredSessionEvents[session.global_session_id]
+    const events = filteredSessionEvents[session.global_session_id]
     const matchingEventIds = useMemo(() => new Set(session.matching_events || []), [session.matching_events])
 
     useEffect(() => {

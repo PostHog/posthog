@@ -11,16 +11,19 @@ import { router } from 'kea-router'
 import { IllustrationDanger } from 'lib/components/icons'
 import { InputNumber } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { ChartParams, FunnelStep } from '~/types'
+import { ChartDisplayType, ChartParams, FunnelStep } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FunnelHistogram } from './FunnelHistogram'
 
 interface FunnelVizProps extends Omit<ChartParams, 'view'> {
     steps: FunnelStep[]
+    timeConversionBins: number[]
 }
 
 export function FunnelViz({
     steps: stepsParam,
     filters: defaultFilters,
+    timeConversionBins,
     dashboardItemId,
     cachedResults,
     inSharedMode,
@@ -144,6 +147,9 @@ export function FunnelViz({
                 />
             </>
         ) : null
+    }
+    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && filters.display == ChartDisplayType.FunnelsTimeToConvert) {
+        return timeConversionBins && timeConversionBins.length > 0 ? <FunnelHistogram /> : null
     }
 
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {

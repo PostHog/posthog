@@ -384,16 +384,14 @@ export interface EventFormattedType {
 
 export interface SessionType {
     distinct_id: string
-    event_count: number
-    events?: EventType[]
     global_session_id: string
     length: number
     start_time: string
     end_time: string
     session_recordings: SessionTypeSessionRecording[]
-    start_url?: string
-    end_url?: string
-    email?: string
+    start_url: string | null
+    end_url: string | null
+    email?: string | null
     matching_events: Array<number | string>
 }
 
@@ -558,6 +556,7 @@ export enum ChartDisplayType {
     ActionsBarChartValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
+    FunnelsTimeToConvert = 'FunnelsTimeToConvert',
 }
 
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
@@ -605,6 +604,8 @@ export interface FilterType {
     filter_test_accounts?: boolean
     from_dashboard?: boolean
     funnel_step?: number
+    funnel_viz_type?: string // this and the below param is used for funnels time to convert, it'll be updated soon
+    funnel_to_step?: number
 }
 
 export interface SystemStatusSubrows {
@@ -702,6 +703,12 @@ export interface FunnelResult {
 
 export interface FunnelResultWithBreakdown extends Omit<FunnelResult, 'result'> {
     result: FunnelStep[][]
+}
+export interface FunnelsTimeConversionResult {
+    result: number[]
+    last_refresh: string | null
+    is_cached: boolean
+    type: 'Funnel'
 }
 
 export interface ChartParams {

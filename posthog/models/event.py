@@ -2,7 +2,7 @@ import copy
 import datetime
 import re
 from collections import defaultdict
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db import connection, models, transaction
@@ -87,7 +87,7 @@ class Selector(object):
         self.parts = []
         # Sometimes people manually add *, just remove them as they don't do anything
         selector = selector.replace("> * > ", "").replace("> *", "").strip()
-        tags = selector.split(" ")
+        tags = list(self._split(selector))
         tags.reverse()
         # Detecting selector parts
         for index, tag in enumerate(tags):
@@ -97,6 +97,30 @@ class Selector(object):
             part = SelectorPart(tag, direct_descendant, escape_slashes)
             part.unique_order = len([p for p in self.parts if p.data == part.data])
             self.parts.append(copy.deepcopy(part))
+
+    def _split(self, selector):
+        in_attribute_selector = False
+        in_quotes: Optional[str] = None
+        part: List[str] = []
+        for char in selector:
+            if char == "[" and in_quotes is None:
+                in_attribute_selector = True
+            if char == "]" and in_quotes is None:
+                in_attribute_selector = False
+            if char in "\"'":
+                if in_quotes is not None:
+                    if in_quotes == char:
+                        in_quotes = None
+                else:
+                    in_quotes = char
+
+            if char == " " and not in_attribute_selector:
+                yield "".join(part)
+                part = []
+            else:
+                part.append(char)
+
+        yield "".join(part)
 
 
 class EventManager(models.QuerySet):

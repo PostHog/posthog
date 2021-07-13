@@ -64,7 +64,7 @@ export const MATCHING_EVENT_ICON_SIZE = 26
 export function SessionsView({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
     const {
-        filteredSessions,
+        sessions,
         sessionsLoading,
         pagination,
         isLoadingNext,
@@ -141,8 +141,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         {
             title: 'Start Point',
             render: function RenderStartPoint(session: SessionType) {
-                const url = session.start_url || (session.events && session.events[0].properties?.$current_url)
-                return <span>{url ? stripHTTP(url) : 'N/A'}</span>
+                return <span>{session.start_url ? stripHTTP(session.start_url) : 'N/A'}</span>
             },
             ellipsis: true,
             span: 4,
@@ -150,10 +149,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         {
             title: 'End Point',
             render: function RenderEndPoint(session: SessionType) {
-                const url =
-                    session.end_url ||
-                    (session.events && session.events[session.events.length - 1].properties?.$current_url)
-                return <span>{url ? stripHTTP(url) : 'N/A'}</span>
+                return <span>{session.end_url ? stripHTTP(session.end_url) : 'N/A'}</span>
             },
             ellipsis: true,
             span: 4,
@@ -239,8 +235,6 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                                 id="show-only-matches"
                                 onChange={setShowOnlyMatches}
                                 checked={showOnlyMatches}
-                                //size="small"
-                                disabled={filteredSessions.length === 0}
                             />
                             <label className="ml-025" htmlFor="show-only-matches">
                                 <b>Show only event matches</b>
@@ -276,7 +270,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 rowKey="global_session_id"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 rowClassName="cursor-pointer"
-                dataSource={filteredSessions}
+                dataSource={sessions}
                 columns={columns}
                 loading={sessionsLoading}
                 expandable={{

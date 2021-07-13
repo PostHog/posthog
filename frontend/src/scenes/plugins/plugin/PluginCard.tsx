@@ -211,10 +211,16 @@ export function PluginCard({
                                             </Tooltip>
                                         </Space>
                                     ) : null}
-                                    <Tooltip title="Logs">
+                                    <Tooltip
+                                        title={
+                                            pluginConfig?.id
+                                                ? 'Logs'
+                                                : 'Logs – enable the plugin for the first time to view them'
+                                        }
+                                    >
                                         <Button
                                             className="padding-under-500"
-                                            disabled={rearranging}
+                                            disabled={rearranging || !pluginConfig?.id}
                                             onClick={() => showPluginLogs(pluginId)}
                                             data-attr="plugin-logs"
                                         >
