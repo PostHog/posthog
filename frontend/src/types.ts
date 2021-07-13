@@ -755,6 +755,7 @@ export interface PreflightStatus {
     redis: boolean
     db: boolean
     initiated: boolean
+    can_create_org: boolean
     cloud: boolean
     celery: boolean
     ee_available?: boolean
