@@ -58,7 +58,11 @@ export function TaxonomicPropertyFilter({
                         >
                             <Button onClick={() => openDropdown()}>
                                 <div style={{ display: 'flex' }}>
-                                    <PropertyKeyInfo value={filter?.key || ''} style={{ display: 'inline' }} />
+                                    {filter?.key ? (
+                                        <PropertyKeyInfo value={filter?.key || ''} style={{ display: 'inline' }} />
+                                    ) : (
+                                        <span>Add filter</span>
+                                    )}
                                     <SelectDownIcon />
                                 </div>
                             </Button>
