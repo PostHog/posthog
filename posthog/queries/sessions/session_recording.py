@@ -102,7 +102,7 @@ def query_sessions_in_range(
 
 
 # :TRICKY: This mutates sessions list
-def filter_sessions_by_recordings(
+def join_with_session_recordings(
     team: Team, sessions_results: List[Any], filter: SessionsFilter, query: Callable = query_sessions_in_range
 ) -> List[Any]:
     if len(sessions_results) == 0:
