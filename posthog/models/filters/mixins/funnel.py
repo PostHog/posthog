@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional
+from typing import Optional, Union
 
 from posthog.constants import (
     BIN_COUNT,
@@ -87,7 +87,7 @@ class FunnelPersonsStepMixin(BaseParamMixin):
 
 class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
     @cached_property
-    def funnel_step_breakdown(self) -> Optional[str]:
+    def funnel_step_breakdown(self) -> Optional[Union[str, int]]:
         return self._data.get(FUNNEL_STEP_BREAKDOWN)
 
     @include_dict
