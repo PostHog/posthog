@@ -354,16 +354,14 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         },
         openPersonsModal: ({ step, stepNumber }) => {
             personsModalLogic.actions.setShowingPeople(true)
-            personsModalLogic.actions.loadPeople(
-                { id: step.action_id, name: step.name, properties: [], type: step.type },
-                `Persons who completed Step #${stepNumber} - "${step.name}"`,
-                '',
-                '',
-                '',
-                true,
-                '',
-                stepNumber
-            )
+            personsModalLogic.actions.loadPeople({
+                action: { id: step.action_id, name: step.name, properties: [], type: step.type },
+                label: `Persons who completed Step #${stepNumber} - "${step.name}"`,
+                date_from: '',
+                date_to: '',
+                saveOriginal: true,
+                funnelStep: stepNumber,
+            })
         },
         changeHistogramStep: () => {
             actions.loadResults()

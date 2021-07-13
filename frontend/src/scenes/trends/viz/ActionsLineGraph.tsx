@@ -46,14 +46,14 @@ export function ActionsLineGraph({
                         ? null
                         : (point) => {
                               const { dataset, day } = point
-                              loadPeople(
-                                  dataset.action || 'session',
-                                  dataset.label,
-                                  day,
-                                  day,
-                                  dataset.breakdown_value || dataset.status,
-                                  true
-                              )
+                              loadPeople({
+                                  action: dataset.action || 'session',
+                                  label: dataset.label,
+                                  date_from: day,
+                                  date_to: day,
+                                  breakdown_value: dataset.breakdown_value || dataset.status,
+                                  saveOriginal: true,
+                              })
                           }
                 }
             />
