@@ -39,7 +39,7 @@ export function InfiniteList({
                 <PropertyKeyInfo value={item.name} />
             </AntDesignList.Item>
         ) : (
-            <AntDesignList.Item style={style} data-attr={`prop-filter-${type}-${index}`}>
+            <AntDesignList.Item key={`__skeleton_${index}`} style={style} data-attr={`prop-filter-${type}-${index}`}>
                 <Skeleton active title={false} paragraph={{ rows: 1 }} />
             </AntDesignList.Item>
         )
