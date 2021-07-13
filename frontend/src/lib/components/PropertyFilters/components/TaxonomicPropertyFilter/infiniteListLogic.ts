@@ -8,6 +8,7 @@ import { TaxonomicPropertyFilterListLogicProps } from 'lib/components/PropertyFi
 import { groups } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/groups'
 import { taxonomicPropertyFilterLogic } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/taxonomicPropertyFilterLogic'
 import { EventDefinition } from '~/types'
+import Fuse from 'fuse.js'
 
 interface ListStorage {
     results: EventDefinition[]
@@ -135,13 +136,25 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOp
             ],
             (rawLocalItems: EventDefinition[]) => rawLocalItems,
         ],
+        fuse: [
+            (s) => [s.rawLocalItems],
+            (rawLocalItems) =>
+                new Fuse(rawLocalItems || [], {
+                    keys: ['name'],
+                    threshold: 0.3,
+                }),
+        ],
         localItems: [
-            (s) => [s.rawLocalItems, s.group, s.searchQuery],
-            (rawLocalItems, group, searchQuery): ListStorage => {
+            (s) => [s.rawLocalItems, s.group, s.searchQuery, s.fuse],
+            (rawLocalItems, group, searchQuery, fuse: Fuse<EventDefinition>): ListStorage => {
                 if (rawLocalItems) {
+                    const filteredItems = searchQuery
+                        ? fuse.search(searchQuery).map((result) => (group?.map ? group.map(result.item) : result.item))
+                        : rawLocalItems
+
                     return {
-                        results: group?.map ? rawLocalItems.map(group.map) : rawLocalItems,
-                        count: rawLocalItems.length,
+                        results: filteredItems,
+                        count: filteredItems.length,
                         searchQuery,
                     }
                 }
