@@ -120,7 +120,6 @@ describe('e2e postgres ingestion', () => {
         await delayUntilEventIngested(async () =>
             (await getLogsSinceStart()).filter(({ message }) => message.includes('amogus'))
         )
-
         const pluginLogEntries = await getLogsSinceStart()
         expect(
             pluginLogEntries.filter(({ message, type }) => message.includes('amogus') && type === 'INFO').length

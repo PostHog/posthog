@@ -9,6 +9,7 @@ import { delay } from '../../src/utils/utils'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
+import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/celery/client')
 jest.mock('../../src/main/job-queues/job-queue-manager')
@@ -598,8 +599,6 @@ test('meta.cache lpush/lrange/llen', async () => {
 })
 
 test('console.log', async () => {
-    jest.spyOn(hub.db, 'createPluginLogEntry')
-
     const indexJs = `
         async function processEvent (event, meta) {
             console.log(event.event)
@@ -607,7 +606,7 @@ test('console.log', async () => {
         }
     `
     await resetTestDatabase(indexJs)
-    const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const vm = await createPluginConfigVM(hub, { ...pluginConfig39, plugin: plugin60 }, indexJs)
     const event: PluginEvent = {
         ...defaultEvent,
         event: 'logged event',
@@ -615,12 +614,23 @@ test('console.log', async () => {
 
     await vm.methods.processEvent!(event)
 
-    expect(hub.db.createPluginLogEntry).toHaveBeenCalledWith(
-        pluginConfig39,
-        'CONSOLE',
-        'LOG',
-        'logged event',
-        expect.anything()
+    await hub.db.postgresLogsWrapper.flushLogs()
+    const entries = await hub.db.fetchPluginLogEntries()
+
+    expect(entries).toEqual(
+        expect.arrayContaining([
+            expect.objectContaining({
+                id: expect.anything(),
+                instance_id: expect.anything(),
+                message: 'logged event',
+                plugin_config_id: 39,
+                plugin_id: 60,
+                source: 'CONSOLE',
+                team_id: 2,
+                timestamp: expect.anything(),
+                type: 'LOG',
+            }),
+        ])
     )
 })
 

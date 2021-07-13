@@ -8,6 +8,7 @@ import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { plugin60 } from '../helpers/plugins'
 import { disablePlugin } from '../helpers/sqlMock'
+import { PostgresLogsWrapper } from './../../src/utils/db/postgres-logs-wrapper'
 import { plugin70 } from './../helpers/plugins'
 
 jest.mock('../../src/worker/vm/vm')
@@ -24,11 +25,18 @@ const mockConfig = {
 
 describe('LazyPluginVM', () => {
     const createVM = () => new LazyPluginVM()
-    const mockServer: any = {
-        db: {
-            createPluginLogEntry: jest.fn(),
-        },
+    const baseDb = {
+        queuePluginLogEntry: jest.fn(),
+        batchInsertPostgresLogs: jest.fn(),
     }
+    const postgresLogsWrapper = new PostgresLogsWrapper(baseDb as any)
+
+    const db = {
+        ...baseDb,
+        postgresLogsWrapper,
+    }
+
+    const mockServer: any = { db }
     const initializeVm = (vm: LazyPluginVM) => vm.initialize!(mockServer, mockConfig as any, '', 'some plugin')
 
     const mockVM = {
@@ -65,12 +73,14 @@ describe('LazyPluginVM', () => {
 
             expect(status.info).toHaveBeenCalledWith('🔌', 'Loaded some plugin')
             expect(clearError).toHaveBeenCalledWith(mockServer, mockConfig)
-            expect(mockServer.db.createPluginLogEntry).toHaveBeenCalledWith(
-                mockConfig,
-                PluginLogEntrySource.System,
-                PluginLogEntryType.Info,
-                expect.stringContaining('Plugin loaded'),
-                undefined
+            expect(mockServer.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    instanceId: undefined,
+                    message: expect.stringContaining('Plugin loaded'),
+                    pluginConfig: expect.anything(),
+                    source: PluginLogEntrySource.System,
+                    type: PluginLogEntryType.Info,
+                })
             )
         })
     })
