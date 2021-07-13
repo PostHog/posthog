@@ -52,8 +52,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             () =>
                 groups
                     .filter(({ logic }) => !!logic)
-                    .map(({ logic, value }) => (state) =>
-                        logic && value ? logic({}).selectors[value](state) || [] : []
+                    .map(({ logic, value }) => (state, props) =>
+                        logic && value ? logic(props).selectors[value](state) || [] : []
                     ) as [Selector, Selector], // mocking the type
             (args: Record<string, any>[][]) => {
                 return Object.fromEntries(

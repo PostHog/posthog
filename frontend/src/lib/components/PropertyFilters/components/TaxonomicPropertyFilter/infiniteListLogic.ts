@@ -31,6 +31,8 @@ function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     return arrayCopy
 }
 
+const createEmptyListStorage = (searchQuery = ''): ListStorage => ({ results: [], searchQuery, count: 0 })
+
 export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOptions>>({
     props: {} as TaxonomicPropertyFilterListLogicProps,
 
@@ -58,7 +60,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOp
 
     loaders: ({ values }) => ({
         endpointItems: [
-            { results: [], searchQuery: '', count: 0 } as ListStorage,
+            createEmptyListStorage(),
             {
                 loadItems: async ({ offset, limit }, breakpoint) => {
                     await breakpoint(150)
@@ -66,7 +68,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOp
                     const { remoteEndpoint, searchQuery } = values
 
                     if (!remoteEndpoint) {
-                        return { results: [], searchQuery, count: 0 }
+                        return createEmptyListStorage(searchQuery)
                     }
                     const response: EventDefinitionStorage = await api.get(
                         combineUrl(
@@ -121,21 +123,36 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOp
         group: [() => [(_, props) => props.type], (type) => groups.find((g) => g.type === type)],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
-        items: [
-            (s) => [
-                s.isRemoteDataSource,
-                s.endpointItems,
-                (state, { type }) => {
-                    const group = groups.find((g) => g.type === type)
+        rawLocalItems: [
+            () => [
+                (state, props) => {
+                    const group = groups.find((g) => g.type === props.type)
                     if (group?.logic && group?.value) {
                         return group.logic.selectors[group.value]?.(state) || null
                     }
                     return null
                 },
             ],
+            (rawLocalItems: EventDefinition[]) => rawLocalItems,
+        ],
+        localItems: [
+            (s) => [s.rawLocalItems, s.group, s.searchQuery],
+            (rawLocalItems, group, searchQuery): ListStorage => {
+                if (rawLocalItems) {
+                    return {
+                        results: group?.map ? rawLocalItems.map(group.map) : rawLocalItems,
+                        count: rawLocalItems.length,
+                        searchQuery,
+                    }
+                }
+                return createEmptyListStorage()
+            },
+        ],
+        items: [
+            (s) => [s.isRemoteDataSource, s.endpointItems, s.localItems],
             (isRemoteDataSource, endpointItems, localItems) => (isRemoteDataSource ? endpointItems : localItems),
         ],
-        totalCount: [(s) => [s.items], (items) => items.count],
+        totalCount: [(s) => [s.items], (items) => items.count || 0],
         results: [(s) => [s.items], (items) => items.results],
     },
 
