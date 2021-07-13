@@ -16,9 +16,8 @@ interface ListStorage {
 }
 
 interface LoaderOptions {
-    offset?: number
-    limit?: number
-    newSearchQuery?: string
+    offset: number
+    limit: number
 }
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
@@ -38,7 +37,8 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOp
     key: (props) => `${props.pageKey}-${props.filterIndex}-${props.type}`,
 
     connect: (props: TaxonomicPropertyFilterListLogicProps) => ({
-        values: [taxonomicPropertyFilterLogic(props as any), ['searchQuery']], // TODO: fix
+        values: [taxonomicPropertyFilterLogic(props), ['searchQuery']],
+        actions: [taxonomicPropertyFilterLogic(props), ['setSearchQuery']],
     }),
 
     actions: {
@@ -57,19 +57,22 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOp
     }),
 
     loaders: ({ values }) => ({
-        items: [
+        endpointItems: [
             { results: [], searchQuery: '', count: 0 } as ListStorage,
             {
-                loadItems: async ({ offset = 0, limit = values.limit }, breakpoint) => {
+                loadItems: async ({ offset, limit }, breakpoint) => {
                     await breakpoint(150)
 
-                    if (!values.remoteEndpoint) {
-                        return { results: [], seachQuery: values.searchQuery, count: 0 }
+                    const { remoteEndpoint, searchQuery } = values
+
+                    if (!remoteEndpoint) {
+                        return { results: [], searchQuery, count: 0 }
                     }
                     const response: EventDefinitionStorage = await api.get(
                         combineUrl(
-                            values.remoteEndpoint,
+                            remoteEndpoint,
                             {
+                                search: searchQuery,
                                 limit,
                                 offset,
                             },
@@ -94,22 +97,53 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOp
 
     listeners: ({ values, actions }) => ({
         onRowsRendered: ({ rowInfo: { startIndex, overscanStopIndex } }) => {
-            if ((values.isRemoteDataSource && !values.results[startIndex]) || !values.results[overscanStopIndex]) {
-                // Render the next chunk
-                actions.loadItems({ offset: startIndex, limit: values.limit })
+            if (values.isRemoteDataSource) {
+                let mustLoad = false
+                for (let i = startIndex; i < overscanStopIndex; i++) {
+                    if (!values.results[i]) {
+                        mustLoad = true
+                    }
+                }
+                if (mustLoad) {
+                    actions.loadItems({ offset: startIndex, limit: values.limit })
+                }
+            }
+        },
+        setSearchQuery: () => {
+            if (values.isRemoteDataSource) {
+                console.log('setting search query')
+                actions.loadItems({ offset: 0, limit: values.limit })
             }
         },
     }),
 
     selectors: {
         group: [() => [(_, props) => props.type], (type) => groups.find((g) => g.type === type)],
-        remoteEndpoint: [(s) => [s.group], ({ endpoint }) => endpoint],
+        remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
+        items: [
+            (s) => [
+                s.isRemoteDataSource,
+                s.endpointItems,
+                (state, { type }) => {
+                    const group = groups.find((g) => g.type === type)
+                    if (group?.logic && group?.value) {
+                        return group.logic.selectors[group.value]?.(state) || null
+                    }
+                    return null
+                },
+            ],
+            (isRemoteDataSource, endpointItems, localItems) => (isRemoteDataSource ? endpointItems : localItems),
+        ],
         totalCount: [(s) => [s.items], (items) => items.count],
         results: [(s) => [s.items], (items) => items.results],
     },
 
-    events: ({ actions }) => ({
-        afterMount: () => actions.loadItems({}),
+    events: ({ actions, values }) => ({
+        afterMount: () => {
+            if (values.isRemoteDataSource) {
+                actions.loadItems({ offset: 0, limit: values.limit })
+            }
+        },
     }),
 })

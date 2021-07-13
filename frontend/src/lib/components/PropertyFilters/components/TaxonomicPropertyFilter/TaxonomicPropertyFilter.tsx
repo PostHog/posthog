@@ -25,13 +25,13 @@ export function TaxonomicPropertyFilter({ pageKey: pageKeyInput, index }: Proper
     const { filters } = useValues(propertyFilterLogic)
     const { setFilter } = useActions(propertyFilterLogic)
 
-    const logic = taxonomicPropertyFilterLogic({ pageKey, index })
+    const logic = taxonomicPropertyFilterLogic({ pageKey, filterIndex: index })
     const { searchQuery, displayMode } = useValues(logic)
     const { setSearchQuery, setSelectedItemKey } = useActions(logic)
 
     return (
         <div style={{ minWidth: 'max(25rem, 40vw)' }}>
-            <BindLogic logic={taxonomicPropertyFilterLogic} props={{ pageKey, index }}>
+            <BindLogic logic={taxonomicPropertyFilterLogic} props={{ pageKey, filterIndex: index }}>
                 {displayMode === DisplayMode.PROPERTY_SELECT && (
                     <>
                         <Input
