@@ -74,9 +74,9 @@ export function Insights(): JSX.Element {
     } = useValues(insightLogic)
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
-    const trendsLogicLoaded = trendsLogic({ dashboardItemId: null, view: activeView, filters: allFilters })
-    const { showingPeople } = useValues(trendsLogicLoaded)
-    const { refreshCohort, saveCohortWithFilters } = useActions(trendsLogicLoaded)
+    const trendsLogicLoaded = trendsLogic({ dashboardItemId: null, view: activeView, filters: allFilters }) // eslint-disable-line
+    const { showingPeople } = useValues(personsModalLogic)
+    const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const { stepsWithCount, histogramStep } = useValues(funnelLogic())

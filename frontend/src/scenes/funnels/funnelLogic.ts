@@ -20,9 +20,9 @@ import {
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelBarLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
@@ -353,8 +353,8 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             actions.loadResults()
         },
         openPersonsModal: ({ step, stepNumber }) => {
-            trendsLogic().actions.setShowingPeople(true)
-            trendsLogic().actions.loadPeople(
+            personsModalLogic.actions.setShowingPeople(true)
+            personsModalLogic.actions.loadPeople(
                 { id: step.action_id, name: step.name, properties: [], type: step.type },
                 `Persons who completed Step #${stepNumber} - "${step.name}"`,
                 '',

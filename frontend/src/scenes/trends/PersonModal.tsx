@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
-import { TrendPeople, parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
+import { TrendPeople, parsePeopleParams } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input, Row, Col } from 'antd'
 import { deepLinkToPersonSessions } from 'scenes/persons/PersonsTable'
@@ -38,15 +38,14 @@ interface Props {
 }
 
 export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element {
-    const { people, filters, loadingMorePeople, firstLoadedPeople } = useValues(
-        trendsLogic({ dashboardItemId: null, view })
-    )
-    const { setPersonsModalFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
-    const { setShowingPeople, loadMorePeople, setFirstLoadedPeople } = useActions(
-        trendsLogic({ dashboardItemId: null, view })
-    )
-    const { searchTerm } = useValues(personsModalLogic)
-    const { setSearchTerm } = useActions(personsModalLogic)
+    const { people, filters, loadingMorePeople, firstLoadedPeople, searchTerm } = useValues(personsModalLogic)
+    const {
+        setShowingPeople,
+        loadMorePeople,
+        setFirstLoadedPeople,
+        setPersonsModalFilters,
+        setSearchTerm,
+    } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const title =
         filters.shown_as === 'Stickiness'
