@@ -1,22 +1,26 @@
-.ant-list-item {
-    padding: 4px 12px;
-    cursor: pointer;
-    border: none;
+.taxonomic-property-filter {
+    min-width: max(25rem, 40vw);
 
-    &:hover,
-    &.selected {
-        background: rgba(0, 0, 0, 0.1);
+    .ant-list-item {
+        padding: 4px 12px;
+        cursor: pointer;
+        border: none;
+
+        &:hover,
+        &.selected {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        &.selected {
+            font-weight: bold;
+        }
     }
 
-    &.selected {
-        font-weight: bold;
-    }
-}
+    .taxonomic-filter-row {
+        display: flex;
 
-.taxonomic-filter-row {
-    display: flex;
-
-    & > div {
-        margin-left: 0.5rem;
+        & > div {
+            margin-left: 0.5rem;
+        }
     }
 }

@@ -4,7 +4,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { LogicWrapper } from 'kea'
 
 export type PropertyFilterGroup = {
-    key: string
     name: string
     type: string
     endpoint?: string
@@ -15,13 +14,11 @@ export type PropertyFilterGroup = {
 
 export const groups: PropertyFilterGroup[] = [
     {
-        key: 'events',
         name: 'Event properties',
         type: 'event',
         endpoint: 'api/projects/@current/property_definitions',
     },
     {
-        key: 'persons',
         name: 'Person properties',
         type: 'person',
         logic: personPropertiesModel,
@@ -32,7 +29,6 @@ export const groups: PropertyFilterGroup[] = [
         }),
     },
     {
-        key: 'cohorts',
         name: 'Cohorts',
         type: 'cohort',
         logic: cohortsModel,

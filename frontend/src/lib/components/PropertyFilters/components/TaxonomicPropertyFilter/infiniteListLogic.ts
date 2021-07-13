@@ -49,7 +49,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
     actions: {
         setLimit: (limit: number) => ({ limit }),
         onRowsRendered: (rowInfo: RenderedRows) => ({ rowInfo }),
-        loadItems: (options: LoaderOptions) => options,
+        loadRemoteItems: (options: LoaderOptions) => options,
     },
 
     reducers: () => ({
@@ -62,27 +62,25 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
     }),
 
     loaders: ({ values }) => ({
-        endpointItems: [
+        remoteItems: [
             createEmptyListStorage(),
             {
-                loadItems: async ({ offset, limit }, breakpoint) => {
+                loadRemoteItems: async ({ offset, limit }, breakpoint) => {
                     await breakpoint(150)
 
                     const { remoteEndpoint, searchQuery } = values
 
                     if (!remoteEndpoint) {
+                        // should not have been here in the first place!
                         return createEmptyListStorage(searchQuery)
                     }
+
                     const response: EventDefinitionStorage = await api.get(
-                        combineUrl(
-                            remoteEndpoint,
-                            {
-                                search: searchQuery,
-                                limit,
-                                offset,
-                            },
-                            ''
-                        ).url
+                        combineUrl(remoteEndpoint, {
+                            search: searchQuery,
+                            limit,
+                            offset,
+                        }).url
                     )
                     breakpoint()
 
@@ -101,23 +99,23 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
     }),
 
     listeners: ({ values, actions }) => ({
-        onRowsRendered: ({ rowInfo: { startIndex, overscanStopIndex } }) => {
+        onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
             if (values.isRemoteDataSource) {
-                let mustLoad = false
-                for (let i = startIndex; i < overscanStopIndex; i++) {
+                let loadFrom: number | null = null
+                for (let i = startIndex; i < (stopIndex + overscanStopIndex) / 2; i++) {
                     if (!values.results[i]) {
-                        mustLoad = true
+                        loadFrom = i
+                        break
                     }
                 }
-                if (mustLoad) {
-                    actions.loadItems({ offset: startIndex, limit: values.limit })
+                if (loadFrom !== null) {
+                    actions.loadRemoteItems({ offset: loadFrom || startIndex, limit: values.limit })
                 }
             }
         },
         setSearchQuery: () => {
             if (values.isRemoteDataSource) {
-                console.log('setting search query')
-                actions.loadItems({ offset: 0, limit: values.limit })
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
             }
         },
     }),
@@ -164,8 +162,8 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
             },
         ],
         items: [
-            (s) => [s.isRemoteDataSource, s.endpointItems, s.localItems],
-            (isRemoteDataSource, endpointItems, localItems) => (isRemoteDataSource ? endpointItems : localItems),
+            (s) => [s.isRemoteDataSource, s.remoteItems, s.localItems],
+            (isRemoteDataSource, remoteItems, localItems) => (isRemoteDataSource ? remoteItems : localItems),
         ],
         totalCount: [(s) => [s.items], (items) => items.count || 0],
         results: [(s) => [s.items], (items) => items.results],
@@ -174,7 +172,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
     events: ({ actions, values }) => ({
         afterMount: () => {
             if (values.isRemoteDataSource) {
-                actions.loadItems({ offset: 0, limit: values.limit })
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
             }
         },
     }),

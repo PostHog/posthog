@@ -15,8 +15,8 @@ import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/O
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 
 export enum DisplayMode {
-    PROPERTY_SELECT,
-    OPERATOR_VALUE_SELECT,
+    PROPERTY_SELECT = 'property_select',
+    OPERATOR_VALUE_SELECT = 'operator_value_select',
 }
 
 let uniqueMemoizedIndex = 0
@@ -35,7 +35,7 @@ export function TaxonomicPropertyFilter({
     const { setSearchQuery, setDisplayMode } = useActions(logic)
 
     return (
-        <div style={{ minWidth: 'max(25rem, 40vw)' }}>
+        <div className="taxonomic-property-filter">
             <BindLogic logic={taxonomicPropertyFilterLogic} props={{ pageKey, filterIndex: index }}>
                 {displayMode === DisplayMode.PROPERTY_SELECT && (
                     <>
@@ -68,7 +68,8 @@ export function TaxonomicPropertyFilter({
                                 if (
                                     newOperator &&
                                     newValue &&
-                                    !(isOperatorMulti(newOperator) || isOperatorRegex(newOperator))
+                                    !isOperatorMulti(newOperator) &&
+                                    !isOperatorRegex(newOperator)
                                 ) {
                                     onComplete()
                                 }

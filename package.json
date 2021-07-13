@@ -67,7 +67,7 @@
         "kea": "^2.4.5",
         "kea-loaders": "^0.4.0",
         "kea-localstorage": "^1.1.1",
-        "kea-router": "^1.0.0",
+        "kea-router": "^1.0.2",
         "kea-window-values": "^0.0.1",
         "md5": "^2.3.0",
         "posthog-js": "1.11.4",

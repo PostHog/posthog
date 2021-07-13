@@ -63,14 +63,16 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             if (type === 'cohort') {
                 propertyFilterLogic(props).actions.setFilter(props.filterIndex, 'id', id, null, type)
             } else {
-                const { operator } = values.filter || {}
-                const newOperator = name === '$active_feature_flags' ? PropertyOperator.IContains : operator
+                const operator =
+                    name === '$active_feature_flags'
+                        ? PropertyOperator.IContains
+                        : values.filter?.operator || PropertyOperator.Exact
 
                 propertyFilterLogic(props).actions.setFilter(
                     props.filterIndex,
                     name,
                     null, // Reset value field
-                    newOperator || PropertyOperator.Exact,
+                    operator,
                     type
                 )
                 actions.setDisplayMode(DisplayMode.OPERATOR_VALUE_SELECT)

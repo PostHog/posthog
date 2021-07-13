@@ -17,9 +17,9 @@ export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps):
     const { filter } = useValues(filterLogic)
     const { selectItem } = useActions(filterLogic)
 
-    const logic = infiniteListLogic({ pageKey, filterIndex, type })
-    const { results, totalCount } = useValues(logic)
-    const { onRowsRendered } = useActions(logic)
+    const listLogic = infiniteListLogic({ pageKey, filterIndex, type })
+    const { results, totalCount } = useValues(listLogic)
+    const { onRowsRendered } = useActions(listLogic)
 
     const renderItem: ListRowRenderer = ({ index, style }: ListRowProps): JSX.Element | null => {
         const item = results[index]
@@ -28,6 +28,8 @@ export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps):
             item &&
             filter &&
             filter.type === type &&
+            // TODO: this special case for cohorts is implemented in a few different places,
+            //       and should be consolidated
             (filter.type === 'cohort' ? filter?.value === item.id : filter?.key === item.name)
 
         return item ? (
@@ -50,7 +52,7 @@ export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps):
     return (
         <div style={{ minHeight: '200px' }}>
             <AutoSizer>
-                {({ height, width }: { height: number; width: number }) => (
+                {({ height, width }) => (
                     <List
                         width={width}
                         height={height}
