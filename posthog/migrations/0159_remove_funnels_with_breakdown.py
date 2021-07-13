@@ -4,10 +4,11 @@ from django.db import migrations, models
 
 import posthog.models.dashboard_item
 
-# Some funnels accidentally had breakdown values which broke displaying them
+# Some funnels accidentally had breakdown values which broke displaying them in the old funnel values
+# Resetting these as from this migration forward we'll have funnels that _do_ support breakdowns
 
 
-def create_short_ids(apps, schema_editor):
+def remove_breakdowns(apps, schema_editor):
     DashboardItem = apps.get_model("posthog", "DashboardItem")
     for obj in DashboardItem.objects.filter(filters__insight="FUNNELS", filters__breakdown__isnull=False):
         if obj.filters.get("breakdown"):
@@ -23,5 +24,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(create_short_ids, migrations.RunPython.noop),
+        migrations.RunPython(remove_breakdowns, migrations.RunPython.noop),
     ]
