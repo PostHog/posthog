@@ -1,5 +1,5 @@
 from ee.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
-from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.tasks.delete_old_plugin_logs import TTL_WEEKS
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, kafka_engine, table_engine, ttl_period
@@ -58,9 +58,9 @@ message,
 instance_id,
 _timestamp,
 _offset
-FROM kafka_{table_name}
+FROM {database}.kafka_{table_name}
 """.format(
-    table_name=PLUGIN_LOG_ENTRIES_TABLE, cluster=CLICKHOUSE_CLUSTER,
+    table_name=PLUGIN_LOG_ENTRIES_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
 )
 
 

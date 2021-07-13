@@ -1,5 +1,5 @@
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
-from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine, ttl_period
 
@@ -54,9 +54,9 @@ snapshot_data,
 created_at,
 _timestamp,
 _offset
-FROM kafka_{table_name}
+FROM {database}.kafka_{table_name}
 """.format(
-    table_name=SESSION_RECORDING_EVENTS_TABLE, cluster=CLICKHOUSE_CLUSTER,
+    table_name=SESSION_RECORDING_EVENTS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
 )
 
 
