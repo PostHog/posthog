@@ -72,7 +72,7 @@ jobs:
               with:
                   fetch-depth: 1
             - name: Start stack with Docker Compose
-              run: docker-compose -f ee/docker-compose.ch.yml up -d
+              run: docker-compose -f ee/docker-compose.ch.yml up db clickhouse -d
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
@@ -119,48 +119,28 @@ jobs:
     cloud:
         name: Django tests – Cloud
         runs-on: ubuntu-latest
-
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: postgres
-                ports: ['5432:5432']
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-            clickhouse-server:
-                image: yandex/clickhouse-server
-                ports:
-                    - '8123:8123'
-                    - '9000:9000'
-                    - '9440:9440'
-                    - '9009:9009'
-
         steps:
             - name: Fetch posthog-cloud
               run: |
                   curl -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
                   mkdir deploy/
-
             - name: Checkout master
               uses: actions/checkout@v2
               with:
                   ref: 'master'
                   path: 'deploy/'
-
+            - name: Start stack with Docker Compose
+              run: docker-compose -f ee/docker-compose.ch.yml up db clickhouse -d
             - name: Link posthog-cloud at master
               run: |
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
                   cat multi_tenancy_settings.py >> deploy/posthog/settings.py
                   cat requirements.txt >> deploy/requirements.txt
-
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
                   python-version: 3.8
-
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
             - uses: syphar/restore-pip-download-cache@v1
