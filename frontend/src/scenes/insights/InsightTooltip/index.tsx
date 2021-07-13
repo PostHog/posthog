@@ -35,7 +35,7 @@ export function InsightTooltip({
                     {referenceDate && interval ? <DateDisplay interval={interval} date={referenceDate} /> : altTitle}
                 </header>
             )}
-            {bodyLines?.length && (
+            {bodyLines?.length > 0 && (
                 <ul>
                     {bodyLines.map((line, index) => (
                         <li key={line.id ?? index}>{line.component}</li>
