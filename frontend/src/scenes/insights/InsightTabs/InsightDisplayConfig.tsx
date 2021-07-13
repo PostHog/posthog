@@ -117,10 +117,10 @@ export function InsightDisplayConfig({
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
 
-                {showFunnelBarOptions && allFilters.display !== FUNNELS_TIME_TO_CONVERT && (
+                {showFunnelBarOptions && (
                     <>
                         <FunnelDisplayLayoutPicker />
-                        <FunnelStepReferencePicker />
+                        {allFilters.display !== FUNNELS_TIME_TO_CONVERT && <FunnelStepReferencePicker />}
                     </>
                 )}
 

@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
-import { autocorrectInterval, humanFriendlyDuration, objectsEqual, uuid } from 'lib/utils'
+import { autocorrectInterval, objectsEqual, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -18,7 +18,7 @@ import {
     PersonType,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS, FunnelBarLayout } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
@@ -94,9 +94,10 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         setConversionWindowInDays: (days: number) => ({ days }),
         openPersonsModal: (step: FunnelStep, stepNumber: number) => ({ step, stepNumber }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
-        setBarGraphLayout: (barGraphLayout: FunnelBarLayout) => ({ barGraphLayout }),
+        setBarGraphLayout: (barGraphLayout: FunnelLayout) => ({ barGraphLayout }),
         setTimeConversionBins: (timeConversionBins: number[]) => ({ timeConversionBins }),
         changeHistogramStep: (histogramStep: number) => ({ histogramStep }),
+        setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
     }),
 
     connect: {
@@ -224,7 +225,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             },
         ],
         barGraphLayout: [
-            FunnelBarLayout.vertical as FunnelBarLayout,
+            FunnelLayout.vertical as FunnelLayout,
             {
                 setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
             },
@@ -239,6 +240,12 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             1,
             {
                 changeHistogramStep: (_, { histogramStep }) => histogramStep,
+            },
+        ],
+        isGroupingOutliers: [
+            true,
+            {
+                setIsGroupingOutliers: (_, { isGroupingOutliers }) => isGroupingOutliers,
             },
         ],
     }),
@@ -287,11 +294,24 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                 featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL] && preflight?.is_clickhouse_enabled,
         ],
         histogramGraphData: [
-            () => [selectors.timeConversionBins],
-            (timeConversionBins) => {
-                const time = timeConversionBins.map((bin: number[]) => humanFriendlyDuration(`${bin[0]}`))
-                const personsAmount = timeConversionBins.map((bin: number[]) => bin[1])
-                return { time, personsAmount }
+            () => [selectors.timeConversionBins, selectors.isGroupingOutliers],
+            (timeConversionBins, isGroupingOutliers) => {
+                if (timeConversionBins.length < 2) {
+                    return []
+                }
+                console.log('grouping outliers', isGroupingOutliers)
+                const binSize = timeConversionBins[1][0] - timeConversionBins[0][0]
+                // const time = timeConversionBins.map((bin: number[]) => humanFriendlyDuration(`${bin[0]}`))
+                // const personsAmount = timeConversionBins.map((bin: number[]) => bin[1])
+                return timeConversionBins.map(([id, count]: [id: number, count: number]) => {
+                    const value = Math.max(0, id)
+                    return {
+                        id: value,
+                        bin0: value,
+                        bin1: value + binSize,
+                        count,
+                    }
+                })
             },
         ],
         histogramStepsDropdown: [

@@ -432,26 +432,13 @@ export function Insights(): JSX.Element {
 }
 
 function FunnelInsight(): JSX.Element {
-    const {
-        stepsWithCount,
-        isValidFunnel,
-        stepsWithCountLoading,
-        filters: { display },
-        timeConversionBins,
-    } = useValues(funnelLogic({}))
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { stepsWithCount, isValidFunnel, stepsWithCountLoading, timeConversionBins } = useValues(funnelLogic({}))
     const { autoCalculate } = useValues(funnelLogic())
-    const fluidHeight = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display === FUNNEL_VIZ
-    const funnelHistogram = display === FUNNELS_TIME_TO_CONVERT
+    // const fluidHeight = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display === FUNNEL_VIZ
+    // const funnelHistogram = display === FUNNELS_TIME_TO_CONVERT
 
     return (
-        <div
-            style={
-                fluidHeight
-                    ? {}
-                    : { height: 300, position: 'relative', marginBottom: `${funnelHistogram ? '32px' : 0}` }
-            }
-        >
+        <div>
             {stepsWithCountLoading && <Loading />}
             {isValidFunnel ? (
                 <FunnelViz steps={stepsWithCount} timeConversionBins={timeConversionBins} />

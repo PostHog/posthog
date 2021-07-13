@@ -3,27 +3,27 @@ import { Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelPlotOutlined, BarChartOutlined } from '@ant-design/icons'
-import { FunnelBarLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 
 export function FunnelDisplayLayoutPicker(): JSX.Element {
     const { barGraphLayout } = useValues(funnelLogic)
     const { setBarGraphLayout } = useActions(funnelLogic)
     const options = [
         {
-            value: FunnelBarLayout.vertical,
+            value: FunnelLayout.vertical,
             icon: <BarChartOutlined />,
             label: 'Left to right',
         },
         {
-            value: FunnelBarLayout.horizontal,
+            value: FunnelLayout.horizontal,
             icon: <FunnelPlotOutlined />,
             label: 'Top to bottom',
         },
     ]
     return (
         <Select
-            defaultValue={FunnelBarLayout.vertical}
-            value={barGraphLayout || FunnelBarLayout.vertical}
+            defaultValue={FunnelLayout.vertical}
+            value={barGraphLayout || FunnelLayout.vertical}
             onChange={setBarGraphLayout}
             bordered={false}
             dropdownMatchSelectWidth={false}

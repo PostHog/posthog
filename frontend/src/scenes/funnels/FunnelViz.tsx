@@ -148,6 +148,7 @@ export function FunnelViz({
             </>
         ) : null
     }
+    console.log('time conversion bins', timeConversionBins)
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && filters.display == ChartDisplayType.FunnelsTimeToConvert) {
         return timeConversionBins && timeConversionBins.length > 0 ? <FunnelHistogram /> : null
     }

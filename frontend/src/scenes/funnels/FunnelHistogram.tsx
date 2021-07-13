@@ -1,17 +1,21 @@
+import React from 'react'
 import { Col, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
-import React from 'react'
-import { LineGraph } from 'scenes/insights/LineGraph'
 import { calcPercentage, getReferenceStep } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
+import { Histogram } from 'scenes/insights/Histogram'
 
 export function FunnelHistogram(): JSX.Element {
-    const { stepsWithCount, stepReference, histogramGraphData, histogramStepsDropdown } = useValues(funnelLogic)
+    const { stepsWithCount, stepReference, histogramGraphData, histogramStepsDropdown, barGraphLayout } = useValues(
+        funnelLogic
+    )
     const { changeHistogramStep } = useActions(funnelLogic)
-    const dataset = [
-        { data: histogramGraphData.personsAmount, labels: histogramGraphData.time, label: 'Time to convert' },
-    ]
+    // const dataset = [
+    //     { data: histogramGraphData.personsAmount, labels: histogramGraphData.time, label: 'Time to convert' },
+    // ]
+    //
+    console.log('datasets', histogramGraphData)
 
     return (
         <>
@@ -52,14 +56,37 @@ export function FunnelHistogram(): JSX.Element {
                     </Select>
                 )}
             </div>
-            <LineGraph
-                data-attr="funnels-histogram"
-                type="bar"
-                color={'white'}
-                datasets={dataset}
-                labels={histogramGraphData.time}
-                dashboardItemId={null}
-            />
+            <Histogram data={histogramGraphData} layout={barGraphLayout} />
+            {/*<LineGraph*/}
+            {/*    data-attr="funnels-histogram"*/}
+            {/*    type="histogram"*/}
+            {/*    color={'white'}*/}
+            {/*    datasets={dataset}*/}
+            {/*    labels={histogramGraphData.time}*/}
+            {/*    dashboardItemId={null}*/}
+            {/*/>*/}
+            {/*<ResponsiveHistogram*/}
+            {/*    ariaLabel="My histogram of ..."*/}
+            {/*    orientation="vertical"*/}
+            {/*    // normalized={true}*/}
+            {/*    binCount={histogramGraphData.length}*/}
+            {/*    binType="numeric"*/}
+            {/*    renderTooltip={({datum, color}) => (*/}
+            {/*        <div>*/}
+            {/*            <strong style={{color}}>{datum.bin0} to {datum.bin1}</strong>*/}
+            {/*            <div><strong>count </strong>{datum.count}</div>*/}
+            {/*            <div><strong>cumulative </strong>{datum.cumulative}</div>*/}
+            {/*            <div><strong>density </strong>{datum.density}</div>*/}
+            {/*        </div>*/}
+            {/*    )}*/}
+            {/*>*/}
+            {/*    <BarSeries*/}
+            {/*        animated*/}
+            {/*        binnedData={histogramGraphData}*/}
+            {/*    />*/}
+            {/*    <XAxis/>*/}
+            {/*    <YAxis/>*/}
+            {/*</ResponsiveHistogram>*/}
         </>
     )
 }
