@@ -536,6 +536,31 @@ def get_instance_realm() -> str:
         return "hosted"
 
 
+def get_can_create_org() -> bool:
+    """
+    Returns whether a new organization can be created in the current instance.
+    """
+    from posthog.models.organization import Organization
+
+    if settings.MULTI_TENANCY or not Organization.objects.exists():
+        # Can always create organizations in PostHog Cloud and when no organization exists
+        return True
+
+    if settings.MULTI_ORG_ENABLED:
+        try:
+            from ee.models.license import License
+        except ImportError:
+            pass
+        else:
+            license = License.objects.first_valid()
+            if license is not None and "organizations_projects" in license.available_features:
+                return True
+            else:
+                print_warning(["You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!"])
+
+    return False
+
+
 def get_available_social_auth_providers() -> Dict[str, bool]:
     github: bool = bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET)
     gitlab: bool = bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET)

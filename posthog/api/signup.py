@@ -14,7 +14,7 @@ from posthog.demo import create_demo_team
 from posthog.event_usage import report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationInvite
-from posthog.permissions import UninitiatedOrCloudOnly
+from posthog.permissions import CanCreateOrg
 from posthog.tasks import user_identify
 from posthog.utils import mask_email_address
 
@@ -112,12 +112,12 @@ class SocialSignupSerializer(serializers.Serializer):
 class SignupViewset(generics.CreateAPIView):
     serializer_class = SignupSerializer
     # Enables E2E testing of signup flow
-    permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (UninitiatedOrCloudOnly,)
+    permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (CanCreateOrg,)
 
 
 class SocialSignupViewset(generics.CreateAPIView):
     serializer_class = SocialSignupSerializer
-    permission_classes = (UninitiatedOrCloudOnly,)
+    permission_classes = (CanCreateOrg,)
 
 
 class InviteSignupSerializer(serializers.Serializer):

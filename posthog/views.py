@@ -18,6 +18,7 @@ from posthog.models import User
 from posthog.utils import (
     get_available_social_auth_providers,
     get_available_timezones_with_offsets,
+    get_can_create_org,
     get_celery_heartbeat,
     get_instance_realm,
     is_celery_alive,
@@ -90,6 +91,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "cloud": settings.MULTI_TENANCY,
         "realm": get_instance_realm(),
         "available_social_auth_providers": get_available_social_auth_providers(),
+        "can_create_org": get_can_create_org(),
     }
 
     if request.user.is_authenticated:

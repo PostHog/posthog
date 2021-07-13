@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 import pytz
 from django.core import mail
+from django.utils import timezone
 from rest_framework import status
 
 from posthog.models import Dashboard, Organization, Team, User
@@ -15,7 +16,10 @@ from posthog.utils import get_instance_realm
 
 
 class TestSignupAPI(APIBaseTest):
-    CONFIG_EMAIL = None
+    @classmethod
+    def setUpTestData(cls):
+        # Do not set up any test data
+        pass
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
@@ -83,7 +87,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertTrue(user.check_password("notsecure"))
 
     @pytest.mark.skip_on_multitenancy
-    def test_signup_disallowed_on_initiated_self_hosted(self):
+    def test_signup_disallowed_on_self_hosted_by_default(self):
         with self.settings(MULTI_TENANCY=False):
             response = self.client.post(
                 "/api/signup/", {"first_name": "Jane", "email": "hedgehog2@posthog.com", "password": "notsecure"},
@@ -98,10 +102,30 @@ class TestSignupAPI(APIBaseTest):
                 {
                     "attr": None,
                     "code": "permission_denied",
-                    "detail": "This endpoint is unavailable on initiated self-hosted instances of PostHog.",
+                    "detail": "New organizations cannot be created in this instance. Contact your administrator if you"
+                    " think this is a mistake.",
                     "type": "authentication_error",
                 },
             )
+
+    @pytest.mark.ee
+    def test_signup_allowed_on_self_hosted_with_env_var(self):
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+
+        Organization.objects.create(name="name")
+        User.objects.create(first_name="name", email="email@posthog.com")
+        count = Organization.objects.count()
+        with self.settings(MULTI_TENANCY=False, MULTI_ORG_ENABLED=True):
+            response = self.client.post(
+                "/api/signup/", {"first_name": "Jane", "email": "hedgehog4@posthog.com", "password": "notsecure"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["email"], "hedgehog4@posthog.com")
+        self.assertEqual(Organization.objects.count(), count + 1)
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
@@ -284,7 +308,7 @@ class TestInviteSignup(APIBaseTest):
             },
         )
 
-    def test_api_invite_sign_up_with_first_nameprevalidate(self):
+    def test_api_invite_sign_up_with_first_name_prevalidate(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+58@posthog.com", organization=self.organization, first_name="Jane"
         )
@@ -698,6 +722,7 @@ class TestInviteSignup(APIBaseTest):
     # Social signup (use invite)
 
     def test_api_social_invite_sign_up(self):
+        Organization.objects.all().delete()  # Can only create organizations in fresh instances
 
         # simulate SSO process started
         session = self.client.session
@@ -715,6 +740,7 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(self.client.session.get_expiry_age(), 3600)
 
     def test_cannot_use_social_invite_sign_up_if_social_session_is_not_active(self):
+        Organization.objects.all().delete()  # Can only create organizations in fresh instances
 
         response = self.client.post("/api/social_signup", {"organization_name": "Tech R Us", "email_opt_in": False})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -730,6 +756,7 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(len(self.client.session.keys()), 0)  # Nothing is saved in the session
 
     def test_cannot_use_social_invite_sign_up_without_required_attributes(self):
+        Organization.objects.all().delete()  # Can only create organizations in fresh instances
 
         response = self.client.post("/api/social_signup", {"email_opt_in": False})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

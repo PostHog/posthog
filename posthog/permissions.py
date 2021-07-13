@@ -7,6 +7,7 @@ from rest_framework.request import Request
 
 from posthog.models import Organization, OrganizationMembership
 from posthog.models.user import User
+from posthog.utils import get_can_create_org
 
 CREATE_METHODS = ["POST", "PUT"]
 
@@ -45,13 +46,13 @@ def get_organization_from_view(view) -> Organization:
     raise ValueError("View not compatible with organization-based permissions!")
 
 
-class UninitiatedOrCloudOnly(BasePermission):
-    """Only enable endpoint on uninitiated instances or on PostHog Cloud."""
+class CanCreateOrg(BasePermission):
+    """Whether new organizations can be created in this instances."""
 
-    message = "This endpoint is unavailable on initiated self-hosted instances of PostHog."
+    message = "New organizations cannot be created in this instance. Contact your administrator if you think this is a mistake."
 
-    def has_permission(self, request: Request, view) -> bool:
-        return settings.MULTI_TENANCY or not User.objects.exists()
+    def has_permission(self, *args, **kwargs) -> bool:
+        return get_can_create_org()
 
 
 class SingleTenancyOrAdmin(BasePermission):
