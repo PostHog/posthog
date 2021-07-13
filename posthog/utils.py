@@ -546,6 +546,9 @@ def get_can_create_org() -> bool:
         # Can always create organizations in PostHog Cloud and when no organization exists
         return True
 
+    if settings.E2E_TESTING:  # Enables E2E testing of signup flow
+        return True
+
     if settings.MULTI_ORG_ENABLED:
         try:
             from ee.models.license import License

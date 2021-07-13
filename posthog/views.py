@@ -87,7 +87,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "plugins": is_plugin_server_alive() or settings.TEST,
         "celery": is_celery_alive() or settings.TEST,
         "db": is_postgres_alive(),
-        "initiated": User.objects.exists() if not settings.E2E_TESTING else False,  # Enables E2E testing of signup flow
+        "initiated": User.objects.exists(),
         "cloud": settings.MULTI_TENANCY,
         "realm": get_instance_realm(),
         "available_social_auth_providers": get_available_social_auth_providers(),
