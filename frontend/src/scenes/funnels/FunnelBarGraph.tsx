@@ -287,6 +287,9 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
         <div className={`funnel-bar-graph ${layout}`}>
             {steps.map((step, i) => {
                 const basisStep = getReferenceStep(steps, stepReference, i)
+                const previousStep = getReferenceStep(steps, FunnelStepReference.previous, i)
+                const previousCount = previousStep?.count ?? 0
+                const dropoffCount = previousCount - step.count
                 const showLineBefore = layout === FunnelBarLayout.horizontal && i > 0
                 const showLineAfter = layout === FunnelBarLayout.vertical || i < steps.length - 1
                 const breakdownMaxIndex = getBreakdownMaxIndex(step.breakdown)
@@ -321,10 +324,9 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                             {step.breakdown?.length ? (
                                 step.breakdown.map((breakdown, index) => {
                                     const conversionRate = calcPercentage(breakdown.count, basisStep.count)
-                                    const previousStep = getReferenceStep(steps, FunnelStepReference.previous, i)
-                                    const previousCount = previousStep?.breakdown?.[index]?.count ?? 0
-                                    const dropoffCount = previousCount - breakdown.count
-                                    const conversionRateFromPrevious = calcPercentage(breakdown.count, previousCount)
+                                    const _previousCount = previousStep?.breakdown?.[index]?.count ?? 0
+                                    const _dropoffCount = _previousCount - breakdown.count
+                                    const conversionRateFromPrevious = calcPercentage(breakdown.count, _previousCount)
                                     const dropoffRateFromPrevious = 100 - conversionRateFromPrevious
                                     return (
                                         <Bar
@@ -372,14 +374,14 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                                                       2
                                                                   )}%`}
                                                               />,
-                                                              dropoffCount > 0 && (
+                                                              _dropoffCount > 0 && (
                                                                   <MetricRow
                                                                       key={2}
                                                                       title="Dropped off"
-                                                                      value={dropoffCount}
+                                                                      value={_dropoffCount}
                                                                   />
                                                               ),
-                                                              dropoffCount > 0 && (
+                                                              _dropoffCount > 0 && (
                                                                   <MetricRow
                                                                       key={3}
                                                                       title={`Dropoff rate (from step ${humanizeOrder(
@@ -413,6 +415,56 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                     name={step.name}
                                     onBarClick={() => openPersonsModal(step, i + 1)}
                                     layout={layout}
+                                    popoverTitle={<PropertyKeyInfo value={step.name} />}
+                                    popoverBody={
+                                        [
+                                            <MetricRow key={0} title="Completed step" value={step.count} />,
+                                            <MetricRow
+                                                key={1}
+                                                title="Conversion rate (total)"
+                                                value={`${humanizeNumber(
+                                                    calcPercentage(step.count, basisStep.count),
+                                                    2
+                                                )}%`}
+                                            />,
+                                            ...(step.order !== 0
+                                                ? [
+                                                      <MetricRow
+                                                          key={1}
+                                                          title={`Conversion rate (from step ${humanizeOrder(
+                                                              previousStep.order
+                                                          )})`}
+                                                          value={`${humanizeNumber(
+                                                              calcPercentage(step.count, previousStep.count),
+                                                              2
+                                                          )}%`}
+                                                      />,
+                                                      dropoffCount > 0 && (
+                                                          <MetricRow key={2} title="Dropped off" value={dropoffCount} />
+                                                      ),
+                                                      dropoffCount > 0 && (
+                                                          <MetricRow
+                                                              key={3}
+                                                              title={`Dropoff rate (from step ${humanizeOrder(
+                                                                  previousStep.order
+                                                              )})`}
+                                                              value={`${humanizeNumber(
+                                                                  100 - calcPercentage(step.count, previousStep.count),
+                                                                  2
+                                                              )}%`}
+                                                          />
+                                                      ),
+                                                  ]
+                                                : []),
+                                            step.average_conversion_time && (
+                                                <MetricRow
+                                                    key={4}
+                                                    title="Average time on step"
+                                                    value={humanFriendlyDuration(step.average_conversion_time)}
+                                                />
+                                            ),
+                                        ].filter(Boolean) as JSX.Element[]
+                                    }
                                 />
                             )}
                         </div>
