@@ -55,7 +55,7 @@ jobs:
 
             - name: Typecheck
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5439/posthog'
               run: |
                   mypy .
 
