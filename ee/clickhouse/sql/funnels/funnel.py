@@ -18,7 +18,8 @@ timestamp,
 {select_prop}
 FROM (
     {event_query}
-)
+) events
+{extra_join}
 WHERE (
     {steps_condition}
 )
