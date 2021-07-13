@@ -125,6 +125,40 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             self._get_people_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
         )
 
+    def test_advanced_funnel(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "$pageview", "type": "events", "order": 1},
+                {"id": "insight viewed", "type": "events", "order": 2},
+                {"id": "invite teammate", "type": "events", "order": 3},
+                {"id": "pageview2", "type": "events", "order": 4},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 2},],
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+        _create_event(team=self.team, event="user signed up", distinct_id="person1")
+        _create_event(team=self.team, event="$pageview", distinct_id="person1")
+        _create_event(team=self.team, event="x", distinct_id="person1")
+        _create_event(team=self.team, event="insight viewed", distinct_id="person1")
+        _create_event(team=self.team, event="invite teammate", distinct_id="person1")
+        _create_event(team=self.team, event="pageview2", distinct_id="person1")
+
+        with self.settings(SHELL_PLUS_PRINT_SQL=True):
+            result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 1)
+        self.assertEqual(len(result[0]["people"]), 1)
+
+        self.assertEqual(result[4]["count"], 1)
+        self.assertEqual(len(result[4]["people"]), 1)
+
     def test_advanced_funnel_with_repeat_steps(self):
         filters = {
             "events": [

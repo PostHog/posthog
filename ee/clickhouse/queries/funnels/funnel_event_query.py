@@ -55,4 +55,10 @@ class FunnelEventQuery(ClickhouseEventQuery):
             else:
                 events.append(entity.id)
 
+        # for entity in self._filter.exclusions:
+        #     if entity.type == TREND_FILTER_TYPE_ACTIONS:
+        #         action = entity.get_action()
+        #         for action_step in action.steps.all():
+        #             events.append(action_step.event)
+
         return f"AND event IN %({entity_name})s", {entity_name: events}

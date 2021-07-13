@@ -13,12 +13,9 @@ from ee.clickhouse.queries.breakdown_props import (
     get_breakdown_person_prop_values,
 )
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
-from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 from posthog.constants import FUNNEL_WINDOW_DAYS, TREND_FILTER_TYPE_ACTIONS
-from posthog.models import Action, Entity, Filter, Team
-from posthog.models.filters.mixins.funnel import FunnelWindowDaysMixin
+from posthog.models import Entity, Filter, Team
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
 
@@ -123,6 +120,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 cols.append(
                     f"min(latest_{i}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
+                for exclusion in self._filter.exclusions:
+                    # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
+                    # TODO: duplicate fixup?
+                    if exclusion.funnel_from_step + 1 == i:
+                        cols.append(
+                            f"min(exclusion_latest_{exclusion.funnel_from_step}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_latest_{exclusion.funnel_from_step}"
+                        )
         return ", ".join(cols)
 
     def _get_comparison_at_step(self, index: int, level_index: int):
@@ -159,11 +163,17 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if skip_step_filter:
             steps_conditions = "1=1"
         else:
-            steps_conditions = self._get_steps_conditions(length=len(self._filter.entities))
+            steps_conditions = self._get_steps_conditions(length=len(entities_to_use))
 
         all_step_cols: List[str] = []
         for index, entity in enumerate(entities_to_use):
             step_cols = self._get_step_col(entity, index, entity_name)
+            all_step_cols.extend(step_cols)
+
+        for entity in self._filter.exclusions:
+            step_cols = self._get_step_col(entity, entity.funnel_from_step, entity_name, "exclusion_")
+            # every exclusion entity has the form: exclusion_step_i & timestamp exclusion_latest_i
+            # where i is the starting step for exclusion on that entity
             all_step_cols.extend(step_cols)
 
         steps = ", ".join(all_step_cols)
@@ -196,13 +206,16 @@ class ClickhouseFunnelBase(ABC, Funnel):
         for index in range(length):
             step_conditions.append(f"step_{index} = 1")
 
+        for entity in self._filter.exclusions:
+            step_conditions.append(f"exclusion_step_{entity.funnel_from_step} = 1")
+
         return " OR ".join(step_conditions)
 
-    def _get_step_col(self, entity: Entity, index: int, entity_name: str) -> List[str]:
+    def _get_step_col(self, entity: Entity, index: int, entity_name: str, step_prefix: str = "") -> List[str]:
         step_cols: List[str] = []
         condition = self._build_step_query(entity, index, entity_name)
-        step_cols.append(f"if({condition}, 1, 0) as step_{index}")
-        step_cols.append(f"if(step_{index} = 1, timestamp, null) as latest_{index}")
+        step_cols.append(f"if({condition}, 1, 0) as {step_prefix}step_{index}")
+        step_cols.append(f"if({step_prefix}step_{index} = 1, timestamp, null) as {step_prefix}latest_{index}")
 
         return step_cols
 

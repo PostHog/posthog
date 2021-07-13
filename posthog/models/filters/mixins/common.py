@@ -31,7 +31,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
-from posthog.models.entity import Entity
+from posthog.models.entity import Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse, str_to_bool
@@ -296,13 +296,13 @@ class EntitiesMixin(BaseParamMixin):
         return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_EVENTS]
 
     @cached_property
-    def exclusions(self) -> List[Entity]:
-        _exclusions: List[Entity] = []
+    def exclusions(self) -> List[ExclusionEntity]:
+        _exclusions: List[ExclusionEntity] = []
         if self._data.get(EXCLUSIONS):
             exclusion_list = self._data.get(EXCLUSIONS, [])
             if isinstance(exclusion_list, str):
-                exclusions = json.loads(exclusion_list)
-            _exclusions.extend([Entity({**entity}) for entity in exclusions])
+                exclusion_list = json.loads(exclusion_list)
+            _exclusions.extend([ExclusionEntity({**entity}) for entity in exclusion_list])
         return _exclusions
 
     @include_dict
