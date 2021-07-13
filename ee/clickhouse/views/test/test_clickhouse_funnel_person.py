@@ -6,7 +6,7 @@ from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import INSIGHT_FUNNELS, TRENDS_FUNNEL
+from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
