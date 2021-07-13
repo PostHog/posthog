@@ -21,8 +21,6 @@ class FunnelEventQuery(ClickhouseEventQuery):
                         for prop in settings.CLICKHOUSE_DENORMALIZED_PROPERTIES
                     ]
                 )
-                if settings.CLICKHOUSE_DENORMALIZED_PROPERTIES
-                else ""
             )
         )
 
