@@ -1,33 +1,40 @@
 /*
 Contains the property filter component w/ properties and cohorts separated in tabs. Also includes infinite-scroll remote loading.
 */
+import './TaxonomicPropertyFilter.scss'
 import React, { useMemo } from 'react'
-import { Input } from 'antd'
+import { Button, Input } from 'antd'
 import { useValues, useActions, BindLogic } from 'kea'
 import { PropertyOperator } from '~/types'
 import { PropertyFilterInternalProps } from '../PropertyFilter'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
-
-import './TaxonomicPropertyFilter.scss'
+import { SelectDownIcon } from 'lib/components/SelectDownIcon'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
+import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 
 export enum DisplayMode {
     PROPERTY_SELECT,
     OPERATOR_VALUE_SELECT,
 }
 
-let count = 0
+let uniqueMemoizedIndex = 0
 
-export function TaxonomicPropertyFilter({ pageKey: pageKeyInput, index }: PropertyFilterInternalProps): JSX.Element {
-    const pageKey = useMemo(() => pageKeyInput || `filter-${count++}`, [pageKeyInput])
+export function TaxonomicPropertyFilter({
+    pageKey: pageKeyInput,
+    index,
+    onComplete,
+}: PropertyFilterInternalProps): JSX.Element {
+    const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
 
     const { filters } = useValues(propertyFilterLogic)
     const { setFilter } = useActions(propertyFilterLogic)
 
     const logic = taxonomicPropertyFilterLogic({ pageKey, filterIndex: index })
-    const { searchQuery, displayMode } = useValues(logic)
-    const { setSearchQuery, setSelectedItemKey } = useActions(logic)
+    const { searchQuery, displayMode, filter } = useValues(logic)
+    const { setSearchQuery, setSelectedItemKey, setDisplayMode } = useActions(logic)
 
     return (
         <div style={{ minWidth: 'max(25rem, 40vw)' }}>
@@ -58,46 +65,47 @@ export function TaxonomicPropertyFilter({ pageKey: pageKeyInput, index }: Proper
                                         newOperator || PropertyOperator.Exact,
                                         newType
                                     )
+                                    setDisplayMode(DisplayMode.OPERATOR_VALUE_SELECT)
                                 }
                             }}
                         />
                     </>
                 )}
-                {/*{displayMode === DisplayMode.OPERATOR_VALUE_SELECT && (*/}
-                {/*    <div className="taxonomic-filter-row">*/}
-                {/*        <Button onClick={() => setDisplayMode(DisplayMode.PROPERTY_SELECT)}>*/}
-                {/*            <div style={{ display: 'flex' }}>*/}
-                {/*                <PropertyKeyInfo value={key || ''} style={{ display: 'inline' }} />*/}
-                {/*                <SelectDownIcon />*/}
-                {/*            </div>*/}
-                {/*        </Button>*/}
-                {/*        <OperatorValueSelect*/}
-                {/*            type={type}*/}
-                {/*            propkey={key}*/}
-                {/*            operator={operator}*/}
-                {/*            value={value}*/}
-                {/*            onChange={(newOperator, newValue) => {*/}
-                {/*                if (key && type) {*/}
-                {/*                    setFilter(index, key, newValue || null, newOperator, type)*/}
-                {/*                }*/}
-                {/*                if (*/}
-                {/*                    newOperator &&*/}
-                {/*                    newValue &&*/}
-                {/*                    !(isOperatorMulti(newOperator) || isOperatorRegex(newOperator))*/}
-                {/*                ) {*/}
-                {/*                    onComplete()*/}
-                {/*                }*/}
-                {/*            }}*/}
-                {/*            columnOptions={{*/}
-                {/*                flex: 1,*/}
-                {/*                style: {*/}
-                {/*                    maxWidth: '50vw',*/}
-                {/*                    minWidth: '6rem',*/}
-                {/*                },*/}
-                {/*            }}*/}
-                {/*        />*/}
-                {/*    </div>*/}
-                {/*)}*/}
+                {displayMode === DisplayMode.OPERATOR_VALUE_SELECT && (
+                    <div className="taxonomic-filter-row">
+                        <Button onClick={() => setDisplayMode(DisplayMode.PROPERTY_SELECT)}>
+                            <div style={{ display: 'flex' }}>
+                                <PropertyKeyInfo value={filter?.key || ''} style={{ display: 'inline' }} />
+                                <SelectDownIcon />
+                            </div>
+                        </Button>
+                        <OperatorValueSelect
+                            type={filter?.type}
+                            propkey={filter?.key}
+                            operator={filter?.operator}
+                            value={filter?.value}
+                            onChange={(newOperator, newValue) => {
+                                if (filter?.key && filter?.type) {
+                                    setFilter(index, filter?.key, newValue || null, newOperator, filter?.type)
+                                }
+                                if (
+                                    newOperator &&
+                                    newValue &&
+                                    !(isOperatorMulti(newOperator) || isOperatorRegex(newOperator))
+                                ) {
+                                    onComplete()
+                                }
+                            }}
+                            columnOptions={{
+                                flex: 1,
+                                style: {
+                                    maxWidth: '50vw',
+                                    minWidth: '6rem',
+                                },
+                            }}
+                        />
+                    </div>
+                )}
             </BindLogic>
         </div>
     )

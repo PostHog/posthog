@@ -8,6 +8,7 @@ export interface PropertyFilterInternalProps {
     pageKey?: string
     index: number
     selectProps: Partial<SelectGradientOverflowProps>
+    onComplete: CallableFunction
 }
 
 export interface PropertyFilterProps extends PropertyFilterInternalProps {
