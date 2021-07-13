@@ -70,7 +70,6 @@
         "kea-router": "^1.0.0",
         "kea-window-values": "^0.0.1",
         "md5": "^2.3.0",
-        "object.fromentries": "^2.0.4",
         "posthog-js": "1.11.4",
         "posthog-js-lite": "^0.0.3",
         "prop-types": "^15.7.2",
@@ -104,7 +103,6 @@
         "@hot-loader/react-dom": "^16.13.0",
         "@types/chart.js": "^2.9.32",
         "@types/jest": "^26.0.15",
-        "@types/object.fromentries": "^2.0.0",
         "@types/react": "^16.14.2",
         "@types/react-dom": "^16.9.8",
         "@types/react-grid-layout": "^1.1.1",
@@ -163,6 +161,16 @@
             "flake8 --select=E9,F63,F7,F82,W605",
             "black",
             "isort"
+        ]
+    },
+    "browserslist": {
+        "development": [
+            "last 2 chrome versions",
+            "last 2 firefox versions",
+            "last 2 edge versions"
+        ],
+        "production": [
+            "defaults"
         ]
     }
 }
