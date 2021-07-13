@@ -1,5 +1,6 @@
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.test.base import APIBaseTest
 
@@ -693,5 +694,34 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
             )
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person1.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person1.uuid])
+
+        def test_funnel_cohort_breakdown(self):
+            # This caused some issues with SQL parsing
+            _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id=f"person1",
+                properties={},
+                timestamp="2020-01-02T12:00:00Z",
+            )
+            cohort = Cohort.objects.create(
+                team=self.team, name="test_cohort", groups=[{"properties": {"key": "value"}}]
+            )
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "cohort",
+                "breakdown": [cohort.pk],
+            }
+            filter = Filter(data=filters)
+            funnel = ClickhouseFunnel(filter, self.team)
+
+            result = funnel.run()
+            self.assertEqual(len(result[0]), 3)
+            self.assertEqual(result[0][0]["breakdown"], "test_cohort")
 
     return TestFunnelBreakdown
