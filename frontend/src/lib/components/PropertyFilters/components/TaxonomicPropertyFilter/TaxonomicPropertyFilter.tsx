@@ -26,49 +26,48 @@ export function TaxonomicPropertyFilter({
     const { setFilter } = useActions(propertyFilterLogic)
 
     const logic = taxonomicPropertyFilterLogic({ pageKey, filterIndex: index })
-    const { searchQuery, filter, dropdownOpen } = useValues(logic)
+    const { searchQuery, filter, dropdownOpen, selectedCohortName } = useValues(logic)
     const { setSearchQuery, openDropdown, closeDropdown } = useActions(logic)
 
     return (
         <div className="taxonomic-property-filter">
             <BindLogic logic={taxonomicPropertyFilterLogic} props={{ pageKey, filterIndex: index }}>
                 <div className="taxonomic-filter-row">
-                    <div>
-                        <Dropdown
-                            overlay={
-                                <Card className="taxonomic-filter-dropdown">
-                                    <Input
-                                        autoFocus
-                                        placeholder="Search event or person properties"
-                                        value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                    />
-                                    {dropdownOpen ? (
-                                        <InfiniteSelectResults pageKey={pageKey} filterIndex={index} />
-                                    ) : null}
-                                </Card>
+                    <Dropdown
+                        overlay={
+                            <Card className="taxonomic-filter-dropdown">
+                                <Input
+                                    autoFocus
+                                    placeholder="Search event or person properties"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                                {dropdownOpen ? <InfiniteSelectResults pageKey={pageKey} filterIndex={index} /> : null}
+                            </Card>
+                        }
+                        visible={dropdownOpen}
+                        trigger={['click']}
+                        onVisibleChange={(visible) => {
+                            if (!visible) {
+                                closeDropdown()
                             }
-                            visible={dropdownOpen}
-                            trigger={['click']}
-                            onVisibleChange={(visible) => {
-                                if (!visible) {
-                                    closeDropdown()
-                                }
-                            }}
-                        >
-                            <Button onClick={() => openDropdown()}>
-                                <div style={{ display: 'flex' }}>
-                                    {filter?.key ? (
-                                        <PropertyKeyInfo value={filter?.key || ''} style={{ display: 'inline' }} />
-                                    ) : (
-                                        <span>Add filter</span>
-                                    )}
-                                    <SelectDownIcon />
-                                </div>
-                            </Button>
-                        </Dropdown>
-                    </div>
-                    {filter?.type && filter?.key && (
+                        }}
+                    >
+                        <Button onClick={() => openDropdown()}>
+                            <div style={{ display: 'flex' }}>
+                                {filter?.type === 'cohort' ? (
+                                    <span>{selectedCohortName || `Cohort #${filter?.value}`}</span>
+                                ) : filter?.key ? (
+                                    <PropertyKeyInfo value={filter?.key || ''} style={{ display: 'inline' }} />
+                                ) : (
+                                    <span>Add filter</span>
+                                )}
+                                <SelectDownIcon />
+                            </div>
+                        </Button>
+                    </Dropdown>
+
+                    {filter?.type && filter?.key && filter?.type !== 'cohort' && (
                         <OperatorValueSelect
                             type={filter?.type}
                             propkey={filter?.key}

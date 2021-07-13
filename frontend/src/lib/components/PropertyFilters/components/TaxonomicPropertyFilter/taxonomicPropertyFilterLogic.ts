@@ -4,6 +4,7 @@ import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilt
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { AnyPropertyFilter, PropertyOperator } from '~/types'
 import { groups } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/groups'
+import { cohortsModel } from '~/models/cohortsModel'
 
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
     props: {} as TaxonomicPropertyFilterLogicProps,
@@ -50,6 +51,10 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         filter: [
             (s) => [s.filters, (_, props) => props.filterIndex],
             (filters, filterIndex): AnyPropertyFilter | null => filters[filterIndex] || null,
+        ],
+        selectedCohortName: [
+            (s) => [s.filter, cohortsModel.selectors.cohorts],
+            (filter, cohorts) => (filter?.type === 'cohort' ? cohorts.find((c) => c.id === filter?.value)?.name : null),
         ],
     },
 
