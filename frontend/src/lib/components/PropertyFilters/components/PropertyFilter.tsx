@@ -9,6 +9,7 @@ export interface PropertyFilterInternalProps {
     index: number
     selectProps: Partial<SelectGradientOverflowProps>
     onComplete: CallableFunction
+    disablePopover: boolean
 }
 
 export interface PropertyFilterProps extends PropertyFilterInternalProps {

@@ -20,6 +20,7 @@ export function TaxonomicPropertyFilter({
     pageKey: pageKeyInput,
     index,
     onComplete,
+    disablePopover,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
 
@@ -29,45 +30,60 @@ export function TaxonomicPropertyFilter({
     const { searchQuery, filter, dropdownOpen, selectedCohortName } = useValues(logic)
     const { setSearchQuery, openDropdown, closeDropdown } = useActions(logic)
 
+    const showInitialSearchInline = !disablePopover && !filter?.type && !filter?.key
+    const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
+
+    const searchInput = (
+        <Input
+            autoFocus
+            placeholder="Search event or person properties"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+        />
+    )
+    const searchResults = <InfiniteSelectResults pageKey={pageKey} filterIndex={index} />
+
     return (
         <div className="taxonomic-property-filter">
             <BindLogic logic={taxonomicPropertyFilterLogic} props={{ pageKey, filterIndex: index }}>
                 <div className="taxonomic-filter-row">
-                    <Dropdown
-                        overlay={
-                            <Card className="taxonomic-filter-dropdown">
-                                <Input
-                                    autoFocus
-                                    placeholder="Search event or person properties"
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                                {dropdownOpen ? <InfiniteSelectResults pageKey={pageKey} filterIndex={index} /> : null}
-                            </Card>
-                        }
-                        visible={dropdownOpen}
-                        trigger={['click']}
-                        onVisibleChange={(visible) => {
-                            if (!visible) {
-                                closeDropdown()
+                    {showInitialSearchInline ? (
+                        <div className="taxonomic-filter-standalone">
+                            {searchInput}
+                            {searchResults}
+                        </div>
+                    ) : (
+                        <Dropdown
+                            overlay={
+                                <Card className="taxonomic-filter-dropdown">
+                                    {searchInput}
+                                    {dropdownOpen ? searchResults : null}
+                                </Card>
                             }
-                        }}
-                    >
-                        <Button onClick={() => openDropdown()}>
-                            <div style={{ display: 'flex' }}>
-                                {filter?.type === 'cohort' ? (
-                                    <span>{selectedCohortName || `Cohort #${filter?.value}`}</span>
-                                ) : filter?.key ? (
-                                    <PropertyKeyInfo value={filter?.key || ''} style={{ display: 'inline' }} />
-                                ) : (
-                                    <span>Add filter</span>
-                                )}
-                                <SelectDownIcon />
-                            </div>
-                        </Button>
-                    </Dropdown>
+                            visible={dropdownOpen}
+                            trigger={['click']}
+                            onVisibleChange={(visible) => {
+                                if (!visible) {
+                                    closeDropdown()
+                                }
+                            }}
+                        >
+                            <Button onClick={() => openDropdown()}>
+                                <div style={{ display: 'flex' }}>
+                                    {filter?.type === 'cohort' ? (
+                                        <span>{selectedCohortName || `Cohort #${filter?.value}`}</span>
+                                    ) : filter?.key ? (
+                                        <PropertyKeyInfo value={filter?.key || ''} style={{ display: 'inline' }} />
+                                    ) : (
+                                        <span>Add filter</span>
+                                    )}
+                                    <SelectDownIcon />
+                                </div>
+                            </Button>
+                        </Dropdown>
+                    )}
 
-                    {filter?.type && filter?.key && filter?.type !== 'cohort' && (
+                    {showOperatorValueSelect && (
                         <OperatorValueSelect
                             type={filter?.type}
                             propkey={filter?.key}

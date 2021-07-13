@@ -75,7 +75,11 @@ export const FilterRow = React.memo(function FilterRow({
         >
             {disablePopover ? (
                 <>
-                    <PropertyFilter {...propertyFilterCommonProps} variant={filterVariant} />
+                    <PropertyFilter
+                        {...propertyFilterCommonProps}
+                        disablePopover={disablePopover}
+                        variant={filterVariant}
+                    />
                     {!!Object.keys(filters[index]).length && (
                         <CloseButton
                             onClick={() => remove(index)}
@@ -100,6 +104,7 @@ export const FilterRow = React.memo(function FilterRow({
                         content={
                             <PropertyFilter
                                 {...propertyFilterCommonProps}
+                                disablePopover={disablePopover}
                                 variant={filterVariant}
                                 selectProps={{
                                     delayBeforeAutoOpen: 150,
