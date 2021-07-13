@@ -50,6 +50,7 @@ services:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
             CLICKHOUSE_DATABASE: 'posthog'
+            CLICKHOUSE_CLUSTER: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
             KAFKA_URL: 'kafka://kafka'
