@@ -1,11 +1,13 @@
 import datetime
 import uuid
 from typing import cast
+from unittest import mock
 from unittest.mock import patch
 
 import pytest
 import pytz
 from django.core import mail
+from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import status
 
@@ -280,6 +282,81 @@ class TestSignupAPI(APIBaseTest):
 
         # Particularly assert that the default dashboards are not created (because we create special demo dashboards)
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 3)  # Web, app & revenue demo dashboards
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.ee
+    def test_api_can_use_social_login_to_create_organization_if_enabled(self, mock_request):
+        Organization.objects.create(name="Test org")
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, 302)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {"access_token": "123"}
+
+        with self.settings(MULTI_ORG_ENABLED=True):
+            response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/signup/finish/")  # page where user will create a new org
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.ee
+    def test_api_cannot_use_social_login_to_create_organization_if_disabled(self, mock_request):
+        Organization.objects.create(name="Test org")
+        # Even with a valid license, because `MULTI_ORG_ENABLED` is not enabled, no new organizations will be allowed.
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, 302)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {"access_token": "123"}
+
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(
+            response, "/login?error=no_new_organizations"
+        )  # show the user an error; operation not permitted
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    def test_api_social_login_to_create_organization(self, mock_request):
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, 302)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {"access_token": "123"}
+
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/signup/finish/")  # page where user will create a new org
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    def test_api_social_login_cannot_create_second_organization(self, mock_request):
+        Organization.objects.create(name="Test org")
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, 302)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {"access_token": "123"}
+
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(
+            response, "/login?error=no_new_organizations"
+        )  # show the user an error; operation not permitted
 
 
 class TestInviteSignup(APIBaseTest):
