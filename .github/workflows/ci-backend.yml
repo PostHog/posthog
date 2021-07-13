@@ -89,12 +89,12 @@ jobs:
 
             - name: Check migrations
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5439/posthog'
               run: python manage.py makemigrations --check --dry-run
 
             - name: Run posthog tests
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5439/posthog'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -103,7 +103,7 @@ jobs:
                   pytest posthog/
             - name: Run EE tests
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5439/posthog'
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_DATABASE: 'posthog_test'
@@ -130,14 +130,14 @@ jobs:
               with:
                   ref: 'master'
                   path: 'deploy/'
-            - name: Start stack with Docker Compose
-              run: docker-compose -f deploy/ee/docker-compose.ch.yml up -d db clickhouse
             - name: Link posthog-cloud at master
               run: |
                   cp -r multi_tenancy deploy/
                   cp -r messaging deploy/
                   cat multi_tenancy_settings.py >> deploy/posthog/settings.py
                   cat requirements.txt >> deploy/requirements.txt
+            - name: Start stack with Docker Compose
+              run: docker-compose -f deploy/ee/docker-compose.ch.yml up -d db clickhouse
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
@@ -156,7 +156,7 @@ jobs:
             # be possible to migrate to the new version without problems in production
             - name: Migrate initially at master, then remove master deploy code
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5439/posthog'
               run: |
                   python deploy/manage.py migrate
                   rm -rf deploy
@@ -184,7 +184,7 @@ jobs:
 
             - name: Check migrations
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5439/posthog'
               run: |
                   cd deploy
                   python manage.py makemigrations --check --dry-run
@@ -192,7 +192,7 @@ jobs:
 
             - name: Run posthog tests
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5439/posthog'
               run: |
                   cd deploy
                   mkdir -p frontend/dist
@@ -203,7 +203,7 @@ jobs:
 
             - name: Run cloud tests (posthog-cloud)
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5439/posthog'
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_DATABASE: 'posthog_test'
@@ -216,7 +216,7 @@ jobs:
                   pytest multi_tenancy messaging -m "not skip_on_multitenancy"
             - name: Run EE tests
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5439/posthog'
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_DATABASE: 'posthog_test'
