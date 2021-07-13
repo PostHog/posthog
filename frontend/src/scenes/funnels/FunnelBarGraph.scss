@@ -6,6 +6,27 @@ $glyph_margin_top: 10px;
 $glyph_height: 22px;
 
 .funnel-bar-graph {
+    .ant-popover {
+        .ant-popover-content {
+            background: #fafafa;
+            border-radius: $radius;
+            border: 1px solid $border;
+        }
+
+        .ant-popover-inner {
+            background: #fafafa;
+        }
+
+        .ant-popover-inner-content {
+            padding: 8px 0;
+            min-width: 300px;
+        }
+
+        .ant-popover-arrow {
+            background: #fafafa;
+        }
+    }
+
     // Layout: horizontal bars (default)
     .funnel-step {
         position: relative;
