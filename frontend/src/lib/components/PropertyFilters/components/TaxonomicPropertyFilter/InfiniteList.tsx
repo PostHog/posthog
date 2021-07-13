@@ -40,7 +40,7 @@ export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps):
                 style={style}
                 data-attr={`prop-filter-${type}-${index}`}
             >
-                <PropertyKeyInfo value={item.name} />
+                <PropertyKeyInfo value={item.name} disablePopover />
             </AntDesignList.Item>
         ) : (
             <AntDesignList.Item key={`__skeleton_${index}`} style={style} data-attr={`prop-filter-${type}-${index}`}>
