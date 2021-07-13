@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -81,11 +81,15 @@ class ClickhouseFunnelBase(ABC, Funnel):
     def _exec_query(self) -> List[Tuple]:
 
         # format default dates
-        data = {}
+        data: Dict[str, Any] = {}
         if not self._filter._date_from:
             data.update({"date_from": relative_date_parse("-7d")})
         if not self._filter._date_to:
             data.update({"date_to": timezone.now()})
+
+        if self._filter.breakdown and not self._filter.breakdown_type:
+            data.update({"breakdown_type": "event"})
+
         self._filter = self._filter.with_data(data)
 
         query = self.get_query()
