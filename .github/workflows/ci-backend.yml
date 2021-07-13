@@ -131,7 +131,7 @@ jobs:
                   ref: 'master'
                   path: 'deploy/'
             - name: Start stack with Docker Compose
-              run: docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse
+              run: docker-compose -f deploy/ee/docker-compose.ch.yml up -d db clickhouse
             - name: Link posthog-cloud at master
               run: |
                   cp -r multi_tenancy deploy/
