@@ -21,6 +21,8 @@ interface LoaderOptions {
     limit: number
 }
 
+type ListFuse = Fuse<EventDefinition> // local alias for typegen
+
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {
         return [...array, ...items]
@@ -34,7 +36,7 @@ function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
 
 const createEmptyListStorage = (searchQuery = ''): ListStorage => ({ results: [], searchQuery, count: 0 })
 
-export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOptions>>({
+export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage, LoaderOptions>>({
     props: {} as TaxonomicPropertyFilterListLogicProps,
 
     key: (props) => `${props.pageKey}-${props.filterIndex}-${props.type}`,
@@ -138,7 +140,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOp
         ],
         fuse: [
             (s) => [s.rawLocalItems],
-            (rawLocalItems) =>
+            (rawLocalItems): ListFuse =>
                 new Fuse(rawLocalItems || [], {
                     keys: ['name'],
                     threshold: 0.3,
@@ -146,7 +148,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListStorage, LoaderOp
         ],
         localItems: [
             (s) => [s.rawLocalItems, s.group, s.searchQuery, s.fuse],
-            (rawLocalItems, group, searchQuery, fuse: Fuse<EventDefinition>): ListStorage => {
+            (rawLocalItems, group, searchQuery, fuse): ListStorage => {
                 if (rawLocalItems) {
                     const filteredItems = searchQuery
                         ? fuse.search(searchQuery).map((result) => (group?.map ? group.map(result.item) : result.item))

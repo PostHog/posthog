@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 import { propertyFilterLogicType } from './propertyFilterLogicType'
-import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter, PropertyFilterValue } from '~/types'
+import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter } from '~/types'
 import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
@@ -17,7 +17,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         setFilter: (
             index: number,
             key: PropertyFilter['key'],
-            value: PropertyFilterValue,
+            value: PropertyFilter['value'],
             operator: PropertyFilter['operator'],
             type: PropertyFilter['type']
         ) => ({ index, key, value, operator, type }),

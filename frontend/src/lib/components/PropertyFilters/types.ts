@@ -14,6 +14,5 @@ export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBasePro
 }
 
 export interface TaxonomicPropertyFilterListLogicProps extends TaxonomicPropertyFilterLogicProps {
-    tabKey: string
     type: string
 }

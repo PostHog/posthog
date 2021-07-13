@@ -4,35 +4,37 @@ import { List, ListRowProps, ListRowRenderer, AutoSizer } from 'react-virtualize
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useActions, useValues } from 'kea'
 import { infiniteListLogic } from './infiniteListLogic'
+import { taxonomicPropertyFilterLogic } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/taxonomicPropertyFilterLogic'
 
 interface InfiniteListProps {
     pageKey: string
     filterIndex: number
-    tabKey: string
     type: string
-    onSelect: (type: string, id: string | number, name: string) => void
-    selectedItemKey: string | number | null
 }
 
-export function InfiniteList({
-    pageKey,
-    filterIndex,
-    tabKey,
-    type,
-    onSelect,
-    selectedItemKey,
-}: InfiniteListProps): JSX.Element {
-    const logic = infiniteListLogic({ pageKey, filterIndex, tabKey, type })
+export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps): JSX.Element {
+    const filterLogic = taxonomicPropertyFilterLogic({ pageKey, filterIndex })
+    const { filter } = useValues(filterLogic)
+    const { selectItem } = useActions(filterLogic)
+
+    const logic = infiniteListLogic({ pageKey, filterIndex, type })
     const { results, totalCount } = useValues(logic)
     const { onRowsRendered } = useActions(logic)
 
     const renderItem: ListRowRenderer = ({ index, style }: ListRowProps): JSX.Element | null => {
         const item = results[index]
+
+        const isSelected =
+            item &&
+            filter &&
+            filter.type === type &&
+            (filter.type === 'cohort' ? filter?.value === item.id : filter?.key === item.name)
+
         return item ? (
             <AntDesignList.Item
-                className={selectedItemKey === item.id ? 'selected' : undefined}
+                className={isSelected ? 'selected' : undefined}
                 key={item.id}
-                onClick={() => onSelect(type, item.id, item.name)}
+                onClick={() => selectItem(type, item.id, item.name)}
                 style={style}
                 data-attr={`prop-filter-${type}-${index}`}
             >
