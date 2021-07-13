@@ -14,6 +14,7 @@ interface ListStorage {
     results: EventDefinition[]
     searchQuery?: string // Query used for the results currently in state
     count: number
+    first?: boolean
 }
 
 interface LoaderOptions {
@@ -34,7 +35,17 @@ function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     return arrayCopy
 }
 
-const createEmptyListStorage = (searchQuery = ''): ListStorage => ({ results: [], searchQuery, count: 0 })
+const createEmptyListStorage = (searchQuery = '', first = false): ListStorage => ({
+    results: [],
+    searchQuery,
+    count: 0,
+    first,
+})
+
+// simple cache with a setTimeout expiry
+const API_CACHE_TIMEOUT = 60000
+const apiCache: Record<string, EventDefinitionStorage> = {}
+const apiCacheTimers: Record<string, number> = {}
 
 export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage, LoaderOptions>>({
     props: {} as TaxonomicPropertyFilterListLogicProps,
@@ -63,10 +74,13 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
 
     loaders: ({ values }) => ({
         remoteItems: [
-            createEmptyListStorage(),
+            createEmptyListStorage('', true),
             {
                 loadRemoteItems: async ({ offset, limit }, breakpoint) => {
-                    await breakpoint(150)
+                    // avoid the 150ms delay on first load
+                    if (!values.remoteItems.first) {
+                        await breakpoint(150)
+                    }
 
                     const { remoteEndpoint, searchQuery } = values
 
@@ -75,14 +89,25 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
                         return createEmptyListStorage(searchQuery)
                     }
 
-                    const response: EventDefinitionStorage = await api.get(
-                        combineUrl(remoteEndpoint, {
-                            search: searchQuery,
-                            limit,
-                            offset,
-                        }).url
-                    )
-                    breakpoint()
+                    const url = combineUrl(remoteEndpoint, {
+                        search: searchQuery,
+                        limit,
+                        offset,
+                    }).url
+
+                    let response: EventDefinitionStorage
+
+                    if (apiCache[url]) {
+                        response = apiCache[url]
+                    } else {
+                        response = await api.get(url)
+                        apiCache[url] = response
+                        apiCacheTimers[url] = window.setTimeout(() => {
+                            delete apiCache[url]
+                            delete apiCacheTimers[url]
+                        }, API_CACHE_TIMEOUT)
+                        breakpoint()
+                    }
 
                     return {
                         results: appendAtIndex(
