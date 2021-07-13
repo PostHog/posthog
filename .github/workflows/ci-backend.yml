@@ -72,7 +72,7 @@ jobs:
               with:
                   fetch-depth: 1
             - name: Start stack with Docker Compose
-              run: docker-compose -f ee/docker-compose.ch.yml up db clickhouse -d
+              run: docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
@@ -130,7 +130,7 @@ jobs:
                   ref: 'master'
                   path: 'deploy/'
             - name: Start stack with Docker Compose
-              run: docker-compose -f ee/docker-compose.ch.yml up db clickhouse -d
+              run: docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse
             - name: Link posthog-cloud at master
               run: |
                   cp -r multi_tenancy deploy/
