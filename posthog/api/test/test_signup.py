@@ -307,6 +307,7 @@ class TestSignupAPI(APIBaseTest):
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.ee
+    @pytest.mark.skip_on_multitenancy
     def test_api_cannot_use_social_login_to_create_organization_if_disabled(self, mock_request):
         Organization.objects.create(name="Test org")
         # Even with a valid license, because `MULTI_ORG_ENABLED` is not enabled, no new organizations will be allowed.
@@ -343,6 +344,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertRedirects(response, "/signup/finish/")  # page where user will create a new org
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.skip_on_multitenancy
     def test_api_social_login_cannot_create_second_organization(self, mock_request):
         Organization.objects.create(name="Test org")
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))

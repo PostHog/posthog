@@ -175,6 +175,7 @@ class TestPreflight(APIBaseTest):
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
     @pytest.mark.ee
+    @pytest.mark.skip_on_multitenancy
     def test_ee_preflight_with_users_limit(self):
 
         from ee.models.license import License, LicenseManager
@@ -198,6 +199,7 @@ class TestPreflight(APIBaseTest):
         self.assertEqual(response.json()["can_create_org"], True)
 
     @pytest.mark.ee
+    @pytest.mark.skip_on_multitenancy
     def test_can_create_org_with_multi_org(self):
 
         # First with no license
