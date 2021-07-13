@@ -19,7 +19,7 @@ class TestSignupAPI(APIBaseTest):
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
-    @patch("posthog.api.organization.posthoganalytics.capture")
+    @patch("posthoganalytics.capture")
     def test_api_sign_up(self, mock_capture):
         response = self.client.post(
             "/api/signup/",
@@ -104,7 +104,7 @@ class TestSignupAPI(APIBaseTest):
             )
 
     @pytest.mark.skip_on_multitenancy
-    @patch("posthog.api.organization.posthoganalytics.capture")
+    @patch("posthoganalytics.capture")
     @patch("posthoganalytics.identify")
     def test_signup_minimum_attrs(self, mock_identify, mock_capture):
         response = self.client.post(
