@@ -3,7 +3,7 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.queries.funnels.funnel_trends import TIMESTAMP_FORMAT, ClickhouseFunnelTrends
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
-from posthog.constants import DROP_OFF, ENTRANCE_PERIOD_START, OFFSET
+from posthog.constants import DROP_OFF, ENTRANCE_PERIOD_START
 from posthog.models.person import Person
 
 

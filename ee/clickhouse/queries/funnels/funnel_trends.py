@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import List, Optional, Tuple, Type, Union
+from typing import Optional, Tuple, Type, Union
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
