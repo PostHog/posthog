@@ -1,10 +1,11 @@
 import React from 'react'
 import { Tabs, Tag } from 'antd'
 import { SelectedItem } from 'lib/components/SelectBox'
-import { InfiniteList } from './InfiniteList'
 import { useActions, useValues } from 'kea'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 import { groups } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/groups'
+import { infiniteListLogic } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/infiniteListLogic'
+import { InfiniteList } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/InfiniteList'
 
 export interface SelectResult extends Omit<SelectedItem, 'key'> {
     key: string | number
@@ -19,8 +20,15 @@ export interface InfiniteSelectResultsProps {
 
 export function InfiniteSelectResults({ pageKey, filterIndex, onSelect }: InfiniteSelectResultsProps): JSX.Element {
     const filterLogic = taxonomicPropertyFilterLogic({ pageKey, filterIndex })
-    const { activeTabKey, selectedItemKey, counts } = useValues(filterLogic)
+    const { activeTabKey, selectedItemKey } = useValues(filterLogic)
     const { setActiveTabKey } = useActions(filterLogic)
+
+    const counts: Record<string, number> = {}
+    for (const group of groups) {
+        const logic = infiniteListLogic({ pageKey, filterIndex, tabKey: group.key, type: group.type })
+        const { totalCount } = useValues(logic)
+        counts[group.key] = totalCount
+    }
 
     return (
         <Tabs activeKey={activeTabKey || groups[0].key} onChange={setActiveTabKey} tabPosition="top" animated={false}>
