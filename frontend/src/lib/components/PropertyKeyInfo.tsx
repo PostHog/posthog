@@ -265,6 +265,10 @@ export const keyMapping: KeyMappingInterface = {
                 </>
             ),
         },
+        $$plugin_metrics: {
+            label: 'Plugin Metric',
+            description: 'Performance metrics for a given plugin.',
+        },
 
         // UTM tags
         utm_source: {
