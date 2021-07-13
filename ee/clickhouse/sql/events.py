@@ -1,5 +1,5 @@
 from ee.kafka_client.topics import KAFKA_EVENTS
-from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
 from .person import GET_LATEST_PERSON_DISTINCT_ID_SQL
@@ -55,6 +55,8 @@ KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
     materialized_columns="",
 )
 
+# You must include the database here because of a bug in clickhouse
+# related to https://github.com/ClickHouse/ClickHouse/issues/10471
 EVENTS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
 TO {table_name} 
@@ -69,9 +71,9 @@ elements_chain,
 created_at,
 _timestamp,
 _offset
-FROM kafka_{table_name} 
+FROM {database}.kafka_{table_name} 
 """.format(
-    table_name=EVENTS_TABLE, cluster=CLICKHOUSE_CLUSTER,
+    table_name=EVENTS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
 )
 
 INSERT_EVENT_SQL = """

@@ -1,5 +1,5 @@
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
-from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
 
@@ -44,6 +44,8 @@ KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
     table_name="kafka_" + PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_PERSON), extra_fields="",
 )
 
+# You must include the database here because of a bug in clickhouse
+# related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
 TO {table_name}
@@ -56,9 +58,9 @@ is_identified,
 is_deleted,
 _timestamp,
 _offset
-FROM kafka_{table_name}
+FROM {database}.kafka_{table_name}
 """.format(
-    table_name=PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER,
+    table_name=PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
 )
 
 GET_LATEST_PERSON_SQL = """
@@ -121,6 +123,8 @@ KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
     extra_fields="",
 )
 
+# You must include the database here because of a bug in clickhouse
+# related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
 TO {table_name}
@@ -131,9 +135,9 @@ person_id,
 team_id,
 _timestamp,
 _offset
-FROM kafka_{table_name}
+FROM {database}.kafka_{table_name}
 """.format(
-    table_name=PERSONS_DISTINCT_ID_TABLE, cluster=CLICKHOUSE_CLUSTER,
+    table_name=PERSONS_DISTINCT_ID_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
 )
 
 #
