@@ -71,7 +71,7 @@ export function ActionsPie({
                             const label = dataset.labels[point.index]
                             const date_from = dataset.days[0]
                             const date_to = dataset.days[dataset.days.length - 1]
-                            loadPeople({ action, label, date_from, date_to })
+                            loadPeople({ action, label, date_from, date_to, filters: filtersParam })
                         }}
                     />
                 </div>

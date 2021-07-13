@@ -4,15 +4,16 @@ import { errorToast, toParams } from 'lib/utils'
 import { cleanFunnelParams, funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { cohortLogic } from 'scenes/persons/cohortLogic'
-import { ActionFilter } from '~/types'
+import { ActionFilter, FilterType } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
-import { parsePeopleParams, TrendPeople, trendsLogic } from './trendsLogic'
+import { parsePeopleParams, TrendPeople } from './trendsLogic'
 
 interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
     label: string
     date_from: string | number
     date_to: string | number
+    filters: Partial<FilterType>
     breakdown_value?: string
     saveOriginal?: boolean
     searchTerm?: string
@@ -20,19 +21,20 @@ interface PersonModalParams {
 }
 
 export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
-    connect: {
-        values: [trendsLogic, ['filters']],
-    },
     actions: () => ({
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonModalParams) => ({ peopleParams }),
-        saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
+        saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
         loadMorePeople: true,
         setLoadingMorePeople: (status: boolean) => ({ status }),
         setShowingPeople: (isShowing: boolean) => ({ isShowing }),
         setPeople: (people: TrendPeople) => ({ people }),
-        setPersonsModalFilters: (searchTerm: string, people: TrendPeople) => ({ searchTerm, people }),
+        setPersonsModalFilters: (searchTerm: string, people: TrendPeople, filters: Partial<FilterType>) => ({
+            searchTerm,
+            people,
+            filters,
+        }),
         saveFirstLoadedPeople: (people: TrendPeople) => ({ people }),
         setFirstLoadedPeople: (firstLoadedPeople: TrendPeople | null) => ({ firstLoadedPeople }),
         refreshCohort: true,
@@ -90,12 +92,12 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 groups: [],
             })
         },
-        saveCohortWithFilters: ({ cohortName }) => {
+        saveCohortWithFilters: ({ cohortName, filters }) => {
             if (values.people) {
                 const { label, action, day, breakdown_value } = values.people
                 const filterParams = parsePeopleParams(
                     { label, action, date_from: day, date_to: day, breakdown_value },
-                    values.filters
+                    filters
                 )
                 const cohortParams = {
                     is_static: true,
@@ -118,6 +120,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 action,
                 date_from,
                 date_to,
+                filters,
                 breakdown_value,
                 saveOriginal,
                 searchTerm,
@@ -125,18 +128,15 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             } = peopleParams
             const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
             const tempPeople = { people: [], count: 0, action, label, day: date_from, breakdown_value }
-            if (values.filters.insight === ViewType.LIFECYCLE) {
+            if (filters.insight === ViewType.LIFECYCLE) {
                 const filterParams = parsePeopleParams(
                     { label, action, target_date: date_from, lifecycle_type: breakdown_value },
-                    values.filters
+                    filters
                 )
                 actions.setPeople(tempPeople)
                 people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
-            } else if (values.filters.insight === ViewType.STICKINESS) {
-                const filterParams = parsePeopleParams(
-                    { label, action, date_from, date_to, breakdown_value },
-                    values.filters
-                )
+            } else if (filters.insight === ViewType.STICKINESS) {
+                const filterParams = parsePeopleParams({ label, action, date_from, date_to, breakdown_value }, filters)
                 actions.setPeople(tempPeople)
                 people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
             } else if (funnelStep) {
@@ -145,10 +145,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 const funnelParams = toParams(cleanedParams)
                 people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
             } else {
-                const filterParams = parsePeopleParams(
-                    { label, action, date_from, date_to, breakdown_value },
-                    values.filters
-                )
+                const filterParams = parsePeopleParams({ label, action, date_from, date_to, breakdown_value }, filters)
                 actions.setPeople(tempPeople)
                 people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)
             }
@@ -186,12 +183,21 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 actions.setPeople(morePeopleResult)
             }
         },
-        setPersonsModalFilters: async ({ searchTerm, people }) => {
+        setPersonsModalFilters: async ({ searchTerm, people, filters }) => {
             const { label, action, day, breakdown_value } = people
             const date_from = day
             const date_to = day
             const saveOriginal = false
-            actions.loadPeople({ action, label, date_from, date_to, breakdown_value, saveOriginal, searchTerm })
+            actions.loadPeople({
+                action,
+                label,
+                date_from,
+                date_to,
+                filters,
+                breakdown_value,
+                saveOriginal,
+                searchTerm,
+            })
         },
     }),
 })

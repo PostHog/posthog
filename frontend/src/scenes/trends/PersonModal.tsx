@@ -34,11 +34,12 @@ const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterTyp
 interface Props {
     visible: boolean
     view: ViewType
+    filters: Partial<FilterType>
     onSaveCohort: () => void
 }
 
-export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element {
-    const { people, filters, loadingMorePeople, firstLoadedPeople, searchTerm } = useValues(personsModalLogic)
+export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JSX.Element {
+    const { people, loadingMorePeople, firstLoadedPeople, searchTerm } = useValues(personsModalLogic)
     const {
         setShowingPeople,
         loadMorePeople,
@@ -141,7 +142,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                     value={searchTerm}
                                     onSearch={(term) =>
                                         term
-                                            ? setPersonsModalFilters(term, people)
+                                            ? setPersonsModalFilters(term, people, filters)
                                             : setFirstLoadedPeople(firstLoadedPeople)
                                     }
                                 />

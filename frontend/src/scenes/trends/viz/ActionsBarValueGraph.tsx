@@ -12,9 +12,9 @@ import { personsModalLogic } from '../personsModalLogic'
 interface Props {
     dashboardItemId?: number | null
     view: ViewType
+    filters: Partial<FilterType>
     color?: string
     inSharedMode?: boolean | null
-    filters?: Partial<FilterType>
     cachedResults?: any
 }
 
@@ -89,7 +89,7 @@ export function ActionsBarValueGraph({
                               const breakdown_value = dataset.breakdownValues[point.index]
                                   ? dataset.breakdownValues[point.index]
                                   : null
-                              loadPeople({ action, label, date_from, date_to, breakdown_value })
+                              loadPeople({ action, label, date_from, date_to, filters: filtersParam, breakdown_value })
                           }
                 }
             />

@@ -359,6 +359,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                 label: `Persons who completed Step #${stepNumber} - "${step.name}"`,
                 date_from: '',
                 date_to: '',
+                filters: values.filters,
                 saveOriginal: true,
                 funnelStep: stepNumber,
             })
