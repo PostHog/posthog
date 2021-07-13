@@ -107,9 +107,9 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
 
     loaders: ({ props, values, actions }) => ({
         results: [
-            [] as FunnelStep[],
+            [],
             {
-                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[]> => {
+                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[] | number[]> => {
                     actions.setStepsWithCountLoading(true)
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
                         return props.cachedResults as FunnelStep[]
@@ -150,6 +150,8 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                     actions.setSteps(result.result as FunnelStep[])
+
+                    // We make another api call to api/funnels for time conversion data
                     let binsResult: FunnelsTimeConversionResult
                     if (params.display === ChartDisplayType.FunnelsTimeToConvert) {
                         try {

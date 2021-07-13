@@ -7,15 +7,20 @@ import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/Histogram'
 
 export function FunnelHistogram(): JSX.Element {
-    const { stepsWithCount, stepReference, histogramGraphData, histogramStepsDropdown, barGraphLayout } = useValues(
-        funnelLogic
-    )
+    const {
+        stepsWithCount,
+        stepReference,
+        resultsLoading,
+        histogramGraphData,
+        histogramStepsDropdown,
+        barGraphLayout,
+    } = useValues(funnelLogic)
     const { changeHistogramStep } = useActions(funnelLogic)
     // const dataset = [
     //     { data: histogramGraphData.personsAmount, labels: histogramGraphData.time, label: 'Time to convert' },
     // ]
     //
-    console.log('datasets', histogramGraphData)
+    console.log('loading', resultsLoading, histogramGraphData, histogramStepsDropdown)
 
     return (
         <>

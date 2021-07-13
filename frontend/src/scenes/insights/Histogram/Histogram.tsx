@@ -103,9 +103,9 @@ export function Histogram({
                     .attr('d', (d) => {
                         if (isVertical) {
                             return createRoundedRectPath(
-                                x(d.bin0) + config.spacer / 2,
+                                x(d.bin0) + config.spacing.btwnBins / 2,
                                 y(d.count),
-                                Math.max(0, x(d.bin1) - x(d.bin0) - config.spacer),
+                                Math.max(0, x(d.bin1) - x(d.bin0) - config.spacing.btwnBins),
                                 y(0) - y(d.count),
                                 config.borderRadius,
                                 'top'
@@ -114,9 +114,9 @@ export function Histogram({
                         // is horizontal
                         return createRoundedRectPath(
                             y(0),
-                            x(d.bin0) + config.spacer / 2,
+                            x(d.bin0) + config.spacing.btwnBins / 2,
                             y(d.count) - y(0),
-                            Math.max(0, x(d.bin1) - x(d.bin0) - config.spacer),
+                            Math.max(0, x(d.bin1) - x(d.bin0) - config.spacing.btwnBins),
                             config.borderRadius,
                             'right'
                         )
@@ -141,11 +141,16 @@ export function Histogram({
                     .duration(() => (!layoutChanged ? config.transitionDuration : 0))
                     .call(yAxis)
                     .attr('transform', config.transforms.y)
-                    .call((g) => g.selectAll('.tick text').attr('x', 4).attr('dy', -4))
+                    .call((g) =>
+                        g
+                            .selectAll('.tick text')
+                            // .attr('x', 13)
+                            .attr('dy', `-${config.spacing.yLabel}`)
+                    )
 
                 // y-gridlines
                 const _yGridlines = getOrCreateEl(_svg, 'g#y-gridlines', () =>
-                    _svg.append('svg:g').attr('id', 'y-gridlines').attr('transform', config.transforms.y)
+                    _svg.append('svg:g').attr('id', 'y-gridlines').attr('transform', config.transforms.yGrid)
                 )
                 _yGridlines
                     .transition()
@@ -157,7 +162,7 @@ export function Histogram({
                             .attr('stroke-opacity', 0.5)
                             .attr('stroke-dasharray', '2,2')
                     )
-                    .attr('transform', config.transforms.y)
+                    .attr('transform', config.transforms.yGrid)
 
                 return _svg
             }

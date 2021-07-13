@@ -5,22 +5,25 @@ interface HistogramConfig {
     width: number
     inner: { height: number; width: number }
     margin: { top: number; right: number; bottom: number; left: number }
-    spacer: number
     borderRadius: number
     ranges: { x: number[]; y: number[] }
     gridlineTickSize: number
-    transforms: { x: string; y: string }
+    transforms: { x: string; y: string; yGrid: string }
     axisFn: { x: any; y: any }
     transitionDuration: number
+    spacing: { btwnBins: number; yLabel: number }
 }
 
 export const INITIAL_CONFIG = {
     height: 500,
     width: 500,
     margin: { top: 40, right: 20, bottom: 40, left: 40 },
-    spacer: 6,
     borderRadius: 4, // same as funnel bar graph,
     transitionDuration: 200, // in ms; same as in funnel bar graph
+    spacing: {
+        btwnBins: 6, // spacing between bins
+        yLabel: 5, // y-axis label xOffset in vertical position
+    },
 }
 
 export const getConfig = (isVertical: boolean): HistogramConfig => ({
@@ -38,13 +41,19 @@ export const getConfig = (isVertical: boolean): HistogramConfig => ({
             : [INITIAL_CONFIG.margin.left, INITIAL_CONFIG.width - INITIAL_CONFIG.margin.right],
     },
     gridlineTickSize: isVertical
-        ? INITIAL_CONFIG.width - INITIAL_CONFIG.margin.left - INITIAL_CONFIG.margin.right
+        ? INITIAL_CONFIG.width -
+          INITIAL_CONFIG.margin.left +
+          INITIAL_CONFIG.spacing.yLabel * 2.5 -
+          INITIAL_CONFIG.margin.right
         : INITIAL_CONFIG.height - INITIAL_CONFIG.margin.bottom - INITIAL_CONFIG.margin.top,
     transforms: {
         x: isVertical
             ? `translate(0,${INITIAL_CONFIG.height - INITIAL_CONFIG.margin.bottom})`
             : `translate(${INITIAL_CONFIG.margin.left},0)`,
         y: isVertical ? `translate(${INITIAL_CONFIG.margin.left},0)` : `translate(0,${INITIAL_CONFIG.margin.top})`,
+        yGrid: isVertical
+            ? `translate(${INITIAL_CONFIG.margin.left - INITIAL_CONFIG.spacing.yLabel * 2.5},0)`
+            : `translate(0,${INITIAL_CONFIG.margin.top})`,
     },
     axisFn: {
         x: isVertical ? d3.axisBottom : d3.axisLeft,
