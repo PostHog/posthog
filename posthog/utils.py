@@ -577,7 +577,7 @@ def get_available_social_auth_providers() -> Dict[str, bool]:
         if settings.MULTI_TENANCY:
             google = True
         else:
-
+            google = True  # TEMP
             try:
                 from ee.models.license import License
             except ImportError:

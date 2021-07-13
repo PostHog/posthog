@@ -11,12 +11,16 @@ class TestOrganizationAPI(APIBaseTest):
     # Retrieving organization
 
     def test_get_current_organization(self):
-        response_data = self.client.get("/api/organizations/@current").json()
+        self.organization.domain_whitelist = ["hogflix.posthog.com"]
+        self.organization.save()
 
+        response = self.client.get("/api/organizations/@current")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
         self.assertEqual(response_data["id"], str(self.organization.id))
         # By default, setup state is marked as completed
-        self.assertEqual(response_data["setup"], {"is_active": False, "current_section": None})
         self.assertEqual(response_data["available_features"], [])
+        self.assertEqual(response_data["domain_whitelist"], ["hogflix.posthog.com"])
 
     def test_current_organization_on_setup_mode(self):
 
@@ -69,9 +73,19 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
+
+    def test_update_domain_whitelist_if_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}", {"domain_whitelist": ["posthog.com", "movies.posthog.com"]}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.domain_whitelist, ["posthog.com", "movies.posthog.com"])
 
     def test_cannot_rename_organization_if_not_owner_or_admin(self):
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
