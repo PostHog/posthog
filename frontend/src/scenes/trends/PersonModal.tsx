@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { TrendPeople, parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
-import { Modal, Button, Spin, Input, Row, Col } from 'antd'
+import { Modal, Button, Spin, Input, Row, Col, Skeleton } from 'antd'
 import { deepLinkToPersonSessions } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -109,8 +109,8 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
             className="person-modal"
         >
             {peopleLoading && (
-                <div style={{ textAlign: 'center', padding: '16px 0px' }}>
-                    <Spin />
+                <div style={{ padding: 16 }}>
+                    <Skeleton active />
                 </div>
             )}
             {!peopleLoading && people && (
