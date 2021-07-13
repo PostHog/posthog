@@ -7,7 +7,6 @@ import { UnifiedPropertyFilter } from './UnifiedPropertyFilter'
 export interface PropertyFilterInternalProps {
     pageKey?: string
     index: number
-    onComplete: CallableFunction
     selectProps: Partial<SelectGradientOverflowProps>
 }
 

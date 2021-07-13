@@ -6,13 +6,10 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { propertyFilterLogicType } from './propertyFilterLogicType'
 import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter, PropertyFilterValue } from '~/types'
 import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
+import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
 export const propertyFilterLogic = kea<propertyFilterLogicType>({
-    props: {} as {
-        pageKey: string
-        propertyFilters?: AnyPropertyFilter[] | null
-        onChange?: null | ((filters: AnyPropertyFilter[]) => void)
-    },
+    props: {} as PropertyFilterLogicProps,
     key: (props) => props.pageKey,
 
     actions: () => ({

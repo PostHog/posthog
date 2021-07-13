@@ -1,35 +1,30 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { List as AntDesignList, Skeleton } from 'antd'
 import { List, ListRowProps, ListRowRenderer, AutoSizer } from 'react-virtualized'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useActions, useValues } from 'kea'
-import { infiniteListLogic } from 'lib/components/PropertyFilters/infiniteListLogic'
+import { infiniteListLogic } from './infiniteListLogic'
 
 interface InfiniteListProps {
-    filterKey: string
+    pageKey: string
+    filterIndex: number
     tabKey: string
     type: string
-    endpoint: string
-    searchQuery?: string
     onSelect: (type: string, id: string | number, name: string) => void
     selectedItemKey: string | number | null
-    updateCount: (count: number) => void
 }
 
 export function InfiniteList({
-    filterKey,
+    pageKey,
+    filterIndex,
     tabKey,
     type,
-    endpoint,
-    searchQuery,
     onSelect,
     selectedItemKey,
-    updateCount,
 }: InfiniteListProps): JSX.Element {
-    const key = `${filterKey}-${tabKey}`
-    const logic = infiniteListLogic({ key, filterKey, type, endpoint, searchQuery })
+    const logic = infiniteListLogic({ pageKey, filterIndex, tabKey, type })
     const { results, totalCount } = useValues(logic)
-    const { onRowsRendered, loadItems } = useActions(logic)
+    const { onRowsRendered } = useActions(logic)
 
     const renderItem: ListRowRenderer = ({ index, style }: ListRowProps): JSX.Element | null => {
         const item = results[index]
@@ -49,14 +44,6 @@ export function InfiniteList({
             </AntDesignList.Item>
         )
     }
-
-    useEffect(() => {
-        loadItems({ newSearchQuery: searchQuery })
-    }, [searchQuery])
-
-    useEffect(() => {
-        updateCount(totalCount)
-    }, [totalCount])
 
     return (
         <div style={{ minHeight: '200px' }}>
