@@ -92,7 +92,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
                     histogram_from_seconds + floor(({steps_average_conversion_time_expression_sum} - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_to_seconds,
                     count() AS person_count
                 FROM step_runs
-                -- We only need to check to_step here, before it depends on all the others being not null too
+                -- We only need to check step to_step here, because it depends on all the other ones being NOT NULL too
                 WHERE step_{to_step}_average_conversion_time IS NOT NULL
                 GROUP BY bin_to_seconds
             ) results

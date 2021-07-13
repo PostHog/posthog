@@ -168,7 +168,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             results,
             [
-                (10800.0, 1),  # Reached step 2 from step 0 in at least 10_800 s but less than 10_860 s - users A
+                (10800.0, 1),  # Reached step 2 from step 0 in at least 10_800 s but less than 10_860 s - user A
                 (10860.0, 0),  # Analogous to above, just an interval (in this case 60 s) up - no users
                 (10920.0, 0),  # And so on
                 (10980.0, 0),
