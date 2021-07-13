@@ -38,7 +38,7 @@ interface Props {
 }
 
 export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element {
-    const { people, filters, loadingMorePeople, firstLoadedPeople } = useValues(
+    const { people, filters, loadingMorePeople, firstLoadedPeople, peopleLoading } = useValues(
         trendsLogic({ dashboardItemId: null, view })
     )
     const { setPersonsModalFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
@@ -80,7 +80,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                     </Button>
                                 </div>
                             )}
-                        {people && (
+                        {!peopleLoading && people && (
                             <>
                                 <Button
                                     icon={<DownloadOutlined />}
@@ -108,7 +108,12 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
             bodyStyle={{ padding: 0, maxHeight: 500, overflowY: 'scroll' }}
             className="person-modal"
         >
-            {people ? (
+            {peopleLoading && (
+                <div style={{ textAlign: 'center', padding: '16px 0px' }}>
+                    <Spin />
+                </div>
+            )}
+            {!peopleLoading && people && (
                 <>
                     <div
                         style={{
@@ -176,8 +181,6 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                         )}
                     </div>
                 </>
-            ) : (
-                <p>Loading users...</p>
             )}
         </Modal>
     )
