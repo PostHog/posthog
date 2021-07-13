@@ -745,3 +745,43 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
         self.assertEqual(result[0]["average_conversion_time"], None)
         self.assertEqual(result[1]["average_conversion_time"], 6000)
         self.assertEqual(result[2]["average_conversion_time"], 5400)
+
+    def test_funnel_with_denormalised_properties(self):
+        filters = {
+            "events": [
+                {
+                    "id": "user signed up",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"key": "test_prop", "value": "hi"}],
+                },
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "properties": [{"key": "test_prop", "value": "hi"}],
+            "date_to": "2020-01-14",
+        }
+
+        with self.settings(CLICKHOUSE_DENORMALIZED_PROPERTIES=["test_prop"]):
+            filter = Filter(data=filters)
+            funnel = ClickhouseFunnel(filter, self.team)
+
+            # event
+            _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="user_1",
+                timestamp="2020-01-02T14:00:00Z",
+                properties={"test_prop": "hi"},
+            )
+            _create_event(
+                team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
+            )
+
+            with self.assertNumQueries(1):
+                result = funnel.run()
+
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[0]["count"], 1)
