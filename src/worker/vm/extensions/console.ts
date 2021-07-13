@@ -1,3 +1,4 @@
+import { createBuffer } from '@posthog/plugin-contrib'
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType } from '../../../types'
@@ -22,13 +23,13 @@ export function createConsole(server: Hub, pluginConfig: PluginConfig): ConsoleE
             status.info('👉', `${type} in ${pluginDigest(pluginConfig.plugin!, pluginConfig.team_id)}:`, ...args)
         }
 
-        await server.db.createPluginLogEntry(
+        await server.db.queuePluginLogEntry({
             pluginConfig,
-            PluginLogEntrySource.Console,
             type,
-            consoleFormat(...args),
-            server.instanceId
-        )
+            source: PluginLogEntrySource.Console,
+            message: consoleFormat(...args),
+            instanceId: server.instanceId,
+        })
     }
 
     return {

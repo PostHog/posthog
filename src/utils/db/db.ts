@@ -50,7 +50,29 @@ import {
     UUIDT,
 } from '../utils'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
+import { PostgresLogsWrapper } from './postgres-logs-wrapper'
 import { chainToElements, hashElements, timeoutGuard, unparsePersonPartial } from './utils'
+
+export interface LogEntryPayload {
+    pluginConfig: PluginConfig
+    source: PluginLogEntrySource
+    type: PluginLogEntryType
+    message: string
+    instanceId: UUID
+    timestamp?: string | null
+}
+
+export interface ParsedLogEntry {
+    id: string
+    team_id: number
+    plugin_id: number
+    plugin_config_id: number
+    timestamp: string
+    source: PluginLogEntrySource
+    type: PluginLogEntryType
+    message: string
+    instance_id: string
+}
 
 /** The recommended way of accessing the database. */
 export class DB {
@@ -67,6 +89,9 @@ export class DB {
     /** StatsD instance used to do instrumentation */
     statsd: StatsD | undefined
 
+    /** A buffer for Postgres logs to prevent too many log insert ueries */
+    postgresLogsWrapper: PostgresLogsWrapper
+
     constructor(
         postgres: Pool,
         redisPool: GenericPool<Redis.Redis>,
@@ -79,6 +104,7 @@ export class DB {
         this.kafkaProducer = kafkaProducer
         this.clickhouse = clickhouse
         this.statsd = statsd
+        this.postgresLogsWrapper = new PostgresLogsWrapper(this)
     }
 
     // Postgres
@@ -746,43 +772,19 @@ export class DB {
         }
     }
 
-    public async createPluginLogEntry(
-        pluginConfig: PluginConfig,
-        source: PluginLogEntrySource,
-        type: PluginLogEntryType,
-        message: string,
-        instanceId: UUID,
-        timestamp: string = new Date().toISOString()
-    ): Promise<PluginLogEntry> {
-        const entry: PluginLogEntry = {
+    public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
+        const { pluginConfig, source, message, type, timestamp, instanceId } = entry
+
+        const parsedEntry = {
             id: new UUIDT().toString(),
             team_id: pluginConfig.team_id,
             plugin_id: pluginConfig.plugin_id,
             plugin_config_id: pluginConfig.id,
-            timestamp: timestamp.replace('T', ' ').replace('Z', ''),
+            timestamp: (timestamp || new Date().toISOString()).replace('T', ' ').replace('Z', ''),
             source,
             type,
             message,
             instance_id: instanceId.toString(),
-        }
-
-        try {
-            if (this.kafkaProducer) {
-                await this.kafkaProducer.queueMessage({
-                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
-                    messages: [{ key: entry.id, value: Buffer.from(JSON.stringify(entry)) }],
-                })
-            } else {
-                await this.postgresQuery(
-                    'INSERT INTO posthog_pluginlogentry (id, team_id, plugin_id, plugin_config_id, timestamp, source,type, message, instance_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-                    Object.values(entry),
-                    'insertPluginLogEntry'
-                )
-            }
-        } catch (e) {
-            captureException(e)
-            console.error(entry)
-            console.error(e)
         }
 
         this.statsd?.increment(`logs.entries_created`, {
@@ -791,7 +793,56 @@ export class DB {
             plugin_id: pluginConfig.plugin_id.toString(),
         })
 
-        return entry
+        if (this.kafkaProducer) {
+            try {
+                await this.kafkaProducer.queueMessage({
+                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
+                    messages: [{ key: parsedEntry.id, value: Buffer.from(JSON.stringify(parsedEntry)) }],
+                })
+            } catch (e) {
+                captureException(e)
+                console.error(parsedEntry)
+                console.error(e)
+            }
+        } else {
+            await this.postgresLogsWrapper.addLog(parsedEntry)
+        }
+    }
+
+    public async batchInsertPostgresLogs(entries: ParsedLogEntry[]): Promise<void> {
+        const LOG_ENTRY_COLUMN_COUNT = 9
+
+        const rowStrings: string[] = []
+        const values: any[] = []
+
+        for (let rowIndex = 0; rowIndex < entries.length; ++rowIndex) {
+            const { id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id } =
+                entries[rowIndex]
+
+            // Creates format: ($1, $2, $3, $4, $5, $6, $7, $8, $9), ($10, $12, $13, $14, $15, $16, $17, $18, $19)
+            rowStrings.push(
+                '(' +
+                    Array.from(Array(LOG_ENTRY_COLUMN_COUNT).keys())
+                        .map((x) => `$${x + 1 + rowIndex * LOG_ENTRY_COLUMN_COUNT}`)
+                        .join(', ') +
+                    ')'
+            )
+
+            values.push(id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id)
+        }
+        try {
+            await this.postgresQuery(
+                `INSERT INTO posthog_pluginlogentry
+                (id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id)
+                VALUES
+                ${rowStrings.join(', ')}`,
+                values,
+                'insertPluginLogEntries'
+            )
+        } catch (e) {
+            captureException(e)
+            console.error(e)
+        }
     }
 
     // EventDefinition

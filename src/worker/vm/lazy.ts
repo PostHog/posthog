@@ -72,21 +72,18 @@ export class LazyPluginVM {
         this.totalInitAttemptsCounter++
         this.resolveInternalVm = new Promise((resolve) => {
             this.initialize = async (hub: Hub, pluginConfig: PluginConfig, indexJs: string, logInfo = '') => {
-                const createPluginLogEntry = async (
-                    message: string,
-                    logType = PluginLogEntryType.Info
-                ): Promise<void> => {
-                    await hub.db.createPluginLogEntry(
+                const createLogEntry = async (message: string, logType = PluginLogEntryType.Info): Promise<void> => {
+                    await hub.db.queuePluginLogEntry({
                         pluginConfig,
-                        PluginLogEntrySource.System,
-                        logType,
                         message,
-                        hub.instanceId
-                    )
+                        source: PluginLogEntrySource.System,
+                        type: logType,
+                        instanceId: hub.instanceId,
+                    })
                 }
                 try {
                     const vm = await createPluginConfigVM(hub, pluginConfig, indexJs)
-                    await createPluginLogEntry(`Plugin loaded (instance ID ${hub.instanceId}).`)
+                    await createLogEntry(`Plugin loaded (instance ID ${hub.instanceId}).`)
                     status.info('🔌', `Loaded ${logInfo}`)
                     void clearError(hub, pluginConfig)
                     await this.inferPluginCapabilities(hub, pluginConfig, vm)
@@ -100,7 +97,7 @@ export class LazyPluginVM {
                             INITIALIZATION_RETRY_BASE_MS
                         const nextRetrySeconds = `${nextRetryMs / 1000} s`
                         status.warn('⚠️', `Failed to load ${logInfo}. Retrying in ${nextRetrySeconds}.`)
-                        await createPluginLogEntry(
+                        await createLogEntry(
                             `Plugin failed to load (instance ID ${hub.instanceId}). Retrying in ${nextRetrySeconds}.`,
                             PluginLogEntryType.Error
                         )
@@ -116,7 +113,7 @@ export class LazyPluginVM {
                               } time${this.totalInitAttemptsCounter > 1 ? 's' : ''} before giving up.`
                             : 'Disabled it.'
                         status.warn('⚠️', `Failed to load ${logInfo}. ${failureContextMessage}`)
-                        await createPluginLogEntry(
+                        await createLogEntry(
                             `Plugin failed to load (instance ID ${hub.instanceId}). ${failureContextMessage}`,
                             PluginLogEntryType.Error
                         )

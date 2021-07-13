@@ -64,7 +64,10 @@ test('setupPlugins and runProcessEvent', async () => {
     expect(pluginConfig.config).toEqual(pluginConfig39.config)
     expect(pluginConfig.error).toEqual(pluginConfig39.error)
 
-    expect(pluginConfig.plugin).toEqual(plugin60)
+    expect(pluginConfig.plugin).toEqual({
+        ...plugin60,
+        capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
+    })
     expect(pluginConfig.attachments).toEqual({
         maxmindMmdb: {
             content_type: pluginAttachment1.content_type,

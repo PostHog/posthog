@@ -83,14 +83,14 @@ export async function setError(hub: Hub, pluginError: PluginError | null, plugin
         'updatePluginConfigError'
     )
     if (pluginError) {
-        await hub.db.createPluginLogEntry(
+        await hub.db.queuePluginLogEntry({
             pluginConfig,
-            PluginLogEntrySource.Plugin,
-            PluginLogEntryType.Error,
-            pluginError.message,
-            hub.instanceId,
-            pluginError.time
-        )
+            source: PluginLogEntrySource.Plugin,
+            type: PluginLogEntryType.Error,
+            message: pluginError.message,
+            instanceId: hub.instanceId,
+            timestamp: pluginError.time,
+        })
     }
 }
 

@@ -40,6 +40,11 @@ export async function resetTestDatabase(
     } catch {}
 
     await db.query(`
+        DELETE FROM posthog_personalapikey;
+        DELETE FROM posthog_featureflag;
+        DELETE FROM posthog_annotation;
+        DELETE FROM posthog_dashboarditem;
+        DELETE FROM posthog_dashboard;
         DELETE FROM posthog_cohortpeople;
         DELETE FROM posthog_cohort;
         DELETE FROM posthog_actionstep;
