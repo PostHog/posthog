@@ -431,7 +431,7 @@ export function Insights(): JSX.Element {
 
 function FunnelInsight(): JSX.Element {
     const { stepsWithCount, isValidFunnel, stepsWithCountLoading, timeConversionBins } = useValues(funnelLogic({}))
-    const { autoCalculate } = useValues(funnelLogic())
+    const { clickhouseFeatures } = useValues(funnelLogic())
 
     return (
         <div>
@@ -446,8 +446,8 @@ function FunnelInsight(): JSX.Element {
                         }}
                     >
                         <span>
-                            Enter the details to your funnel {!autoCalculate && `and click 'calculate'`} to create a
-                            funnel visualization
+                            Enter the details to your funnel {!clickhouseFeatures && `and click 'calculate'`} to create
+                            a funnel visualization
                         </span>
                     </div>
                 )
