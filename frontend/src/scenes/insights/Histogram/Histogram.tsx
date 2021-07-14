@@ -18,18 +18,10 @@ interface HistogramDatum {
 interface HistogramProps {
     data: HistogramDatum[]
     layout?: FunnelLayout
-    xLabel?: string
-    yLabel?: string
     color?: string
 }
 
-export function Histogram({
-    data,
-    layout = FunnelLayout.vertical,
-    // xLabel = "",
-    // yLabel = "",
-    color = 'white',
-}: HistogramProps): JSX.Element {
+export function Histogram({ data, layout = FunnelLayout.vertical, color = 'white' }: HistogramProps): JSX.Element {
     const colorList = getChartColors(color)
 
     // Initial dimensions

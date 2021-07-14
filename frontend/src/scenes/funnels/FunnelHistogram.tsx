@@ -6,26 +6,22 @@ import { calcPercentage, getReferenceStep } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/Histogram'
 
-export function FunnelHistogram(): JSX.Element {
-    const {
-        stepsWithCount,
-        stepReference,
-        resultsLoading,
-        histogramGraphData,
-        histogramStepsDropdown,
-        barGraphLayout,
-    } = useValues(funnelLogic)
+import './FunnelHistogram.scss'
+
+export function FunnelHeaderActions(): JSX.Element {
+    const { stepsWithCount, stepReference, histogramStep, histogramStepsDropdown } = useValues(funnelLogic)
     const { changeHistogramStep } = useActions(funnelLogic)
-    // const dataset = [
-    //     { data: histogramGraphData.personsAmount, labels: histogramGraphData.time, label: 'Time to convert' },
-    // ]
-    //
-    console.log('loading', resultsLoading, histogramGraphData, histogramStepsDropdown)
 
     return (
         <>
-            <div>
-                Steps
+            <div className="funnel__header__info">
+                Mean time:{' '}
+                <span className="l4" style={{ color: 'var(--primary)' }}>
+                    {humanFriendlyDuration(stepsWithCount[histogramStep]?.average_conversion_time)}
+                </span>
+            </div>
+            <div className="funnel__header__steps">
+                <span className="funnel__header__steps__label">Steps</span>
                 {histogramStepsDropdown.length > 0 && (
                     <Select
                         defaultValue={histogramStepsDropdown[0]?.value}
@@ -33,7 +29,6 @@ export function FunnelHistogram(): JSX.Element {
                         dropdownMatchSelectWidth={false}
                         data-attr="funnel-bar-layout-selector"
                         optionLabelProp="label"
-                        style={{ marginLeft: 8, marginBottom: 16 }}
                     >
                         {histogramStepsDropdown.map((option, i) => {
                             const basisStep = getReferenceStep(stepsWithCount, stepReference, i)
@@ -61,6 +56,20 @@ export function FunnelHistogram(): JSX.Element {
                     </Select>
                 )}
             </div>
+        </>
+    )
+}
+
+export function FunnelHistogram(): JSX.Element {
+    const { resultsLoading, histogramGraphData, histogramStepsDropdown, barGraphLayout } = useValues(funnelLogic)
+    // const dataset = [
+    //     { data: histogramGraphData.personsAmount, labels: histogramGraphData.time, label: 'Time to convert' },
+    // ]
+    //
+    console.log('loading', resultsLoading, histogramGraphData, histogramStepsDropdown)
+
+    return (
+        <>
             <Histogram data={histogramGraphData} layout={barGraphLayout} />
         </>
     )
