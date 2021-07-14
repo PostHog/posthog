@@ -155,7 +155,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
 
                 // If a query is in progress, debounce for 500ms before making the second query
                 if (cache.abortController) {
-                    await breakpoint(500)
+                    await breakpoint(200)
                     cache.abortController.abort()
                 }
                 cache.abortController = new AbortController()
