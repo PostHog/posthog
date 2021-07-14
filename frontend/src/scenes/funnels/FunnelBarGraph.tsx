@@ -232,51 +232,61 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                 ) : null}
                             </div>
                         </header>
-                        <div className="funnel-conversion-metadata funnel-step-metadata">
-                            <div className="center-flex">
-                                <ValueInspectorButton
-                                    onClick={() => openPersonsModal(step, i + 1)}
-                                    disabled={!funnelPersonsEnabled && false}
-                                >
-                                    <span className="value-inspector-button-icon">
-                                        <ArrowRightOutlined style={{ color: 'var(--success)' }} />
-                                    </span>
-                                    <b>{humanizeStepCount(step.count)}</b>
-                                </ValueInspectorButton>
-                                <span className="text-muted-alt">
-                                    ({step.order > 0 ? calcPercentage(step.count, steps[i - 1].count) : '100'}
-                                    %)
-                                </span>
-                            </div>
-                            <div className="text-muted-alt text-small">completed step</div>
-                            <div className="center-flex">
-                                <ValueInspectorButton
-                                    onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
-                                    disabled={!funnelPersonsEnabled}
-                                    style={{ paddingRight: '0.25em' }}
-                                >
-                                    <span
-                                        className="value-inspector-button-icon"
-                                        style={{ padding: '4px 6px', marginRight: 10 }} // This custom icon requires special handling
-                                    >
-                                        <ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />
-                                    </span>
-                                    <b>{humanizeStepCount(step.order > 0 ? steps[i - 1].count - step.count : 0)}</b>
-                                </ValueInspectorButton>
-                                <span className="text-muted-alt">
-                                    ({step.order > 0 ? 100 - calcPercentage(step.count, steps[i - 1].count) : 0}
-                                    %)
-                                </span>
-                            </div>
-                            <div className="text-muted-alt text-small">dropped off</div>
-                        </div>
+                        <div className="funnel-inner-viz">
+                            <Bar
+                                percentage={calcPercentage(step.count, basisStep.count)}
+                                name={step.name}
+                                onBarClick={() => openPersonsModal(step, i + 1)}
+                                layout={layout}
+                            />
 
-                        <Bar
-                            percentage={calcPercentage(step.count, basisStep.count)}
-                            name={step.name}
-                            onBarClick={() => openPersonsModal(step, i + 1)}
-                            layout={layout}
-                        />
+                            <div className="funnel-conversion-metadata funnel-step-metadata">
+                                <div className="center-flex">
+                                    <ValueInspectorButton
+                                        onClick={() => openPersonsModal(step, i + 1)}
+                                        disabled={!funnelPersonsEnabled && false}
+                                    >
+                                        <span className="value-inspector-button-icon">
+                                            <ArrowRightOutlined style={{ color: 'var(--success)' }} />
+                                        </span>
+                                        <b>{humanizeStepCount(step.count)}</b>
+                                    </ValueInspectorButton>
+                                    <span className="text-muted-alt">
+                                        ({step.order > 0 ? calcPercentage(step.count, steps[i - 1].count) : '100'}
+                                        %)
+                                    </span>
+                                </div>
+                                <div
+                                    className="text-muted-alt conversion-metadata-caption"
+                                    style={layout === FunnelBarLayout.horizontal ? { flexGrow: 1 } : {}}
+                                >
+                                    completed step
+                                </div>
+                                <div className="center-flex">
+                                    <ValueInspectorButton
+                                        onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
+                                        disabled={!funnelPersonsEnabled}
+                                        style={{ paddingRight: '0.25em' }}
+                                    >
+                                        <span
+                                            className="value-inspector-button-icon"
+                                            style={{
+                                                padding: '4px 6px',
+                                                marginRight: layout === FunnelBarLayout.horizontal ? 2 : 10,
+                                            }} // This custom icon requires special handling
+                                        >
+                                            <ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />
+                                        </span>
+                                        <b>{humanizeStepCount(step.order > 0 ? steps[i - 1].count - step.count : 0)}</b>
+                                    </ValueInspectorButton>
+                                    <span className="text-muted-alt">
+                                        ({step.order > 0 ? 100 - calcPercentage(step.count, steps[i - 1].count) : 0}
+                                        %)
+                                    </span>
+                                </div>
+                                <div className="text-muted-alt conversion-metadata-caption">dropped off</div>
+                            </div>
+                        </div>
                     </section>
                 )
             })}

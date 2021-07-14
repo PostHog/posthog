@@ -6,7 +6,7 @@ $glyph_margin_top: 10px;
 $glyph_height: 22px;
 
 .funnel-bar-graph {
-    // Layout: horizontal bars (default)
+    // Layout: horizontal bars
     .funnel-step {
         position: relative;
         padding-left: $series_container_width;
@@ -47,6 +47,7 @@ $glyph_height: 22px;
         }
 
         .funnel-step-metadata {
+            // .funnel-step-metadata reusable class for components that contain metadata for the funnel (e.g. time to convert or conversion steps)
             .ant-btn.funnel-inspect-button {
                 color: $primary;
 
@@ -85,22 +86,6 @@ $glyph_height: 22px;
         .center-flex {
             display: flex;
             align-items: center;
-        }
-
-        .funnel-conversion-metadata {
-            font-size: 1rem;
-            height: 98px;
-
-            .funnel-inspect-button {
-                font-size: 1.1rem;
-                margin-left: -2em;
-
-                .value-inspector-button-icon {
-                    background-color: white; // Ensures the series line gets cut off
-                    padding: 4px 0;
-                    margin-right: 12px;
-                }
-            }
         }
 
         header,
@@ -179,6 +164,12 @@ $glyph_height: 22px;
         .funnel-step {
             width: 30%;
 
+            .funnel-inner-viz {
+                // Moves the series metadata (numbers) on top of the bars
+                display: flex;
+                flex-direction: column-reverse;
+            }
+
             .funnel-series-container {
                 position: absolute;
                 left: 0;
@@ -191,6 +182,27 @@ $glyph_height: 22px;
 
                 .funnel-series-linebox.after {
                     height: calc(100% - #{$glyph_margin_top} - #{$glyph_height} / 2);
+                }
+            }
+
+            .funnel-conversion-metadata {
+                font-size: 1rem;
+                height: 98px;
+                display: block;
+
+                .funnel-inspect-button {
+                    font-size: 1.1rem;
+                    margin-left: -2em;
+
+                    .value-inspector-button-icon {
+                        background-color: white; // Ensures the series line gets cut off
+                        padding: 4px 0;
+                        margin-right: 12px;
+                    }
+                }
+
+                .conversion-metadata-caption {
+                    font-size: 0.75em;
                 }
             }
 
@@ -247,6 +259,25 @@ $glyph_height: 22px;
                         left: unset;
                         bottom: calc(100% + #{$label_position_offset});
                     }
+                }
+            }
+        }
+    }
+
+    &.horizontal {
+        .funnel-step {
+            .funnel-conversion-metadata {
+                display: flex;
+                align-items: center;
+
+                .funnel-inspect-button {
+                    padding: 0;
+                    .value-inspector-button-icon {
+                        padding-right: 8px;
+                    }
+                }
+                .conversion-metadata-caption {
+                    padding-left: 4px;
                 }
             }
         }
