@@ -112,7 +112,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 }
                 cohortLogic({
                     cohort: {
-                        id: 'new',
+                        id: 'personsModalNew',
                         groups: [],
                     },
                 }).actions.saveCohort(cohortParams, filterParams)
