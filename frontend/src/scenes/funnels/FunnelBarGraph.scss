@@ -4,8 +4,16 @@ $label_position_offset: 8px;
 $series_container_width: 3rem;
 $glyph_margin_top: 10px;
 $glyph_height: 22px;
+$funnel_canvas_background: #fafafa;
 
 .funnel-bar-graph {
+    background-color: $funnel_canvas_background;
+    margin-left: -24px; // negative margins to account for padding of .ant-card
+    margin-right: -24px;
+    margin-bottom: -24px;
+    padding: 12px 24px;
+    border-top: 1px solid $border_light;
+
     // Layout: horizontal bars
     .funnel-step {
         position: relative;
@@ -195,7 +203,7 @@ $glyph_height: 22px;
                     margin-left: -2em;
 
                     .value-inspector-button-icon {
-                        background-color: white; // Ensures the series line gets cut off
+                        background-color: $funnel_canvas_background; // Ensures the series line gets cut off
                         padding: 4px 0;
                         margin-right: 12px;
                     }

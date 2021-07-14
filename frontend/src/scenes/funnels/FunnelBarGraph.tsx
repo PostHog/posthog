@@ -258,7 +258,9 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                 </div>
                                 <div
                                     className="text-muted-alt conversion-metadata-caption"
-                                    style={layout === FunnelBarLayout.horizontal ? { flexGrow: 1 } : {}}
+                                    style={
+                                        layout === FunnelBarLayout.horizontal ? { flexGrow: 1 } : { marginBottom: 8 }
+                                    }
                                 >
                                     completed step
                                 </div>

@@ -342,8 +342,7 @@ export function Insights(): JSX.Element {
                                 <div>
                                     <Row style={{ justifyContent: 'space-between', marginTop: -8, marginBottom: 16 }}>
                                         <FunnelCanvasLabel />
-                                        {/* lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) */}
-                                        {true && (
+                                        {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
                                             <div className="text-muted-alt" style={{ marginLeft: 'auto' }}>
                                                 Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}{' '}
                                                 &bull;
