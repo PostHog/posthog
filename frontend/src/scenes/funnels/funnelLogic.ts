@@ -110,7 +110,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         results: [
             [] as FunnelStep[],
             {
-                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[] | number[]> => {
+                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[]> => {
                     actions.setStepsWithCountLoading(true)
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
                         return props.cachedResults as FunnelStep[]
