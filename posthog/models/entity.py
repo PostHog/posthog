@@ -98,5 +98,3 @@ class ExclusionEntity(Entity, FunnelFromToStepsMixin):
                 ret.update(func())
 
         return ret
-
-    # TODO: test exclusion entity and its mixins, ensure corrrect hashing values generated

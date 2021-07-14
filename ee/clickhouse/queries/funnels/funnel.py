@@ -5,6 +5,28 @@ from posthog.models.cohort import Cohort
 
 
 class ClickhouseFunnel(ClickhouseFunnelBase):
+    """
+    A basic ordered funnel.
+
+    ## Query Intuition
+    We start with all events of interest (coming from the `FunnelEventQuery`). The query runs in different levels: at each
+    level, we first get the minimum timestamp of every event following the previous event. Then, we trickle up the levels, till we get to the top level,
+    which implies all events are sorted in increasing order.
+    Each level is a subquery.
+
+    ## Exclusion Intuition
+    Event exclusion between steps means that if this specific event happened between two funnel steps, we disqualify the user, not showing them in the results.
+    To include event exclusions inside the funnel, the critical insight is that the exclusion is just like a parallel step to the funnel step that happens after
+    the exclusion start step.
+    For example, if we have a funnel with steps [1, 2, 3, 4] and we want to exclude events between step 2 and step 4, then the exclusion step semantics are just
+    like step 3 semantics. We want to find this event after step 2.
+    Since it's a parallel step, we don't need to add an extra level, we can reuse the existing levels.
+    See `get_comparison_cols` and `_get_partition_cols` for how this works.
+
+    Exclusion doesn't support duplicates like: steps [event 1, event 2], and excluding event 1 between steps 1 and 2.
+
+    """
+
     def get_query(self):
         max_steps = len(self._filter.entities)
 

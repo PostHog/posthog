@@ -95,6 +95,17 @@ class ClickhouseFunnelBase(ABC, Funnel):
             if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
                 raise ValidationError("Exclusion event needs to define funnel steps")
 
+            if exclusion.funnel_from_step >= exclusion.funnel_to_step:
+                raise ValidationError("Exclusion event range is invalid. End of range should be greater than start.")
+
+            if exclusion.funnel_from_step >= len(self._filter.entities) - 1:
+                raise ValidationError(
+                    "Exclusion event range is invalid. Start of range is greater than number of steps."
+                )
+
+            if exclusion.funnel_to_step > len(self._filter.entities) - 1:
+                raise ValidationError("Exclusion event range is invalid. End of range is greater than number of steps.")
+
         self._filter = self._filter.with_data(data)
 
         query = self.get_query()
@@ -129,7 +140,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 )
                 for exclusion in self._filter.exclusions:
                     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
-                    # TODO: duplicate fixup?
                     if exclusion.funnel_from_step + 1 == i:
                         cols.append(
                             f"min(exclusion_latest_{exclusion.funnel_from_step}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_latest_{exclusion.funnel_from_step}"
@@ -145,8 +155,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
             from_time = f"latest_{exclusion.funnel_from_step}"
             to_time = f"latest_{exclusion.funnel_to_step}"
             exclusion_time = f"exclusion_latest_{exclusion.funnel_from_step}"
-            condition = f"if( {exclusion_time} > {from_time} AND {exclusion_time} < {to_time}, 1, 0)"
-            # TODO: check clipping for early drop offs? or discard them?
+            condition = (
+                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < "
+                f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_days} DAY, {to_time}), 1, 0)"
+            )
             conditions.append(condition)
 
         if conditions:
@@ -229,6 +241,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return " OR ".join(step_conditions)
 
     def _get_step_col(self, entity: Entity, index: int, entity_name: str, step_prefix: str = "") -> List[str]:
+        # step prefix is used to distinguish actual steps, and exclusion steps
+        # without the prefix, we get the same parameter binding for both, which borks things up
         step_cols: List[str] = []
         condition = self._build_step_query(entity, index, entity_name, step_prefix)
         step_cols.append(f"if({condition}, 1, 0) as {step_prefix}step_{index}")
