@@ -20,6 +20,17 @@ interface FunnelVizProps extends Omit<ChartParams, 'view'> {
     timeConversionBins: number[]
 }
 
+function FunnelEmptyState({ noun }: { noun: string }): JSX.Element {
+    return (
+        <div className="insight-empty-state error-message">
+            <div className="illustration-main">
+                <IllustrationDanger />
+            </div>
+            <h3 className="l3">You can only use funnel {noun} with more than one funnel step.</h3>
+        </div>
+    )
+}
+
 export function FunnelViz({
     steps: stepsParam,
     filters: defaultFilters,
@@ -107,14 +118,7 @@ export function FunnelViz({
 
     if (filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
         if ((filters.events?.length || 0) + (filters.actions?.length || 0) == 1) {
-            return (
-                <div className="insight-empty-state error-message">
-                    <div className="illustration-main">
-                        <IllustrationDanger />
-                    </div>
-                    <h3 className="l3">You can only use funnel trends with more than one funnel step.</h3>
-                </div>
-            )
+            return <FunnelEmptyState noun="trends" />
         }
         return steps && steps.length > 0 && steps[0].labels ? (
             <>

@@ -11,10 +11,9 @@ import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
-import { FunnelBarLayout } from 'lib/constants'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip'
-
+import { FunnelLayout } from 'lib/constants'
 import {
     calcPercentage,
     getReferenceStep,
@@ -25,7 +24,7 @@ import {
 } from './funnelUtils'
 
 interface FunnelBarGraphProps {
-    layout?: FunnelBarLayout
+    layout?: FunnelLayout
     steps: FunnelStep[]
 }
 
@@ -33,7 +32,7 @@ interface BarProps {
     percentage: number
     name?: string
     onBarClick?: () => void
-    layout?: FunnelBarLayout
+    layout?: FunnelLayout
     isBreakdown?: boolean
     breakdownIndex?: number
     breakdownMaxIndex?: number
@@ -48,7 +47,7 @@ function Bar({
     percentage,
     name,
     onBarClick,
-    layout = FunnelBarLayout.horizontal,
+    layout = FunnelLayout.horizontal,
     isBreakdown = false,
     breakdownIndex,
     breakdownMaxIndex,
@@ -62,7 +61,7 @@ function Bar({
     const [labelVisible, setLabelVisible] = useState(true)
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
     const { funnelPersonsEnabled } = useValues(funnelLogic)
-    const dimensionProperty = layout === FunnelBarLayout.horizontal ? 'width' : 'height'
+    const dimensionProperty = layout === FunnelLayout.horizontal ? 'width' : 'height'
     const cursorType = funnelPersonsEnabled ? 'pointer' : ''
     const hasBreakdownSum = isBreakdown && typeof breakdownSumPercentage === 'number'
     const shouldShowLabel = !isBreakdown || (hasBreakdownSum && labelVisible)
@@ -71,7 +70,7 @@ function Bar({
         if (hasBreakdownSum) {
             // Label is always outside for breakdowns, but don't show if it doesn't fit in the wrapper
             setLabelPosition('outside')
-            if (layout === FunnelBarLayout.horizontal) {
+            if (layout === FunnelLayout.horizontal) {
                 const barWidth = barRef.current?.clientWidth ?? null
                 const barOffset = barRef.current?.offsetLeft ?? null
                 const wrapperWidth = barRef.current?.parentElement?.clientWidth ?? null
@@ -97,7 +96,7 @@ function Bar({
             return
         }
         // Place label inside or outside bar, based on whether it fits
-        if (layout === FunnelBarLayout.horizontal) {
+        if (layout === FunnelLayout.horizontal) {
             const barWidth = barRef.current?.clientWidth ?? null
             const labelWidth = labelRef.current?.clientWidth ?? null
             if (barWidth !== null && labelWidth !== null) {
@@ -252,14 +251,14 @@ function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeIns
                 className="text-muted"
                 style={{ paddingRight: 4, display: 'inline-block', visibility: infoTextVisible ? undefined : 'hidden' }}
             >
-                Average time:
+                Mean time:
             </span>
             <ValueInspectorButton
                 innerRef={buttonRef}
                 style={{ paddingLeft: 0, paddingRight: 0 }}
                 onClick={onClick}
                 disabled={disabled}
-                title="Average time elapsed between completing this step and starting the next one."
+                title="Mean time elapsed between completing this step and starting the next one."
             >
                 {humanFriendlyDuration(averageTime, 2)}
             </ValueInspectorButton>
@@ -291,8 +290,8 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, i)
                 const previousCount = previousStep?.count ?? 0
                 const dropoffCount = previousCount - step.count
-                const showLineBefore = layout === FunnelBarLayout.horizontal && i > 0
-                const showLineAfter = layout === FunnelBarLayout.vertical || i < steps.length - 1
+                const showLineBefore = layout === FunnelLayout.horizontal && i > 0
+                const showLineAfter = layout === FunnelLayout.vertical || i < steps.length - 1
                 const breakdownMaxIndex = getBreakdownMaxIndex(step.breakdown)
                 const breakdownSum = step.breakdown?.reduce((sum, item) => sum + item.count, 0)
                 return (

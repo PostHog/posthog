@@ -1,0 +1,26 @@
+.histogram-container {
+    display: inline-block;
+    position: relative;
+    height: 100%;
+    width: 100%;
+    padding-bottom: 100%;
+    vertical-align: top;
+    overflow: hidden;
+
+    svg {
+        height: 100%;
+        display: inline-block;
+        position: absolute;
+        top: 0;
+        left: 0;
+        margin-left: 0;
+        margin-right: 0;
+
+        g#y-gridlines,
+        g#y-axis {
+            .domain {
+                display: none; // hide axis line
+            }
+        }
+    }
+}
