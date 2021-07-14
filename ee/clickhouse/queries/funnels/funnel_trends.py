@@ -153,13 +153,8 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
 
         for row in summary:
             data.append(row["conversion_rate"])
-            days.append(
-                row["timestamp"].strftime(
-                    "%Y-%m-%d{}".format(
-                        " %H:%M:%S" if self._filter.interval == "hour" or self._filter.interval == "minute" else ""
-                    )
-                )
-            )
+            hour_min_sec = " %H:%M:%S" if self._filter.interval == "hour" or self._filter.interval == "minute" else ""
+            days.append(row["timestamp"].strftime(f"%Y-%m-%d{hour_min_sec}"))
             labels.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
 
         return [{"count": count, "data": data, "days": days, "labels": labels,}]

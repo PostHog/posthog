@@ -93,8 +93,11 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         funnel_trends = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)
         results = funnel_trends._exec_query()
+        formatted_results = funnel_trends._format_results(funnel_trends._summarize_data(results))
 
         self.assertEqual(len(results), 7)
+        print(formatted_results)
+        self.assertEqual(formatted_results["result"][0]["days"])
 
     def test_only_one_user_reached_one_step(self):
         _create_person(distinct_ids=["user a"], team=self.team)
