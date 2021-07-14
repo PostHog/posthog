@@ -332,6 +332,12 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                 return stepsDropdown
             },
         ],
+        areFiltersValid: [
+            () => [selectors.filters],
+            (filters) => {
+                return (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({

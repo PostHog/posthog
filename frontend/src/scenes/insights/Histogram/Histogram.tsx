@@ -29,47 +29,46 @@ export function Histogram({
     isAnimated = false,
 }: HistogramProps): JSX.Element {
     const colorList = getChartColors(color)
+    const isEmpty = data.length === 0 || d3.sum(data.map((d) => d.count)) === 0
 
-    // Initial dimensions
+    // TODO: All D3 state outside of useD3 hook will be moved into separate kea histogramLogic
+
     const isVertical = layout === FunnelLayout.vertical
     const config = getConfig(isVertical)
 
+    // Initialize x-axis and y-axis scales
+    const xMin = data?.[0]?.bin0 || 0
+    const xMax = data?.[data.length - 1]?.bin1 || 1
+    const x = d3.scaleLinear().domain([xMin, xMax]).range(config.ranges.x).nice()
+    const xAxis = config.axisFn
+        .x(x)
+        .tickValues([...data.map((d) => d.bin0), xMax])
+        // v === -2 || v === -1 represent bins that catch grouped outliers.
+        // TODO: (-2, -1) are temporary placeholders for (-inf, +inf) and should be changed when backend specs are finalized
+        .tickFormat((v: number) => {
+            const label = humanFriendlyDuration(v)
+            if (v === -2) {
+                return `<${label}`
+            }
+            if (v === -1) {
+                return `>=${label}`
+            }
+            return label
+        })
+
+    // y-axis scale
+    const y = d3
+        .scaleLinear()
+        .domain([0, d3.max(data, (d: HistogramDatum) => d.count) as number])
+        .range(config.ranges.y)
+        .nice()
+    const yAxis = config.axisFn.y(y).tickSize(0)
+
+    // y-axis gridline scale
+    const yAxisGrid = config.axisFn.y(y).tickSize(-config.gridlineTickSize).tickFormat('').ticks(y.ticks().length)
+
     const ref = useD3(
         (container) => {
-            // x-axis scale
-            const xMax = data[data.length - 1].bin1
-            const x = d3.scaleLinear().domain([data[0].bin0, xMax]).range(config.ranges.x).nice()
-            const xAxis = config.axisFn
-                .x(x)
-                .tickValues([...data.map((d) => d.bin0), xMax])
-                // v === -2 || v === -1 represent bins that catch grouped outliers.
-                // TODO: (-2, -1) are temporary placeholders for (-inf, +inf) and should be changed when backend specs are finalized
-                .tickFormat((v: number) => {
-                    const label = humanFriendlyDuration(v)
-                    if (v === -2) {
-                        return `<${label}`
-                    }
-                    if (v === -1) {
-                        return `>=${label}`
-                    }
-                    return label
-                })
-
-            // y-axis scale
-            const y = d3
-                .scaleLinear()
-                .domain([0, d3.max(data, (d: HistogramDatum) => d.count) as number])
-                .range(config.ranges.y)
-                .nice()
-            const yAxis = config.axisFn.y(y).tickSize(0)
-
-            // y-axis gridline scale
-            const yAxisGrid = config.axisFn
-                .y(y)
-                .tickSize(-config.gridlineTickSize)
-                .tickFormat('')
-                .ticks(y.ticks().length)
-
             const renderCanvas = (parentNode: D3Selector): D3Selector => {
                 // Get or create svg > g
                 const _svg = getOrCreateEl(parentNode, 'svg > g', () =>
@@ -127,36 +126,43 @@ export function Histogram({
                     it.call(xAxis).attr('transform', config.transforms.x)
                 )
 
-                // y-axis
-                const _yAxis = getOrCreateEl(_svg, 'g#y-axis', () =>
-                    _svg.append('svg:g').attr('id', 'y-axis').attr('transform', config.transforms.y)
-                )
-                _yAxis.call(animate, !layoutChanged ? config.transitionDuration : 0, isAnimated, (it: D3Transition) =>
-                    it
-                        .call(yAxis)
-                        .attr('transform', config.transforms.y)
-                        .call((g) => g.selectAll('.tick text').attr('dy', `-${config.spacing.yLabel}`))
-                )
+                // Don't draw y-axis or y-gridline if the data is empty
+                if (!isEmpty) {
+                    // y-axis
+                    const _yAxis = getOrCreateEl(_svg, 'g#y-axis', () =>
+                        _svg.append('svg:g').attr('id', 'y-axis').attr('transform', config.transforms.y)
+                    )
+                    _yAxis.call(
+                        animate,
+                        !layoutChanged ? config.transitionDuration : 0,
+                        isAnimated,
+                        (it: D3Transition) =>
+                            it
+                                .call(yAxis)
+                                .attr('transform', config.transforms.y)
+                                .call((g) => g.selectAll('.tick text').attr('dy', `-${config.spacing.yLabel}`))
+                    )
 
-                // y-gridlines
-                const _yGridlines = getOrCreateEl(_svg, 'g#y-gridlines', () =>
-                    _svg.append('svg:g').attr('id', 'y-gridlines').attr('transform', config.transforms.yGrid)
-                )
-                _yGridlines.call(
-                    animate,
-                    !layoutChanged ? config.transitionDuration : 0,
-                    isAnimated,
-                    (it: D3Transition) =>
-                        it
-                            .call(yAxisGrid)
-                            .call((g) =>
-                                g
-                                    .selectAll('.tick:not(:first-of-type) line')
-                                    .attr('stroke-opacity', 0.5)
-                                    .attr('stroke-dasharray', '2,2')
-                            )
-                            .attr('transform', config.transforms.yGrid)
-                )
+                    // y-gridlines
+                    const _yGridlines = getOrCreateEl(_svg, 'g#y-gridlines', () =>
+                        _svg.append('svg:g').attr('id', 'y-gridlines').attr('transform', config.transforms.yGrid)
+                    )
+                    _yGridlines.call(
+                        animate,
+                        !layoutChanged ? config.transitionDuration : 0,
+                        isAnimated,
+                        (it: D3Transition) =>
+                            it
+                                .call(yAxisGrid)
+                                .call((g) =>
+                                    g
+                                        .selectAll('.tick:not(:first-of-type) line')
+                                        .attr('stroke-opacity', 0.5)
+                                        .attr('stroke-dasharray', '2,2')
+                                )
+                                .attr('transform', config.transforms.yGrid)
+                    )
+                }
 
                 return _svg
             }
