@@ -21,9 +21,9 @@ import {
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelBarLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 function aggregateBreakdownResult({ result: breakdownList, ...apiResponse }: FunnelResultWithBreakdown): FunnelResult {
     let result: FunnelStep[] = []
@@ -188,7 +188,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     }
                     actions.setSteps(result.result as FunnelStep[])
                     let binsResult: FunnelsTimeConversionResult
-                    if (params.display === ChartDisplayType.FunnelsTimeToConvert) {
+                    if (params.display === ChartDisplayType.FunnelsTimeToConvert && values.stepsWithCount.length > 1) {
                         try {
                             params.funnel_viz_type = 'time_to_convert'
                             params.funnel_to_step = values.histogramStep
@@ -387,17 +387,17 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             actions.loadResults()
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
-            trendsLogic().actions.setShowingPeople(true)
-            trendsLogic().actions.loadPeople(
-                { id: step.action_id, name: step.name, properties: [], type: step.type },
-                `Persons who completed Step #${stepNumber} - "${step.name}"`,
-                '',
-                '',
-                breakdown_value || '',
-                true,
-                '',
-                stepNumber
-            )
+            personsModalLogic.actions.setShowingPeople(true)
+            personsModalLogic.actions.loadPeople({
+                action: { id: step.action_id, name: step.name, properties: [], type: step.type },
+                breakdown_value: breakdown_value || '',
+                label: `Persons who completed Step #${stepNumber} - "${step.name}"`,
+                date_from: '',
+                date_to: '',
+                filters: values.filters,
+                saveOriginal: true,
+                funnelStep: stepNumber,
+            })
         },
         changeHistogramStep: () => {
             actions.loadResults()

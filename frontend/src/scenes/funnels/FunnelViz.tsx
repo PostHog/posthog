@@ -149,6 +149,16 @@ export function FunnelViz({
         ) : null
     }
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && filters.display == ChartDisplayType.FunnelsTimeToConvert) {
+        if (steps && steps.length < 2) {
+            return (
+                <div className="insight-empty-state error-message">
+                    <div className="illustration-main">
+                        <IllustrationDanger />
+                    </div>
+                    <h3 className="l3">You can only use time conversion with more than one funnel step.</h3>
+                </div>
+            )
+        }
         return timeConversionBins && timeConversionBins.length > 0 ? <FunnelHistogram /> : null
     }
 

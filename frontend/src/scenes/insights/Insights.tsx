@@ -74,9 +74,8 @@ export function Insights(): JSX.Element {
     } = useValues(insightLogic)
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
-    const trendsLogicLoaded = trendsLogic({ dashboardItemId: null, view: activeView, filters: allFilters })
-    const { showingPeople } = useValues(trendsLogicLoaded)
-    const { refreshCohort, saveCohortWithFilters } = useActions(trendsLogicLoaded)
+    const { showingPeople } = useValues(personsModalLogic)
+    const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const { stepsWithCount, histogramStep } = useValues(funnelLogic())
@@ -122,6 +121,7 @@ export function Insights(): JSX.Element {
             <PersonModal
                 visible={showingPeople && !cohortModalVisible}
                 view={ViewType.FUNNELS}
+                filters={allFilters}
                 onSaveCohort={() => {
                     refreshCohort()
                     setCohortModalVisible(true)
@@ -130,7 +130,7 @@ export function Insights(): JSX.Element {
             <SaveCohortModal
                 visible={cohortModalVisible}
                 onOk={(title: string) => {
-                    saveCohortWithFilters(title)
+                    saveCohortWithFilters(title, allFilters)
                     setCohortModalVisible(false)
                 }}
                 onCancel={() => setCohortModalVisible(false)}
@@ -454,7 +454,7 @@ function FunnelInsight(): JSX.Element {
         >
             {stepsWithCountLoading && <Loading />}
             {isValidFunnel ? (
-                <FunnelViz steps={stepsWithCount} timeConversionBins={timeConversionBins} />
+                <FunnelViz filters={{ display }} steps={stepsWithCount} timeConversionBins={timeConversionBins} />
             ) : (
                 !stepsWithCountLoading && (
                     <div
