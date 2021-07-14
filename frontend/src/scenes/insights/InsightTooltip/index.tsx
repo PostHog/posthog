@@ -14,7 +14,7 @@ interface InsightTooltipProps {
     altTitle?: string | JSX.Element | null // Alternate string to display as title (in case date reference is not available or not desired)
     referenceDate?: string
     interval?: IntervalType
-    bodyLines?: BodyLine[]
+    bodyLines?: BodyLine[] // bodyLines is in here for its similarity to LineChart's built-in tooltips, but children is easier to use in other React components
     inspectUsersLabel?: boolean
     children?: React.ReactNode
 }

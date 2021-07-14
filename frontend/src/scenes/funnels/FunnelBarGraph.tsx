@@ -343,11 +343,11 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                             onBarClick={() => openPersonsModal(step, i + 1, step.breakdown_value)}
                                             layout={layout}
                                             popoverTitle={
-                                                <span>
+                                                <div style={{ wordWrap: 'break-word' }}>
                                                     <PropertyKeyInfo value={step.name} />
                                                     {' • '}
                                                     {breakdown.breakdown}
-                                                </span>
+                                                </div>
                                             }
                                             popoverMetrics={[
                                                 {

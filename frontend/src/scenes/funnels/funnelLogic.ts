@@ -31,10 +31,10 @@ function aggregateBreakdownResult({ result: breakdownList, ...apiResponse }: Fun
         result = breakdownList[0].map((step, i) => ({
             ...step,
             breakdown_value: step.breakdown as any,
-            count: breakdownList.reduce((total, breakdownSteps) => (total += breakdownSteps[i].count), 0),
+            count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
             breakdown: breakdownList.reduce((allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]], []),
             average_conversion_time: null, // TODO API needs to return a weighted average.
-            people: [],
+            people: [], // We could concatenate and de-dupe the UUIDs from breakdown values here, but it would be more performant to do it on backend
         }))
     }
     return {
@@ -157,7 +157,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                             : {}),
                     }
 
-                    let result
+                    let result // Tricky: pollFunnel would ideally return a FunnelResult or FunnelResultWithBreakdown based on whether its input params include breakdown
 
                     const queryId = uuid()
                     insightLogic.actions.startQuery(queryId)
