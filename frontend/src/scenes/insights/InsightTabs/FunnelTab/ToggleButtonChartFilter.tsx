@@ -25,7 +25,7 @@ export function ToggleButtonChartFilter({
         {
             value: ChartDisplayType.FunnelViz,
             label: <Tooltip title="Track users' progress between steps of the funnel">Conversion steps</Tooltip>,
-            visible: clickhouseFeatures,
+            visible: true,
         },
         {
             value: ChartDisplayType.FunnelsTimeToConvert,
@@ -35,7 +35,7 @@ export function ToggleButtonChartFilter({
         {
             value: ChartDisplayType.ActionsLineGraphLinear,
             label: <Tooltip title="Track how this funnel's conversion rate is trending over time">Historical</Tooltip>,
-            visible: clickhouseFeatures,
+            visible: true,
         },
     ]
 
