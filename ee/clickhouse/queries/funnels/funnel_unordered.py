@@ -1,4 +1,6 @@
-from typing import List, Union
+from typing import List
+
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
@@ -26,6 +28,10 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     def get_query(self):
 
         max_steps = len(self._filter.entities)
+
+        for exclusion in self._filter.exclusions:
+            if exclusion.funnel_from_step != 0 or exclusion.funnel_to_step != max_steps - 1:
+                raise ValidationError("Partial Exclusions not allowed in unordered funnels")
 
         breakdown_clause = self._get_breakdown_prop()
 
@@ -59,6 +65,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         partition_select = self._get_partition_cols(1, max_steps)
         sorting_condition = self.get_sorting_condition(max_steps)
         breakdown_clause = self._get_breakdown_prop()
+        exclusion_clause = self._get_exclusion_condition()
 
         for i in range(max_steps):
             inner_query = f"""
@@ -71,9 +78,11 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             """
 
             formatted_query = f"""
-                SELECT *, {sorting_condition} AS steps {self._get_step_times(max_steps)} FROM (
+                SELECT *, {sorting_condition} AS steps {exclusion_clause} {self._get_step_times(max_steps)} FROM (
                         {inner_query}
-                    ) WHERE step_0 = 1"""
+                    ) WHERE step_0 = 1
+                    {'AND exclusion = 0' if exclusion_clause else ''}
+                    """
 
             #  rotate entities by 1 to get new first event
             entities_to_use.append(entities_to_use.pop(0))
