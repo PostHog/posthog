@@ -145,8 +145,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         ]
         return summary
 
-    @staticmethod
-    def _format_results(summary):
+    def _format_results(self, summary):
         count = len(summary)
         data = []
         days = []
@@ -154,7 +153,13 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
 
         for row in summary:
             data.append(row["conversion_rate"])
-            days.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
+            days.append(
+                row["timestamp"].strftime(
+                    "%Y-%m-%d{}".format(
+                        " %H:%M:%S" if self._filter.interval == "hour" or self._filter.interval == "minute" else ""
+                    )
+                )
+            )
             labels.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
 
         return [{"count": count, "data": data, "days": days, "labels": labels,}]

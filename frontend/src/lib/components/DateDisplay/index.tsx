@@ -1,4 +1,4 @@
-import dayjs, { Dayjs } from 'dayjs'
+import dayjs from 'dayjs'
 import React from 'react'
 import { IntervalType } from '~/types'
 import './DateDisplay.scss'
@@ -34,15 +34,11 @@ const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string 
     }
 }
 
-const checkDateYear = (date: Dayjs): Dayjs => {
-    return date.get('year') === 2001 ? date.set('year', dayjs().year()) : date
-}
-
 /* Returns a single line standardized component to display the date depending on context.
     For example, a single date in a graph will be shown as: `Th` Apr 22.
 */
 export function DateDisplay({ date, interval, hideWeekRange }: DateDisplayProps): JSX.Element {
-    const parsedDate = checkDateYear(dayjs(date))
+    const parsedDate = dayjs(date)
 
     return (
         <>
