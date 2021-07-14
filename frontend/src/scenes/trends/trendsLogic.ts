@@ -262,6 +262,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             next,
         }),
         setFirstLoadedPeople: (firstLoadedPeople: TrendPeople | null) => ({ firstLoadedPeople }),
+        setPeopleLoading: (loading: boolean) => ({ loading }),
     }),
 
     reducers: ({ props }) => ({
@@ -306,6 +307,12 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             {
                 loadPeople: () => true,
                 setShowingPeople: ({}, { isShowing }) => isShowing,
+            },
+        ],
+        peopleLoading: [
+            false,
+            {
+                setPeopleLoading: (_, { loading }) => loading,
             },
         ],
         indexedResults: [
@@ -457,6 +464,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             { label, action, date_from, date_to, breakdown_value, saveOriginal, searchTerm, funnelStep },
             breakpoint
         ) => {
+            actions.setPeopleLoading(true)
             let people = []
             const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
             if (values.filters.insight === ViewType.LIFECYCLE) {
@@ -496,6 +504,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 breakdown_value,
                 people.next
             )
+            actions.setPeopleLoading(false)
             if (saveOriginal) {
                 actions.saveFirstLoadedPeople(
                     people.results[0]?.people,

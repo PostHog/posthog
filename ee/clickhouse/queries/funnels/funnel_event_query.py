@@ -1,6 +1,9 @@
 from typing import Any, Dict, Tuple
 
+from django.conf import settings
+
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.settings import CLICKHOUSE_DENORMALIZED_PROPERTIES
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 
@@ -11,13 +14,21 @@ class FunnelEventQuery(ClickhouseEventQuery):
             f"{self.EVENT_TABLE_ALIAS}.event as event, {self.EVENT_TABLE_ALIAS}.team_id as team_id, {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id, {self.EVENT_TABLE_ALIAS}.timestamp as timestamp, {self.EVENT_TABLE_ALIAS}.properties as properties, {self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
             + (f", {self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons else "")
+            + (
+                " ".join(
+                    [
+                        f", {self.EVENT_TABLE_ALIAS}.properties_{prop} as properties_{prop}"
+                        for prop in settings.CLICKHOUSE_DENORMALIZED_PROPERTIES
+                    ]
+                )
+            )
         )
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
         prop_filters = self._filter.properties
-        prop_query, prop_params = self._get_props(prop_filters)
+        prop_query, prop_params = self._get_props(prop_filters, allow_denormalized_props=True)
         self.params.update(prop_params)
 
         if skip_entity_filter:

@@ -4,9 +4,8 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import INSIGHT_FUNNELS, TRENDS_FUNNEL
-from posthog.models import Filter
-from posthog.models.filters.mixins.funnel import FunnelWindowDaysMixin
+from posthog.constants import INSIGHT_FUNNELS
+from posthog.models import Cohort, Filter
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
@@ -226,3 +225,23 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             filter.with_data({"funnel_step_breakdown": "Safari, Chrome"}), self.team
         )._exec_query()
         self.assertCountEqual([val[0] for val in results], [person2.uuid, person1.uuid])
+
+    def test_funnel_cohort_breakdown_persons(self):
+        person = _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
+        _create_event(
+            team=self.team, event="sign up", distinct_id=f"person1", properties={}, timestamp="2020-01-02T12:00:00Z",
+        )
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", groups=[{"properties": {"key": "value"}}])
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "funnel_step": 1,
+            "breakdown_type": "cohort",
+            "breakdown": [cohort.pk],
+        }
+        filter = Filter(data=filters)
+        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        self.assertEqual(results[0][0], person.uuid)

@@ -26,7 +26,7 @@ def _create_event(**kwargs):
 class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def test_auto_bin_count(self):
+    def test_auto_bin_count_single_step(self):
         _create_person(distinct_ids=["user a"], team=self.team)
         _create_person(distinct_ids=["user b"], team=self.team)
         _create_person(distinct_ids=["user c"], team=self.team)
@@ -50,6 +50,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "date_from": "2021-06-07 00:00:00",
                 "date_to": "2021-06-13 23:59:59",
+                "funnel_from_step": 0,
                 "funnel_to_step": 1,
                 "funnel_window_days": 7,
                 "events": [
@@ -74,7 +75,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def test_custom_bin_count(self):
+    def test_custom_bin_count_single_step(self):
         _create_person(distinct_ids=["user a"], team=self.team)
         _create_person(distinct_ids=["user b"], team=self.team)
         _create_person(distinct_ids=["user c"], team=self.team)
@@ -98,6 +99,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "date_from": "2021-06-07 00:00:00",
                 "date_to": "2021-06-13 23:59:59",
+                "funnel_from_step": 0,
                 "funnel_to_step": 1,
                 "funnel_window_days": 7,
                 "bin_count": 7,
@@ -127,6 +129,52 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_auto_bin_count_total(self):
+        _create_person(distinct_ids=["user a"], team=self.team)
+        _create_person(distinct_ids=["user b"], team=self.team)
+        _create_person(distinct_ids=["user c"], team=self.team)
+
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
+        _create_event(event="step two", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
+        _create_event(event="step three", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
+        # Converted from 0 to 2 in 10_800 s
+
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
+        _create_event(event="step two", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
+
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
+        _create_event(event="step two", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
+
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "interval": "day",
+                "date_from": "2021-06-07 00:00:00",
+                "date_to": "2021-06-13 23:59:59",
+                "funnel_from_step": 0,
+                "funnel_to_step": 2,
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+
+        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnel)
+        results = funnel_trends.run()
+
+        self.assertEqual(
+            results,
+            [
+                (10800.0, 1),  # Reached step 2 from step 0 in at least 10_800 s but less than 10_860 s - user A
+                (10860.0, 0),  # Analogous to above, just an interval (in this case 60 s) up - no users
+                (10920.0, 0),  # And so on
+                (10980.0, 0),
+            ],
+        )
+
     def test_basic_unordered(self):
         _create_person(distinct_ids=["user a"], team=self.team)
         _create_person(distinct_ids=["user b"], team=self.team)
@@ -149,6 +197,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "date_from": "2021-06-07 00:00:00",
                 "date_to": "2021-06-13 23:59:59",
+                "funnel_from_step": 0,
                 "funnel_to_step": 1,
                 "funnel_window_days": 7,
                 "events": [
@@ -202,6 +251,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "date_from": "2021-06-07 00:00:00",
                 "date_to": "2021-06-13 23:59:59",
+                "funnel_from_step": 0,
                 "funnel_to_step": 1,
                 "funnel_window_days": 7,
                 "events": [
