@@ -145,37 +145,49 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
         values: [actionsModel, ['actions']],
     },
 
-    loaders: ({ values, props }) => ({
+    loaders: ({ cache, values, props }) => ({
         _results: {
             __default: {} as TrendResponse,
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return { result: props.cachedResults } as TrendResponse
                 }
+
+                // If a query is in progress, debounce for 500ms before making the second query
+                if (cache.abortController) {
+                    await breakpoint(500)
+                    cache.abortController.abort()
+                }
+                cache.abortController = new AbortController()
+
                 const queryId = uuid()
                 insightLogic.actions.startQuery(queryId)
+
                 let response
                 try {
                     if (values.filters?.insight === ViewType.SESSIONS || values.filters?.session) {
                         response = await api.get(
                             'api/insight/session/?' +
                                 (refresh ? 'refresh=true&' : '') +
-                                toAPIParams(filterClientSideParams(values.filters))
+                                toAPIParams(filterClientSideParams(values.filters)),
+                            cache.abortController.signal
                         )
                     } else {
                         response = await api.get(
                             'api/insight/trend/?' +
                                 (refresh ? 'refresh=true&' : '') +
-                                toAPIParams(filterClientSideParams(values.filters))
+                                toAPIParams(filterClientSideParams(values.filters)),
+                            cache.abortController.signal
                         )
                     }
                 } catch (e) {
-                    console.error(e)
                     breakpoint()
+                    cache.abortController = null
                     insightLogic.actions.endQuery(queryId, values.filters.insight || ViewType.TRENDS, null, e)
                     return []
                 }
                 breakpoint()
+                cache.abortController = null
                 insightLogic.actions.endQuery(queryId, values.filters.insight || ViewType.TRENDS, response.last_refresh)
 
                 return response
@@ -346,12 +358,15 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
         },
     }),
 
-    events: ({ actions, props }) => ({
+    events: ({ actions, cache, props }) => ({
         afterMount: () => {
             if (props.dashboardItemId) {
                 // loadResults gets called in urlToAction for non-dashboard insights
                 actions.loadResults()
             }
+        },
+        beforeUnmount: () => {
+            cache.abortController?.abort()
         },
     }),
 
