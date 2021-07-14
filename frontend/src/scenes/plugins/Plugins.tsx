@@ -5,7 +5,7 @@ import { RepositoryTab } from 'scenes/plugins/tabs/repository/RepositoryTab'
 import { InstalledTab } from 'scenes/plugins/tabs/installed/InstalledTab'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from './pluginsLogic'
-import { Tag, Tabs } from 'antd'
+import { Tabs } from 'antd'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
@@ -30,16 +30,7 @@ export function Plugins({ user }: { user: UserType }): JSX.Element | null {
     return (
         <div className="plugins-scene">
             <PageHeader
-                title={
-                    <>
-                        Plugins
-                        <sup>
-                            <Tag color="orange" style={{ marginLeft: 8 }}>
-                                BETA
-                            </Tag>
-                        </sup>
-                    </>
-                }
+                title="Plugins"
                 caption={
                     <>
                         Plugins enable you to extend PostHog's core data processing functionality.

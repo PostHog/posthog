@@ -472,7 +472,6 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
 }
-
 export interface PluginType {
     id: number
     plugin_type: PluginInstallationType
@@ -488,6 +487,7 @@ export interface PluginType {
     organization_id: string
     organization_name: string
     metrics?: Record<string, StoredMetricMathOperations>
+    capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
 }
 
 export interface PluginConfigType {
