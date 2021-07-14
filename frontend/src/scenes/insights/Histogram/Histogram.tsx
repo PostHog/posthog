@@ -1,6 +1,6 @@
 import React from 'react'
 import * as d3 from 'd3'
-import { D3Selector, useD3, getOrCreateEl } from 'lib/hooks/useD3'
+import { D3Selector, useD3, getOrCreateEl, animate, D3Transition } from 'lib/hooks/useD3'
 import { FunnelLayout } from 'lib/constants'
 import { getChartColors } from 'lib/colors'
 import { getConfig, createRoundedRectPath } from './histogramUtils'
@@ -8,7 +8,7 @@ import { getConfig, createRoundedRectPath } from './histogramUtils'
 import './Histogram.scss'
 import { humanFriendlyDuration } from 'lib/utils'
 
-interface HistogramDatum {
+export interface HistogramDatum {
     id: string | number
     bin0: number
     bin1: number
@@ -19,9 +19,15 @@ interface HistogramProps {
     data: HistogramDatum[]
     layout?: FunnelLayout
     color?: string
+    isAnimated?: boolean
 }
 
-export function Histogram({ data, layout = FunnelLayout.vertical, color = 'white' }: HistogramProps): JSX.Element {
+export function Histogram({
+    data,
+    layout = FunnelLayout.vertical,
+    color = 'white',
+    isAnimated = false,
+}: HistogramProps): JSX.Element {
     const colorList = getChartColors(color)
 
     // Initial dimensions
@@ -71,7 +77,7 @@ export function Histogram({ data, layout = FunnelLayout.vertical, color = 'white
                         .append('svg:svg')
                         .attr('viewBox', `0 0 ${config.width} ${config.height}`)
                         .append('svg:g')
-                        .classed(isVertical ? FunnelLayout.vertical : FunnelLayout.horizontal, true)
+                        .classed(layout, true)
                 )
 
                 // if class doesn't exist on svg>g, layout has changed. after we learn this, reset
@@ -84,75 +90,73 @@ export function Histogram({ data, layout = FunnelLayout.vertical, color = 'white
                     _svg.selectAll('#x-axis,#y-axis,#y-gridlines').remove()
                 }
 
+                // bars
                 _svg.attr('fill', colorList[0])
                     .selectAll('path')
                     .data(data)
                     .join('path')
-                    .transition()
-                    .duration(config.transitionDuration)
-                    .attr('d', (d) => {
-                        if (isVertical) {
+                    .call(animate, config.transitionDuration, isAnimated, (it: D3Transition) => {
+                        return it.attr('d', (d: HistogramDatum) => {
+                            if (isVertical) {
+                                return createRoundedRectPath(
+                                    x(d.bin0) + config.spacing.btwnBins / 2,
+                                    y(d.count),
+                                    Math.max(0, x(d.bin1) - x(d.bin0) - config.spacing.btwnBins),
+                                    y(0) - y(d.count),
+                                    config.borderRadius,
+                                    'top'
+                                )
+                            }
+                            // is horizontal
                             return createRoundedRectPath(
+                                y(0),
                                 x(d.bin0) + config.spacing.btwnBins / 2,
-                                y(d.count),
+                                y(d.count) - y(0),
                                 Math.max(0, x(d.bin1) - x(d.bin0) - config.spacing.btwnBins),
-                                y(0) - y(d.count),
                                 config.borderRadius,
-                                'top'
+                                'right'
                             )
-                        }
-                        // is horizontal
-                        return createRoundedRectPath(
-                            y(0),
-                            x(d.bin0) + config.spacing.btwnBins / 2,
-                            y(d.count) - y(0),
-                            Math.max(0, x(d.bin1) - x(d.bin0) - config.spacing.btwnBins),
-                            config.borderRadius,
-                            'right'
-                        )
+                        })
                     })
 
                 // x-axis
                 const _xAxis = getOrCreateEl(_svg, 'g#x-axis', () =>
                     _svg.append('svg:g').attr('id', 'x-axis').attr('transform', config.transforms.x)
                 )
-                _xAxis
-                    .transition()
-                    .duration(() => (!layoutChanged ? config.transitionDuration : 0))
-                    .call(xAxis)
-                    .attr('transform', config.transforms.x)
+                _xAxis.call(animate, !layoutChanged ? config.transitionDuration : 0, isAnimated, (it: D3Transition) =>
+                    it.call(xAxis).attr('transform', config.transforms.x)
+                )
 
                 // y-axis
                 const _yAxis = getOrCreateEl(_svg, 'g#y-axis', () =>
                     _svg.append('svg:g').attr('id', 'y-axis').attr('transform', config.transforms.y)
                 )
-                _yAxis
-                    .transition()
-                    .duration(() => (!layoutChanged ? config.transitionDuration : 0))
-                    .call(yAxis)
-                    .attr('transform', config.transforms.y)
-                    .call((g) =>
-                        g
-                            .selectAll('.tick text')
-                            // .attr('x', 13)
-                            .attr('dy', `-${config.spacing.yLabel}`)
-                    )
+                _yAxis.call(animate, !layoutChanged ? config.transitionDuration : 0, isAnimated, (it: D3Transition) =>
+                    it
+                        .call(yAxis)
+                        .attr('transform', config.transforms.y)
+                        .call((g) => g.selectAll('.tick text').attr('dy', `-${config.spacing.yLabel}`))
+                )
 
                 // y-gridlines
                 const _yGridlines = getOrCreateEl(_svg, 'g#y-gridlines', () =>
                     _svg.append('svg:g').attr('id', 'y-gridlines').attr('transform', config.transforms.yGrid)
                 )
-                _yGridlines
-                    .transition()
-                    .duration(() => (!layoutChanged ? config.transitionDuration : 0))
-                    .call(yAxisGrid)
-                    .call((g) =>
-                        g
-                            .selectAll('.tick:not(:first-of-type) line')
-                            .attr('stroke-opacity', 0.5)
-                            .attr('stroke-dasharray', '2,2')
-                    )
-                    .attr('transform', config.transforms.yGrid)
+                _yGridlines.call(
+                    animate,
+                    !layoutChanged ? config.transitionDuration : 0,
+                    isAnimated,
+                    (it: D3Transition) =>
+                        it
+                            .call(yAxisGrid)
+                            .call((g) =>
+                                g
+                                    .selectAll('.tick:not(:first-of-type) line')
+                                    .attr('stroke-opacity', 0.5)
+                                    .attr('stroke-dasharray', '2,2')
+                            )
+                            .attr('transform', config.transforms.yGrid)
+                )
 
                 return _svg
             }
