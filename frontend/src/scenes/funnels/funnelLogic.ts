@@ -29,6 +29,7 @@ function wait(ms = 1000): Promise<any> {
         setTimeout(resolve, ms)
     })
 }
+
 const SECONDS_TO_POLL = 3 * 60
 
 interface TimeStepOption {
@@ -107,7 +108,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
 
     loaders: ({ props, values, actions }) => ({
         results: [
-            [],
+            [] as FunnelStep[],
             {
                 loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[] | number[]> => {
                     actions.setStepsWithCountLoading(true)
