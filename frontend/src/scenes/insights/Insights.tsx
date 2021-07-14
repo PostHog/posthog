@@ -432,8 +432,6 @@ export function Insights(): JSX.Element {
 function FunnelInsight(): JSX.Element {
     const { stepsWithCount, isValidFunnel, stepsWithCountLoading, timeConversionBins } = useValues(funnelLogic({}))
     const { autoCalculate } = useValues(funnelLogic())
-    // const fluidHeight = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display === FUNNEL_VIZ
-    // const funnelHistogram = display === FUNNELS_TIME_TO_CONVERT
 
     return (
         <div>

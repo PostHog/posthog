@@ -296,15 +296,12 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                 featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL] && preflight?.is_clickhouse_enabled,
         ],
         histogramGraphData: [
-            () => [selectors.timeConversionBins, selectors.isGroupingOutliers],
-            (timeConversionBins, isGroupingOutliers) => {
+            () => [selectors.timeConversionBins],
+            (timeConversionBins) => {
                 if (timeConversionBins.length < 2) {
                     return []
                 }
-                console.log('grouping outliers', isGroupingOutliers)
                 const binSize = timeConversionBins[1][0] - timeConversionBins[0][0]
-                // const time = timeConversionBins.map((bin: number[]) => humanFriendlyDuration(`${bin[0]}`))
-                // const personsAmount = timeConversionBins.map((bin: number[]) => bin[1])
                 return timeConversionBins.map(([id, count]: [id: number, count: number]) => {
                     const value = Math.max(0, id)
                     return {

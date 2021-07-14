@@ -61,13 +61,7 @@ export function FunnelHeaderActions(): JSX.Element {
 }
 
 export function FunnelHistogram(): JSX.Element {
-    const { resultsLoading, histogramGraphData, histogramStepsDropdown, barGraphLayout } = useValues(funnelLogic)
-    // const dataset = [
-    //     { data: histogramGraphData.personsAmount, labels: histogramGraphData.time, label: 'Time to convert' },
-    // ]
-    //
-    console.log('loading', resultsLoading, histogramGraphData, histogramStepsDropdown)
-
+    const { histogramGraphData, barGraphLayout } = useValues(funnelLogic)
     return (
         <>
             <Histogram data={histogramGraphData} layout={barGraphLayout} />

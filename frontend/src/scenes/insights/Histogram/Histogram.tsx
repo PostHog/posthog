@@ -28,8 +28,6 @@ export function Histogram({ data, layout = FunnelLayout.vertical, color = 'white
     const isVertical = layout === FunnelLayout.vertical
     const config = getConfig(isVertical)
 
-    console.log('CONFIG', config)
-
     const ref = useD3(
         (container) => {
             // x-axis scale
