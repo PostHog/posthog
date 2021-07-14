@@ -48,7 +48,7 @@ export function SessionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
                 />
             </Col>
             <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
-                <h4 className="secondary">Global Filters</h4>
+                <h4 className="secondary">Filters</h4>
                 {filtersLoading ? (
                     <Skeleton active paragraph={{ rows: 1 }} />
                 ) : (

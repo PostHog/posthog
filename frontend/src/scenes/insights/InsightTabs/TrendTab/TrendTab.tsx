@@ -84,7 +84,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     {filters.insight === ViewType.LIFECYCLE && (
                         <>
-                            <h4 className="secondary">Global Filters</h4>
+                            <h4 className="secondary">Filters</h4>
                             <TestAccountFilter filters={filters} onChange={setFilters} />
                             <hr />
                             <h4 className="secondary">Lifecycle Toggles</h4>
@@ -115,7 +115,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                     )}
                     {filters.insight !== ViewType.LIFECYCLE && (
                         <>
-                            <h4 className="secondary">Global Filters</h4>
+                            <h4 className="secondary">Filters</h4>
                             {filtersLoading ? (
                                 <Skeleton active paragraph={{ rows: 2 }} />
                             ) : (
