@@ -412,7 +412,10 @@
 
          See https://clickhouse.yandex/docs/en/table_engines/replication/#creating-replicated-tables
       -->
-    <macros incl="macros" optional="true" />
+    <macros>
+        <shard>01</shard>
+        <replica>ch1</replica> 
+    </macros>
 
 
     <!-- Reloading interval for embedded dictionaries, in seconds. Default: 3600. -->
