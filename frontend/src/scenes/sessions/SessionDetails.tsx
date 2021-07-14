@@ -62,13 +62,6 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
                 return <span>{lastEvent ? humanFriendlyDiff(lastEvent.timestamp, timestamp) : 0}</span>
             },
         },
-        {
-            title: 'Order',
-            render: function RenderOrder(_: Event, __: any, index: number) {
-                const realIndex = (page - 1) * pageSize + index
-                return <span>{realIndex + 1}</span>
-            },
-        },
     ]
     return (
         <Table
