@@ -393,11 +393,7 @@ export function Insights(): JSX.Element {
                                 !showErrorMessage &&
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
-                                allFilters.display === FUNNEL_VIZ && (
-                                    <Card style={{ marginTop: 8 }}>
-                                        <FunnelPeople />
-                                    </Card>
-                                )}
+                                allFilters.display === FUNNEL_VIZ && <FunnelPeople />}
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&
                                     allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
@@ -460,9 +456,13 @@ function FunnelInsight(): JSX.Element {
 }
 
 function FunnelPeople(): JSX.Element {
-    const { stepsWithCount } = useValues(funnelLogic())
-    if (stepsWithCount && stepsWithCount.length > 0) {
-        return <People />
+    const { stepsWithCount, areFiltersValid } = useValues(funnelLogic())
+    if (areFiltersValid && stepsWithCount && stepsWithCount.length > 0) {
+        return (
+            <Card style={{ marginTop: 8 }}>
+                <People />
+            </Card>
+        )
     }
     return <></>
 }

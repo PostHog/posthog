@@ -340,6 +340,12 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     ? calcPercentage(stepsWithCount[stepsWithCount.length - 1].count, stepsWithCount[0].count)
                     : 0,
         ],
+        areFiltersValid: [
+            () => [selectors.filters],
+            (filters) => {
+                return (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
