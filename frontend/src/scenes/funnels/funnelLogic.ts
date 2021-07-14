@@ -23,6 +23,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { calcPercentage } from './funnelUtils'
 
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
@@ -310,6 +311,13 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                 })
                 return stepsDropdown
             },
+        ],
+        totalConversionRate: [
+            () => [selectors.stepsWithCount],
+            (stepsWithCount) =>
+                stepsWithCount.length > 1
+                    ? calcPercentage(stepsWithCount[stepsWithCount.length - 1].count, stepsWithCount[0].count)
+                    : 0,
         ],
     }),
 

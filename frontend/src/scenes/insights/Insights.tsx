@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
-import { humanFriendlyDuration, isMobile, Loading } from 'lib/utils'
+import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
@@ -46,6 +46,7 @@ import { PersonModal } from 'scenes/trends/PersonModal'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -79,7 +80,6 @@ export function Insights(): JSX.Element {
     const { refreshCohort, saveCohortWithFilters } = useActions(trendsLogicLoaded)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
-    const { stepsWithCount, histogramStep } = useValues(funnelLogic())
 
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
@@ -341,19 +341,12 @@ export function Insights(): JSX.Element {
                             >
                                 <div>
                                     <Row style={{ justifyContent: 'space-between', marginTop: -8, marginBottom: 16 }}>
-                                        {allFilters.display === FUNNELS_TIME_TO_CONVERT && (
-                                            <div>
-                                                Average time:{' '}
-                                                <span className="l4" style={{ color: 'var(--primary)' }}>
-                                                    {humanFriendlyDuration(
-                                                        stepsWithCount[histogramStep]?.average_conversion_time
-                                                    )}
-                                                </span>
-                                            </div>
-                                        )}
-                                        {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
+                                        <FunnelCanvasLabel />
+                                        {/* lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) */}
+                                        {true && (
                                             <div className="text-muted-alt" style={{ marginLeft: 'auto' }}>
-                                                Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
+                                                Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}{' '}
+                                                &bull;
                                                 <Button
                                                     size="small"
                                                     type="link"
