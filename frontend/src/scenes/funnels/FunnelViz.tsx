@@ -9,7 +9,7 @@ import { LineGraph } from 'scenes/insights/LineGraph'
 import { FunnelBarGraph } from './FunnelBarGraph'
 import { router } from 'kea-router'
 import { IllustrationDanger } from 'lib/components/icons'
-import { InputNumber } from 'antd'
+import { InputNumber, Row } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ActionFilter, ChartDisplayType, ChartParams, FunnelStep } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -120,7 +120,7 @@ export function FunnelViz({
         }
         return steps && steps.length > 0 && steps[0].labels ? (
             <>
-                <div style={{ position: 'absolute', marginTop: -20, textAlign: 'center', width: '90%' }}>
+                <Row style={{ marginTop: -16, justifyContent: 'center' }}>
                     {preflight?.is_clickhouse_enabled && (
                         <>
                             converted within&nbsp;
@@ -135,7 +135,7 @@ export function FunnelViz({
                         </>
                     )}
                     % converted from first to last step
-                </div>
+                </Row>
                 <LineGraph
                     data-attr="trend-line-graph-funnel"
                     type="line"
