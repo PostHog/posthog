@@ -33,16 +33,16 @@ class FunnelFromToStepsMixin(BaseParamMixin):
 
     @cached_property
     def funnel_to_step(self) -> Optional[int]:
-        if self._data.get(FUNNEL_TO_STEP):
+        if self._data.get(FUNNEL_TO_STEP) is not None:
             return int(self._data[FUNNEL_TO_STEP])
         return None
 
     @include_dict
     def funnel_from_to_steps_to_dict(self):
         dict_part = {}
-        if self.funnel_from_step:
+        if self.funnel_from_step is not None:
             dict_part[FUNNEL_FROM_STEP] = self.funnel_from_step
-        if self.funnel_to_step:
+        if self.funnel_to_step is not None:
             dict_part[FUNNEL_TO_STEP] = self.funnel_to_step
         return dict_part
 
