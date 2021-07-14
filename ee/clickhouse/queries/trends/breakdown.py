@@ -6,7 +6,11 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.breakdown_props import get_breakdown_event_prop_values, get_breakdown_person_prop_values
+from ee.clickhouse.queries.breakdown_props import (
+    format_breakdown_cohort_join_query,
+    get_breakdown_event_prop_values,
+    get_breakdown_person_prop_values,
+)
 from ee.clickhouse.queries.trends.util import (
     enumerate_time_range,
     get_active_user_params,
@@ -182,7 +186,7 @@ class ClickhouseTrendsBreakdown:
             return breakdown_query, params, self._parse_trend_result(filter, entity)
 
     def _breakdown_cohort_params(self, team_id: int, filter: Filter, entity: Entity):
-        cohort_queries, cohort_ids, cohort_params = self._format_breakdown_cohort_join_query(team_id, filter, entity)
+        cohort_queries, cohort_ids, cohort_params = format_breakdown_cohort_join_query(team_id, filter, entity=entity)
         params = {"values": cohort_ids, **cohort_params}
         breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL
         breakdown_filter_params = {"cohort_queries": cohort_queries}
@@ -289,46 +293,3 @@ class ClickhouseTrendsBreakdown:
             top_elements_array = []
 
         return top_elements_array
-
-    def _format_all_query(self, team_id: int, filter: Filter, entity: Entity) -> Tuple[str, Dict]:
-        parsed_date_from, parsed_date_to, date_params = parse_timestamps(
-            filter=filter, team_id=team_id, table="all_events."
-        )
-
-        props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            props_to_filter, team_id, prepend="all_cohort_", table_name="all_events"
-        )
-        query = """
-            SELECT DISTINCT distinct_id, 0 as value
-            FROM events all_events
-            WHERE team_id = {} {} {} {}
-            """.format(
-            team_id, parsed_date_from, parsed_date_to, prop_filters
-        )
-        return query, {**date_params, **prop_filter_params}
-
-    def _format_breakdown_cohort_join_query(
-        self, team_id: int, filter: Filter, entity: Entity
-    ) -> Tuple[str, List, Dict]:
-        cohorts = Cohort.objects.filter(team_id=team_id, pk__in=[b for b in filter.breakdown if b != "all"])
-        cohort_queries, params = self._parse_breakdown_cohorts(cohorts)
-        ids = [cohort.pk for cohort in cohorts]
-        if "all" in filter.breakdown:
-            all_query, all_params = self._format_all_query(team_id, filter, entity)
-            cohort_queries.append(all_query)
-            params = {**params, **all_params}
-            ids.append(0)
-        return " UNION ALL ".join(cohort_queries), ids, params
-
-    def _parse_breakdown_cohorts(self, cohorts: BaseManager) -> Tuple[List[str], Dict]:
-        queries = []
-        params: Dict[str, Any] = {}
-        for idx, cohort in enumerate(cohorts):
-            person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
-            params = {**params, **cohort_filter_params}
-            cohort_query = person_id_query.replace(
-                "SELECT distinct_id", "SELECT distinct_id, {} as value".format(cohort.pk)
-            )
-            queries.append(cohort_query)
-        return queries, params
