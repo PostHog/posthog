@@ -709,7 +709,7 @@ export interface FunnelsTimeConversionResult {
 export interface ChartParams {
     dashboardItemId?: number
     color?: string
-    filters?: Partial<FilterType>
+    filters: Partial<FilterType>
     inSharedMode?: boolean
     cachedResults?: TrendResult
     view: ViewType

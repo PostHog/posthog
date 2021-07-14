@@ -1,27 +1,17 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { autocorrectInterval, errorToast, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
-import { toParams } from 'lib/utils'
+import { autocorrectInterval, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
-import {
-    ACTIONS_LINE_GRAPH_CUMULATIVE,
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_TABLE,
-    EVENT_TYPE,
-    ACTION_TYPE,
-    ShownAsValue,
-} from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, ShownAsValue } from 'lib/constants'
 import { ViewType, insightLogic, defaultFilterTestAccounts, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import { ActionFilter, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes, PathType } from '~/types'
-import { cohortLogic } from 'scenes/persons/cohortLogic'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { cleanFunnelParams, funnelLogic } from 'scenes/funnels/funnelLogic'
 interface TrendResponse {
     result: TrendResult[]
     next?: string
@@ -146,7 +136,7 @@ function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: stri
 // props:
 // - dashboardItemId
 // - filters
-export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, TrendResponse>>({
+export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse>>({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
@@ -196,73 +186,12 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
-        loadPeople: (
-            action: ActionFilter | 'session', // todo, refactor this session string param out
-            label: string,
-            date_from: string | number,
-            date_to: string | number,
-            breakdown_value?: string,
-            saveOriginal?: boolean,
-            searchTerm?: string,
-            funnelStep?: number
-        ) => ({
-            action,
-            label,
-            date_from,
-            date_to,
-            breakdown_value,
-            saveOriginal,
-            searchTerm,
-            funnelStep,
-        }),
-        saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
-        loadMorePeople: true,
-        refreshCohort: true,
-        setLoadingMorePeople: (status) => ({ status }),
-        setShowingPeople: (isShowing) => ({ isShowing }),
-        setPeople: (
-            people: PersonType[],
-            count: number,
-            action: ActionFilter | 'session',
-            label: string,
-            day: string | number,
-            breakdown_value?: string,
-            next?: string
-        ) => ({
-            people,
-            count,
-            action,
-            label,
-            day,
-            breakdown_value,
-            next,
-        }),
         setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
         toggleVisibility: (index: number) => ({ index }),
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
-        setPersonsModalFilters: (searchTerm: string, people: TrendPeople) => ({ searchTerm, people }),
-        saveFirstLoadedPeople: (
-            people: PersonType[],
-            count: number,
-            action: ActionFilter | 'session',
-            label: string,
-            day: string | number,
-            breakdown_value?: string,
-            next?: string
-        ) => ({
-            people,
-            count,
-            action,
-            label,
-            day,
-            breakdown_value,
-            next,
-        }),
-        setFirstLoadedPeople: (firstLoadedPeople: TrendPeople | null) => ({ firstLoadedPeople }),
-        setPeopleLoading: (loading: boolean) => ({ loading }),
     }),
 
     reducers: ({ props }) => ({
@@ -280,39 +209,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                         ...filters,
                     })
                 },
-            },
-        ],
-        people: [
-            null as TrendPeople | null,
-            {
-                setFilters: () => null,
-                setPeople: (_, people) => people,
-                setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
-            },
-        ],
-        firstLoadedPeople: [
-            null as TrendPeople | null,
-            {
-                saveFirstLoadedPeople: (_, people) => people,
-            },
-        ],
-        loadingMorePeople: [
-            false,
-            {
-                setLoadingMorePeople: (_, { status }) => status,
-            },
-        ],
-        showingPeople: [
-            false,
-            {
-                loadPeople: () => true,
-                setShowingPeople: ({}, { isShowing }) => isShowing,
-            },
-        ],
-        peopleLoading: [
-            false,
-            {
-                setPeopleLoading: (_, { loading }) => loading,
             },
         ],
         indexedResults: [
@@ -376,42 +272,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
         loadMoreBreakdownUrl: [(selectors) => [selectors._results], (response) => response.next],
-        sessionsPageParams: [
-            (selectors) => [selectors.filters, selectors.people],
-            (filters, people) => {
-                if (!people) {
-                    return {}
-                }
-
-                const { action, day, breakdown_value } = people
-                const properties = [...(filters.properties || []), ...(action !== 'session' ? action.properties : [])]
-                if (filters.breakdown && filters.breakdown_type && breakdown_value) {
-                    properties.push({
-                        key: filters.breakdown,
-                        value: breakdown_value,
-                        type: filters.breakdown_type,
-                        operator: null,
-                    })
-                }
-
-                const eventProperties = properties.filter(({ type }) => type === 'event')
-                const personProperties = properties.filter(({ type }) => type === 'person' || type === 'cohort')
-
-                return {
-                    date: day,
-                    filters: [
-                        {
-                            type: action !== 'session' && action.type === 'actions' ? ACTION_TYPE : EVENT_TYPE,
-                            key: 'id',
-                            value: action !== 'session' && action['id'],
-                            properties: eventProperties,
-                            label: action !== 'session' && action.name,
-                        },
-                        ...personProperties,
-                    ],
-                }
-            },
-        ],
         numberOfSeries: [
             (selectors) => [selectors.filters],
             (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
@@ -427,113 +287,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
                 .filter((result) => values.toggledLifecycles.includes(String(result.status)))
                 .map((result, idx) => ({ ...result, id: idx }))
             actions.setIndexedResults(toggledResults)
-        },
-        refreshCohort: () => {
-            cohortLogic({
-                cohort: {
-                    id: 'new',
-                    groups: [],
-                },
-            }).actions.setCohort({
-                id: 'new',
-                groups: [],
-            })
-        },
-        saveCohortWithFilters: ({ cohortName }) => {
-            if (values.people) {
-                const { label, action, day, breakdown_value } = values.people
-                const filterParams = parsePeopleParams(
-                    { label, action, date_from: day, date_to: day, breakdown_value },
-                    values.filters
-                )
-                const cohortParams = {
-                    is_static: true,
-                    name: cohortName,
-                }
-                cohortLogic({
-                    cohort: {
-                        id: 'new',
-                        groups: [],
-                    },
-                }).actions.saveCohort(cohortParams, filterParams)
-            } else {
-                errorToast(undefined, "We couldn't create your cohort:")
-            }
-        },
-        loadPeople: async (
-            { label, action, date_from, date_to, breakdown_value, saveOriginal, searchTerm, funnelStep },
-            breakpoint
-        ) => {
-            actions.setPeopleLoading(true)
-            let people = []
-            const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
-            if (values.filters.insight === ViewType.LIFECYCLE) {
-                const filterParams = parsePeopleParams(
-                    { label, action, target_date: date_from, lifecycle_type: breakdown_value },
-                    values.filters
-                )
-                actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
-                people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
-            } else if (values.filters.insight === ViewType.STICKINESS) {
-                const filterParams = parsePeopleParams(
-                    { label, action, date_from, date_to, breakdown_value },
-                    values.filters
-                )
-                actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
-                people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
-            } else if (funnelStep) {
-                const params = { ...funnelLogic().values.filters, funnel_step: funnelStep }
-                const cleanedParams = cleanFunnelParams(params)
-                const funnelParams = toParams(cleanedParams)
-                people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
-            } else {
-                const filterParams = parsePeopleParams(
-                    { label, action, date_from, date_to, breakdown_value },
-                    values.filters
-                )
-                actions.setPeople([], 0, action, label, date_from, breakdown_value, '')
-                people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)
-            }
-            breakpoint()
-            actions.setPeople(
-                people.results[0]?.people,
-                people.results[0]?.count || 0,
-                action,
-                label,
-                date_from,
-                breakdown_value,
-                people.next
-            )
-            actions.setPeopleLoading(false)
-            if (saveOriginal) {
-                actions.saveFirstLoadedPeople(
-                    people.results[0]?.people,
-                    people.results[0]?.count || 0,
-                    action,
-                    label,
-                    date_from,
-                    breakdown_value,
-                    people.next
-                )
-            }
-        },
-        loadMorePeople: async ({}, breakpoint) => {
-            if (values.people) {
-                const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
-                actions.setLoadingMorePeople(true)
-                const people = await api.get(next)
-                actions.setLoadingMorePeople(false)
-                breakpoint()
-                actions.setPeople(
-                    [...currPeople, ...people.results[0]?.people],
-                    count + people.results[0]?.count,
-                    action,
-                    label,
-                    day,
-                    breakdown_value,
-                    people.next
-                )
-            }
         },
         setFilters: async () => {
             insightLogic.actions.setAllFilters(values.filters)
@@ -590,12 +343,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendPeople, 
             if (!objectsEqual(values.filters, mergedFilter)) {
                 actions.setFilters(mergedFilter, true)
             }
-        },
-        setPersonsModalFilters: async ({ searchTerm, people }) => {
-            const { label, action, day, breakdown_value } = people
-            const date_from = day
-            const date_to = day
-            actions.loadPeople(action, label, date_from, date_to, breakdown_value, false, searchTerm)
         },
     }),
 
