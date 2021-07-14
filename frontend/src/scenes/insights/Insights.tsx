@@ -6,13 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import {
-    FUNNEL_VIZ,
-    ACTIONS_TABLE,
-    ACTIONS_BAR_CHART_VALUE,
-    FEATURE_FLAGS,
-    FUNNELS_TIME_TO_CONVERT,
-} from 'lib/constants'
+import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -47,7 +41,7 @@ import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
-import { FunnelHeaderActions } from 'scenes/funnels/FunnelHistogram'
+import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -350,7 +344,7 @@ export function Insights(): JSX.Element {
                                         }}
                                     >
                                         <FunnelCanvasLabel />
-                                        {allFilters.display === FUNNELS_TIME_TO_CONVERT && <FunnelHeaderActions />}
+                                        <FunnelHistogramHeader />
                                         {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
                                             <div className="text-muted-alt">
                                                 Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}{' '}
