@@ -25,17 +25,12 @@ interface Props {
 export function TrendInsight({ view }: Props): JSX.Element {
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
-    const {
-        filters: _filters,
-        showingPeople,
-        loadMoreBreakdownUrl,
-        breakdownValuesLoading,
-        resultsLoading,
-    } = useValues(trendsLogic({ dashboardItemId: null, view, filters: null }))
-    const { saveCohortWithFilters, refreshCohort, loadMoreBreakdownValues } = useActions(
+    const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading, resultsLoading } = useValues(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
-
+    const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, view, filters: null }))
+    const { showingPeople } = useValues(personsModalLogic)
+    const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
     const renderViz = (): JSX.Element | undefined => {
         if (
             !_filters.display ||
@@ -43,7 +38,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
             _filters.display === ACTIONS_BAR_CHART
         ) {
-            return <ActionsLineGraph view={view} />
+            return <ActionsLineGraph filters={_filters} view={view} />
         }
         if (_filters.display === ACTIONS_TABLE) {
             if (view === ViewType.SESSIONS && _filters.session === 'dist') {
@@ -103,6 +98,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             <PersonModal
                 visible={showingPeople && !cohortModalVisible}
                 view={view}
+                filters={_filters}
                 onSaveCohort={() => {
                     refreshCohort()
                     setCohortModalVisible(true)
@@ -111,7 +107,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             <SaveCohortModal
                 visible={cohortModalVisible}
                 onOk={(title: string) => {
-                    saveCohortWithFilters(title)
+                    saveCohortWithFilters(title, _filters)
                     setCohortModalVisible(false)
                 }}
                 onCancel={() => setCohortModalVisible(false)}
