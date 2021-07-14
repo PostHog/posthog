@@ -31,6 +31,8 @@ export function Histogram({
     const colorList = getChartColors(color)
     const isEmpty = data.length === 0 || d3.sum(data.map((d) => d.count)) === 0
 
+    // TODO: All D3 state outside of useD3 hook will be moved into separate kea histogramLogic
+
     const isVertical = layout === FunnelLayout.vertical
     const config = getConfig(isVertical)
 
@@ -124,6 +126,7 @@ export function Histogram({
                     it.call(xAxis).attr('transform', config.transforms.x)
                 )
 
+                // Don't draw y-axis or y-gridline if the data is empty
                 if (!isEmpty) {
                     // y-axis
                     const _yAxis = getOrCreateEl(_svg, 'g#y-axis', () =>
