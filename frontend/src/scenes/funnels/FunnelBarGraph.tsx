@@ -12,11 +12,7 @@ import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
 import { FunnelBarLayout } from 'lib/constants'
-import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
-
-function calcPercentage(numerator: number, denominator: number): number {
-    return (numerator / denominator) * 100 || 0
-}
+import { calcPercentage, getReferenceStep, humanizeStepCount } from './funnelUtils'
 
 function humanizeOrder(order: number): number {
     return order + 1
@@ -202,25 +198,6 @@ function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeIns
     )
 }
 
-function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepReference, index?: number): FunnelStep {
-    // Step to serve as denominator of percentage calculations.
-    // step[0] is full-funnel conversion, previous is relative.
-    if (!index || index <= 0) {
-        return steps[0]
-    }
-    switch (stepReference) {
-        case FunnelStepReference.previous:
-            return steps[index - 1]
-        case FunnelStepReference.total:
-        default:
-            return steps[0]
-    }
-}
-
-function humanizeStepCount(count: number): string {
-    return count > 9999 ? humanizeNumber(count, 2) : count.toLocaleString()
-}
-
 export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
     const { stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(funnelLogic)
     const { openPersonsModal } = useActions(funnelLogic)
@@ -246,8 +223,12 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                 <PropertyKeyInfo value={step.name} />
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${layout}`}>
-                                {step.average_time >= 0 + Number.EPSILON ? (
-                                    <AverageTimeInspector onClick={() => {}} averageTime={step.average_time} disabled />
+                                {step.average_conversion_time >= 0 + Number.EPSILON ? (
+                                    <AverageTimeInspector
+                                        onClick={() => {}}
+                                        averageTime={step.average_conversion_time}
+                                        disabled
+                                    />
                                 ) : null}
                             </div>
                         </header>

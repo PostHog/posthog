@@ -15,7 +15,7 @@ SELECT groupArray(value) FROM (
                     SELECT
                         id,
                         arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
-                        arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
+                        arrayMap(k -> trim(BOTH '\"' FROM k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
                     FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s {person_prop_filters}
                 )
                 ARRAY JOIN array_property_keys, array_property_values

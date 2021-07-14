@@ -23,14 +23,16 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     Here, `step_i` (0 indexed) signifies the number of people that did at least `i+1` steps.
     """
 
-    def get_query(self, format_properties):
+    def get_query(self):
 
         max_steps = len(self._filter.entities)
 
+        breakdown_clause = self._get_breakdown_prop()
+
         return f"""
-        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} FROM (
+        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
             {self.get_step_counts_query()}
-        ) SETTINGS allow_experimental_window_functions = 1
+        ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
 
     def get_step_counts_query(self):
@@ -38,13 +40,14 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         max_steps = len(self._filter.entities)
 
         union_query = self.get_step_counts_without_aggregation_query()
+        breakdown_clause = self._get_breakdown_prop()
 
         return f"""
-            SELECT person_id, steps {self._get_step_time_avgs(max_steps)} FROM (
-                SELECT person_id, steps, max(steps) over (PARTITION BY person_id) as max_steps {self._get_step_time_names(max_steps)} FROM (
+            SELECT person_id, steps {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
+                SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} FROM (
                         {union_query}
                 )
-            ) GROUP BY person_id, steps
+            ) GROUP BY person_id, steps {breakdown_clause}
             HAVING steps = max_steps
         """
 
@@ -55,6 +58,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
         partition_select = self._get_partition_cols(1, max_steps)
         sorting_condition = self.get_sorting_condition(max_steps)
+        breakdown_clause = self._get_breakdown_prop()
 
         for i in range(max_steps):
             inner_query = f"""
@@ -62,6 +66,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
                 person_id,
                 timestamp,
                 {partition_select}
+                {breakdown_clause}
                 FROM ({self._get_inner_event_query(entities_to_use, f"events_{i}")})
             """
 
@@ -114,25 +119,3 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             return f"arraySum([{','.join(basic_conditions)}, 1])"
         else:
             return "1"
-
-    # TODO: copied from funnel.py. Once the new funnel query replaces old one, the base format_results function can use this
-    def _format_results(self, results):
-        # Format of this is [step order, person count (that reached that step), array of person uuids]
-        steps = []
-        total_people = 0
-
-        for step in reversed(self._filter.entities):
-
-            if results[0] and len(results[0]) > 0:
-                total_people += results[0][step.order]
-
-            serialized_result = self._serialize_step(step, total_people, [])
-            if step.order > 0:
-                serialized_result.update(
-                    {"average_conversion_time": results[0][step.order + len(self._filter.entities) - 1]}
-                )
-            else:
-                serialized_result.update({"average_conversion_time": None})
-            steps.append(serialized_result)
-
-        return steps[::-1]  #  reverse

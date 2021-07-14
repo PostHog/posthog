@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -7,7 +7,11 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.breakdown_props import get_breakdown_event_prop_values, get_breakdown_person_prop_values
+from ee.clickhouse.queries.breakdown_props import (
+    format_breakdown_cohort_join_query,
+    get_breakdown_event_prop_values,
+    get_breakdown_person_prop_values,
+)
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
@@ -43,60 +47,56 @@ class ClickhouseFunnelBase(ABC, Funnel):
         results = self._exec_query()
         return self._format_results(results)
 
-    def _format_results(self, results):
+    def _format_single_funnel(self, results, with_breakdown=False):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
-        relevant_people = []
         total_people = 0
 
         for step in reversed(self._filter.entities):
-            # Clickhouse step order starts at one, hence the +1
-            result_step = [x for x in results if step.order + 1 == x[0]]
-            if len(result_step) > 0:
-                total_people += result_step[0][1]
-                relevant_people += result_step[0][2]
-            steps.append(self._serialize_step(step, total_people, relevant_people[0:100]))
+
+            if results and len(results) > 0:
+                total_people += results[step.order]
+
+            serialized_result = self._serialize_step(step, total_people, [])
+            if step.order > 0:
+                serialized_result.update(
+                    {"average_conversion_time": results[step.order + len(self._filter.entities) - 1]}
+                )
+            else:
+                serialized_result.update({"average_conversion_time": None})
+
+            if with_breakdown:
+                serialized_result.update({"breakdown": results[-1]})
+                # important to not try and modify this value any how - as these are keys for fetching persons
+
+            steps.append(serialized_result)
 
         return steps[::-1]  #  reverse
 
+    def _format_results(self, results):
+        if not results or len(results) == 0:
+            return []
+
+        if self._filter.breakdown:
+            return [self._format_single_funnel(res, with_breakdown=True) for res in results]
+        else:
+            return self._format_single_funnel(results[0])
+
     def _exec_query(self) -> List[Tuple]:
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            self._filter.properties,
-            self._team.pk,
-            prepend="global",
-            allow_denormalized_props=True,
-            filter_test_accounts=self._filter.filter_test_accounts,
-        )
 
         # format default dates
-        data = {}
+        data: Dict[str, Any] = {}
         if not self._filter._date_from:
             data.update({"date_from": relative_date_parse("-7d")})
         if not self._filter._date_to:
             data.update({"date_to": timezone.now()})
+
+        if self._filter.breakdown and not self._filter.breakdown_type:
+            data.update({"breakdown_type": "event"})
+
         self._filter = self._filter.with_data(data)
 
-        parsed_date_from, parsed_date_to, _ = parse_timestamps(
-            filter=self._filter, table="events.", team_id=self._team.pk
-        )
-        self.params.update(prop_filter_params)
-        steps = [self._build_step_query(entity, index, "events") for index, entity in enumerate(self._filter.entities)]
-
-        format_properties = {
-            "team_id": self._team.id,
-            "steps": ", ".join(steps),
-            "filters": prop_filters.replace("uuid IN", "events.uuid IN", 1),
-            "parsed_date_from": parsed_date_from,
-            "parsed_date_to": parsed_date_to,
-            "top_level_groupby": "",
-            "extra_select": "",
-            "extra_groupby": "",
-            "within_time": FunnelWindowDaysMixin.microseconds_from_days(self._filter.funnel_window_days),
-            "latest_distinct_id_sql": GET_LATEST_PERSON_DISTINCT_ID_SQL,
-            "offset": self._filter.offset,
-        }
-
-        query = self.get_query(format_properties)
+        query = self.get_query()
 
         return sync_execute(query, self.params)
 
@@ -121,7 +121,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 if i > 0 and self._filter.entities[i].equals(self._filter.entities[i - 1]):
                     duplicate_event = 1
                 cols.append(
-                    f"min(latest_{i}) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
+                    f"min(latest_{i}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
         return ", ".join(cols)
 
@@ -169,13 +169,22 @@ class ClickhouseFunnelBase(ABC, Funnel):
         steps = ", ".join(all_step_cols)
 
         select_prop = self._get_breakdown_select_prop()
-        breakdown_conditions = self._get_breakdown_conditions()
-        extra_conditions = "AND prop != ''" if select_prop else ""
-        extra_conditions += f"AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
+        breakdown_conditions = ""
+        extra_conditions = ""
+        extra_join = ""
+
+        if self._filter.breakdown:
+            if self._filter.breakdown_type == "cohort":
+                extra_join = self._get_cohort_breakdown_join()
+            else:
+                breakdown_conditions = self._get_breakdown_conditions()
+                extra_conditions = "AND prop != ''" if select_prop else ""
+                extra_conditions += f"AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
 
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
             event_query=event_query,
+            extra_join=extra_join,
             steps_condition=steps_conditions,
             select_prop=select_prop,
             extra_conditions=extra_conditions,
@@ -200,7 +209,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
     def _build_step_query(self, entity: Entity, index: int, entity_name: str) -> str:
         filters = self._build_filters(entity, index)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = Action.objects.get(pk=entity.id)
+            action = entity.get_action()
             for action_step in action.steps.all():
                 self.params[entity_name].append(action_step.event)
             action_query, action_params = format_action_filter(action, "{}_step_{}".format(entity_name, index))
@@ -232,12 +241,24 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if step_num is None:
             raise ValueError("funnel_step should not be none")
 
+        conditions = []
         if step_num >= 0:
             self.params.update({"step_num": [i for i in range(step_num, max_steps + 1)]})
-            return "steps IN %(step_num)s"
+            conditions.append("steps IN %(step_num)s")
         else:
             self.params.update({"step_num": abs(step_num) - 1})
-            return "steps = %(step_num)s"
+            conditions.append("steps = %(step_num)s")
+
+        if self._filter.funnel_step_breakdown:
+            prop_vals = (
+                [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]
+                if isinstance(self._filter.funnel_step_breakdown, str)
+                else [self._filter.funnel_step_breakdown]
+            )
+            self.params.update({"breakdown_prop_value": prop_vals})
+            conditions.append("prop IN %(breakdown_prop_value)s")
+
+        return " AND ".join(conditions)
 
     def _get_count_columns(self, max_steps: int):
         cols: List[str] = []
@@ -256,7 +277,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return f", {formatted}" if formatted else ""
 
     @abstractmethod
-    def get_query(self, format_properties):
+    def get_query(self):
         pass
 
     def get_step_counts_query(self):
@@ -269,11 +290,23 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return f", JSONExtractRaw(person_props, %(breakdown)s) as prop"
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
             elif self._filter.breakdown_type == "event":
-                return f", JSONExtractRaw(properties, %(breakdown)s) as prop"
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
+            elif self._filter.breakdown_type == "cohort":
+                return ", value as prop"
 
         return ""
+
+    def _get_cohort_breakdown_join(self) -> str:
+        cohort_queries, _, cohort_params = format_breakdown_cohort_join_query(self._team.pk, self._filter)
+        self.params.update(cohort_params)
+        return f"""
+            INNER JOIN (
+                {cohort_queries}
+            ) cohort_join
+            ON events.distinct_id = cohort_join.distinct_id
+        """
 
     def _get_breakdown_conditions(self) -> str:
         if self._filter.breakdown:
@@ -283,9 +316,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 ValidationError("An entity with order 0 was not provided")
             values = []
             if self._filter.breakdown_type == "person":
-                values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, 5)
+                values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
             elif self._filter.breakdown_type == "event":
-                values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, 5)
+                values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
             self.params.update({"breakdown_values": values})
 
             return "prop IN %(breakdown_values)s"

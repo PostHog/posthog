@@ -1,19 +1,25 @@
 from typing import Type
 
+from rest_framework.exceptions import ValidationError
+
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
+from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from posthog.constants import FUNNEL_TO_STEP
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
 
 class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
-    def __init__(self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase]) -> None:
+    def __init__(
+        self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
+    ) -> None:
         super().__init__(filter, team)
         self.funnel_order = funnel_order_class(filter, team)
 
     def _format_results(self, results: list) -> list:
         return results
 
-    def get_query(self, format_properties) -> str:
+    def get_query(self) -> str:
         steps_per_person_query = self.funnel_order.get_step_counts_query()
         self.params.update(self.funnel_order.params)
         # expects 1 person per row, whatever their max step is, and the step conversion times for this person
@@ -40,8 +46,8 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             """
 
         if not (0 < to_step < len(self._filter.entities)):
-            raise ValueError(
-                f'Filter parameter funnel_to_step can only be one of {", ".join(map(str, range(1, len(self._filter.entities))))} for time to convert!'
+            raise ValidationError(
+                f'Filter parameter {FUNNEL_TO_STEP} can only be one of {", ".join(map(str, range(1, len(self._filter.entities))))} for time to convert!'
             )
 
         query = f"""
