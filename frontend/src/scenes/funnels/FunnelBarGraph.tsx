@@ -213,9 +213,7 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
                             <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
-                            <SeriesGlyph style={{ backgroundColor: '#fff', zIndex: 2 }}>
-                                {humanizeOrder(step.order)}
-                            </SeriesGlyph>
+                            <SeriesGlyph>{humanizeOrder(step.order)}</SeriesGlyph>
                             <div className={`funnel-series-linebox ${showLineAfter ? 'after' : ''}`} />
                         </div>
                         <header>
@@ -244,7 +242,7 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                 <div className="center-flex">
                                     <ValueInspectorButton
                                         onClick={() => openPersonsModal(step, i + 1)}
-                                        disabled={!funnelPersonsEnabled && false}
+                                        disabled={!funnelPersonsEnabled}
                                     >
                                         <span className="value-inspector-button-icon">
                                             <ArrowRightOutlined style={{ color: 'var(--success)' }} />
