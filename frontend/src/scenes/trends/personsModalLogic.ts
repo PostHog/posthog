@@ -38,6 +38,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         saveFirstLoadedPeople: (people: TrendPeople) => ({ people }),
         setFirstLoadedPeople: (firstLoadedPeople: TrendPeople | null) => ({ firstLoadedPeople }),
         refreshCohort: true,
+        setPeopleLoading: (loading: boolean) => ({ loading }),
     }),
     reducers: () => ({
         searchTerm: [
@@ -58,6 +59,12 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 setFilters: () => null,
                 setPeople: (_, { people }) => people,
                 setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
+            },
+        ],
+        peopleLoading: [
+            false,
+            {
+                setPeopleLoading: (_, { loading }) => loading,
             },
         ],
         firstLoadedPeople: [
