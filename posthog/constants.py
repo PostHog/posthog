@@ -93,6 +93,8 @@ FUNNEL_STEP_BREAKDOWN = "funnel_step_breakdown"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 BIN_COUNT = "bin_count"
+ENTRANCE_PERIOD_START = "entrance_period_start"
+DROP_OFF = "drop_off"
 
 
 class FunnelOrderType(str, Enum):

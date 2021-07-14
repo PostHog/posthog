@@ -1,7 +1,10 @@
 from typing import Type
 
+from rest_framework.exceptions import ValidationError
+
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from posthog.constants import FUNNEL_TO_STEP
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
@@ -43,8 +46,8 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             """
 
         if not (0 < to_step < len(self._filter.entities)):
-            raise ValueError(
-                f'Filter parameter funnel_to_step can only be one of {", ".join(map(str, range(1, len(self._filter.entities))))} for time to convert!'
+            raise ValidationError(
+                f'Filter parameter {FUNNEL_TO_STEP} can only be one of {", ".join(map(str, range(1, len(self._filter.entities))))} for time to convert!'
             )
 
         query = f"""
