@@ -1,5 +1,7 @@
+import dayjs from 'dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
+import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { errorToast, toParams } from 'lib/utils'
 import { cleanFunnelParams, funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -146,8 +148,20 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 const filterParams = parsePeopleParams({ label, action, date_from, date_to, breakdown_value }, filters)
                 actions.setPeople(tempPeople)
                 people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
-            } else if (funnelStep) {
-                const params = { ...funnelLogic().values.filters, funnel_step: funnelStep }
+            } else if (funnelStep || filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
+                let params
+                if (filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
+                    // funnel trends
+                    const convertedDate = dayjs(date_from)
+                    const entrance_period_start =
+                        convertedDate.get('year') === 2001
+                            ? convertedDate.set('year', dayjs().year()).format('YYYY-MM-DD')
+                            : convertedDate.format('YYYY-MM-DD')
+                    params = { ...funnelLogic().values.filters, entrance_period_start, drop_off: false }
+                } else {
+                    // regular funnel steps
+                    params = { ...funnelLogic().values.filters, funnel_step: funnelStep }
+                }
                 const cleanedParams = cleanFunnelParams(params)
                 const funnelParams = toParams(cleanedParams)
                 people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)

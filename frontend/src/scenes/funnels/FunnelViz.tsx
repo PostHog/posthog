@@ -11,9 +11,10 @@ import { router } from 'kea-router'
 import { IllustrationDanger } from 'lib/components/icons'
 import { InputNumber } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { ChartDisplayType, ChartParams, FunnelStep } from '~/types'
+import { ActionFilter, ChartDisplayType, ChartParams, FunnelStep } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelHistogram } from './FunnelHistogram'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 interface FunnelVizProps extends Omit<ChartParams, 'view'> {
     steps: FunnelStep[]
@@ -34,6 +35,7 @@ export function FunnelViz({
     const logic = funnelLogic({ dashboardItemId, cachedResults, filters: defaultFilters })
     const { results: stepsResult, resultsLoading: funnelLoading, filters, conversionWindowInDays } = useValues(logic)
     const { loadResults: loadFunnel, loadConversionWindow } = useActions(logic)
+    const { loadPeople } = useActions(personsModalLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -144,6 +146,22 @@ export function FunnelViz({
                     dashboardItemId={dashboardItemId || fromItem}
                     inSharedMode={inSharedMode}
                     percentage={true}
+                    onClick={
+                        dashboardItemId
+                            ? null
+                            : (point) => {
+                                  const { dataset, day } = point
+                                  loadPeople({
+                                      action: {} as ActionFilter,
+                                      label: point.label,
+                                      date_from: day,
+                                      date_to: day,
+                                      filters: filters,
+                                      breakdown_value: dataset.breakdown_value || dataset.status,
+                                      saveOriginal: true,
+                                  })
+                              }
+                    }
                 />
             </>
         ) : null

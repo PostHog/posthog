@@ -606,6 +606,8 @@ export interface FilterType {
     funnel_step?: number
     funnel_viz_type?: string // this and the below param is used for funnels time to convert, it'll be updated soon
     funnel_to_step?: number
+    entrance_period_start?: string
+    drop_off?: boolean
 }
 
 export interface SystemStatusSubrows {
