@@ -1,9 +1,9 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
-import { TrendPeople, parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
+import { TrendPeople, parsePeopleParams } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
-import { Modal, Button, Spin, Input, Row, Col } from 'antd'
+import { Modal, Button, Spin, Input, Row, Col, Skeleton } from 'antd'
 import { deepLinkToPersonSessions } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
@@ -34,19 +34,19 @@ const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterTyp
 interface Props {
     visible: boolean
     view: ViewType
+    filters: Partial<FilterType>
     onSaveCohort: () => void
 }
 
-export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element {
-    const { people, filters, loadingMorePeople, firstLoadedPeople } = useValues(
-        trendsLogic({ dashboardItemId: null, view })
-    )
-    const { setPersonsModalFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
-    const { setShowingPeople, loadMorePeople, setFirstLoadedPeople } = useActions(
-        trendsLogic({ dashboardItemId: null, view })
-    )
-    const { searchTerm } = useValues(personsModalLogic)
-    const { setSearchTerm } = useActions(personsModalLogic)
+export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JSX.Element {
+    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, peopleLoading } = useValues(personsModalLogic)
+    const {
+        setShowingPeople,
+        loadMorePeople,
+        setFirstLoadedPeople,
+        setPersonsModalFilters,
+        setSearchTerm,
+    } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const title =
         filters.shown_as === 'Stickiness'
@@ -80,7 +80,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                     </Button>
                                 </div>
                             )}
-                        {people && (
+                        {!peopleLoading && people && (
                             <>
                                 <Button
                                     icon={<DownloadOutlined />}
@@ -108,7 +108,12 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
             bodyStyle={{ padding: 0, maxHeight: 500, overflowY: 'scroll' }}
             className="person-modal"
         >
-            {people ? (
+            {peopleLoading && (
+                <div style={{ padding: 16 }}>
+                    <Skeleton active />
+                </div>
+            )}
+            {!peopleLoading && people && (
                 <>
                     <div
                         style={{
@@ -142,7 +147,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                     value={searchTerm}
                                     onSearch={(term) =>
                                         term
-                                            ? setPersonsModalFilters(term, people)
+                                            ? setPersonsModalFilters(term, people, filters)
                                             : setFirstLoadedPeople(firstLoadedPeople)
                                     }
                                 />
@@ -176,8 +181,6 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                         )}
                     </div>
                 </>
-            ) : (
-                <p>Loading users...</p>
             )}
         </Modal>
     )

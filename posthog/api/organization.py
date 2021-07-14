@@ -226,7 +226,7 @@ class OrganizationSignupSerializer(serializers.Serializer):
     def enable_new_onboarding(self, user: Optional[User] = None) -> bool:
         if user is None:
             user = self._user
-        return posthoganalytics.feature_enabled("new-onboarding-2822", user.distinct_id) or settings.DEBUG
+        return posthoganalytics.feature_enabled("new-onboarding-2822", user.distinct_id)  # or settings.DEBUG
 
 
 class OrganizationSocialSignupSerializer(serializers.Serializer):

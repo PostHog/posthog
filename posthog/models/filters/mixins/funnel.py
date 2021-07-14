@@ -1,11 +1,15 @@
-from typing import Optional
+import datetime
+from typing import Optional, Union
 
 from posthog.constants import (
     BIN_COUNT,
     DISPLAY,
+    DROP_OFF,
+    ENTRANCE_PERIOD_START,
     FUNNEL_FROM_STEP,
     FUNNEL_ORDER_TYPE,
     FUNNEL_STEP,
+    FUNNEL_STEP_BREAKDOWN,
     FUNNEL_TO_STEP,
     FUNNEL_VIZ_TYPE,
     FUNNEL_WINDOW_DAYS,
@@ -17,6 +21,7 @@ from posthog.constants import (
 )
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
+from posthog.utils import relative_date_parse, str_to_bool
 
 
 class FunnelFromToStepsMixin(BaseParamMixin):
@@ -66,7 +71,6 @@ class FunnelWindowDaysMixin(BaseParamMixin):
 
 
 class FunnelPersonsStepMixin(BaseParamMixin):
-
     # first step is 0
     # -1 means dropoff into step 1
     @cached_property
@@ -79,6 +83,16 @@ class FunnelPersonsStepMixin(BaseParamMixin):
     @include_dict
     def funnel_step_to_dict(self):
         return {FUNNEL_STEP: self.funnel_step} if self.funnel_step else {}
+
+
+class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
+    @cached_property
+    def funnel_step_breakdown(self) -> Optional[Union[str, int]]:
+        return self._data.get(FUNNEL_STEP_BREAKDOWN)
+
+    @include_dict
+    def funnel_step_to_dict(self):
+        return {FUNNEL_STEP_BREAKDOWN: self.funnel_step_breakdown} if self.funnel_step_breakdown else {}
 
 
 class FunnelTypeMixin(BaseParamMixin):
@@ -118,3 +132,24 @@ class HistogramMixin(BaseParamMixin):
     @include_dict
     def histogram_to_dict(self):
         return {"bin_count": self.bin_count} if self.bin_count else {}
+
+
+class FunnelTrendsPersonsMixin(BaseParamMixin):
+    @cached_property
+    def entrance_period_start(self) -> Optional[datetime.datetime]:
+        entrance_period_start_raw = self._data.get(ENTRANCE_PERIOD_START)
+        return relative_date_parse(entrance_period_start_raw) if entrance_period_start_raw else None
+
+    @cached_property
+    def drop_off(self) -> Optional[bool]:
+        drop_off_raw = self._data.get(DROP_OFF)
+        return str_to_bool(str(drop_off_raw)) if drop_off_raw is not None else None
+
+    @include_dict
+    def funnel_trends_persons_to_dict(self):
+        result_dict = {}
+        if self.entrance_period_start:
+            result_dict[ENTRANCE_PERIOD_START] = self.entrance_period_start.isoformat()
+        if self.drop_off is not None:
+            result_dict[DROP_OFF] = self.drop_off
+        return result_dict
