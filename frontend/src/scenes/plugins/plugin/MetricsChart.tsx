@@ -4,8 +4,7 @@ import { ActionsLineGraph } from 'scenes/trends/viz'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import './styles/metrics-drawer.scss'
 import { PluginTypeWithConfig } from '../types'
-import { ViewType } from 'scenes/insights/insightLogic'
-import { FilterType } from '~/types'
+import { FilterType, ViewType } from '~/types'
 
 const baseFilters = {
     insight: 'TRENDS',

@@ -6,7 +6,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART } from 'lib/constants'
 import { ChartParams } from '~/types'
-import { ViewType } from 'scenes/insights/insightLogic'
+import { ViewType } from '~/types'
 import { router } from 'kea-router'
 import { personsModalLogic } from '../personsModalLogic'
 

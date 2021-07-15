@@ -9,7 +9,6 @@ import {
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { Dayjs } from 'dayjs'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
@@ -563,9 +562,9 @@ export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `rem
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
-// NB! Keep InsightType and InsightViewType in sync!
+// NB! Keep InsightType and ViewType in sync!
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
-export enum InsightViewType {
+export enum ViewType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
     LIFECYCLE = 'LIFECYCLE',

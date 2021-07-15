@@ -2,10 +2,10 @@ import React from 'react'
 import { Select } from 'antd'
 import { intervalFilterLogic } from './intervalFilterLogic'
 import { useValues, useActions } from 'kea'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { disableHourFor, disableMinuteFor } from 'lib/utils'
 import { CalendarOutlined } from '@ant-design/icons'
 import { defaultInterval, IntervalKeyType, intervals } from 'lib/components/IntervalFilter/intervals'
+import { ViewType } from '~/types'
 
 interface InvertalFilterProps {
     view: ViewType

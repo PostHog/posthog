@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { autocorrectInterval, objectsEqual, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
@@ -16,6 +16,7 @@ import {
     FunnelsTimeConversionResult,
     PathType,
     PersonType,
+    ViewType,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'

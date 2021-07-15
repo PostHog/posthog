@@ -5,7 +5,7 @@ import { autocorrectInterval, objectsEqual, toParams as toAPIParams, uuid } from
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE, ShownAsValue } from 'lib/constants'
-import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS, ViewType } from '../insights/insightLogic'
+import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import {
     ActionFilter,
@@ -16,6 +16,7 @@ import {
     PersonType,
     PropertyFilter,
     TrendResult,
+    ViewType,
 } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'

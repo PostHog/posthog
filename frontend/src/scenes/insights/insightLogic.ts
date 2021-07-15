@@ -7,9 +7,8 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FilterType, InsightViewType as ViewType } from '~/types'
+import { FilterType, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
-export { InsightViewType as ViewType } from '~/types'
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
 
