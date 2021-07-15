@@ -39,6 +39,7 @@ export function LineGraph({
     percentage = false,
     interval = undefined,
     totalValue,
+    showPersonsModal = true,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -221,7 +222,7 @@ export function LineGraph({
             precision: 0,
         }
 
-        const inspectUsersLabel = !dashboardItemId && onClick
+        const inspectUsersLabel = !dashboardItemId && onClick && showPersonsModal
 
         const newUITooltipOptions = {
             enabled: false, // disable builtin tooltip (use custom markup)

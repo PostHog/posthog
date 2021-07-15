@@ -183,7 +183,7 @@ export function FunnelEmptyState(): JSX.Element {
                 <Button
                     size="large"
                     onClick={() => addFilter()}
-                    data-attr="add-action-event-button"
+                    data-attr="add-action-event-button-empty-state"
                     icon={<PlusCircleOutlined />}
                     className="add-action-event-button"
                 >

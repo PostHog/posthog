@@ -175,6 +175,35 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+        # check with no params
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "interval": "day",
+                "date_from": "2021-06-07 00:00:00",
+                "date_to": "2021-06-13 23:59:59",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+
+        funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnel)
+        results = funnel_trends.run()
+
+        self.assertEqual(
+            results,
+            [
+                (10800.0, 1),  # Reached step 2 from step 0 in at least 10_800 s but less than 10_860 s - user A
+                (10860.0, 0),  # Analogous to above, just an interval (in this case 60 s) up - no users
+                (10920.0, 0),  # And so on
+                (10980.0, 0),
+            ],
+        )
+
     def test_basic_unordered(self):
         _create_person(distinct_ids=["user a"], team=self.team)
         _create_person(distinct_ids=["user b"], team=self.team)
