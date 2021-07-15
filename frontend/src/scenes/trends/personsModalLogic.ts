@@ -151,11 +151,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 let params
                 if (filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
                     // funnel trends
-                    const convertedDate = dayjs(date_from)
-                    const entrance_period_start =
-                        convertedDate.get('year') === 2001
-                            ? convertedDate.set('year', dayjs().year()).format('YYYY-MM-DD')
-                            : convertedDate.format('YYYY-MM-DD')
+                    const entrance_period_start = dayjs(date_from).format('YYYY-MM-DD HH:mm:ss')
                     params = { ...funnelLogic().values.filters, entrance_period_start, drop_off: false }
                 } else {
                     // regular funnel steps
