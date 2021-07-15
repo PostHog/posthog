@@ -7,7 +7,7 @@ export function calcPercentage(numerator: number, denominator: number): number {
     return (numerator / denominator) * 100 || 0
 }
 
-export function getReferenceStep<T = FunnelStep>(steps: T[], stepReference: FunnelStepReference, index?: number): T {
+export function getReferenceStep<T>(steps: T[], stepReference: FunnelStepReference, index?: number): T {
     // Step to serve as denominator of percentage calculations.
     // step[0] is full-funnel conversion, previous is relative.
     if (!index || index <= 0) {

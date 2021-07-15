@@ -10,17 +10,12 @@ import { FunnelBarGraph } from './FunnelBarGraph'
 import { router } from 'kea-router'
 import { InputNumber } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { ChartDisplayType, ChartParams, FunnelStep } from '~/types'
+import { ChartDisplayType, ChartParams } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelHistogram } from './FunnelHistogram'
 import { FunnelEmptyState } from 'scenes/insights/EmptyStates'
 
 import './FunnelViz.scss'
-
-interface FunnelVizProps extends Omit<ChartParams, 'view'> {
-    steps: FunnelStep[]
-    timeConversionBins: number[]
-}
 
 export function FunnelViz({
     filters: defaultFilters,
@@ -33,6 +28,8 @@ export function FunnelViz({
     const logic = funnelLogic({ dashboardItemId, cachedResults, filters: defaultFilters })
     const {
         results: stepsResult,
+        steps,
+        timeConversionBins,
         resultsLoading: funnelLoading,
         filters,
         conversionWindowInDays,
@@ -102,12 +99,7 @@ export function FunnelViz({
     }, [steps])
 
     useEffect(() => {
-        setSteps(stepsParam)
-    }, [stepsParam])
-
-    useEffect(() => {
         if (stepsResult) {
-            setSteps(stepsResult)
             buildChart()
         }
     }, [stepsResult, funnelLoading])
@@ -159,7 +151,7 @@ export function FunnelViz({
     }
 
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
-        return steps && steps.length > 0 ? <FunnelBarGraph steps={steps} /> : null
+        return steps && steps.length > 0 ? <FunnelBarGraph /> : null
     }
 
     return !funnelLoading ? (

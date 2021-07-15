@@ -22,12 +22,7 @@ import {
     getSeriesPositionName,
     humanizeStepCount,
 } from './funnelUtils'
-import { FunnelStep } from '~/types'
-
-interface FunnelBarGraphProps {
-    layout?: FunnelLayout
-    steps: FunnelStep[]
-}
+import { FunnelStepWithNestedBreakdown } from '~/types'
 
 interface BarProps {
     percentage: number
@@ -278,10 +273,17 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
     )
 }
 
-export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
-    const { stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(funnelLogic)
+export function FunnelBarGraph(): JSX.Element {
+    const {
+        steps: simpleSteps,
+        stepsWithBreakdown,
+        stepReference,
+        barGraphLayout: layout,
+        funnelPersonsEnabled,
+        filters,
+    } = useValues(funnelLogic)
+    const steps = filters.breakdown ? stepsWithBreakdown : simpleSteps
     const { openPersonsModal } = useActions(funnelLogic)
-    const steps = [...stepsParam].sort((a, b) => a.order - b.order)
     const firstStep = getReferenceStep(steps, FunnelStepReference.total)
 
     return (
@@ -293,8 +295,11 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                 const dropoffCount = previousCount - step.count
                 const showLineBefore = layout === FunnelLayout.horizontal && i > 0
                 const showLineAfter = layout === FunnelLayout.vertical || i < steps.length - 1
-                const breakdownMaxIndex = getBreakdownMaxIndex(step.breakdown)
-                const breakdownSum = step.breakdown?.reduce((sum, item) => sum + item.count, 0)
+                const breakdownMaxIndex = getBreakdownMaxIndex(
+                    Array.isArray(step.breakdown) ? step.breakdown : undefined
+                )
+                const breakdownSum =
+                    (Array.isArray(step.breakdown) && step.breakdown?.reduce((sum, item) => sum + item.count, 0)) || 0
                 return (
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
@@ -318,10 +323,12 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                         </header>
                         <div className="funnel-inner-viz">
                             <div className="funnel-bar-wrapper">
-                                {step.breakdown?.length ? (
+                                {Array.isArray(step.breakdown) && step.breakdown?.length ? (
                                     step.breakdown.map((breakdown, index) => {
                                         const conversionRate = calcPercentage(breakdown.count, basisStep.count)
-                                        const _previousCount = previousStep?.breakdown?.[index]?.count ?? 0
+                                        const _previousCount =
+                                            (previousStep as FunnelStepWithNestedBreakdown)?.breakdown?.[index]
+                                                ?.count ?? 0
                                         const _dropoffCount = _previousCount - breakdown.count
                                         const conversionRateFromPrevious = calcPercentage(
                                             breakdown.count,

@@ -26,26 +26,19 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { calcPercentage } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
-// function aggregateBreakdownResult({
-//     result: breakdownList,
-//     ...apiResponse
-// }: FunnelResult<FunnelStep[][]>): FunnelResult<FunnelStepWithNestedBreakdown[]> {
-//     let result: FunnelStepWithNestedBreakdown[] = []
-//     if (breakdownList.length) {
-//         result = breakdownList[0].map((step, i) => ({
-//             ...step,
-//             breakdown_value: step.breakdown,
-//             count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
-//             breakdown: breakdownList.reduce((allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]], []),
-//             average_conversion_time: null,
-//             people: [],
-//         }))
-//     }
-//     return {
-//         ...apiResponse,
-//         result,
-//     }
-// }
+function aggregateBreakdownResult(breakdownList: FunnelStep[][]): FunnelStepWithNestedBreakdown[] {
+    if (breakdownList.length) {
+        return breakdownList[0].map((step, i) => ({
+            ...step,
+            breakdown_value: step.breakdown,
+            count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
+            breakdown: breakdownList.reduce((allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]], []),
+            average_conversion_time: null,
+            people: [],
+        }))
+    }
+    return []
+}
 
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
@@ -156,7 +149,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     const queryId = uuid()
                     insightLogic.actions.startQuery(queryId)
                     try {
-                        result = await pollFunnel(values.params)
+                        result = await pollFunnel<FunnelResult<FunnelStep[] | FunnelStep[][]>>(values.params)
                         eventUsageLogic.actions.reportFunnelCalculated(
                             values.eventCount,
                             values.actionCount,
@@ -177,6 +170,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     }
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
+                    actions.setStepsWithCountLoading(false)
                     return result.result
                 },
             },
@@ -194,10 +188,9 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             {
                 loadTimeConversionBins: async () => {
                     let binsResult: FunnelResult<[number, number][]>
-                    console.log({ f: values.filters, s: values.stepsWithCount })
                     if (values.filters.display === ChartDisplayType.FunnelsTimeToConvert) {
                         try {
-                            binsResult = await pollFunnel({
+                            binsResult = await pollFunnel<FunnelResult<[number, number][]>>({
                                 ...values.params,
                                 funnel_viz_type: 'time_to_convert',
                                 funnel_to_step: values.histogramStep,
@@ -387,6 +380,18 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         eventCount: [() => [selectors.params], (params) => params.events?.length || 0],
         actionCount: [() => [selectors.params], (params) => params.actions?.length || 0],
         interval: [() => [selectors.params], (params) => params.interval || ''],
+        steps: [
+            () => [selectors.results, selectors.stepsWithBreakdown],
+            (results, stepsWithBreakdown) =>
+                !!values.filters.breakdown
+                    ? stepsWithBreakdown
+                    : (results as FunnelStep[]).sort((a, b) => a.order - b.order),
+        ],
+        stepsWithCount: [() => [selectors.steps], (steps) => steps.filter((step) => step.count)],
+        stepsWithBreakdown: [
+            () => [selectors.results],
+            (results) => aggregateBreakdownResult(results as FunnelStep[][]).sort((a, b) => a.order - b.order),
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
