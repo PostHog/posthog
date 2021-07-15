@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.utils.timezone import now
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -127,7 +128,12 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif key == "action_id":
                 queryset = queryset.filter_by_action(Action.objects.get(pk=value))  # type: ignore
             elif key == "properties":
-                filter = Filter(data={"properties": json.loads(value)})
+                try:
+                    properties = json.loads(value)
+                except json.decoder.JSONDecodeError:
+                    raise ValidationError("Properties are unparsable!")
+
+                filter = Filter(data={"properties": properties})
                 queryset = queryset.filter(properties_to_Q(filter.properties, team_id=self.team_id))
         return queryset
 

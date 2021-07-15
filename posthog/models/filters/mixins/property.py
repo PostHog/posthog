@@ -1,6 +1,8 @@
 import json
 from typing import Any, List, Optional
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.constants import PROPERTIES
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
@@ -11,7 +13,15 @@ class PropertyMixin(BaseParamMixin):
     @cached_property
     def properties(self) -> List[Property]:
         _props = self._data.get(PROPERTIES)
-        loaded_props = json.loads(_props) if isinstance(_props, str) else _props
+
+        if isinstance(_props, str):
+            try:
+                loaded_props = json.loads(_props)
+            except json.decoder.JSONDecodeError:
+                raise ValidationError("Properties are unparsable!")
+        else:
+            loaded_props = _props
+
         return self._parse_properties(loaded_props)
 
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
