@@ -92,6 +92,7 @@ class ExclusionEntity(Entity, FunnelFromToStepsMixin):
 
     @property
     def sql_id(self):
+        # TODO: prevent SQL injection :(
         return self.id.replace(" ", "_") if isinstance(self.id, str) else self.id
 
     def to_dict(self) -> Dict[str, Any]:
