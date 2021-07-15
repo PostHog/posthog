@@ -291,6 +291,7 @@ def insight_test_factory(event_factory, person_factory):
             _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
             assert user.team is not None
             assert self.team is not None
+            assert self.user.team is not None
 
             self.assertNotEqual(user.team.id, self.team.id)
             self.client.force_login(self.user)
