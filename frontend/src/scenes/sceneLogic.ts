@@ -7,8 +7,6 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 import { afterLoginRedirect } from 'scenes/authentication/loginLogic'
 
@@ -271,12 +269,7 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
-                let redirect = redirects[path]
-
-                if (path === '/' && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
-                    redirect = '/home'
-                }
-
+                const redirect = redirects[path]
                 router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
@@ -310,7 +303,7 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
             const { user } = userLogic.values
             const { preflight } = preflightLogic.values
 
-            if (scene === Scene.Signup && preflight && !preflight.cloud && preflight.initiated) {
+            if (scene === Scene.Signup && preflight && !preflight.can_create_org) {
                 // If user is on an already initiated self-hosted instance, redirect away from signup
                 router.actions.replace('/login')
                 return

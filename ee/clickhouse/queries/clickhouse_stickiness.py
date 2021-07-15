@@ -45,7 +45,7 @@ class ClickhouseStickiness(Stickiness):
         params: Dict = {"team_id": team_id}
         params = {**params, **prop_filter_params, "num_intervals": filter.total_intervals}
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = Action.objects.get(pk=entity.id)
+            action = entity.get_action()
             action_query, action_params = format_action_filter(action)
             if action_query == "":
                 return {}
@@ -82,13 +82,9 @@ class ClickhouseStickiness(Stickiness):
 
 def _format_entity_filter(entity: Entity) -> Tuple[str, Dict]:
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        try:
-            action = Action.objects.get(pk=entity.id)
-            action_query, params = format_action_filter(action)
-            entity_filter = "AND {}".format(action_query)
-
-        except Action.DoesNotExist:
-            raise ValidationError("This action does not exist")
+        action = entity.get_action()
+        action_query, params = format_action_filter(action)
+        entity_filter = "AND {}".format(action_query)
     else:
         entity_filter = "AND event = %(event)s"
         params = {"event": entity.id}

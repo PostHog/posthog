@@ -106,10 +106,12 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
         try:
-            cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+            cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
         except Cohort.DoesNotExist:
             return False
         if is_precalculated_query(cohort):
+            return True
+        if cohort.is_static:
             return True
         for group in cohort.groups:
             if group.get("properties"):
@@ -199,9 +201,9 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         is_precalculated = is_precalculated_query(cohort)
 
         person_id_query, cohort_filter_params = (
-            get_precalculated_query(cohort, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
+            get_precalculated_query(cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
             if is_precalculated
-            else format_person_query(cohort, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
+            else format_person_query(cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
         )
 
         return person_id_query, cohort_filter_params

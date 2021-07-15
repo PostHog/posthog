@@ -69,12 +69,9 @@
 
     .insights-graph-container {
         .ant-card-head {
-            border-bottom: 1px solid #e4e4e4;
-
+            border: 1px solid $border;
             min-height: unset;
-            @extend .mixin-elevated;
-            background-color: rgba(0, 0, 0, 0.02);
-            border: 1px solid $border_light;
+            background-color: $bg_mid;
             padding-right: $default_spacing / 4;
 
             @media screen and (max-width: $md) {
@@ -135,14 +132,19 @@
 }
 
 .insight-empty-state {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
     padding-top: $default_spacing * 2;
     padding-bottom: $default_spacing * 2;
+
     &.error-message {
         .illustration-main {
             color: $danger;
         }
 
-        h3 {
+        h2 {
             color: $danger;
         }
     }
@@ -152,23 +154,33 @@
             color: $warning;
         }
 
-        h3 {
+        h2 {
             color: $warning;
         }
     }
 
-    .illustration-main {
-        font-size: 3rem;
-        line-height: 1em;
-        text-align: center;
-        margin-bottom: 1rem;
+    &.info-message {
+        .illustration-main {
+            color: $border;
+        }
     }
 
-    h3 {
-        text-align: center;
-    }
+    .insight-empty-state__wrapper {
+        max-width: 600px;
 
-    ol {
-        margin-top: $default_spacing / 2;
+        .illustration-main {
+            font-size: 5rem;
+            line-height: 1em;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        h2 {
+            text-align: center;
+        }
+
+        ol {
+            margin-top: $default_spacing / 2;
+        }
     }
 }

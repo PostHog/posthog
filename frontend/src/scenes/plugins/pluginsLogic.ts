@@ -61,6 +61,8 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm>>({
         cancelRearranging: true,
         showPluginLogs: (id: number) => ({ id }),
         hidePluginLogs: true,
+        showPluginMetrics: (id: number) => ({ id }),
+        hidePluginMetrics: true,
     },
 
     loaders: ({ actions, values }) => ({
@@ -380,6 +382,13 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm>>({
                 showPluginLogs: (_, { id }) => id,
             },
         ],
+        showingMetricsPluginId: [
+            null as number | null,
+            {
+                showPluginMetrics: (_, { id }) => id,
+                hidePluginMetrics: () => null,
+            },
+        ],
     },
 
     selectors: {
@@ -513,6 +522,11 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm>>({
             (s) => [s.lastShownLogsPluginId, s.installedPlugins],
             (lastShownLogsPluginId, installedPlugins) =>
                 lastShownLogsPluginId ? installedPlugins.find((plugin) => plugin.id === lastShownLogsPluginId) : null,
+        ],
+        showingMetricsPlugin: [
+            (s) => [s.showingMetricsPluginId, s.installedPlugins],
+            (showingMetricsPluginId, installedPlugins) =>
+                showingMetricsPluginId ? installedPlugins.find((plugin) => plugin.id === showingMetricsPluginId) : null,
         ],
     },
 
