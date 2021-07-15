@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0158_new_token_format"),
+        ("posthog", "0159_remove_funnels_with_breakdown"),
     ]
 
     operations = [
