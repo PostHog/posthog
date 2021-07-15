@@ -6,7 +6,13 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
+import {
+    FUNNEL_VIZ,
+    ACTIONS_TABLE,
+    ACTIONS_BAR_CHART_VALUE,
+    FEATURE_FLAGS,
+    ACTIONS_LINE_GRAPH_LINEAR,
+} from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -437,7 +443,9 @@ function FunnelInsight(): JSX.Element {
     return (
         <div
             style={
-                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? {} : { height: 300, position: 'relative', marginBottom: 0 }
+                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display !== ACTIONS_LINE_GRAPH_LINEAR
+                    ? {}
+                    : { height: 300, position: 'relative', marginBottom: 0 }
             }
         >
             {stepsWithCountLoading && <Loading />}
