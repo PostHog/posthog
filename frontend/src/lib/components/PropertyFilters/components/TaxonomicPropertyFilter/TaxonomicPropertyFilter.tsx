@@ -24,15 +24,25 @@ export function TaxonomicPropertyFilter({
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const searchInputRef = useRef<Input | null>(null)
-
     const { setFilter } = useActions(propertyFilterLogic)
 
     const logic = taxonomicPropertyFilterLogic({ pageKey, filterIndex: index })
     const { searchQuery, filter, dropdownOpen, selectedCohortName } = useValues(logic)
-    const { setSearchQuery, openDropdown, closeDropdown, moveUp, moveDown, tabLeft, tabRight } = useActions(logic)
+    const {
+        setSearchQuery,
+        openDropdown,
+        closeDropdown,
+        moveUp,
+        moveDown,
+        tabLeft,
+        tabRight,
+        selectSelected,
+    } = useActions(logic)
 
     const showInitialSearchInline = !disablePopover && !filter?.type && !filter?.key
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
+
+    const focusInput = (): void => searchInputRef.current?.focus()
 
     const searchInput = (
         <Input
@@ -60,17 +70,13 @@ export function TaxonomicPropertyFilter({
                 }
                 if (e.key === 'Enter') {
                     e.preventDefault()
+                    selectSelected()
                 }
             }}
         />
     )
-    const searchResults = (
-        <InfiniteSelectResults
-            pageKey={pageKey}
-            filterIndex={index}
-            focusInput={() => searchInputRef.current?.focus()}
-        />
-    )
+
+    const searchResults = <InfiniteSelectResults pageKey={pageKey} filterIndex={index} focusInput={focusInput} />
 
     return (
         <div className="taxonomic-property-filter">

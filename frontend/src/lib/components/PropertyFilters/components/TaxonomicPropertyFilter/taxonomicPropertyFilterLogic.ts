@@ -18,6 +18,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     actions: () => ({
         moveUp: true,
         moveDown: true,
+        selectSelected: true,
         enableMouseInteractions: true,
         tabLeft: true,
         tabRight: true,
@@ -104,17 +105,25 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         moveUp: async (_, breakpoint) => {
             if (values.activeTab) {
                 infiniteListLogic({ ...props, type: values.activeTab }).actions.moveUp()
-                await breakpoint(100)
-                actions.enableMouseInteractions()
             }
+            await breakpoint(100)
+            actions.enableMouseInteractions()
         },
 
         moveDown: async (_, breakpoint) => {
             if (values.activeTab) {
                 infiniteListLogic({ ...props, type: values.activeTab }).actions.moveDown()
-                await breakpoint(100)
-                actions.enableMouseInteractions()
             }
+            await breakpoint(100)
+            actions.enableMouseInteractions()
+        },
+
+        selectSelected: async (_, breakpoint) => {
+            if (values.activeTab) {
+                infiniteListLogic({ ...props, type: values.activeTab }).actions.selectSelected()
+            }
+            await breakpoint(100)
+            actions.enableMouseInteractions()
         },
 
         tabLeft: () => {
