@@ -1,5 +1,7 @@
 from typing import Any, Dict, Tuple
 
+from django.conf import settings
+
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params, populate_entity_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
@@ -19,13 +21,21 @@ class TrendsEventQuery(ClickhouseEventQuery):
             f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp, {self.EVENT_TABLE_ALIAS}.properties as properties"
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
             + (f", {self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons else "")
+            + (
+                " ".join(
+                    [
+                        f", {self.EVENT_TABLE_ALIAS}.properties_{prop} as properties_{prop}"
+                        for prop in settings.CLICKHOUSE_DENORMALIZED_PROPERTIES
+                    ]
+                )
+            )
         )
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 
         prop_filters = [*self._filter.properties, *self._entity.properties]
-        prop_query, prop_params = self._get_props(prop_filters)
+        prop_query, prop_params = self._get_props(prop_filters, allow_denormalized_props=True)
         self.params.update(prop_params)
 
         entity_query, entity_params = self._get_entity_query()
