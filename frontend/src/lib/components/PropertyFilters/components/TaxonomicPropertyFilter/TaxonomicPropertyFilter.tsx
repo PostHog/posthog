@@ -42,7 +42,7 @@ export function TaxonomicPropertyFilter({
         selectSelected,
     } = useActions(logic)
 
-    const showInitialSearchInline = !disablePopover && !filter?.type && !filter?.key
+    const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
 
     const searchInput = (
