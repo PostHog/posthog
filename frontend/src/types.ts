@@ -605,6 +605,7 @@ export interface FilterType {
     from_dashboard?: boolean
     funnel_step?: number
     funnel_viz_type?: string // this and the below param is used for funnels time to convert, it'll be updated soon
+    funnel_from_step?: number
     funnel_to_step?: number
 }
 
@@ -704,6 +705,15 @@ export interface FunnelsTimeConversionResult {
     last_refresh: string | null
     is_cached: boolean
     type: 'Funnel'
+}
+
+// Indexing boundaries = [from_step, to_step)
+export interface FunnelTimeConversionStep {
+    from_step: number // set this to -1 if querying for all steps
+    to_step: number
+    label?: string
+    average_conversion_time?: number
+    count?: number
 }
 
 export interface ChartParams {

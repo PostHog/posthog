@@ -27,7 +27,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
         # Conversion from which step should be calculated
         from_step = self._filter.funnel_from_step or 0
         # Conversion to which step should be calculated
-        to_step = self._filter.funnel_to_step or len(self._filter.entities)
+        to_step = self._filter.funnel_to_step or len(self._filter.entities) - 1
 
         # Use custom bin_count if provided by user, otherwise infer an automatic one based on the number of samples
         bin_count = self._filter.bin_count

@@ -9,23 +9,29 @@ import { Histogram } from 'scenes/insights/Histogram'
 import './FunnelHistogram.scss'
 
 export function FunnelHeaderActions(): JSX.Element {
-    const { stepsWithCount, stepReference, histogramStep, histogramStepsDropdown } = useValues(funnelLogic)
+    const { stepsWithCount, stepReference, histogramStep, histogramStepsDropdown, conversionTimes } = useValues(
+        funnelLogic
+    )
     const { changeHistogramStep } = useActions(funnelLogic)
+
+    console.log('histogram step', histogramStep)
 
     return (
         <>
             <div className="funnel__header__info">
                 Mean time:{' '}
                 <span className="l4" style={{ color: 'var(--primary)' }}>
-                    {humanFriendlyDuration(stepsWithCount[histogramStep]?.average_conversion_time)}
+                    {humanFriendlyDuration(conversionTimes.average)}
                 </span>
             </div>
             <div className="funnel__header__steps">
                 <span className="funnel__header__steps__label">Steps</span>
                 {histogramStepsDropdown.length > 0 && (
                     <Select
-                        defaultValue={histogramStepsDropdown[0]?.value}
-                        onChange={changeHistogramStep}
+                        defaultValue={histogramStepsDropdown[0]?.from_step}
+                        onChange={(from_step) => {
+                            changeHistogramStep(from_step, from_step + 1)
+                        }}
                         dropdownMatchSelectWidth={false}
                         data-attr="funnel-bar-layout-selector"
                         optionLabelProp="label"
@@ -34,20 +40,23 @@ export function FunnelHeaderActions(): JSX.Element {
                             const basisStep = getReferenceStep(stepsWithCount, stepReference, i)
                             return (
                                 <Select.Option
-                                    key={option?.value}
-                                    value={option?.value || 1}
+                                    key={option?.from_step}
+                                    value={option?.from_step}
                                     label={<>{option?.label}</>}
                                 >
                                     <Col style={{ minWidth: 300 }}>
                                         <Row style={{ justifyContent: 'space-between', padding: '8px 0px' }}>
                                             <span className="l4">{option?.label}</span>
                                             <span className="text-muted-alt">
-                                                Mean time: {humanFriendlyDuration(option?.average_conversion_time)}
+                                                Mean time: {humanFriendlyDuration(option.average_conversion_time)}
                                             </span>
                                         </Row>
                                         <Row className="text-muted-alt">
                                             Total conversion rate:{' '}
-                                            {humanizeNumber(calcPercentage(option.count, basisStep.count))}%
+                                            {option.count !== undefined
+                                                ? humanizeNumber(calcPercentage(option.count, basisStep.count))
+                                                : '-'}
+                                            %
                                         </Row>
                                     </Col>
                                 </Select.Option>
