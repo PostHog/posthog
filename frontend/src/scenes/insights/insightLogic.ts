@@ -11,6 +11,7 @@ import { FilterType, InsightViewType as ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 export { InsightViewType as ViewType } from '~/types'
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
+import { Scene, sceneLogic } from 'scenes/sceneLogic'
 
 /*
 InsightLogic maintains state for changing between insight features
@@ -45,6 +46,12 @@ export const insightLogic = kea<insightLogicType>({
             queryId,
             view,
             lastRefresh,
+            exception,
+        }),
+        abortQuery: (queryId: string, view: ViewType, scene: Scene | null, exception?: Record<string, any>) => ({
+            queryId,
+            view,
+            scene,
             exception,
         }),
         setMaybeShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
@@ -160,6 +167,18 @@ export const insightLogic = kea<insightLogicType>({
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
             actions.setIsLoading(true)
+        },
+        abortQuery: ({ queryId, view, scene, exception }) => {
+            const duration = new Date().getTime() - values.queryStartTimes[queryId]
+            const tags = {
+                insight: view,
+                scene: scene,
+                success: !exception,
+                ...exception,
+            }
+
+            posthog.capture('insight aborted', { ...tags, duration })
+            captureInternalMetric({ method: 'timing', metric: 'insight_abort_time', value: duration, tags })
         },
         endQuery: ({ queryId, view, lastRefresh, exception }) => {
             if (values.timeout) {
