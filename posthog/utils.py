@@ -537,16 +537,18 @@ def get_instance_realm() -> str:
 
 
 def get_can_create_org() -> bool:
-    """
-    Returns whether a new organization can be created in the current instance.
+    """Returns whether a new organization can be created in the current instance.
+    
+    Organizations can be created only in the following cases:
+    - if on PostHog Cloud
+    - if running end-to-end tests
+    - if there's no organization yet
+    - if an appropriate license is active and MULTI_ORG_ENABLED is True
     """
     from posthog.models.organization import Organization
 
-    if settings.MULTI_TENANCY or not Organization.objects.exists():
-        # Can always create organizations in PostHog Cloud and when no organization exists
-        return True
-
-    if settings.E2E_TESTING:  # Enables E2E testing of signup flow
+    print(settings.MULTI_TENANCY, settings.E2E_TESTING, not Organization.objects.exists(), settings.MULTI_ORG_ENABLED)
+    if settings.MULTI_TENANCY or settings.E2E_TESTING or not Organization.objects.exists():
         return True
 
     if settings.MULTI_ORG_ENABLED:
