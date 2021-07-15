@@ -24,8 +24,10 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
         self.params.update(self.funnel_order.params)
         # expects 1 person per row, whatever their max step is, and the step conversion times for this person
 
-        # Conversion to which step (from the immediately preceding one) should be calculated
-        to_step = self._filter.funnel_to_step
+        # Conversion from which step should be calculated
+        from_step = self._filter.funnel_from_step or 0
+        # Conversion to which step should be calculated
+        to_step = self._filter.funnel_to_step or len(self._filter.entities)
 
         # Use custom bin_count if provided by user, otherwise infer an automatic one based on the number of samples
         bin_count = self._filter.bin_count
@@ -50,6 +52,11 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
                 f'Filter parameter {FUNNEL_TO_STEP} can only be one of {", ".join(map(str, range(1, len(self._filter.entities))))} for time to convert!'
             )
 
+        steps_average_conversion_time_identifiers = [
+            f"step_{step+1}_average_conversion_time" for step in range(from_step, to_step)
+        ]
+        steps_average_conversion_time_expression_sum = " + ".join(steps_average_conversion_time_identifiers)
+
         query = f"""
             WITH
                 step_runs AS (
@@ -59,10 +66,12 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
                     -- Binning ensures that each sample belongs to a bin in results
                     -- If bin_count is not a custom number, it's calculated in bin_count_expression
                     SELECT
-                        floor(min(step_{to_step}_average_conversion_time)) AS from_seconds,
-                        ceil(max(step_{to_step}_average_conversion_time)) AS to_seconds,
+                        floor(min({steps_average_conversion_time_expression_sum})) AS from_seconds,
+                        ceil(max({steps_average_conversion_time_expression_sum})) AS to_seconds,
                         {bin_count_expression or ""}
-                        ceil((to_seconds - from_seconds) / {bin_count_identifier}) AS bin_width_seconds
+                        ceil((to_seconds - from_seconds) / {bin_count_identifier}) AS bin_width_seconds_raw,
+                        -- Use 60 seconds as fallback bin width in case of only one sample
+                        if(bin_width_seconds_raw > 0, bin_width_seconds_raw, 60) AS bin_width_seconds
                     FROM step_runs
                 ),
                 -- Below CTEs make histogram_params columns available to the query below as straightforward identifiers
@@ -80,9 +89,10 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             FROM (
                 -- Calculating bins from step runs
                 SELECT
-                    histogram_from_seconds + floor((step_{to_step}_average_conversion_time - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_to_seconds,
+                    histogram_from_seconds + floor(({steps_average_conversion_time_expression_sum} - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_to_seconds,
                     count() AS person_count
                 FROM step_runs
+                -- We only need to check step to_step here, because it depends on all the other ones being NOT NULL too
                 WHERE step_{to_step}_average_conversion_time IS NOT NULL
                 GROUP BY bin_to_seconds
             ) results

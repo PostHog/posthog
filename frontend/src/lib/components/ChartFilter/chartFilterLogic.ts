@@ -1,9 +1,8 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { chartFilterLogicType } from './chartFilterLogicType'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, ViewType } from '~/types'
 
 export const chartFilterLogic = kea<chartFilterLogicType>({
     actions: () => ({

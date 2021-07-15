@@ -352,3 +352,32 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), self.validation_error_response("Action ID 666 does not exist!"))
+
+    def test_funnel_basic_exclusions(self):
+        _create_person(distinct_ids=["1"], team=self.team)
+        _create_event(team=self.team, event="step one", distinct_id="1")
+        _create_event(team=self.team, event="step x", distinct_id="1")
+        _create_event(team=self.team, event="step two", distinct_id="1")
+
+        _create_person(distinct_ids=["2"], team=self.team)
+        _create_event(team=self.team, event="step one", distinct_id="2")
+        _create_event(team=self.team, event="step two", distinct_id="2")
+
+        response = self.client.post(
+            "/api/insight/funnel/",
+            {
+                "events": [
+                    {"id": "step one", "type": "events", "order": 0},
+                    {"id": "step two", "type": "events", "order": 1},
+                ],
+                "exclusions": [{"id": "step x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},],
+                "funnel_window_days": 14,
+                "insight": "funnels",
+            },
+        ).json()
+
+        self.assertEqual(len(response["result"]), 2)
+        self.assertEqual(response["result"][0]["name"], "step one")
+        self.assertEqual(response["result"][1]["name"], "step two")
+        self.assertEqual(response["result"][0]["count"], 1)
+        self.assertEqual(response["result"][1]["count"], 1)

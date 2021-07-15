@@ -697,7 +697,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
 
         def test_funnel_cohort_breakdown(self):
             # This caused some issues with SQL parsing
-            _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
+            person = _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
             _create_event(
                 team=self.team,
                 event="sign up",
@@ -723,5 +723,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
             result = funnel.run()
             self.assertEqual(len(result[0]), 3)
             self.assertEqual(result[0][0]["breakdown"], "test_cohort")
+            self.assertCountEqual(self._get_people_at_step(filter, 1, cohort.pk), [person.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, cohort.pk), [])
 
     return TestFunnelBreakdown

@@ -2,7 +2,6 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Select, Tag } from 'antd'
 import { chartFilterLogic } from './chartFilterLogic'
-import { ViewType } from 'scenes/insights/insightLogic'
 import {
     AreaChartOutlined,
     BarChartOutlined,
@@ -11,7 +10,7 @@ import {
     PieChartOutlined,
     TableOutlined,
 } from '@ant-design/icons'
-import { ChartDisplayType, FilterType } from '~/types'
+import { ChartDisplayType, FilterType, ViewType } from '~/types'
 
 interface ChartFilterProps {
     filters: FilterType
