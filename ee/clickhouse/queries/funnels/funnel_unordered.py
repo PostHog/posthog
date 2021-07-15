@@ -23,6 +23,12 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
     The result format is the same as the basic funnel, i.e. [step, count].
     Here, `step_i` (0 indexed) signifies the number of people that did at least `i+1` steps.
+
+    ## Exclusion Semantics
+    For unordered funnels, exclusion is a bit weird. It means, given all ordering of the steps,
+    how far can you go without seeing an exclusion event.
+    If you see an exclusion event => you're discarded.
+    See test_advanced_funnel_multiple_exclusions_between_steps for details.
     """
 
     def get_query(self):
@@ -118,13 +124,44 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
     def get_sorting_condition(self, max_steps: int):
 
+        conditions = []
+
+        event_times_elements = []
+        for i in range(max_steps):
+            event_times_elements.append(f"latest_{i}")
+
+        conditions.append(f"arraySort([{','.join(event_times_elements)}]) as event_times")
+        # replacement of latest_i for whatever query part requires it, just like conversion_times
+
         basic_conditions: List[str] = []
         for i in range(1, max_steps):
             basic_conditions.append(
                 f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY, 1, 0)"
             )
 
+        conditions.append(f"arraySum([{','.join(basic_conditions)}, 1])")
+
         if basic_conditions:
-            return f"arraySum([{','.join(basic_conditions)}, 1])"
+            return ",".join(conditions)
         else:
             return "1"
+
+    def _get_exclusion_condition(self):
+        if not self._filter.exclusions:
+            return ""
+
+        conditions = []
+        for exclusion in self._filter.exclusions:
+            from_time = f"latest_{exclusion.funnel_from_step}"
+            to_time = f"event_times[{exclusion.funnel_to_step + 1}]"
+            exclusion_time = f"exclusion_{exclusion.id}_latest_{exclusion.funnel_from_step}"
+            condition = (
+                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < "
+                f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_days} DAY, {to_time}), 1, 0)"
+            )
+            conditions.append(condition)
+
+        if conditions:
+            return f", arraySum([{','.join(conditions)}]) as exclusion"
+        else:
+            return ""
