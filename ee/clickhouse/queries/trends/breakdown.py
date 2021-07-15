@@ -1,26 +1,17 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from django.db.models.manager import BaseManager
-
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_event_prop_values,
     get_breakdown_person_prop_values,
 )
-from ee.clickhouse.queries.trends.util import (
-    enumerate_time_range,
-    get_active_user_params,
-    parse_response,
-    populate_entity_params,
-    process_math,
-)
+from ee.clickhouse.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL, GET_LATEST_PERSON_SQL
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
     BREAKDOWN_ACTIVE_USER_INNER_SQL,
@@ -33,10 +24,7 @@ from ee.clickhouse.sql.trends.breakdown import (
     NONE_BREAKDOWN_PERSON_PROP_JOIN_SQL,
     NONE_BREAKDOWN_PROP_JOIN_SQL,
 )
-from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
-from ee.clickhouse.sql.trends.top_person_props import TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL
 from posthog.constants import MONTHLY_ACTIVE, TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
-from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -149,6 +137,7 @@ class ClickhouseTrendsBreakdown:
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     conditions=conditions,
+                    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
                     **active_user_params,
                     **breakdown_filter_params
                 )
