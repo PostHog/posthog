@@ -88,10 +88,10 @@ class StructuredViewSetMixin(NestedViewSetMixin):
         if self.legacy_team_compatibility:
             if not self.request.user.is_authenticated:
                 raise AuthenticationFailed()
-            project = self.request.user.team
+            project = team_from_request or self.request.user.team
             if project is None:
                 raise ValidationError("This endpoint requires a project.")
-            return {"team_id": team_from_request.id if team_from_request else project.id}
+            return {"team_id": project.id}
         result = {}
         # process URL paremetrs (here called kwargs), such as organization_id in /api/organizations/:organization_id/
         for kwarg_name, kwarg_value in self.kwargs.items():
