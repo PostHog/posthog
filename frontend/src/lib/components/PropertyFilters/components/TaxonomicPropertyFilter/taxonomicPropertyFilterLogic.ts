@@ -5,6 +5,7 @@ import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilter
 import { AnyPropertyFilter, PropertyOperator } from '~/types'
 import { groups } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/groups'
 import { cohortsModel } from '~/models/cohortsModel'
+import { infiniteListLogic } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/infiniteListLogic'
 
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
     props: {} as TaxonomicPropertyFilterLogicProps,
@@ -15,6 +16,10 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     }),
 
     actions: () => ({
+        moveUp: true,
+        moveDown: true,
+        tabLeft: true,
+        tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: string) => ({ activeTab }),
         selectItem: (type: string, id: string | number, name: string) => ({ type, id, name }),
@@ -48,6 +53,11 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     }),
 
     selectors: {
+        tabs: [() => [], () => groups.map((g) => g.type)],
+        currentTabIndex: [
+            (s) => [s.tabs, s.activeTab],
+            (tabs, activeTab) => Math.max(tabs.indexOf(activeTab || ''), 0),
+        ],
         filter: [
             (s) => [s.filters, (_, props) => props.filterIndex],
             (filters, filterIndex): AnyPropertyFilter | null => filters[filterIndex] || null,
@@ -77,6 +87,28 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 )
             }
             actions.closeDropdown()
+        },
+
+        moveUp: () => {
+            if (values.activeTab) {
+                infiniteListLogic({ ...props, type: values.activeTab }).actions.moveUp()
+            }
+        },
+
+        moveDown: () => {
+            if (values.activeTab) {
+                infiniteListLogic({ ...props, type: values.activeTab }).actions.moveDown()
+            }
+        },
+
+        tabLeft: () => {
+            const newIndex = (values.currentTabIndex - 1 + groups.length) % groups.length
+            actions.setActiveTab(groups[newIndex].type)
+        },
+
+        tabRight: () => {
+            const newIndex = (values.currentTabIndex + 1) % groups.length
+            actions.setActiveTab(groups[newIndex].type)
         },
     }),
 })

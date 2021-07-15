@@ -14,6 +14,7 @@ interface ListStorage {
     results: EventDefinition[]
     searchQuery?: string // Query used for the results currently in state
     count: number
+    queryChanged?: boolean
     first?: boolean
 }
 
@@ -58,12 +59,22 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
     }),
 
     actions: {
+        moveUp: true,
+        moveDown: true,
+        setIndex: (index: number) => ({ index }),
         setLimit: (limit: number) => ({ limit }),
         onRowsRendered: (rowInfo: RenderedRows) => ({ rowInfo }),
         loadRemoteItems: (options: LoaderOptions) => options,
     },
 
     reducers: () => ({
+        index: [
+            0,
+            {
+                setIndex: (_, { index }) => index,
+                loadRemoteItemsSuccess: (state, { remoteItems }) => (remoteItems.queryChanged ? 0 : state),
+            },
+        ],
         limit: [
             100,
             {
@@ -109,13 +120,12 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
                         breakpoint()
                     }
 
+                    const queryChanged = values.items.searchQuery !== values.searchQuery
+
                     return {
-                        results: appendAtIndex(
-                            values.items.searchQuery === values.searchQuery ? values.items.results : [],
-                            response.results,
-                            offset
-                        ),
+                        results: appendAtIndex(queryChanged ? [] : values.items.results, response.results, offset),
                         searchQuery: values.searchQuery,
+                        queryChanged,
                         count: response.count,
                     }
                 },
@@ -141,7 +151,17 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
         setSearchQuery: () => {
             if (values.isRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            } else {
+                actions.setIndex(0)
             }
+        },
+        moveUp: () => {
+            const { index, totalCount } = values
+            actions.setIndex((index - 1 + totalCount) % totalCount)
+        },
+        moveDown: () => {
+            const { index, totalCount } = values
+            actions.setIndex((index + 1) % totalCount)
         },
     }),
 

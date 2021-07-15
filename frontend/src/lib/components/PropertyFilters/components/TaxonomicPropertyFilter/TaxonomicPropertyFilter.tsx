@@ -28,7 +28,7 @@ export function TaxonomicPropertyFilter({
 
     const logic = taxonomicPropertyFilterLogic({ pageKey, filterIndex: index })
     const { searchQuery, filter, dropdownOpen, selectedCohortName } = useValues(logic)
-    const { setSearchQuery, openDropdown, closeDropdown } = useActions(logic)
+    const { setSearchQuery, openDropdown, closeDropdown, moveUp, moveDown, tabLeft, tabRight } = useActions(logic)
 
     const showInitialSearchInline = !disablePopover && !filter?.type && !filter?.key
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
@@ -39,6 +39,27 @@ export function TaxonomicPropertyFilter({
             placeholder="Search event or person properties"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    moveUp()
+                }
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    moveDown()
+                }
+                if (e.key === 'Tab') {
+                    e.preventDefault()
+                    if (e.shiftKey) {
+                        tabLeft()
+                    } else {
+                        tabRight()
+                    }
+                }
+                if (e.key === 'Enter') {
+                    e.preventDefault()
+                }
+            }}
         />
     )
     const searchResults = <InfiniteSelectResults pageKey={pageKey} filterIndex={index} />
