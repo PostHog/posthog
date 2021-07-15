@@ -559,10 +559,23 @@ export enum ChartDisplayType {
     FunnelsTimeToConvert = 'FunnelsTimeToConvert',
 }
 
-export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+
+// NB! Keep InsightType and InsightViewType in sync!
+export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+export enum InsightViewType {
+    TRENDS = 'TRENDS',
+    STICKINESS = 'STICKINESS',
+    LIFECYCLE = 'LIFECYCLE',
+    SESSIONS = 'SESSIONS',
+    FUNNELS = 'FUNNELS',
+    RETENTION = 'RETENTION',
+    PATHS = 'PATHS',
+    // Views that are not insights:
+    HISTORY = 'HISTORY',
+}
 
 export enum PathType {
     PageView = '$pageview',
@@ -606,6 +619,7 @@ export interface FilterType {
     funnel_step?: number
     funnel_viz_type?: string // this and the below param is used for funnels time to convert, it'll be updated soon
     funnel_to_step?: number
+    compare?: boolean
 }
 
 export interface SystemStatusSubrows {

@@ -7,21 +7,9 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FilterType } from '~/types'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { FilterType, InsightViewType as ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
-
-export enum ViewType {
-    TRENDS = 'TRENDS',
-    STICKINESS = 'STICKINESS',
-    LIFECYCLE = 'LIFECYCLE',
-    SESSIONS = 'SESSIONS',
-    FUNNELS = 'FUNNELS',
-    RETENTION = 'RETENTION',
-    PATHS = 'PATHS',
-    HISTORY = 'HISTORY',
-}
-
+export { InsightViewType as ViewType } from '~/types'
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 
 /*
@@ -46,14 +34,14 @@ export const logicFromInsight = (insight: string, logicProps: Record<string, any
     }
 }
 
-export const insightLogic = kea<insightLogicType<ViewType>>({
+export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
         setCachedUrl: (type: ViewType, url: string) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: (queryId: string) => ({ queryId }),
-        endQuery: (queryId: string, view: string, lastRefresh: string | null, exception?: Record<string, any>) => ({
+        endQuery: (queryId: string, view: ViewType, lastRefresh: string | null, exception?: Record<string, any>) => ({
             queryId,
             view,
             lastRefresh,

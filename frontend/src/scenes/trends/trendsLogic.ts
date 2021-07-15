@@ -4,10 +4,19 @@ import api from 'lib/api'
 import { autocorrectInterval, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, ShownAsValue } from 'lib/constants'
-import { ViewType, insightLogic, defaultFilterTestAccounts, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, ShownAsValue } from 'lib/constants'
+import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS, ViewType } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
-import { ActionFilter, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes, PathType } from '~/types'
+import {
+    ActionFilter,
+    ChartDisplayType,
+    EntityTypes,
+    FilterType,
+    PathType,
+    PersonType,
+    PropertyFilter,
+    TrendResult,
+} from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
@@ -42,15 +51,15 @@ interface PeopleParamType {
     lifecycle_type?: string
 }
 
-function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
+function cleanFilters(filters: Partial<FilterType>): Partial<FilterType> {
     return {
         insight: ViewType.TRENDS,
         ...filters,
         interval: autocorrectInterval(filters),
         display:
             filters.session && filters.session === 'dist'
-                ? ACTIONS_TABLE
-                : filters.display || ACTIONS_LINE_GRAPH_LINEAR,
+                ? ChartDisplayType.ActionsTable
+                : filters.display || ChartDisplayType.ActionsLineGraphLinear,
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
         properties: filters.properties || [],
@@ -183,12 +192,21 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                 } catch (e) {
                     breakpoint()
                     cache.abortController = null
-                    insightLogic.actions.endQuery(queryId, values.filters.insight || ViewType.TRENDS, null, e)
+                    insightLogic.actions.endQuery(
+                        queryId,
+                        (values.filters.insight as ViewType) || ViewType.TRENDS,
+                        null,
+                        e
+                    )
                     return []
                 }
                 breakpoint()
                 cache.abortController = null
-                insightLogic.actions.endQuery(queryId, values.filters.insight || ViewType.TRENDS, response.last_refresh)
+                insightLogic.actions.endQuery(
+                    queryId,
+                    (values.filters.insight as ViewType) || ViewType.TRENDS,
+                    response.last_refresh
+                )
 
                 return response
             },
@@ -208,11 +226,9 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
 
     reducers: ({ props }) => ({
         filters: [
-            (props.filters
+            props.filters
                 ? props.filters
-                : (state: Record<string, any>) => cleanFilters(router.selectors.searchParams(state))) as Partial<
-                FilterType
-            >,
+                : (state: Record<string, any>) => cleanFilters(router.selectors.searchParams(state)),
             {
                 setFilters: (state, { filters, mergeFilters }) => {
                     const newState = state?.insight && TRENDS_BASED_INSIGHTS.includes(state.insight) ? state : {}
