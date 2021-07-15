@@ -10,13 +10,12 @@ import { funnelLogicType } from './funnelLogicType'
 import {
     EntityTypes,
     FilterType,
-    FunnelResult,
-    FunnelResultWithBreakdown,
     FunnelStep,
     ChartDisplayType,
-    FunnelsTimeConversionResult,
+    FunnelResult,
     PathType,
     PersonType,
+    MappedFunnelStep,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
@@ -25,16 +24,19 @@ import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/Funne
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
-function aggregateBreakdownResult({ result: breakdownList, ...apiResponse }: FunnelResultWithBreakdown): FunnelResult {
-    let result: FunnelStep[] = []
+function aggregateBreakdownResult({
+    result: breakdownList,
+    ...apiResponse
+}: FunnelResult<FunnelStep[][]>): FunnelResult<MappedFunnelStep[]> {
+    let result: MappedFunnelStep[] = []
     if (breakdownList.length) {
         result = breakdownList[0].map((step, i) => ({
             ...step,
-            breakdown_value: step.breakdown as any,
+            breakdown_value: step.breakdown,
             count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
             breakdown: breakdownList.reduce((allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]], []),
-            average_conversion_time: null, // TODO API needs to return a weighted average.
-            people: [], // We could concatenate and de-dupe the UUIDs from breakdown values here, but it would be more performant to do it on backend
+            average_conversion_time: null,
+            people: [],
         }))
     }
     return {
@@ -50,7 +52,6 @@ function wait(ms = 1000): Promise<any> {
 }
 
 const SECONDS_TO_POLL = 3 * 60
-
 interface FunnelRequestParams extends FilterType {
     refresh?: boolean
     from_dashboard?: boolean
@@ -63,7 +64,9 @@ interface TimeStepOption {
     count: number
 }
 
-async function pollFunnel(params: FunnelRequestParams): Promise<FunnelResult & FunnelsTimeConversionResult> {
+async function pollFunnel(
+    params: FunnelRequestParams
+): Promise<FunnelResult & FunnelResult<FunnelStep[][]> & FunnelResult<number[]>> {
     const { refresh, ...bodyParams } = params
     let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
     const start = window.performance.now()
@@ -95,20 +98,19 @@ export const cleanFunnelParams = (filters: Partial<FilterType>): FilterType => {
         interval: autocorrectInterval(filters),
         breakdown: filters.breakdown || undefined,
         breakdown_type: filters.breakdown_type || undefined,
+
         insight: ViewType.FUNNELS,
     }
 }
-
 const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
-
 export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
     key: (props) => {
         return props.dashboardItemId || 'some_funnel'
     },
 
     actions: () => ({
-        setSteps: (steps: FunnelStep[]) => ({ steps }),
+        setSteps: (steps: MappedFunnelStep[]) => ({ steps }),
         clearFunnel: true,
         setFilters: (filters: Partial<FilterType>, refresh = false, mergeWithExisting = true) => ({
             filters,
@@ -119,7 +121,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         setStepsWithCountLoading: (stepsWithCountLoading: boolean) => ({ stepsWithCountLoading }),
         loadConversionWindow: (days: number) => ({ days }),
         setConversionWindowInDays: (days: number) => ({ days }),
-        openPersonsModal: (step: FunnelStep, stepNumber: number, breakdown_value?: string) => ({
+        openPersonsModal: (step: FunnelStep | MappedFunnelStep, stepNumber: number, breakdown_value?: string) => ({
             step,
             stepNumber,
             breakdown_value,
@@ -138,12 +140,12 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
 
     loaders: ({ props, values, actions }) => ({
         results: [
-            [] as FunnelStep[],
+            [] as MappedFunnelStep[],
             {
-                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[]> => {
+                loadResults: async (refresh = false, breakpoint): Promise<MappedFunnelStep[]> => {
                     actions.setStepsWithCountLoading(true)
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
-                        return props.cachedResults as FunnelStep[]
+                        return props.cachedResults as MappedFunnelStep[]
                     }
 
                     const { from_dashboard } = values.filters
@@ -157,12 +159,9 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                             ? { breakdown: null, breakdown_type: null }
                             : {}),
                     }
-
-                    let result // Tricky: pollFunnel would ideally return a FunnelResult or FunnelResultWithBreakdown based on whether its input params include breakdown
-
+                    let result // Tricky: pollFunnel would ideally return a FunnelResult or FunnelResult<FunnelStep[][]> based on whether its input params include breakdown
                     const queryId = uuid()
                     insightLogic.actions.startQuery(queryId)
-
                     const eventCount = params.events?.length || 0
                     const actionCount = params.actions?.length || 0
                     const interval = params.interval || ''
@@ -183,14 +182,14 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                     if (params.breakdown && values.clickhouseFeatures) {
-                        const aggregatedResult = aggregateBreakdownResult(result as any)
+                        const aggregatedResult = aggregateBreakdownResult(result)
                         actions.setSteps(aggregatedResult.result)
                         return aggregatedResult.result
                     }
-                    actions.setSteps(result.result as FunnelStep[])
 
+                    actions.setSteps(result.result as MappedFunnelStep[])
                     // We make another api call to api/funnels for time conversion data
-                    let binsResult: FunnelsTimeConversionResult
+                    let binsResult: FunnelResult<number[]>
                     if (params.display === ChartDisplayType.FunnelsTimeToConvert && values.stepsWithCount.length > 1) {
                         try {
                             params.funnel_viz_type = 'time_to_convert'
@@ -208,9 +207,9 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                             return []
                         }
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, binsResult.last_refresh)
-                        actions.setTimeConversionBins(binsResult.result as number[])
+                        actions.setTimeConversionBins(binsResult.result)
                     }
-                    return result.result
+                    return result.result as MappedFunnelStep[]
                 },
             },
         ],
@@ -234,7 +233,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             },
         ],
         stepsWithCount: [
-            [] as FunnelStep[],
+            [] as MappedFunnelStep[],
             {
                 clearFunnel: () => [],
                 setSteps: (_, { steps }) => steps,
@@ -455,12 +454,11 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     actions: values.filters.actions,
                     events: values.filters.events,
                     interval: values.filters.interval,
+
                     properties: values.filters.properties,
                 }
-
                 if (!objectsEqual(_filters, paramsToCheck)) {
                     const cleanedParams = cleanFunnelParams(searchParams)
-
                     if (isStepsEmpty(cleanedParams)) {
                         const event = eventDefinitionsModel.values.eventNames.includes(PathType.PageView)
                             ? PathType.PageView

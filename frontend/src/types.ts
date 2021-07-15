@@ -690,24 +690,18 @@ export interface FunnelStep {
     people: string[]
     type: EntityType
     labels?: string[]
-    breakdown?: FunnelStep[]
+    breakdown?: string
     breakdown_value?: string
 }
 
-export interface FunnelResult {
-    is_cached: boolean
-    last_refresh: string | null
-    result: FunnelStep[]
-    type: 'Funnel'
+export interface MappedFunnelStep extends Omit<FunnelStep, 'breakdown'> {
+    breakdown?: FunnelStep[]
 }
 
-export interface FunnelResultWithBreakdown extends Omit<FunnelResult, 'result'> {
-    result: FunnelStep[][]
-}
-export interface FunnelsTimeConversionResult {
-    result: number[]
-    last_refresh: string | null
+export interface FunnelResult<ResultType = FunnelStep[]> {
     is_cached: boolean
+    last_refresh: string | null
+    result: ResultType
     type: 'Funnel'
 }
 

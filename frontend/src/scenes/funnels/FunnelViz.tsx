@@ -11,12 +11,12 @@ import { router } from 'kea-router'
 import { IllustrationDanger } from 'lib/components/icons'
 import { InputNumber } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { ChartDisplayType, ChartParams, FunnelStep } from '~/types'
+import { ChartDisplayType, ChartParams, MappedFunnelStep } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelHistogram } from './FunnelHistogram'
 
 interface FunnelVizProps extends Omit<ChartParams, 'view'> {
-    steps: FunnelStep[]
+    steps: MappedFunnelStep[]
     timeConversionBins: number[]
 }
 
