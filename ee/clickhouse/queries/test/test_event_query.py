@@ -199,3 +199,43 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
         sync_execute(query, params)
+
+    def test_denormalised_props(self):
+        filters = {
+            "events": [
+                {
+                    "id": "user signed up",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"key": "test_prop", "value": "hi"}],
+                },
+            ],
+            "date_from": "2020-01-01",
+            "properties": [{"key": "test_prop", "value": "hi"}],
+            "date_to": "2020-01-14",
+        }
+
+        with self.settings(CLICKHOUSE_DENORMALIZED_PROPERTIES=["test_prop"]):
+
+            p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={"test_prop": "hi"},
+            )
+
+            p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p2",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={"test_prop": "hi"},
+            )
+
+            filter = Filter(data=filters)
+            query, params = TrendsEventQuery(filter=filter, entity=filter.entities[0], team_id=self.team.pk).get_query()
+            sync_execute(query, params)
+            self.assertIn("properties_test_prop", query)
