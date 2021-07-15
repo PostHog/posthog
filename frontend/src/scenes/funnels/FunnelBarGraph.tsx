@@ -289,8 +289,8 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
             {steps.map((step, i) => {
                 const basisStep = getReferenceStep(steps, stepReference, i)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, i)
-                // const previousCount = previousStep?.count ?? 0
-                // const dropoffCount = previousCount - step.count
+                const previousCount = previousStep?.count ?? 0
+                const dropoffCount = previousCount - step.count
                 const showLineBefore = layout === FunnelLayout.horizontal && i > 0
                 const showLineAfter = layout === FunnelLayout.vertical || i < steps.length - 1
                 const breakdownMaxIndex = getBreakdownMaxIndex(step.breakdown)
@@ -394,6 +394,47 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                         name={step.name}
                                         onBarClick={() => openPersonsModal(step, i + 1)}
                                         layout={layout}
+                                        popoverTitle={<PropertyKeyInfo value={step.name} />}
+                                        popoverMetrics={[
+                                            {
+                                                title: 'Completed step',
+                                                value: step.count,
+                                            },
+                                            {
+                                                title: 'Conversion rate (total)',
+                                                value:
+                                                    humanizeNumber(calcPercentage(step.count, firstStep.count), 2) +
+                                                    '%',
+                                            },
+                                            {
+                                                title: `Conversion rate (from step ${humanizeOrder(
+                                                    previousStep.order
+                                                )})`,
+                                                value:
+                                                    humanizeNumber(calcPercentage(step.count, previousStep.count), 2) +
+                                                    '%',
+                                                visible: step.order !== 0,
+                                            },
+                                            {
+                                                title: 'Dropped off',
+                                                value: dropoffCount,
+                                                visible: step.order !== 0 && dropoffCount > 0,
+                                            },
+                                            {
+                                                title: `Dropoff rate (from step ${humanizeOrder(previousStep.order)})`,
+                                                value:
+                                                    humanizeNumber(
+                                                        100 - calcPercentage(step.count, previousStep.count),
+                                                        2
+                                                    ) + '%',
+                                                visible: step.order !== 0 && dropoffCount > 0,
+                                            },
+                                            {
+                                                title: 'Average time on step',
+                                                value: humanFriendlyDuration(step.average_conversion_time),
+                                                visible: !!step.average_conversion_time,
+                                            },
+                                        ]}
                                     />
                                 )}
                             </div>
