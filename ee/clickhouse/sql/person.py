@@ -214,7 +214,7 @@ INSERT INTO person (id, created_at, team_id, properties, is_identified, _timesta
 
 DELETE_PERSON_EVENTS_BY_ID = """
 ALTER TABLE events DELETE
-where distinct_id IN (
+WHERE distinct_id IN (
     SELECT distinct_id FROM person_distinct_id WHERE person_id=%(id)s AND team_id = %(team_id)s
 )
 AND team_id = %(team_id)s
