@@ -10,7 +10,11 @@ import { Card } from 'antd'
 export function People(): JSX.Element | null {
     const { stepsWithCount, peopleSorted, peopleLoading, areFiltersValid } = useValues(funnelLogic({}))
 
-    return !stepsWithCount || !areFiltersValid ? null : (
+    if (!stepsWithCount || !areFiltersValid) {
+        return null
+    }
+
+    return (
         <Card title="Per user" className="funnel-people" style={{ marginTop: 16 }}>
             {peopleLoading ? (
                 <Loading style={{ minHeight: 50 }} />
