@@ -14,6 +14,7 @@ import {
     FunnelResult,
     FunnelStep,
     FunnelsTimeConversionResult,
+    FunnelTimeConversionStep,
     PathType,
     PersonType,
 } from '~/types'
@@ -31,13 +32,6 @@ function wait(ms = 1000): Promise<any> {
 }
 
 const SECONDS_TO_POLL = 3 * 60
-
-interface TimeStepOption {
-    label: string
-    value: number
-    average_conversion_time: number
-    count: number
-}
 
 async function pollFunnel(params: Record<string, any>): Promise<FunnelResult & FunnelsTimeConversionResult> {
     const { refresh, ...bodyParams } = params
@@ -76,7 +70,7 @@ export const cleanFunnelParams = (filters: FilterType): FilterType => {
 const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
-export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
+export const funnelLogic = kea<funnelLogicType>({
     key: (props) => {
         return props.dashboardItemId || 'some_funnel'
     },
@@ -97,7 +91,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         setBarGraphLayout: (barGraphLayout: FunnelLayout) => ({ barGraphLayout }),
         setTimeConversionBins: (timeConversionBins: number[]) => ({ timeConversionBins }),
-        changeHistogramStep: (histogramStep: number) => ({ histogramStep }),
+        changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
     }),
 
@@ -110,7 +104,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         results: [
             [] as FunnelStep[],
             {
-                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[] | number[]> => {
+                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[]> => {
                     actions.setStepsWithCountLoading(true)
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
                         return props.cachedResults as FunnelStep[]
@@ -153,11 +147,19 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     actions.setSteps(result.result as FunnelStep[])
 
                     // We make another api call to api/funnels for time conversion data
-                    let binsResult: FunnelsTimeConversionResult
                     if (params.display === ChartDisplayType.FunnelsTimeToConvert && values.stepsWithCount.length > 1) {
+                        let binsResult: FunnelsTimeConversionResult
+                        params.funnel_viz_type = 'time_to_convert'
+
+                        const isAllSteps = values.histogramStep.from_step === -1
+                        // API specs (#5110) require neither funnel_{from|to}_step to be provided if querying
+                        // for all steps
+                        if (!isAllSteps) {
+                            params.funnel_from_step = values.histogramStep.from_step
+                            params.funnel_to_step = values.histogramStep.to_step // boundaries are inclusive in backend
+                        }
+
                         try {
-                            params.funnel_viz_type = 'time_to_convert'
-                            params.funnel_to_step = values.histogramStep
                             binsResult = await pollFunnel(params)
                         } catch (e) {
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
@@ -240,9 +242,9 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             },
         ],
         histogramStep: [
-            1,
+            { from_step: -1, to_step: -1 } as FunnelTimeConversionStep,
             {
-                changeHistogramStep: (_, { histogramStep }) => histogramStep,
+                changeHistogramStep: (_, { from_step, to_step }) => ({ from_step, to_step }),
             },
         ],
         isGroupingOutliers: [
@@ -318,12 +320,25 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         histogramStepsDropdown: [
             () => [selectors.stepsWithCount],
             (stepsWithCount) => {
-                const stepsDropdown: TimeStepOption[] = []
+                const stepsDropdown: FunnelTimeConversionStep[] = []
+
+                console.log('steps with count', stepsWithCount)
+                if (stepsWithCount.length > 1) {
+                    stepsDropdown.push({
+                        label: `All steps`,
+                        from_step: -1,
+                        to_step: -1,
+                        count: 0,
+                        average_conversion_time: 0,
+                    })
+                }
+
                 stepsWithCount.forEach((_, idx) => {
                     if (stepsWithCount[idx + 1]) {
                         stepsDropdown.push({
                             label: `Steps ${idx + 1} and ${idx + 2}`,
-                            value: idx + 1,
+                            from_step: idx,
+                            to_step: idx + 1,
                             count: stepsWithCount[idx + 1].count,
                             average_conversion_time: stepsWithCount[idx + 1].average_conversion_time,
                         })
@@ -336,6 +351,23 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             () => [selectors.filters],
             (filters) => {
                 return (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
+            },
+        ],
+        conversionTimes: [
+            () => [selectors.stepsWithCount, selectors.histogramStep],
+            (stepsWithCount, timeStep) => {
+                const isAllSteps = timeStep.from_step === -1
+                const l = Math.max(1, isAllSteps ? 1 : timeStep.from_step), // step 0 will always have null conversion times
+                    r = Math.min(stepsWithCount.length, isAllSteps ? stepsWithCount.length : timeStep.to_step)
+                const subStepsWithCount = stepsWithCount.slice(l, r) // grab steps defined by histogramStep boundary
+
+                const totalTime = subStepsWithCount
+                    .map((s: FunnelStep) => s.average_conversion_time * s.count) // calculate total times per step
+                    .reduce((a: number, b: number) => a + b, 0) // add it up
+                const totalCount = subStepsWithCount
+                    .map((s: FunnelStep) => s.count) // get counts
+                    .reduce((a: number, b: number) => a + b, 0) // add it up
+                return { average: totalTime / totalCount, sum: totalCount }
             },
         ],
     }),

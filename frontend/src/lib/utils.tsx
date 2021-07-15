@@ -384,7 +384,11 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-export function humanFriendlyDuration(d: string | number, maxUnits?: number): string {
+export function humanFriendlyDuration(d: string | number | undefined, maxUnits?: number): string {
+    if (d === undefined) {
+        return '-'
+    }
+
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
     d = Number(d)
