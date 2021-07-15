@@ -4,7 +4,7 @@ import { decodeParams } from 'kea-router'
 import { Button, Spin, Space, Tooltip, Badge, Switch, Row } from 'antd'
 import { Link } from 'lib/components/Link'
 import { ExpandState, sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
-import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
+import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP, pluralize } from '~/lib/utils'
 import { SessionDetails } from './SessionDetails'
 import dayjs from 'dayjs'
 import { SessionType } from '~/types'
@@ -287,7 +287,12 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                             <ExpandIcon {...expandProps}>
                                 {session?.matching_events?.length > 0 ? (
                                     <Tooltip
-                                        title={`${session.matching_events.length} events match your event filters`}
+                                        title={`${pluralize(session.matching_events.length, 'event')} ${pluralize(
+                                            session.matching_events.length,
+                                            'matches',
+                                            'match',
+                                            false
+                                        )} your event filters`}
                                     >
                                         <Badge
                                             className="sessions-matching-events-icon cursor-pointer"
