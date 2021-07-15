@@ -10,7 +10,7 @@ import { FunnelBarGraph } from './FunnelBarGraph'
 import { router } from 'kea-router'
 import { InputNumber, Row } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { ActionFilter, ChartDisplayType, ChartParams, FunnelStep } from '~/types'
+import { ChartDisplayType, ChartParams, FunnelStep } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelHistogram } from './FunnelHistogram'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -159,7 +159,7 @@ export function FunnelViz({
                             : (point) => {
                                   const { dataset, day } = point
                                   loadPeople({
-                                      action: {} as ActionFilter,
+                                      action: { id: point.index, name: point.label, properties: [], type: 'actions' },
                                       label: point.label,
                                       date_from: day,
                                       date_to: day,
