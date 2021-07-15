@@ -73,7 +73,7 @@ def create_person(
 
 
 def create_person_distinct_id(id: int, team_id: int, distinct_id: str, person_id: str) -> None:
-    data = {"id": id, "distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
+    data = {"id": id, "distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "sign": 1}
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON_UNIQUE_ID, sql=INSERT_PERSON_DISTINCT_ID, data=data)
 

@@ -1,7 +1,14 @@
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
-from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import (
+    COLLAPSING_MERGE_TREE,
+    KAFKA_COLUMNS,
+    REPLACING_MERGE_TREE,
+    STORAGE_POLICY,
+    kafka_engine,
+    table_engine,
+)
 
 DROP_PERSON_TABLE_SQL = f"DROP TABLE person ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
@@ -94,7 +101,8 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     id Int64,
     distinct_id VARCHAR,
     person_id UUID,
-    team_id Int64
+    team_id Int64,
+    sign Int8
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -107,7 +115,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "sign", COLLAPSING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
@@ -129,6 +137,7 @@ id,
 distinct_id,
 person_id,
 team_id,
+sign,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
@@ -205,7 +214,7 @@ INSERT INTO person (id, created_at, team_id, properties, is_identified, _timesta
 """
 
 INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, now(), 0 VALUES
+INSERT INTO person_distinct_id SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, 1, now(), 0 VALUES
 """
 
 DELETE_PERSON_BY_ID = """
@@ -221,7 +230,7 @@ AND team_id = %(team_id)s
 """
 
 DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
-ALTER TABLE person_distinct_id DELETE where person_id = %(id)s
+INSERT INTO person_distinct_id (id, distinct_id, person_id, team_id, _timestamp, _offset, sign) SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, %(_timestamp)s, 0, 1
 """
 
 PERSON_TREND_SQL = """
