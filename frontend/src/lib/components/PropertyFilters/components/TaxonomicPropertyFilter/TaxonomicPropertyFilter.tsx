@@ -79,10 +79,10 @@ export function TaxonomicPropertyFilter({
     const searchResults = <InfiniteSelectResults pageKey={pageKey} filterIndex={index} focusInput={focusInput} />
 
     useEffect(() => {
-        if (dropdownOpen) {
+        if (dropdownOpen || showInitialSearchInline) {
             window.setTimeout(() => focusInput(), 1)
         }
-    }, [dropdownOpen])
+    }, [dropdownOpen, showInitialSearchInline])
 
     return (
         <div className="taxonomic-property-filter">
