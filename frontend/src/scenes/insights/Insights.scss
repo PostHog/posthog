@@ -69,12 +69,9 @@
 
     .insights-graph-container {
         .ant-card-head {
-            border-bottom: 1px solid #e4e4e4;
-
+            border: 1px solid $border;
             min-height: unset;
-            @extend .mixin-elevated;
-            background-color: rgba(0, 0, 0, 0.02);
-            border: 1px solid $border_light;
+            background-color: $bg_mid;
             padding-right: $default_spacing / 4;
 
             @media screen and (max-width: $md) {

@@ -144,7 +144,7 @@ export function ActionFilterRow({
                 {showSeriesIndicator && (
                     <Col className="action-row-letter">
                         {seriesIndicatorType === 'numeric' ? (
-                            <SeriesGlyph>{index + 1}</SeriesGlyph>
+                            <SeriesGlyph style={{ borderColor: 'var(--border)' }}>{index + 1}</SeriesGlyph>
                         ) : (
                             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
                         )}
