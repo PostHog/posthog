@@ -8,7 +8,7 @@ import { DashboardInsightHeader } from './DashboardInsightHeader'
 import { Paths } from 'scenes/paths/Paths'
 import { ActionsBarValueGraph, ActionsLineGraph, ActionsPie, ActionsTable } from 'scenes/trends/viz'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-import { ViewType } from 'scenes/insights/insightLogic'
+import { ViewType } from '~/types'
 
 export function DashboardInsight(): JSX.Element | null {
     const { dashboardInsight } = useValues(dashboardInsightLogic)

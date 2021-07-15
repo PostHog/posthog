@@ -2,7 +2,6 @@ import { kea } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
 import { entityFilterLogicType } from './entityFilterLogicType'
-import { ActionFilterProps } from './ActionFilter'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -35,11 +34,19 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
     } as FilterType
 }
 
+export interface EntityFilterProps {
+    setFilters: (filters: FilterType) => void
+    filters: Record<string, any>
+    typeKey: string
+    singleMode?: boolean
+}
+
 // required props:
 // - filters
 // - setFilters
 // - typeKey
-export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, LocalFilter>>({
+export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>({
+    props: {} as EntityFilterProps,
     key: (props) => props.typeKey,
     connect: {
         values: [actionsModel, ['actions']],
@@ -97,7 +104,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, LocalFilt
             },
         ],
         localFilters: [
-            toLocalFilters(((props as any) as ActionFilterProps).filters),
+            toLocalFilters(props.filters) as LocalFilter[],
             {
                 setLocalFilters: (_, { filters }) => toLocalFilters(filters),
             },
@@ -149,8 +156,9 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, LocalFilt
         },
         removeLocalFilter: async ({ index }) => {
             eventUsageLogic.actions.reportInsightFilterRemoved(index)
-            actions.setFilters(values.localFilters.filter((_, i) => i !== index))
-            actions.setLocalFilters({ filters: values.localFilters.filter((_, i) => i !== index) } as FilterType)
+            const newFilters = values.localFilters.filter((_, i) => i !== index)
+            actions.setFilters(newFilters)
+            actions.setLocalFilters(toFilters(newFilters))
         },
         addFilter: async () => {
             const previousLength = values.localFilters.length

@@ -1,3 +1,4 @@
+import { humanizeNumber } from 'lib/utils'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { FunnelStep } from '~/types'
 
@@ -18,4 +19,8 @@ export function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepR
         default:
             return steps[0]
     }
+}
+
+export function humanizeStepCount(count: number): string {
+    return count > 9999 ? humanizeNumber(count, 2) : count.toLocaleString()
 }

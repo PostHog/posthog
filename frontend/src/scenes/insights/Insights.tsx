@@ -11,7 +11,7 @@ import {
     ACTIONS_TABLE,
     ACTIONS_BAR_CHART_VALUE,
     FEATURE_FLAGS,
-    FUNNELS_TIME_TO_CONVERT,
+    ACTIONS_LINE_GRAPH_LINEAR,
 } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -23,7 +23,7 @@ import { Paths } from 'scenes/paths/Paths'
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
+import { insightLogic, logicFromInsight } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
@@ -35,7 +35,7 @@ import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { HotKeys } from '~/types'
+import { HotKeys, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
@@ -46,7 +46,8 @@ import { PersonModal } from 'scenes/trends/PersonModal'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { FunnelHeaderActions } from 'scenes/funnels/FunnelHistogram'
+import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
+import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -348,10 +349,12 @@ export function Insights(): JSX.Element {
                                             marginBottom: 16,
                                         }}
                                     >
-                                        {allFilters.display === FUNNELS_TIME_TO_CONVERT && <FunnelHeaderActions />}
+                                        <FunnelCanvasLabel />
+                                        <FunnelHistogramHeader />
                                         {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
                                             <div className="text-muted-alt">
-                                                Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
+                                                Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}{' '}
+                                                &bull;
                                                 <Button
                                                     size="small"
                                                     type="link"
@@ -396,7 +399,7 @@ export function Insights(): JSX.Element {
                                 !showErrorMessage &&
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
-                                allFilters.display === FUNNEL_VIZ && <FunnelPeople />}
+                                allFilters.display === FUNNEL_VIZ && <People />}
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&
                                     allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
@@ -435,8 +438,16 @@ function FunnelInsight(): JSX.Element {
     } = useValues(funnelLogic({}))
     const { clickhouseFeatures } = useValues(funnelLogic())
 
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
-        <div>
+        <div
+            style={
+                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display !== ACTIONS_LINE_GRAPH_LINEAR
+                    ? {}
+                    : { height: 300, position: 'relative', marginBottom: 0 }
+            }
+        >
             {stepsWithCountLoading && <Loading />}
             {isValidFunnel ? (
                 <FunnelViz filters={{ display }} steps={stepsWithCount} timeConversionBins={timeConversionBins} />
@@ -456,16 +467,4 @@ function FunnelInsight(): JSX.Element {
             )}
         </div>
     )
-}
-
-function FunnelPeople(): JSX.Element {
-    const { stepsWithCount, areFiltersValid } = useValues(funnelLogic())
-    if (areFiltersValid && stepsWithCount && stepsWithCount.length > 0) {
-        return (
-            <Card style={{ marginTop: 8 }}>
-                <People />
-            </Card>
-        )
-    }
-    return <></>
 }

@@ -14,8 +14,8 @@ import {
     GlobalHotKeys,
     EntityType,
     DashboardItemType,
+    ViewType,
 } from '~/types'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
