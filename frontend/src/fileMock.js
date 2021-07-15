@@ -1,0 +1,3 @@
+// mock
+
+module.exports = {};
