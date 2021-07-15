@@ -9,7 +9,7 @@ describe('Funnels', () => {
     })
 
     it('Add only events to funnel', () => {
-        cy.get('[data-attr=add-action-event-button]').click()
+        cy.get('[data-attr=add-action-event-button]').first().click()
 
         cy.get('[data-attr=save-funnel-button]').click() // `save-funnel-button` is actually calculate, keeping around to avoid losing data
 
@@ -60,7 +60,7 @@ describe('Funnels', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
         cy.contains('HogFlix homepage view').click()
 
-        cy.get('[data-attr=add-action-event-button]').click()
+        cy.get('[data-attr=add-action-event-button]').first().click()
         cy.get('[data-attr=trend-element-subject-1]').click()
         cy.contains('HogFlix paid').click()
 
