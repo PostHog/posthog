@@ -30,11 +30,11 @@ import {
 } from 'lib/components/icons'
 import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
-import { dashboardsModel } from '~/models'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardType, HotKeys } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { canViewPlugins } from '../../scenes/plugins/access'
+import { canViewPlugins } from 'scenes/plugins/access'
 import { useGlobalKeyboardHotkeys, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
@@ -244,17 +244,12 @@ export function MainNavigation(): JSX.Element {
             >
                 <div className="navigation-inner" ref={navRef} onScroll={handleNavScroll}>
                     <div className="nav-logo">
-                        {featureFlags[FEATURE_FLAGS.PROJECT_HOME] ? (
-                            <Link to="/home">
-                                <img src={smLogo} className="logo-sm" alt="" />
-                                <img src={lgLogo} className="logo-lg" alt="" />
-                            </Link>
-                        ) : (
+                        {
                             <Link to="/insights">
                                 <img src={smLogo} className="logo-sm" alt="" />
                                 <img src={lgLogo} className="logo-lg" alt="" />
                             </Link>
-                        )}
+                        }
                     </div>
                     {currentOrganization?.setup.is_active && (
                         <MenuItem

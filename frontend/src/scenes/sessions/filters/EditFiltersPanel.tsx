@@ -3,7 +3,7 @@ import { Button, Card, Divider, Space } from 'antd'
 import { useActions, useValues } from 'kea'
 import { SaveOutlined, SearchOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
-import { Entity, PersonPropertyFilter, PropertyFilter } from '~/types'
+import { Entity, PersonPropertyFilter, PropertyFilter, PropertyOperator, ViewType } from '~/types'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { EventPropertyFilter } from 'scenes/sessions/filters/EventPropertyFilter'
 import { PersonFilter } from 'scenes/sessions/filters/UserFilter'
@@ -14,7 +14,6 @@ import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ACTION_TYPE, EVENT_TYPE } from 'lib/constants'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { toParams } from 'lib/utils'
 import { SelectDownIcon } from 'lib/components/SelectDownIcon'
 
@@ -121,7 +120,7 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                         key: 'id',
                         value: filter.item.value,
                         type: 'cohort',
-                        operator: 'exact',
+                        operator: PropertyOperator.Exact,
                     })
                 }
             })

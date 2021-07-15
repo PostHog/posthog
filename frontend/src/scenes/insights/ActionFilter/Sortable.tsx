@@ -4,12 +4,12 @@ import {
     SortableElement as sortableElement,
     SortableHandle as sortableHandle,
 } from 'react-sortable-hoc'
-import { EllipsisOutlined } from '@ant-design/icons'
+import { SortableDragIcon } from 'lib/components/icons'
 import { ActionFilterRow, ActionFilterRowProps } from './ActionFilterRow'
 
 const DragHandle = sortableHandle(() => (
     <span className="action-filter-drag-handle">
-        <EllipsisOutlined />
+        <SortableDragIcon />
     </span>
 ))
 
@@ -18,12 +18,15 @@ interface SortableActionFilterRowProps extends ActionFilterRowProps {
 }
 
 export const SortableActionFilterRow = sortableElement(
-    ({ filterCount, filterIndex, ...props }: SortableActionFilterRowProps) => (
-        <div className="draggable-action-filter">
-            {filterCount > 1 && <DragHandle />}
-            <ActionFilterRow {...props} filterCount={filterCount} index={filterIndex} key={filterIndex} />
-        </div>
-    )
+    ({ filterCount, filterIndex, ...props }: SortableActionFilterRowProps) => {
+        const dragHandleVisible = filterCount > 1
+        return (
+            <div className={`draggable-action-filter ${dragHandleVisible ? 'drag-handle-visible' : ''}`}>
+                {dragHandleVisible && <DragHandle />}
+                <ActionFilterRow {...props} filterCount={filterCount} index={filterIndex} key={filterIndex} />
+            </div>
+        )
+    }
 )
 
 export const SortableContainer = sortableContainer(({ children }: { children: React.ReactNode }) => {

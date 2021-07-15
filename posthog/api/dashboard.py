@@ -20,6 +20,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.tasks.update_cache import update_dashboard_item_cache, update_dashboard_items_cache
 from posthog.utils import get_safe_cache, render_template, str_to_bool
 
 
@@ -95,6 +96,10 @@ class DashboardSerializer(serializers.ModelSerializer):
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
             return None
+
+        if self.context["request"].GET.get("refresh"):
+            update_dashboard_items_cache(dashboard)
+
         items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})
         return DashboardItemSerializer(items, many=True, context=self.context).data
@@ -203,6 +208,9 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         if not dashboard_item.filters_hash:
             return None
 
+        if self.context["request"].GET.get("refresh"):
+            update_dashboard_item_cache(dashboard_item, None)
+
         result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
@@ -266,6 +274,13 @@ class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             self.queryset.filter(team_id=team_id, pk=data["id"]).update(layouts=data["layouts"])
 
         serializer = self.get_serializer(self.queryset.filter(team_id=team_id), many=True)
+        return response.Response(serializer.data)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        pk = kwargs["pk"]
+        queryset = self.get_queryset()
+        dashboard_item = get_object_or_404(queryset, pk=pk)
+        serializer = self.get_serializer(dashboard_item, context={"view": self, "request": request})
         return response.Response(serializer.data)
 
 

@@ -2,12 +2,12 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams, objectsEqual, uuid } from 'lib/utils'
-import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
-import { actionsModel } from '~/models'
-import { ActionType, FilterType } from '~/types'
+import { actionsModel } from '~/models/actionsModel'
+import { ActionType, FilterType, ViewType } from '~/types'
 import {
     RetentionTablePayload,
     RetentionTrendPayload,
@@ -15,8 +15,8 @@ import {
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -49,15 +49,7 @@ export function defaultFilters(filters: Record<string, any>): Record<string, any
     }
 }
 
-export const retentionTableLogic = kea<
-    retentionTableLogicType<
-        RetentionTablePayload,
-        RetentionTrendPayload,
-        RetentionTablePeoplePayload,
-        RetentionTrendPeoplePayload,
-        ActionType
-    >
->({
+export const retentionTableLogic = kea<retentionTableLogicType>({
     key: (props) => {
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
@@ -75,6 +67,7 @@ export const retentionTableLogic = kea<
                 try {
                     res = await api.get(`api/insight/retention/?${urlParams}`)
                 } catch (e) {
+                    breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.RETENTION, null, e)
                     return []
                 }
@@ -142,7 +135,7 @@ export const retentionTableLogic = kea<
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
         ],
         filtersLoading: [
-            () => [eventDefinitionsLogic.selectors.loaded, propertyDefinitionsLogic.selectors.loaded],
+            () => [eventDefinitionsModel.selectors.loaded, propertyDefinitionsModel.selectors.loaded],
             (eventsLoaded, propertiesLoaded) => !eventsLoaded || !propertiesLoaded,
         ],
     },
@@ -154,13 +147,13 @@ export const retentionTableLogic = kea<
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.filters, router.values.hashParams]
+            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
         },
         setProperties: () => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.filters, router.values.hashParams]
+            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
         },
     }),
     urlToAction: ({ actions, values, key }) => ({

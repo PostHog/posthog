@@ -19,7 +19,7 @@ type WarningType =
     | 'real_project_with_no_events'
     | null
 
-export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, WarningType, OrganizationType>>({
+export const navigationLogic = kea<navigationLogicType<WarningType>>({
     actions: {
         setMenuCollapsed: (collapsed: boolean) => ({ collapsed }),
         collapseMenu: () => {},
@@ -152,8 +152,8 @@ export const navigationLogic = kea<navigationLogicType<UserType, SystemStatus, W
             null as string | null,
             {
                 loadLatestVersion: async () => {
-                    const versions = (await api.get('https://update.posthog.com/versions')) || []
-                    return versions[0]?.version || '1.25.0' // HACK: Super quick fix so the frontend doesn't fail terribly
+                    const versions = await api.get('https://update.posthog.com/versions')
+                    return versions[0].version
                 },
             },
         ],

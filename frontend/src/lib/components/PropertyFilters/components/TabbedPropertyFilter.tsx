@@ -12,20 +12,21 @@ import { PropertySelect } from './PropertySelect'
 import { OperatorValueSelect } from './OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { PropertyOptionGroup } from './PropertySelect'
-import { PropertyOperator, PropertyDefinition, SelectOption } from '~/types'
+import { PropertyFilterValue, PropertyOperator } from '~/types'
 import { PropertyFilterInternalProps } from './PropertyFilter'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 
 const { TabPane } = Tabs
 
 interface PropertyPaneProps {
     onComplete: CallableFunction
     setThisFilter: CallableFunction // TODO type this
-    eventProperties: PropertyDefinition[]
-    personProperties: Array<SelectOption>
-    propkey: string
-    value: string
-    operator: PropertyOperator
-    type: string
+    propkey?: string
+    value?: PropertyFilterValue
+    operator?: PropertyOperator | null
+    type?: string
     displayOperatorAndValue?: boolean
     selectProps: Partial<SelectGradientOverflowProps>
 }
@@ -33,8 +34,6 @@ interface PropertyPaneProps {
 function PropertyPaneContents({
     onComplete,
     setThisFilter,
-    eventProperties,
-    personProperties,
     propkey,
     value,
     operator,
@@ -42,7 +41,10 @@ function PropertyPaneContents({
     displayOperatorAndValue,
     selectProps: { delayBeforeAutoOpen = 0 },
 }: PropertyPaneProps): JSX.Element {
-    const optionGroups = [
+    const { personProperties } = useValues(personPropertiesModel)
+    const { transformedPropertyDefinitions: eventProperties } = useValues(propertyDefinitionsModel)
+
+    const optionGroups: PropertyOptionGroup[] = [
         {
             type: 'event',
             label: 'Event properties',
@@ -51,9 +53,12 @@ function PropertyPaneContents({
         {
             type: 'person',
             label: 'User properties',
-            options: personProperties,
+            options: personProperties.map((property) => ({
+                label: property.name,
+                value: property.name,
+            })),
         },
-    ] as PropertyOptionGroup[]
+    ]
 
     if (eventProperties.length > 0) {
         optionGroups.push({
@@ -75,8 +80,9 @@ function PropertyPaneContents({
                             ? null
                             : {
                                   value: propkey,
-                                  label:
-                                      keyMapping[type === 'element' ? 'element' : 'event'][propkey]?.label || propkey,
+                                  label: propkey
+                                      ? keyMapping[type === 'element' ? 'element' : 'event'][propkey]?.label || propkey
+                                      : undefined,
                               }
                     }
                     onChange={(newType, newValue) =>
@@ -125,7 +131,7 @@ function PropertyPaneContents({
 interface CohortPaneProps {
     onComplete: CallableFunction
     setThisFilter: CallableFunction // TODO: type this
-    value: string
+    value?: PropertyFilterValue
     displayOperatorAndValue?: boolean
     selectProps?: SelectGradientOverflowProps
 }
@@ -181,20 +187,15 @@ function CohortPaneContents({
     )
 }
 
-export function TabbedPropertyFilter({
-    index,
-    onComplete,
-    logic,
-    selectProps,
-}: PropertyFilterInternalProps): JSX.Element {
-    const { eventProperties, personProperties, filters } = useValues(logic)
-    const { setFilter } = useActions(logic)
+export function TabbedPropertyFilter({ index, onComplete, selectProps }: PropertyFilterInternalProps): JSX.Element {
+    const { filters } = useValues(propertyFilterLogic)
+    const { setFilter } = useActions(propertyFilterLogic)
     const { key, value, operator, type } = filters[index]
     const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
 
-    const displayOperatorAndValue = key && type !== 'cohort'
+    const displayOperatorAndValue = !!key && type !== 'cohort'
 
-    const setThisFilter = (newKey: string, newValue: string, newOperator: string, newType: string): void => {
+    const setThisFilter = (newKey: string, newValue: string, newOperator: PropertyOperator, newType: string): void => {
         setFilter(index, newKey, newValue, newOperator, newType)
     }
 
@@ -214,8 +215,6 @@ export function TabbedPropertyFilter({
                 <PropertyPaneContents
                     onComplete={onComplete}
                     setThisFilter={setThisFilter}
-                    eventProperties={eventProperties}
-                    personProperties={personProperties}
                     propkey={key}
                     value={value}
                     operator={operator}

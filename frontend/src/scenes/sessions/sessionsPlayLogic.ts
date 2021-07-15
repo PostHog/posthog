@@ -17,7 +17,7 @@ interface SessionPlayerData {
     start_time: string
 }
 
-export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, EventIndex, SessionType>>({
+export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, SessionRecordingId>>({
     connect: {
         values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
         actions: [
@@ -97,7 +97,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
     }),
     loaders: ({ values, actions }) => ({
         tags: [
-            ['activating', 'watched', 'deleted'] as string[], // TODO: Temp values for testing
+            ['activating', 'watched', 'deleted'] as string[],
             {
                 createTag: async () => {
                     const newTag = [values.addingTag]
@@ -152,7 +152,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         ],
         shouldLoadSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
-            (session, sessionEvents) => session && !session.events && !sessionEvents[session.global_session_id],
+            (session, sessionEvents) => session && !sessionEvents[session.global_session_id],
         ],
         highlightedSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
@@ -160,7 +160,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                 if (!session) {
                     return []
                 }
-                const events = session.events || sessionEvents[session.global_session_id] || []
+                const events = sessionEvents[session.global_session_id] || []
                 return events.filter((e) => (session.matching_events || []).includes(e.id))
             },
         ],
@@ -188,7 +188,12 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         ],
     },
     urlToAction: ({ actions, values }) => {
-        const urlToAction = (_: any, params: { sessionRecordingId?: SessionRecordingId }): void => {
+        const urlToAction = (
+            _: any,
+            params: {
+                sessionRecordingId?: SessionRecordingId
+            }
+        ): void => {
             const sessionRecordingId = params.sessionRecordingId
             if (values && sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
                 actions.loadRecording(sessionRecordingId)

@@ -2,7 +2,7 @@ import importlib
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 from celery import group
 from dateutil.relativedelta import relativedelta
@@ -19,13 +19,13 @@ from posthog.constants import (
     INSIGHT_SESSIONS,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
+    TRENDS_LINEAR,
     TRENDS_STICKINESS,
+    FunnelVizType,
 )
 from posthog.decorators import CacheType
 from posthog.ee import is_clickhouse_enabled
-from posthog.models import DashboardItem, Filter, Team
-from posthog.models.filters.path_filter import PathFilter
-from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models import Dashboard, DashboardItem, Filter, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.settings import CACHED_RESULTS_TTL
@@ -36,21 +36,38 @@ PARALLEL_DASHBOARD_ITEM_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACH
 
 logger = logging.getLogger(__name__)
 
-CH_TYPE_TO_IMPORT = {
-    CacheType.TRENDS: ("ee.clickhouse.queries.trends.clickhouse_trends", "ClickhouseTrends"),
-    CacheType.SESSION: ("ee.clickhouse.queries.sessions.clickhouse_sessions", "ClickhouseSessions"),
-    CacheType.STICKINESS: ("ee.clickhouse.queries.clickhouse_stickiness", "ClickhouseStickiness"),
-    CacheType.RETENTION: ("ee.clickhouse.queries.clickhouse_retention", "ClickhouseRetention"),
-    CacheType.PATHS: ("ee.clickhouse.queries.clickhouse_paths", "ClickhousePaths"),
-}
+if is_clickhouse_enabled():
+    from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
+    from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
+    from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
+    from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+    from ee.clickhouse.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
+    from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
+    from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
+    from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 
-TYPE_TO_IMPORT = {
-    CacheType.TRENDS: ("posthog.queries.trends", "Trends"),
-    CacheType.SESSION: ("posthog.queries.sessions", "Sessions"),
-    CacheType.STICKINESS: ("posthog.queries.stickiness", "Stickiness"),
-    CacheType.RETENTION: ("posthog.queries.retention", "Retention"),
-    CacheType.PATHS: ("posthog.queries.paths", "Paths"),
-}
+    CACHE_TYPE_TO_INSIGHT_CLASS = {
+        CacheType.TRENDS: ClickhouseTrends,
+        CacheType.SESSION: ClickhouseSessions,
+        CacheType.STICKINESS: ClickhouseStickiness,
+        CacheType.RETENTION: ClickhouseRetention,
+        CacheType.PATHS: ClickhousePaths,
+    }
+else:
+    from posthog.queries.funnel import Funnel
+    from posthog.queries.paths import Paths
+    from posthog.queries.retention import Retention
+    from posthog.queries.sessions.sessions import Sessions
+    from posthog.queries.stickiness import Stickiness
+    from posthog.queries.trends import Trends
+
+    CACHE_TYPE_TO_INSIGHT_CLASS = {
+        CacheType.TRENDS: Trends,
+        CacheType.SESSION: Sessions,
+        CacheType.STICKINESS: Stickiness,
+        CacheType.RETENTION: Retention,
+        CacheType.PATHS: Paths,
+    }
 
 
 def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
@@ -66,6 +83,16 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
 
     if result:
         cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
+
+
+def update_dashboard_items_cache(dashboard: Dashboard) -> None:
+    for item in DashboardItem.objects.filter(dashboard=dashboard, filters__isnull=False).exclude(filters={}):
+        update_dashboard_item_cache(item, dashboard)
+
+
+def update_dashboard_item_cache(dashboard_item: DashboardItem, dashboard: Optional[Dashboard]) -> None:
+    cache_key, cache_type, payload = dashboard_item_update_task_params(dashboard_item, dashboard)
+    update_cache_item(cache_key, cache_type, payload)
 
 
 def get_cache_type(filter: FilterType) -> CacheType:
@@ -103,11 +130,7 @@ def update_cached_items() -> None:
     for item in DashboardItem.objects.filter(
         pk__in=Subquery(items.filter(filters__isnull=False).exclude(filters={}).distinct("filters").values("pk"))
     ).order_by(F("last_refresh").asc(nulls_first=True))[0:PARALLEL_DASHBOARD_ITEM_CACHE]:
-        filter = get_filter(data=item.dashboard_filters(), team=item.team)
-        cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
-
-        cache_type = get_cache_type(filter)
-        payload = {"filter": filter.toJSON(), "team_id": item.team_id}
+        cache_key, cache_type, payload = dashboard_item_update_task_params(item)
         tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
 
     logger.info("Found {} items to refresh".format(len(tasks)))
@@ -115,20 +138,24 @@ def update_cached_items() -> None:
     taskset.apply_async()
 
 
-def import_from(module: str, name: str) -> Any:
-    return getattr(importlib.import_module(module), name)
+def dashboard_item_update_task_params(
+    item: DashboardItem, dashboard: Optional[Dashboard] = None
+) -> Tuple[str, CacheType, Dict]:
+    filter = get_filter(data=item.dashboard_filters(dashboard), team=item.team)
+    cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
+
+    cache_type = get_cache_type(filter)
+    payload = {"filter": filter.toJSON(), "team_id": item.team_id}
+
+    return cache_key, cache_type, payload
 
 
 def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type: CacheType) -> List[Dict[str, Any]]:
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
 
-    if is_clickhouse_enabled():
-        insight_class_path = CH_TYPE_TO_IMPORT[cache_type]
-    else:
-        insight_class_path = TYPE_TO_IMPORT[cache_type]
+    insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
-    insight_class = import_from(insight_class_path[0], insight_class_path[1])
     result = insight_class().run(filter, Team(pk=team_id))
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result
@@ -138,10 +165,16 @@ def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, 
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
 
+    insight_class: Union[Type[Funnel]]
     if is_clickhouse_enabled():
-        insight_class = import_from("ee.clickhouse.queries.clickhouse_funnel", "ClickhouseFunnel")
+        if filter.funnel_viz_type == FunnelVizType.TRENDS:
+            insight_class = ClickhouseFunnelTrends
+        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
+            insight_class = ClickhouseFunnelTimeToConvert
+        else:
+            insight_class = ClickhouseFunnel
     else:
-        insight_class = import_from("posthog.queries.funnel", "Funnel")
+        insight_class = Funnel
 
     result = insight_class(filter=filter, team=Team(pk=team_id)).run()
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)

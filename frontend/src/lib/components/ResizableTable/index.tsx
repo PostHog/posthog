@@ -4,9 +4,10 @@ import { ColumnType } from 'antd/lib/table'
 import { ResizableProps } from 'react-resizable'
 import ResizeObserver from 'resize-observer-polyfill'
 import { RenderedCell } from 'rc-table/lib/interface'
-import { getActiveBreakpoint, getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from './responsiveUtils'
+import { getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from '../../utils/responsiveUtils'
 import VirtualTableHeader from './VirtualTableHeader'
 import { TableConfig as _TableConfig } from './TableConfig'
+import { useBreakpoint } from 'lib/hooks/useBreakpoint'
 
 import './index.scss'
 
@@ -31,6 +32,7 @@ export interface InternalColumnType<RecordType> extends ResizableColumnType<Reco
 
 export type ResizeHandler = Exclude<ResizableProps['onResize'], undefined>
 
+// https://github.com/ant-design/ant-design/blob/4cdd24f4ec1ffb638175bb6c2dbb4fd7f103d60f/components/table/style/index.less#L422-L424
 export const ANTD_EXPAND_BUTTON_WIDTH = 48
 
 interface ResizableTableProps<RecordType> extends TableProps<RecordType> {
@@ -43,7 +45,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
     components,
     ...props
 }: ResizableTableProps<RecordType>): JSX.Element {
-    const breakpoint = getActiveBreakpoint()
+    const breakpoint = useBreakpoint()
     const minColumnWidth = getMinColumnWidth(breakpoint)
     const [columns, setColumns] = useState(() => {
         const lastIndex = initialColumns.length
@@ -216,7 +218,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                         handleResize={handleColumnResize}
                         layoutEffect={updateTableWidth}
                         minColumnWidth={minColumnWidth}
-                        expandable={!!props.expandable}
+                        expandable={props.expandable}
                     />
                 )}
                 <Table

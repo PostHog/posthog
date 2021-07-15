@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import { Spin } from 'antd'
 import api from 'lib/api'
 import { router } from 'kea-router'
-import { cohortsModel } from '~/models'
+import { cohortsModel } from '~/models/cohortsModel'
 import { Link } from 'lib/components/Link'
 
 export const cohortLogic = kea({
@@ -63,15 +63,15 @@ export const cohortLogic = kea({
                     cohortFormData.append(key, value)
                 }
             }
-            if (cohort.id !== 'new') {
+            if (cohort.id === 'new' || cohort.id === 'personsModalNew') {
+                cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortFormData)
+                cohortsModel.actions.createCohort(cohort)
+            } else {
                 cohort = await api.update(
                     'api/cohort/' + cohort.id + (filterParams ? '?' + filterParams : ''),
                     cohortFormData
                 )
                 cohortsModel.actions.updateCohort(cohort)
-            } else {
-                cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortFormData)
-                cohortsModel.actions.createCohort(cohort)
             }
             breakpoint()
             delete cohort['csv']

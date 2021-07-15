@@ -7,8 +7,8 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { userLogic } from 'scenes/userLogic'
+import { afterLoginRedirect } from 'scenes/authentication/loginLogic'
 
 export enum Scene {
     Error404 = '404',
@@ -205,10 +205,16 @@ export const routes: Record<string, Scene> = {
     '/home': Scene.Home,
 }
 
-export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneConfig>>({
+export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneConfig>>({
     actions: {
+        /* 1. Prepares to open the scene, as the listener may override and do something
+            else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
+        openScene: (scene: Scene, params: Params) => ({ scene, params }),
+        // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
+        // 3. Set the `scene` reducer
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
+
         setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
         showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
         hideUpgradeModal: true,
@@ -263,17 +269,13 @@ export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneCo
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
-                let redirect = redirects[path]
-
-                if (path === '/' && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PROJECT_HOME]) {
-                    redirect = '/home'
-                }
-
+                const redirect = redirects[path]
                 router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
+
         for (const [path, scene] of Object.entries(routes)) {
-            mapping[path] = (params) => actions.loadScene(scene, params)
+            mapping[path] = (params) => actions.openScene(scene, params)
         }
 
         mapping['/*'] = () => actions.loadScene(Scene.Error404, {})
@@ -296,7 +298,64 @@ export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneCo
             posthog.capture('$pageview')
             document.title = values.scene ? `${identifierToHuman(values.scene)} • PostHog` : 'PostHog'
         },
-        loadScene: async ({ scene, params = {} }: { scene: Scene; params: Params }, breakpoint) => {
+        openScene: ({ scene, params }) => {
+            const sceneConfig = sceneConfigurations[scene] || {}
+            const { user } = userLogic.values
+            const { preflight } = preflightLogic.values
+
+            if (scene === Scene.Signup && preflight && !preflight.cloud && preflight.initiated) {
+                // If user is on an already initiated self-hosted instance, redirect away from signup
+                router.actions.replace('/login')
+                return
+            }
+
+            if (user) {
+                // If user is already logged in, redirect away from unauthenticated-only routes (e.g. /signup)
+                if (sceneConfig.onlyUnauthenticated) {
+                    if (scene === Scene.Login) {
+                        router.actions.replace(afterLoginRedirect())
+                    } else {
+                        router.actions.replace('/')
+                    }
+                    return
+                }
+
+                // Redirect to org/project creation if there's no org/project respectively, unless using invite
+                if (scene !== Scene.InviteSignup) {
+                    if (!user.organization) {
+                        if (location.pathname !== '/organization/create') {
+                            router.actions.replace('/organization/create')
+                            return
+                        }
+                    } else if (!user.team) {
+                        if (location.pathname !== '/project/create') {
+                            router.actions.replace('/project/create')
+                            return
+                        }
+                    } else if (
+                        !user.team.completed_snippet_onboarding &&
+                        !location.pathname.startsWith('/ingestion') &&
+                        !location.pathname.startsWith('/personalization')
+                    ) {
+                        // If ingestion tutorial not completed, redirect to it
+                        router.actions.replace('/ingestion')
+                        return
+                    }
+                }
+            }
+
+            actions.loadScene(scene, params)
+        },
+        loadScene: async (
+            {
+                scene,
+                params = {},
+            }: {
+                scene: Scene
+                params: Params
+            },
+            breakpoint
+        ) => {
             if (values.scene === scene) {
                 actions.setScene(scene, params)
                 return

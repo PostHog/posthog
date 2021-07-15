@@ -1,6 +1,8 @@
 import React from 'react'
 import { AnnotationScope } from '../types'
 
+// Sync these with the ChartDisplayType enum in types.ts
+// ... and remove once all files have migrated to TypeScript
 export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraph'
 export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
 export const ACTIONS_TABLE = 'ActionsTable'
@@ -9,6 +11,7 @@ export const ACTIONS_BAR_CHART = 'ActionsBar'
 export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
 export const PATHS_VIZ = 'PathsViz'
 export const FUNNEL_VIZ = 'FunnelViz'
+export const FUNNELS_TIME_TO_CONVERT = 'FunnelsTimeToConvert'
 
 export enum OrganizationMembershipLevel {
     Member = 1,
@@ -39,11 +42,6 @@ export const annotationScopeToName = new Map<string, string>([
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
 
 // Event constants
-export const PAGEVIEW = '$pageview'
-export const AUTOCAPTURE = '$autocapture'
-export const SCREEN = '$screen'
-export const CUSTOM_EVENT = 'custom_event'
-
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
 
@@ -66,7 +64,7 @@ export const MATHS: Record<string, any> = {
         name: 'Total count',
         description: (
             <>
-                Total event count. Number of times the user performed the event.
+                Total event count. Total number of times the event was performed by any user.
                 <br />
                 <br />
                 <i>Example: If a user performs an event 3 times in the given period, it counts as 3.</i>
@@ -94,8 +92,10 @@ export const MATHS: Record<string, any> = {
         name: 'Weekly Active',
         description: (
             <>
-                Users active in the past week (7 days). This is a trailing count that aggregates distinct users in the
-                past 7 days for each day in the time series
+                Users active in the past week (7 days).
+                <br />
+                This is a trailing count that aggregates distinct users in the past 7 days for each day in the time
+                series
             </>
         ),
         onProperty: false,
@@ -118,7 +118,7 @@ export const MATHS: Record<string, any> = {
         name: 'Average',
         description: (
             <>
-                Event property average.
+                Average of a property value within an event or action.
                 <br />
                 <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 14.
@@ -131,7 +131,7 @@ export const MATHS: Record<string, any> = {
         name: 'Sum',
         description: (
             <>
-                Event property sum.
+                Sum of property values within an event or action.
                 <br />
                 <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
@@ -229,10 +229,15 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS: Record<string, string> = {
     INGESTION_GRID: 'ingestion-grid-exp-3',
     PROJECT_HOME: 'project-home-exp-5',
-    QUERY_UX_V2: '4050-query-ui-optB',
     EVENT_COLUMN_CONFIG: '4141-event-columns',
     NPS_PROMPT: '4562-nps',
-    INGESTION_TAXONOMY: 'event-property-taxonomy',
+    INGESTION_TAXONOMY: '4267-event-property-taxonomy',
+    NEW_TOOLTIPS: '4156-tooltips-legends',
+    FUNNEL_PERSONS_MODAL: '4819-funnel-persons-modal',
+    PLUGIN_METRICS: '4871-plugin-metrics',
+    FUNNEL_BAR_VIZ: '4535-funnel-bar-viz',
+    SESSIONS_TABLE: '4964-sessions-table',
+    PERSONS_MODAL_SEARCH: 'persons-modal-search',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
@@ -240,4 +245,9 @@ export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
 export enum Environments {
     PRODUCTION = 'production',
     TEST = 'test',
+}
+
+export enum FunnelLayout {
+    horizontal = 'horizontal',
+    vertical = 'vertical',
 }

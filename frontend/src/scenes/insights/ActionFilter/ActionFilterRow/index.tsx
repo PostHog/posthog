@@ -11,8 +11,9 @@ import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { propertyDefinitionsLogic } from 'scenes/events/propertyDefinitionsLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { pluralize } from 'lib/utils'
+import { SeriesLetter, SeriesGlyph } from 'lib/components/SeriesGlyph'
 import './index.scss'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
@@ -36,10 +37,13 @@ export interface ActionFilterRowProps {
     hidePropertySelector?: boolean // DEPRECATED: Out of use in the new horizontal UI
     singleFilter?: boolean
     showOr?: boolean
-    letter?: string | null
+    showSeriesIndicator?: boolean // Show series badge
+    seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     horizontalUI?: boolean
+    fullWidth?: boolean
     filterCount: number
     customRowPrefix?: string | JSX.Element // Custom prefix element to show in each row
+    hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
 }
 
 export function ActionFilterRow({
@@ -50,10 +54,13 @@ export function ActionFilterRow({
     hidePropertySelector,
     singleFilter,
     showOr,
-    letter,
+    showSeriesIndicator,
+    seriesIndicatorType = 'alpha',
     horizontalUI = false,
+    fullWidth = false,
     filterCount,
     customRowPrefix,
+    hasBreakdown,
 }: ActionFilterRowProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
@@ -64,7 +71,7 @@ export function ActionFilterRow({
         updateFilterProperty,
         setEntityFilterVisibility,
     } = useActions(logic)
-    const { numericalPropertyNames } = useValues(propertyDefinitionsLogic)
+    const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -114,14 +121,14 @@ export function ActionFilterRow({
     const orLabel = <div className="stateful-badge or width-locked">OR</div>
 
     return (
-        <div className={horizontalUI ? 'action-row-striped' : ''}>
+        <div className={`${horizontalUI ? 'action-row-striped' : 'action-row'} ${fullWidth ? 'full-width' : ''}`}>
             {!horizontalUI && index > 0 && showOr && (
                 <Row align="middle" style={{ marginTop: 12 }}>
                     {orLabel}
                 </Row>
             )}
 
-            <Row gutter={8} align="middle" className={!horizontalUI ? 'mt' : ''}>
+            <Row gutter={8} align="middle" className={!horizontalUI ? 'mt' : ''} wrap={!fullWidth}>
                 {horizontalUI && !singleFilter && filterCount > 1 && (
                     <Col>
                         <Button
@@ -134,18 +141,31 @@ export function ActionFilterRow({
                         />
                     </Col>
                 )}
-                {letter && (
+                {showSeriesIndicator && (
                     <Col className="action-row-letter">
-                        <span>{letter}</span>
+                        {seriesIndicatorType === 'numeric' ? (
+                            <SeriesGlyph>{index + 1}</SeriesGlyph>
+                        ) : (
+                            <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
+                        )}
                     </Col>
                 )}
                 {customRowPrefix ? <Col>{customRowPrefix}</Col> : <>{horizontalUI && <Col>Showing</Col>}</>}
-                <Col style={{ maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}>
+                <Col
+                    style={fullWidth ? {} : { maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}
+                    flex={fullWidth ? 'auto' : undefined}
+                >
                     <Button
                         data-attr={'trend-element-subject-' + index}
                         ref={node}
                         onClick={onClick}
-                        style={{ maxWidth: '100%', display: 'flex', alignItems: 'center' }}
+                        block={fullWidth}
+                        style={{
+                            maxWidth: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                        }}
                     >
                         <span className="text-overflow" style={{ maxWidth: '100%' }}>
                             <PropertyKeyInfo value={name || 'Select action'} />
@@ -162,7 +182,7 @@ export function ActionFilterRow({
                 {!hideMathSelector && (
                     <>
                         {horizontalUI && <Col>counted by</Col>}
-                        <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
+                        <Col style={{ maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})` }}>
                             <MathSelector
                                 math={math}
                                 index={index}
@@ -174,7 +194,7 @@ export function ActionFilterRow({
                         {MATHS[math || '']?.onProperty && (
                             <>
                                 {horizontalUI && <Col>on property</Col>}
-                                <Col style={{ maxWidth: `calc(50% - 16px${letter ? ' - 32px' : ''})` }}>
+                                <Col style={{ maxWidth: `calc(50% - 16px${showSeriesIndicator ? ' - 32px' : ''})` }}>
                                     <MathPropertySelector
                                         name={name}
                                         math={math}
@@ -189,7 +209,7 @@ export function ActionFilterRow({
                         )}
                     </>
                 )}
-                {horizontalUI && (
+                {(horizontalUI || fullWidth) && (
                     <Col>
                         <Button
                             type="link"
@@ -198,7 +218,7 @@ export function ActionFilterRow({
                                     ? setEntityFilterVisibility(filter.order, !visible)
                                     : undefined
                             }}
-                            className={`row-action-btn show-filters${filter.properties?.length ? ' visible' : ''}`}
+                            className={`row-action-btn show-filters${visible ? ' visible' : ''}`}
                             data-attr={'show-prop-filter-' + index}
                             title="Show filters"
                         >
@@ -207,7 +227,7 @@ export function ActionFilterRow({
                         </Button>
                     </Col>
                 )}
-                {!horizontalUI && !singleFilter && filterCount > 1 && (
+                {!horizontalUI && !singleFilter && (
                     <Col>
                         <Button
                             type="link"
@@ -222,29 +242,31 @@ export function ActionFilterRow({
                 )}
                 {horizontalUI && filterCount > 1 && index < filterCount - 1 && showOr && orLabel}
             </Row>
-            {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) && !horizontalUI && (
-                <div style={{ paddingTop: 6 }}>
-                    <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
-                    <Button
-                        className="ant-btn-md"
-                        onClick={() =>
-                            typeof filter.order === 'number'
-                                ? setEntityFilterVisibility(filter.order, !visible)
-                                : undefined
-                        }
-                        data-attr={'show-prop-filter-' + index}
-                    >
-                        {determineFilterLabel(visible, filter)}
-                    </Button>
-                </div>
-            )}
+            {(!hidePropertySelector || (filter.properties && filter.properties.length > 0)) &&
+                !horizontalUI &&
+                !fullWidth && (
+                    <div style={{ paddingTop: 6 }}>
+                        <span style={{ color: '#C4C4C4', fontSize: 18, paddingLeft: 6, paddingRight: 2 }}>&#8627;</span>
+                        <Button
+                            className="ant-btn-md"
+                            onClick={() =>
+                                typeof filter.order === 'number'
+                                    ? setEntityFilterVisibility(filter.order, !visible)
+                                    : undefined
+                            }
+                            data-attr={'show-prop-filter-' + index}
+                        >
+                            {determineFilterLabel(visible, filter)}
+                        </Button>
+                    </div>
+                )}
 
             {visible && (
-                <div className="ml">
+                <div className="ml" style={{ maxWidth: '100%' }}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
-                        onChange={(properties: PropertyFilter[]) => updateFilterProperty({ properties, index })}
+                        onChange={(properties) => updateFilterProperty({ properties, index })}
                         disablePopover={horizontalUI}
                         style={{ marginBottom: 0 }}
                     />

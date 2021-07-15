@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import { Button, Spin } from 'antd'
 import dayjs from 'dayjs'
 import { EventType, FilterType, ActionFilter } from '~/types'
-import { lightColors } from 'lib/colors'
+import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './logic/featureFlagLogic'
 import { open } from '@papercups-io/chat-widget'
@@ -27,6 +27,10 @@ export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
         (parseInt(c) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (parseInt(c) / 4)))).toString(16)
     )
+}
+
+export function isObjectEmpty(obj: Record<string, any>): boolean {
+    return obj && Object.keys(obj).length === 0 && obj.constructor === Object
 }
 
 export function toParams(obj: Record<string, any>): string {
@@ -261,7 +265,7 @@ export function isOperatorRegex(operator: string): boolean {
     return ['regex', 'not_regex'].includes(operator)
 }
 
-export function isValidRegex(value: string): boolean {
+export function isValidRegex(value: any): boolean {
     try {
         new RegExp(value)
         return true
@@ -281,7 +285,9 @@ export function formatPropertyLabel(
         : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
               (isOperatorFlag(operator)
                   ? ` ${operatorMap[operator]}`
-                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${value || ''}`)
+                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${
+                        value && value.length === 1 && value[0] === '' ? '(empty string)' : value || ''
+                    } `)
 }
 
 export function formatProperty(property: Record<string, any>): string {
@@ -378,18 +384,27 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-export function humanFriendlyDuration(d: string | number): string {
+export function humanFriendlyDuration(d: string | number, maxUnits?: number): string {
+    // Convert `d` (seconds) to a human-readable duration string.
+    // Example: `1d 10hrs 9mins 8s`
     d = Number(d)
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
     const s = Math.floor((d % 3600) % 60)
 
-    const dayDisplay = days > 0 ? days + 'd ' : ''
-    const hDisplay = h > 0 ? h + (h == 1 ? 'hr ' : 'hrs ') : ''
-    const mDisplay = m > 0 ? m + (m == 1 ? 'min ' : 'mins ') : ''
+    const dayDisplay = days > 0 ? days + 'd' : ''
+    const hDisplay = h > 0 ? h + (h == 1 ? 'hr' : 'hrs') : ''
+    const mDisplay = m > 0 ? m + (m == 1 ? 'min' : 'mins') : ''
     const sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
-    return days > 0 ? dayDisplay + hDisplay : hDisplay + mDisplay + sDisplay
+
+    let units: string[] = []
+    if (days > 0) {
+        units = [dayDisplay, hDisplay].filter(Boolean)
+    } else {
+        units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
+    }
+    return units.slice(0, maxUnits).join(' ')
 }
 
 export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
@@ -715,7 +730,7 @@ export function colorForString(s: string): string {
     /*
     Returns a color name for a given string, where the color will always be the same for the same string.
     */
-    return lightColors[hashCodeForString(s) % lightColors.length]
+    return tagColors[hashCodeForString(s) % tagColors.length]
 }
 
 export function midEllipsis(input: string, maxLength: number): string {
@@ -854,4 +869,80 @@ export function maybeAddCommasToInteger(value: any): any {
     }
     const internationalNumberFormat = new Intl.NumberFormat('en-US')
     return internationalNumberFormat.format(value)
+}
+
+function hexToRGB(hex: string): { r: number; g: number; b: number } {
+    const originalString = hex.trim()
+    const hasPoundSign = originalString[0] === '#'
+    const originalColor = hasPoundSign ? originalString.slice(1) : originalString
+
+    if (originalColor.length !== 6) {
+        console.warn(`Incorrectly formatted color string: ${hex}.`)
+        return { r: 0, g: 0, b: 0 }
+    }
+
+    const originalBase16 = parseInt(originalColor, 16)
+    const r = originalBase16 >> 16
+    const g = (originalBase16 >> 8) & 0x00ff
+    const b = originalBase16 & 0x0000ff
+    return { r, g, b }
+}
+
+export function hexToRGBA(hex: string, alpha = 1): string {
+    /**
+     * Returns an RGBA string with specified alpha if the hex string is valid.
+     * @param hex e.g. '#FF0000'
+     * @param alpha e.g. 0.5
+     */
+
+    const { r, g, b } = hexToRGB(hex)
+    const a = alpha
+    return `rgba(${[r, g, b, a].join(',')})`
+}
+
+export function lightenDarkenColor(hex: string, pct: number): string {
+    /**
+     * Returns a lightened or darkened color, similar to SCSS darken()
+     * @param hex e.g. '#FF0000'
+     * @param pct percentage amount to lighten or darken, e.g. -20
+     */
+
+    function output(val: number): number {
+        return Math.max(0, Math.min(255, val))
+    }
+
+    const amt = Math.round(2.55 * pct)
+    let { r, g, b } = hexToRGB(hex)
+
+    r = output(r + amt)
+    g = output(g + amt)
+    b = output(b + amt)
+
+    return `rgb(${[r, g, b].join(',')})`
+}
+
+export function toString(input?: any | null): string {
+    return input?.toString() || ''
+}
+
+export function average(input: number[]): number {
+    /**
+     * Returns the average of an array
+     * @param input e.g. [100,50, 75]
+     */
+    return Math.round((input.reduce((acc, val) => acc + val, 0) / input.length) * 10) / 10
+}
+
+export function median(input: number[]): number {
+    /**
+     * Returns the median of an array
+     * @param input e.g. [3,7,10]
+     */
+    const sorted = [...input].sort((a, b) => a - b)
+    const half = Math.floor(sorted.length / 2)
+
+    if (sorted.length % 2) {
+        return sorted[half]
+    }
+    return average([sorted[half - 1], sorted[half]])
 }

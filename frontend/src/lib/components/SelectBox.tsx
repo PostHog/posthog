@@ -107,6 +107,7 @@ export function SelectBox({
                             e.key === 'Tab' && onDismiss() // Close select box when input blurs via Tab
                         }}
                         style={{ width: '100%', borderRadius: 0, height: '10%' }}
+                        data-attr="select-box-input"
                     />
                     <div style={{ width: '100%', height: '90%' }} tabIndex={-1}>
                         <SelectUnit
@@ -129,7 +130,7 @@ export function SelectUnit({
     items,
     disablePopover = false,
 }: {
-    dropdownLogic: selectBoxLogicType<SelectedItem, SelectBoxItem> & BuiltLogic
+    dropdownLogic: selectBoxLogicType & BuiltLogic
     items: Record<string, SelectBoxItem>
     disablePopover?: boolean // Disable PropertyKeyInfo popover
 }): JSX.Element {
@@ -239,6 +240,7 @@ export function SelectUnit({
                     onMouseOver={() =>
                         !blockMouseOver && setSelectedItem({ ...item, key: item.key, category: group.type })
                     }
+                    data-attr={`select-item-${index}`}
                 >
                     <PropertyKeyInfo value={item.name} disablePopover={disablePopover} />
                 </List.Item>

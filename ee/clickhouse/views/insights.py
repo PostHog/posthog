@@ -1,20 +1,34 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, Type
 
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.queries.clickhouse_funnel import ClickhouseFunnel
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
+from ee.clickhouse.queries.funnels import (
+    ClickhouseFunnel,
+    ClickhouseFunnelBase,
+    ClickhouseFunnelStrict,
+    ClickhouseFunnelTimeToConvert,
+    ClickhouseFunnelTrends,
+    ClickhouseFunnelUnordered,
+)
 from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.api.insight import InsightViewSet
-from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_SESSIONS, INSIGHT_STICKINESS, TRENDS_STICKINESS
+from posthog.constants import (
+    INSIGHT_FUNNELS,
+    INSIGHT_PATHS,
+    INSIGHT_SESSIONS,
+    INSIGHT_STICKINESS,
+    TRENDS_STICKINESS,
+    FunnelOrderType,
+    FunnelVizType,
+)
 from posthog.decorators import cached_function
-from posthog.models import Event
 from posthog.models.filters import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -55,7 +69,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         resp = ClickhousePaths().run(filter=filter, team=team)
         return {"result": resp}
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         response = self.calculate_funnel(request)
         return Response(response)
@@ -64,7 +78,25 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def calculate_funnel(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
-        return {"result": ClickhouseFunnel(team=team, filter=filter).run()}
+
+        funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
+        if filter.funnel_order_type == FunnelOrderType.UNORDERED:
+            funnel_order_class = ClickhouseFunnelUnordered
+        elif filter.funnel_order_type == FunnelOrderType.STRICT:
+            funnel_order_class = ClickhouseFunnelStrict
+
+        if filter.funnel_viz_type == FunnelVizType.TRENDS:
+            return {
+                "result": ClickhouseFunnelTrends(team=team, filter=filter, funnel_order_class=funnel_order_class).run()
+            }
+        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
+            return {
+                "result": ClickhouseFunnelTimeToConvert(
+                    team=team, filter=filter, funnel_order_class=funnel_order_class
+                ).run()
+            }
+        else:
+            return {"result": funnel_order_class(team=team, filter=filter).run()}
 
     @cached_function()
     def calculate_retention(self, request: Request) -> Dict[str, Any]:

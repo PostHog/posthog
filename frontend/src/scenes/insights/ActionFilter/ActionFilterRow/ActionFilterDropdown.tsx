@@ -15,7 +15,7 @@ import { RenderInfoProps, SelectBox, SelectedItem } from 'lib/components/SelectB
 import { Link } from 'lib/components/Link'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { entityFilterLogic } from '../entityFilterLogic'
-import { eventDefinitionsLogic } from 'scenes/events/eventDefinitionsLogic'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { router } from 'kea-router'
 
 const getSuggestions = (events: EventDefinition[]): EventDefinition[] => {
@@ -44,7 +44,7 @@ export function ActionFilterDropdown({
     const { updateFilter, setEntityFilterVisibility } = useActions(logic)
 
     const { actions } = useValues(actionsModel)
-    const { eventDefinitions } = useValues(eventDefinitionsLogic)
+    const { eventDefinitions } = useValues(eventDefinitionsModel)
 
     const handleDismiss = (event?: MouseEvent): void => {
         if (openButtonRef?.current?.contains(event?.target as Node)) {

@@ -35,8 +35,7 @@ class TestFilter(BaseTest):
             }
         )
         self.assertCountEqual(
-            list(filter.to_dict().keys()),
-            ["events", "display", "compare", "insight", "date_from", "funnel_window_days",],
+            list(filter.to_dict().keys()), ["events", "display", "compare", "insight", "date_from"],
         )
 
 
@@ -128,11 +127,11 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
                 distinct_id="test",
                 properties={"$current_url": "https://whatever.com"},
             )
-            filter = Filter(data={"properties": {"$current_url__regex": "\.com$"}})
+            filter = Filter(data={"properties": {"$current_url__regex": r"\.com$"}})
             events = filter_events(filter, self.team)
             self.assertEqual(events[0]["id"], event2.pk)
 
-            filter = Filter(data={"properties": {"$current_url__not_regex": "\.eee$"}})
+            filter = Filter(data={"properties": {"$current_url__not_regex": r"\.eee$"}})
             events = filter_events(filter, self.team, order_by="timestamp")
             self.assertEqual(events[0]["id"], event1.pk)
             self.assertEqual(events[1]["id"], event2.pk)

@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import re
 from time import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -8,6 +9,7 @@ import sqlparse
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
+from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 from django.conf import settings as app_settings
 from django.core.cache import cache
@@ -16,6 +18,7 @@ from sentry_sdk.api import capture_exception
 
 from posthog import redis
 from posthog.constants import RDBMS
+from posthog.exceptions import EstimatedQueryExecutionTimeTooLong
 from posthog.internal_metrics import timing
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
@@ -125,18 +128,20 @@ else:
         with ch_pool.get_client() as client:
             start_time = time()
             tags = {}
+            if app_settings.SHELL_PLUS_PRINT_SQL:
+                print()
+                print(format_sql(query, args))
             try:
                 sql, tags = _annotate_tagged_query(query, args)
                 result = client.execute(sql, args, settings=settings, with_column_types=with_column_types)
-            except Exception as e:
+            except Exception as err:
                 tags["failed"] = True
-                tags["reason"] = str(e)
-                raise e
+                tags["reason"] = type(err).__name__
+                raise _wrap_api_error(err)
             finally:
                 execution_time = time() - start_time
                 timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
                 if app_settings.SHELL_PLUS_PRINT_SQL:
-                    print(format_sql(query, args))
                     print("Execution time: %.6fs" % (execution_time,))
                 if _request_information is not None and _request_information.get("save", False):
                     save_query(query, args, execution_time)
@@ -168,6 +173,18 @@ def _annotate_tagged_query(query, args):
         query = f"/* {_request_information['kind']}:{_request_information['id'].replace('/', '_')} */ {query}"
 
     return query, tags
+
+
+def _wrap_api_error(err: Exception) -> Exception:
+    if not isinstance(err, ServerException):
+        return err
+
+    # Return a 512 error for queries which would time out
+    match = re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message)
+    if match:
+        return EstimatedQueryExecutionTimeTooLong(detail=match.group(0))
+
+    return err
 
 
 def format_sql(sql, params, colorize=True):

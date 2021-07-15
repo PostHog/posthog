@@ -8,6 +8,7 @@ from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
@@ -40,21 +41,6 @@ from posthog.models.team import Team
 
 class ClickhouseActionSerializer(ActionSerializer):
     is_calculating = serializers.SerializerMethodField()
-
-    def get_count(self, action: Action) -> Optional[int]:
-        if self.context.get("view") and self.context["view"].action != "list":
-            query, params = format_action_filter(action)
-            if query == "":
-                return None
-            try:
-                return sync_execute(
-                    "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query),
-                    {"team_id": action.team_id, **params},
-                )[0][0]
-            except Exception as e:
-                capture_exception(e)
-                return None
-        return None
 
     def get_is_calculating(self, action: Action) -> bool:
         return False
@@ -94,6 +80,21 @@ class ClickhouseActionsViewSet(ActionViewSet):
                 )
         else:
             next_url = None
+
+        if request.accepted_renderer.format == "csv":
+            csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
+            content = [
+                {
+                    "Name": person.get("properties", {}).get("name"),
+                    "Distinct ID": person.get("distinct_ids", [""])[0],
+                    "Internal ID": person.get("id"),
+                    "Email": person.get("properties", {}).get("email"),
+                    "Properties": person.get("properties", {}),
+                }
+                for person in serialized_people
+            ]
+            return Response(content)
+
         return Response(
             {
                 "results": [{"people": serialized_people[0:100], "count": len(serialized_people[0:99])}],
@@ -101,6 +102,19 @@ class ClickhouseActionsViewSet(ActionViewSet):
                 "previous": current_url[1:],
             }
         )
+
+    @action(methods=["GET"], detail=True)
+    def count(self, request: Request, **kwargs) -> Response:
+        action = self.get_object()
+        query, params = format_action_filter(action)
+        if query == "":
+            return Response({"count": 0})
+
+        results = sync_execute(
+            "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query),
+            {"team_id": action.team_id, **params},
+        )
+        return Response({"count": results[0][0]})
 
 
 def _handle_date_interval(filter: Filter) -> Filter:
@@ -133,13 +147,11 @@ def _process_content_sql(team: Team, entity: Entity, filter: Filter):
         cohort = Cohort.objects.get(pk=filter.breakdown_value)
         person_filter, person_filter_params = format_filter_query(cohort)
         person_filter = "AND distinct_id IN ({})".format(person_filter)
-    elif (
-        filter.breakdown_type == "person"
-        and isinstance(filter.breakdown, str)
-        and isinstance(filter.breakdown_value, str)
-    ):
-        person_prop = Property(**{"key": filter.breakdown, "value": filter.breakdown_value, "type": "person"})
-        filter.properties.append(person_prop)
+    elif filter.breakdown_type and isinstance(filter.breakdown, str) and isinstance(filter.breakdown_value, str):
+        breakdown_prop = Property(
+            **{"key": filter.breakdown, "value": filter.breakdown_value, "type": filter.breakdown_type}
+        )
+        filter.properties.append(breakdown_prop)
 
     prop_filters, prop_filter_params = parse_prop_clauses(
         filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts

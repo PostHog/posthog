@@ -1,11 +1,11 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
-import { annotationsModel } from '~/models'
+import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogicType } from './logicType'
 import { AnnotationType } from '~/types'
 
-export const annotationsTableLogic = kea<annotationsTableLogicType<AnnotationType>>({
+export const annotationsTableLogic = kea<annotationsTableLogicType>({
     loaders: ({ actions }) => ({
         annotations: {
             __default: [],

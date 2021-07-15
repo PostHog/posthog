@@ -7,7 +7,7 @@ import { toast } from 'react-toastify'
 import React from 'react'
 import { identifierToHuman, resolveWebhookService } from 'lib/utils'
 
-export const teamLogic = kea<teamLogicType<TeamType>>({
+export const teamLogic = kea<teamLogicType>({
     actions: {
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,

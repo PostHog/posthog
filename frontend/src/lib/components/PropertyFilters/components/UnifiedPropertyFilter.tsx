@@ -15,10 +15,7 @@ import {
     UsergroupAddOutlined,
     PlusOutlined,
 } from '@ant-design/icons'
-import {
-    OperatorValueFilterType,
-    OperatorValueSelect,
-} from 'lib/components/PropertyFilters/components/OperatorValueSelect'
+import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { humanFriendlyDetailedTime, isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { SelectBox, SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
 import { PropertyFilterInternalProps } from './PropertyFilter'
@@ -26,6 +23,10 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 import './UnifiedPropertyFilter.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import { PropertyFilterValue, PropertyOperator } from '~/types'
 
 function FilterDropdown({ open, children }: { open: boolean; children: React.ReactNode }): JSX.Element | null {
     return open ? <div>{children}</div> : null
@@ -86,34 +87,29 @@ function CohortPropertiesInfo({ item }: { item: SelectedItem }): JSX.Element {
     )
 }
 
-export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilterInternalProps): JSX.Element {
-    const { eventProperties, personProperties, filters } = useValues(logic)
+export function UnifiedPropertyFilter({ index, onComplete }: PropertyFilterInternalProps): JSX.Element {
     // TODO: PersonPropertiesInfo (which will require making new entries in `keyMapping`)
-
+    const { filters } = useValues(propertyFilterLogic)
+    const { personProperties } = useValues(personPropertiesModel)
+    const { transformedPropertyDefinitions: eventProperties } = useValues(propertyDefinitionsModel)
     const { cohorts } = useValues(cohortsModel)
-    const { setFilter } = useActions(logic)
+    const { setFilter } = useActions(propertyFilterLogic)
     const { reportPropertySelectOpened } = useActions(eventUsageLogic)
-    const { key, value, operator, type } = filters[index]
     const [open, setOpen] = useState(false)
     const selectBoxToggleRef = useRef<HTMLElement>(null)
     const screens = useBreakpoint()
-    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
 
+    const { key, value, operator, type } = filters[index]
+    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
     const displayOperatorAndValue = key && type !== 'cohort'
 
     const setThisFilter = (
         newKey: string,
-        newValue: OperatorValueFilterType | undefined,
-        newOperator: string | undefined,
+        newValue: PropertyFilterValue | undefined,
+        newOperator: PropertyOperator | null | undefined,
         newType: string
     ): void => {
-        setFilter(index, newKey, newValue, newOperator, newType)
-    }
-
-    type PropertiesType = {
-        value: string
-        label: string
-        is_numerical: boolean
+        setFilter(index, newKey, newValue || null, newOperator || null, newType)
     }
 
     const selectBoxItems: SelectBoxItem[] = [
@@ -126,12 +122,13 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </>
                 )
             },
-            dataSource: eventProperties?.map(({ value: eventValue, label, is_numerical }: PropertiesType) => ({
-                name: label,
-                key: `event_${eventValue}`,
-                eventValue,
-                is_numerical,
-            })),
+            dataSource:
+                eventProperties.map(({ value: eventValue, label, is_numerical }) => ({
+                    name: label || '',
+                    key: `event_${eventValue}`,
+                    eventValue,
+                    is_numerical,
+                })) || [],
             renderInfo: EventPropertiesInfo,
             type: 'event',
             key: 'events',
@@ -147,12 +144,11 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </>
                 )
             },
-            dataSource: personProperties?.map(({ value: propertyValue, label, is_numerical }: PropertiesType) => ({
-                name: label,
-                key: `person_${propertyValue}`,
-                propertyValue,
-                is_numerical,
-            })),
+            dataSource:
+                personProperties.map(({ name }) => ({
+                    name,
+                    key: `person_${name}`,
+                })) || [],
             renderInfo: function personPropertiesRenderInfo({ item }) {
                 return (
                     <>
@@ -186,23 +182,24 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </>
                 )
             },
-            dataSource: cohorts
-                ?.filter(({ deleted }) => !deleted)
-                .map((cohort) => ({
-                    name: cohort.name,
-                    key: `cohort_${cohort.id}`,
-                    value: cohort.name,
-                    cohort,
-                })),
+            dataSource:
+                cohorts
+                    ?.filter(({ deleted }) => !deleted)
+                    ?.map((cohort) => ({
+                        name: cohort.name || '',
+                        key: `cohort_${cohort.id}`,
+                        value: cohort.id,
+                        cohort,
+                    })) || [],
             renderInfo: CohortPropertiesInfo,
             type: 'cohort',
             key: 'cohorts',
-            getValue: (item) => item.name || '',
+            getValue: (item) => item.value || '',
             getLabel: (item) => item.name || '',
         },
     ]
 
-    const onClick = (e: React.SyntheticEvent): void => {
+    const onClick = (e: React.MouseEvent): void => {
         e.preventDefault()
         if (!open) {
             reportPropertySelectOpened()
@@ -236,7 +233,13 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                         data-attr={'property-select-toggle-' + index}
                     >
                         <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                            {key ? <PropertyKeyInfo value={key} /> : 'Add filter'}
+                            {key ? (
+                                <PropertyKeyInfo
+                                    value={type === 'cohort' ? cohorts?.find((c) => c.id === value)?.name || key : key}
+                                />
+                            ) : (
+                                'Add filter'
+                            )}
                         </span>
                         {key && <DownOutlined style={{ fontSize: 10 }} />}
                     </Button>
@@ -250,8 +253,12 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                                 }
                                 setOpen(false)
                             }}
-                            onSelect={(itemType, _, name) => {
-                                setThisFilter(name, undefined, operator, itemType)
+                            onSelect={(itemType, val, name) => {
+                                if (itemType === 'cohort') {
+                                    setThisFilter('id', val, operator, itemType)
+                                } else {
+                                    setThisFilter(name, undefined, operator, itemType)
+                                }
                                 setOpen(false)
                             }}
                             items={selectBoxItems}
@@ -260,7 +267,7 @@ export function UnifiedPropertyFilter({ index, onComplete, logic }: PropertyFilt
                     </FilterDropdown>
                 </Col>
 
-                {displayOperatorAndValue && (
+                {displayOperatorAndValue && key && type && (
                     <OperatorValueSelect
                         type={type}
                         propkey={key}

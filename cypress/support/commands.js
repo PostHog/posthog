@@ -1,5 +1,3 @@
-import 'cypress-plugin-snapshots/commands'
-
 const patternHandler = {}
 
 Cypress.Commands.add('interceptLazy', (pattern, handler) => {
@@ -25,4 +23,8 @@ Cypress.Commands.add('login', () => {
     cy.get('[type=submit]').click()
 
     cy.location('pathname').should('not.eq', '/login') // Wait until login request fully completes
+})
+
+Cypress.Commands.add('clickNavMenu', (name) => {
+    cy.get(`[data-attr="menu-item-${name}"]`).click().should('have.class', 'menu-item-active')
 })

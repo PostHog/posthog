@@ -15,6 +15,11 @@ class EnterpriseFeatureException(APIException):
     default_detail = "This is an Enterprise feature."
 
 
+class EstimatedQueryExecutionTimeTooLong(APIException):
+    status_code = 512  # Custom error code
+    default_detail = "Estimated query execution time is too long"
+
+
 def exception_reporting(exception: Exception, *args, **kwargs) -> None:
     """
     Determines which exceptions to report and sends them to Sentry.

@@ -9,6 +9,10 @@ import {
     pluralize,
     endWithPunctation,
     dateFilterToText,
+    hexToRGBA,
+    average,
+    median,
+    humanFriendlyDuration,
 } from './utils'
 
 describe('capitalizeFirstLetter()', () => {
@@ -157,5 +161,56 @@ describe('dateFilterToText()', () => {
         expect(dateFilterToText('-48h', undefined, 'default')).toEqual('Last 48 hours')
         expect(dateFilterToText('-1d', 'dStart', 'default')).toEqual('Yesterday')
         expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
+    })
+})
+
+describe('hexToRGBA()', () => {
+    it('converts hex to RGBA correctly', () => {
+        expect(hexToRGBA('#ff0000', 0.3)).toEqual('rgba(255,0,0,0.3)')
+        expect(hexToRGBA('#0000Cc', 0)).toEqual('rgba(0,0,204,0)')
+        expect(hexToRGBA('#5375ff', 1)).toEqual('rgba(83,117,255,1)')
+    })
+})
+
+describe('average()', () => {
+    it('calculates average correctly', () => {
+        expect(average([9, 4, 1, 3, 5, 7])).toEqual(4.8)
+        expect(average([72, 35, 68, 66, 70, 9, 81])).toEqual(57.3) // Tests rounding too
+        expect(average([86.4, 46.321, 45.304, 34.1, 147])).toEqual(71.8) // Tests rounding too
+    })
+})
+
+describe('median()', () => {
+    it('returns middle number if array length is odd', () => {
+        expect(median([9, 4, 1, 3, 5, 7, 3, 6, 14])).toEqual(5)
+    })
+    it('returns avg of middle numbers if array length is even', () => {
+        expect(median([9, 4, 0, 5, 7, 3, 6, 14])).toEqual(5.5)
+    })
+})
+
+describe('humanFriendlyDuration()', () => {
+    it('returns correct value for <= 60', () => {
+        expect(humanFriendlyDuration(60)).toEqual('1min')
+        expect(humanFriendlyDuration(45)).toEqual('45s')
+    })
+    it('returns correct value for 60 < t < 120', () => {
+        expect(humanFriendlyDuration(90)).toEqual('1min 30s')
+    })
+    it('returns correct value for t > 120', () => {
+        expect(humanFriendlyDuration(360)).toEqual('6mins')
+    })
+    it('returns correct value for t >= 3600', () => {
+        expect(humanFriendlyDuration(3600)).toEqual('1hr')
+        expect(humanFriendlyDuration(3601)).toEqual('1hr 1s')
+        expect(humanFriendlyDuration(3961)).toEqual('1hr 6mins 1s')
+    })
+    it('returns correct value for t >= 86400', () => {
+        expect(humanFriendlyDuration(86400)).toEqual('1d')
+    })
+    it('truncates to specified # of units', () => {
+        expect(humanFriendlyDuration(3961, 2)).toEqual('1hr 6mins')
+        expect(humanFriendlyDuration(30, 2)).toEqual('30s') // no change
+        expect(humanFriendlyDuration(30, 0)).toEqual('') // returns no units (useless)
     })
 })
