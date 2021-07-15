@@ -5,7 +5,7 @@ import { getChartColors } from 'lib/colors'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
-import { ViewType } from 'scenes/insights/insightLogic'
+import { ViewType } from '~/types'
 import { FilterType, TrendResultWithAggregate } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 

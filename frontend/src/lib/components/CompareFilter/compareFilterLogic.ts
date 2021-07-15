@@ -1,8 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
-import { ViewType } from 'scenes/insights/insightLogic'
-import { InsightType } from '~/types'
+import { InsightType, ViewType } from '~/types'
 import { compareFilterLogicType } from './compareFilterLogicType'
 
 export const compareFilterLogic = kea<compareFilterLogicType>({

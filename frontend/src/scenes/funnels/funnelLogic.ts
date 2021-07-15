@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { autocorrectInterval, objectsEqual, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
@@ -16,6 +16,7 @@ import {
     FunnelsTimeConversionResult,
     PathType,
     PersonType,
+    ViewType,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
@@ -127,17 +128,18 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                             ? { breakdown: null, breakdown_type: null }
                             : {}),
                     }
-                    let result: FunnelResult
                     const queryId = uuid()
                     insightLogic.actions.startQuery(queryId)
 
                     const eventCount = params.events?.length || 0
                     const actionCount = params.actions?.length || 0
                     const interval = params.interval || ''
+
+                    let result: FunnelResult
                     try {
                         result = await pollFunnel(params)
-                        eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
                     } catch (e) {
+                        breakpoint()
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                         eventUsageLogic.actions.reportFunnelCalculated(
                             eventCount,
@@ -149,17 +151,19 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                         return []
                     }
                     breakpoint()
-                    insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
+                    eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
+
                     actions.setSteps(result.result as FunnelStep[])
 
                     // We make another api call to api/funnels for time conversion data
-                    let binsResult: FunnelsTimeConversionResult
+                    let binsResult: FunnelsTimeConversionResult | null = null
                     if (params.display === ChartDisplayType.FunnelsTimeToConvert && values.stepsWithCount.length > 1) {
                         try {
                             params.funnel_viz_type = 'time_to_convert'
                             params.funnel_to_step = values.histogramStep
                             binsResult = await pollFunnel(params)
                         } catch (e) {
+                            breakpoint()
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                             eventUsageLogic.actions.reportFunnelCalculated(
                                 eventCount,
@@ -170,9 +174,14 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                             )
                             return []
                         }
-                        insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, binsResult.last_refresh)
+                        breakpoint()
                         actions.setTimeConversionBins(binsResult.result as number[])
                     }
+                    insightLogic.actions.endQuery(
+                        queryId,
+                        ViewType.FUNNELS,
+                        binsResult?.last_refresh || result.last_refresh
+                    )
                     return result.result
                 },
             },
