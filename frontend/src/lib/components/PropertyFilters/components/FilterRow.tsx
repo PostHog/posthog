@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { PropertyFilter } from './PropertyFilter'
-import { AnyPropertyFilter, PropertyFilter as PropertyFilterType } from '~/types'
+import { AnyPropertyFilter } from '~/types'
 import { Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Popover, Row } from 'antd'
@@ -67,7 +67,7 @@ export const FilterRow = React.memo(function FilterRow({
             className="mt-05 mb-05"
             data-attr={'property-filter-' + index}
             style={{
-                maxWidth: '90vw',
+                width: '100%',
                 margin: '0.25rem 0',
                 padding: '0.25rem 0',
             }}
@@ -114,10 +114,7 @@ export const FilterRow = React.memo(function FilterRow({
                         }
                     >
                         {isValidPropertyFilter(item) ? (
-                            <PropertyFilterButton
-                                onClick={() => setOpen(!open)}
-                                item={item as PropertyFilterType /* not EmptyPropertyFilter */}
-                            />
+                            <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
                         ) : (
                             <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
                                 Add filter

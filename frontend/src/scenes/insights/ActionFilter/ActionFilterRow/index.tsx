@@ -262,7 +262,7 @@ export function ActionFilterRow({
                 )}
 
             {visible && (
-                <div className="ml" style={{ maxWidth: '100%' }}>
+                <div className="ml mr">
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
