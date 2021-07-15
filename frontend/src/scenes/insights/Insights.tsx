@@ -435,8 +435,14 @@ function FunnelInsight(): JSX.Element {
     } = useValues(funnelLogic({}))
     const { clickhouseFeatures } = useValues(funnelLogic())
 
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
-        <div>
+        <div
+            style={
+                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? {} : { height: 300, position: 'relative', marginBottom: 0 }
+            }
+        >
             {stepsWithCountLoading && <Loading />}
             {isValidFunnel ? (
                 <FunnelViz filters={{ display }} steps={stepsWithCount} timeConversionBins={timeConversionBins} />
