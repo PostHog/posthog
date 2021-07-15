@@ -179,7 +179,7 @@ export function TopNavigation(): JSX.Element {
                     </Link>
                 </div>
             </div>
-            <div className="divider mt-05" />
+            {((user?.organizations.length ?? 0) > 1 || preflight?.can_create_org) && <div className="divider mt-05" />}
             <div className="organizations">
                 {user?.organizations.map((organization) => {
                     if (organization.id == user.organization?.id) {
