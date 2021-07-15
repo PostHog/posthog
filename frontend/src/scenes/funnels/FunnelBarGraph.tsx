@@ -1,8 +1,8 @@
-import React, { useRef, useState } from 'react'
+import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
 import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Button } from 'antd'
+import { Button, ButtonProps } from 'antd'
 import { ArrowRightOutlined } from '@ant-design/icons'
 import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
@@ -11,19 +11,15 @@ import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
-import { FunnelBarLayout } from 'lib/constants'
-import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
-
-function calcPercentage(numerator: number, denominator: number): number {
-    return (numerator / denominator) * 100 || 0
-}
+import { FunnelLayout } from 'lib/constants'
+import { calcPercentage, getReferenceStep } from './funnelUtils'
 
 function humanizeOrder(order: number): number {
     return order + 1
 }
 
 interface FunnelBarGraphProps {
-    layout?: FunnelBarLayout
+    layout?: FunnelLayout
     steps: FunnelStep[]
 }
 
@@ -31,23 +27,23 @@ interface BarProps {
     percentage: number
     name?: string
     onBarClick?: () => void
-    layout?: FunnelBarLayout
+    layout?: FunnelLayout
 }
 
 type LabelPosition = 'inside' | 'outside'
 
-function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal }: BarProps): JSX.Element {
+function Bar({ percentage, name, onBarClick, layout = FunnelLayout.horizontal }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
     const { funnelPersonsEnabled } = useValues(funnelLogic)
-    const dimensionProperty = layout === FunnelBarLayout.horizontal ? 'width' : 'height'
+    const dimensionProperty = layout === FunnelLayout.horizontal ? 'width' : 'height'
     const cursorType = funnelPersonsEnabled ? 'pointer' : ''
 
     function decideLabelPosition(): void {
         // Place label inside or outside bar, based on whether it fits
-        if (layout === FunnelBarLayout.horizontal) {
+        if (layout === FunnelLayout.horizontal) {
             const barWidth = barRef.current?.clientWidth ?? null
             const labelWidth = labelRef.current?.clientWidth ?? null
             if (barWidth !== null && labelWidth !== null) {
@@ -104,11 +100,12 @@ function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal
 
 interface ValueInspectorButtonProps {
     icon?: JSX.Element
-    onClick: (e?: React.SyntheticEvent) => any
+    onClick: (e?: React.MouseEvent) => void
     children: React.ReactNode
     disabled?: boolean
     style?: React.CSSProperties
     title?: string | undefined
+    innerRef?: React.MutableRefObject<HTMLElement | null>
 }
 
 function ValueInspectorButton({
@@ -118,35 +115,87 @@ function ValueInspectorButton({
     disabled = false,
     style,
     title,
+    innerRef: refProp,
 }: ValueInspectorButtonProps): JSX.Element {
-    return (
-        <Button
-            type="link"
-            icon={icon}
-            onClick={onClick}
-            className="funnel-inspect-button"
-            disabled={disabled}
-            style={style}
-            title={title}
-        >
-            <span className="funnel-inspect-label">{children}</span>
-        </Button>
-    )
+    const props = {
+        type: 'link' as const,
+        icon,
+        onClick,
+        className: 'funnel-inspect-button',
+        disabled,
+        style,
+        title,
+        children: <span className="funnel-inspect-label">{children}</span>,
+    }
+    if (refProp) {
+        const InnerComponent: ForwardRefRenderFunction<HTMLElement | null, ButtonProps> = (_, ref) => (
+            <Button ref={ref} {...props} />
+        )
+        const RefComponent = React.forwardRef(InnerComponent)
+        // @ts-ignore ref type
+        return <RefComponent ref={refProp} />
+    } else {
+        return <Button {...props} />
+    }
 }
 
-function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepReference, index?: number): FunnelStep {
-    // Step to serve as denominator of percentage calculations.
-    // step[0] is full-funnel conversion, previous is relative.
-    if (!index || index <= 0) {
-        return steps[0]
+interface AverageTimeInspectorProps {
+    onClick: (e?: React.MouseEvent) => void
+    disabled?: boolean
+    averageTime: number
+}
+
+function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeInspectorProps): JSX.Element {
+    // Inspector button which automatically shows/hides the info text.
+    const wrapperRef = useRef<HTMLDivElement | null>(null)
+    const infoTextRef = useRef<HTMLDivElement | null>(null)
+    const buttonRef = useRef<HTMLDivElement | null>(null)
+    const [infoTextVisible, setInfoTextVisible] = useState(true)
+
+    function decideTextVisible(): void {
+        // Show/hide label position based on whether both items fit horizontally
+        const wrapperWidth = wrapperRef.current?.clientWidth ?? null
+        const infoTextWidth = infoTextRef.current?.offsetWidth ?? null
+        const buttonWidth = buttonRef.current?.offsetWidth ?? null
+
+        if (wrapperWidth !== null && infoTextWidth !== null && buttonWidth !== null) {
+            if (infoTextWidth + buttonWidth <= wrapperWidth) {
+                setInfoTextVisible(true)
+                return
+            }
+        }
+        setInfoTextVisible(false)
     }
-    switch (stepReference) {
-        case FunnelStepReference.previous:
-            return steps[index - 1]
-        case FunnelStepReference.total:
-        default:
-            return steps[0]
-    }
+
+    useEffect(() => {
+        decideTextVisible()
+    }, [])
+
+    useResizeObserver({
+        callback: useThrottledCallback(decideTextVisible, 200),
+        element: wrapperRef,
+    })
+
+    return (
+        <div ref={wrapperRef}>
+            <span
+                ref={infoTextRef}
+                className="text-muted"
+                style={{ paddingRight: 4, display: 'inline-block', visibility: infoTextVisible ? undefined : 'hidden' }}
+            >
+                Mean time:
+            </span>
+            <ValueInspectorButton
+                innerRef={buttonRef}
+                style={{ paddingLeft: 0, paddingRight: 0 }}
+                onClick={onClick}
+                disabled={disabled}
+                title="Mean time elapsed between completing this step and starting the next one."
+            >
+                {humanFriendlyDuration(averageTime, 2)}
+            </ValueInspectorButton>
+        </div>
+    )
 }
 
 export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.Element {
@@ -158,8 +207,8 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
         <div className={`funnel-bar-graph ${layout}`}>
             {steps.map((step, i) => {
                 const basisStep = getReferenceStep(steps, stepReference, i)
-                const showLineBefore = layout === FunnelBarLayout.horizontal && i > 0
-                const showLineAfter = layout === FunnelBarLayout.vertical || i < steps.length - 1
+                const showLineBefore = layout === FunnelLayout.horizontal && i > 0
+                const showLineAfter = layout === FunnelLayout.vertical || i < steps.length - 1
                 return (
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
@@ -173,19 +222,13 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                             <div className="funnel-step-title">
                                 <PropertyKeyInfo value={step.name} />
                             </div>
-                            <div className="funnel-step-metadata">
-                                {step.average_time >= 0 + Number.EPSILON ? (
-                                    <div>
-                                        <span className="text-muted">Average time:</span>
-                                        <ValueInspectorButton
-                                            style={{ paddingLeft: 4, paddingRight: 0 }}
-                                            onClick={() => {}}
-                                            disabled
-                                            title="Average time elapsed between completing this step and starting the next one."
-                                        >
-                                            {humanFriendlyDuration(step.average_time)}
-                                        </ValueInspectorButton>
-                                    </div>
+                            <div className={`funnel-step-metadata ${layout}`}>
+                                {step.average_conversion_time >= 0 + Number.EPSILON ? (
+                                    <AverageTimeInspector
+                                        onClick={() => {}}
+                                        averageTime={step.average_conversion_time}
+                                        disabled
+                                    />
                                 ) : null}
                             </div>
                         </header>

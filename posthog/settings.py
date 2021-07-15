@@ -179,6 +179,7 @@ KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
 _primary_db = os.getenv("PRIMARY_DB", "postgres")
+PRIMARY_DB: RDBMS
 try:
     PRIMARY_DB = RDBMS(_primary_db)
 except ValueError:

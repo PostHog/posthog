@@ -19,7 +19,7 @@ import { InsightActionBar } from '../InsightActionBar'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, stepsWithCount, autoCalculate } = useValues(funnelLogic())
+    const { isStepsEmpty, filters, stepsWithCount, clickhouseFeatures } = useValues(funnelLogic())
     const { featureFlags } = useValues(featureFlagLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
     const [savingModal, setSavingModal] = useState<boolean>(false)
@@ -35,7 +35,7 @@ export function FunnelTab(): JSX.Element {
         <div data-attr="funnel-tab">
             <InsightTitle
                 actionBar={
-                    autoCalculate ? (
+                    clickhouseFeatures ? (
                         <InsightActionBar
                             variant="sidebar"
                             filters={filters}
@@ -82,7 +82,7 @@ export function FunnelTab(): JSX.Element {
                     }}
                 />
                 <TestAccountFilter filters={filters} onChange={setFilters} />
-                {!autoCalculate && (
+                {!clickhouseFeatures && (
                     <>
                         <hr />
                         <Row style={{ justifyContent: 'flex-end' }}>

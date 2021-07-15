@@ -30,16 +30,17 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
-import { logicFromInsight, ViewType } from 'scenes/insights/insightLogic'
+import { logicFromInsight } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType } from '~/types'
+import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { FunnelHistogram } from 'scenes/funnels/FunnelHistogram'
 
 dayjs.extend(relativeTime)
 
@@ -126,6 +127,19 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: FunnelViz,
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
+        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
+            return combineUrl(
+                `/insights`,
+                { insight: ViewType.FUNNELS, ...filters },
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
+            ).url
+        },
+    },
+    FunnelsTimeToConvert: {
+        className: 'funnel-time-to-convert',
+        element: FunnelHistogram,
+        icon: BarChartOutlined,
+        viewText: 'View time conversion',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,

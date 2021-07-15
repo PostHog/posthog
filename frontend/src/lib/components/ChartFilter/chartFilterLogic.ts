@@ -1,9 +1,8 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { chartFilterLogicType } from './chartFilterLogicType'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, ViewType } from '~/types'
 
 export const chartFilterLogic = kea<chartFilterLogicType>({
     actions: () => ({
@@ -21,7 +20,6 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
         setChartFilter: () => {
             const { display, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
-
             searchParams.display = values.chartFilter
 
             if (!objectsEqual(display, values.chartFilter)) {
@@ -36,7 +34,11 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
             } else if (insight === ViewType.RETENTION) {
                 actions.setChartFilter(ChartDisplayType.ActionsTable)
             } else if (insight === ViewType.FUNNELS) {
-                actions.setChartFilter(ChartDisplayType.FunnelViz)
+                if (display === ChartDisplayType.FunnelsTimeToConvert) {
+                    actions.setChartFilter(ChartDisplayType.FunnelsTimeToConvert)
+                } else {
+                    actions.setChartFilter(ChartDisplayType.FunnelViz)
+                }
             }
         },
     }),

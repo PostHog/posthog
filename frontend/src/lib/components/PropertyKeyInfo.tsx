@@ -265,6 +265,10 @@ export const keyMapping: KeyMappingInterface = {
                 </>
             ),
         },
+        $$plugin_metrics: {
+            label: 'Plugin Metric',
+            description: 'Performance metrics for a given plugin.',
+        },
 
         // UTM tags
         utm_source: {
@@ -536,11 +540,12 @@ export function PropertyKeyInfo({
             </Typography.Text>
         )
     }
+
     const innerContent = (
-        <div className="property-key-info">
+        <span className="property-key-info">
             <span className="property-key-info-logo" />
             {data.label}
-        </div>
+        </span>
     )
 
     return disablePopover ? (
@@ -549,12 +554,7 @@ export function PropertyKeyInfo({
         <Popover
             overlayStyle={{ maxWidth: 500 }}
             placement="right"
-            title={
-                <span>
-                    <span className="property-key-info-logo" />
-                    {data.label}
-                </span>
-            }
+            title={innerContent}
             content={
                 <span>
                     {data.examples ? (

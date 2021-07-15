@@ -105,8 +105,7 @@ class TestUpdateCache(APIBaseTest):
         )
 
     @freeze_time("2012-01-15")
-    @patch("posthog.tasks.update_cache.import_from", return_value=Trends)
-    def test_update_cache_item_calls_right_class(self, patch_import_from: MagicMock) -> None:
+    def test_update_cache_item_calls_right_class(self) -> None:
         filter = Filter(data={"insight": "TRENDS", "events": [{"id": "$pageview"}]})
         dashboard_item = self._create_dashboard(filter)
 
@@ -116,8 +115,6 @@ class TestUpdateCache(APIBaseTest):
                 CacheType.TRENDS,
                 {"filter": filter.toJSON(), "team_id": self.team.pk,},
             )
-
-        patch_import_from.assert_called_once_with("posthog.queries.trends", "Trends")
 
         updated_dashboard_item = DashboardItem.objects.get(pk=dashboard_item.pk)
         self.assertEqual(updated_dashboard_item.refreshing, False)

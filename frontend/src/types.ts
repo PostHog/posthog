@@ -9,7 +9,6 @@ import {
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { Dayjs } from 'dayjs'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
@@ -384,16 +383,14 @@ export interface EventFormattedType {
 
 export interface SessionType {
     distinct_id: string
-    event_count: number
-    events?: EventType[]
     global_session_id: string
     length: number
     start_time: string
     end_time: string
     session_recordings: SessionTypeSessionRecording[]
-    start_url?: string
-    end_url?: string
-    email?: string
+    start_url: string | null
+    end_url: string | null
+    email?: string | null
     matching_events: Array<number | string>
 }
 
@@ -558,12 +555,26 @@ export enum ChartDisplayType {
     ActionsBarChartValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
+    FunnelsTimeToConvert = 'FunnelsTimeToConvert',
 }
 
-export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+
+// NB! Keep InsightType and ViewType in sync!
+export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+export enum ViewType {
+    TRENDS = 'TRENDS',
+    STICKINESS = 'STICKINESS',
+    LIFECYCLE = 'LIFECYCLE',
+    SESSIONS = 'SESSIONS',
+    FUNNELS = 'FUNNELS',
+    RETENTION = 'RETENTION',
+    PATHS = 'PATHS',
+    // Views that are not insights:
+    HISTORY = 'HISTORY',
+}
 
 export enum PathType {
     PageView = '$pageview',
@@ -605,6 +616,9 @@ export interface FilterType {
     filter_test_accounts?: boolean
     from_dashboard?: boolean
     funnel_step?: number
+    funnel_viz_type?: string // this and the below param is used for funnels time to convert, it'll be updated soon
+    funnel_to_step?: number
+    compare?: boolean
 }
 
 export interface SystemStatusSubrows {
@@ -682,7 +696,7 @@ export interface TrendResultWithAggregate extends TrendResult {
 
 export interface FunnelStep {
     action_id: string
-    average_time: number
+    average_conversion_time: number
     count: number
     name: string
     order: number
@@ -698,11 +712,19 @@ export interface FunnelResult {
     type: 'Funnel'
 }
 
+export interface FunnelsTimeConversionResult {
+    result: number[]
+    last_refresh: string | null
+    is_cached: boolean
+    type: 'Funnel'
+}
+
 export interface ChartParams {
     dashboardItemId?: number
     color?: string
-    filters?: Partial<FilterType>
+    filters: Partial<FilterType>
     inSharedMode?: boolean
+    showPersonsModal?: boolean
     cachedResults?: TrendResult
     view: ViewType
 }
