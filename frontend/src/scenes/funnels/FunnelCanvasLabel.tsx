@@ -11,7 +11,7 @@ import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { ChartDisplayType } from '~/types'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { stepsWithCount, histogramStep, totalConversionRate } = useValues(funnelLogic)
+    const { conversionMetrics } = useValues(funnelLogic)
     const { allFilters } = useValues(insightLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
 
@@ -24,17 +24,24 @@ export function FunnelCanvasLabel(): JSX.Element | null {
             {allFilters.display === FUNNEL_VIZ && (
                 <>
                     <span className="text-muted-alt">Total conversion rate: </span>
-                    <span>{totalConversionRate}%</span>
+                    <span>{conversionMetrics.totalRate}%</span>
                     <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                 </>
             )}
-            <span className="text-muted-alt">Average time to convert: </span>
+            {allFilters.display === FUNNELS_TIME_TO_CONVERT && (
+                <>
+                    <span className="text-muted-alt">Total time to convert: </span>
+                    <span>{humanFriendlyDuration(conversionMetrics.sum)}</span>
+                    <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
+                </>
+            )}
+            <span className="text-muted-alt">Mean time to convert: </span>
             <Button
                 type="link"
                 disabled={allFilters.display === FUNNELS_TIME_TO_CONVERT}
                 onClick={() => setChartFilter(ChartDisplayType.FunnelsTimeToConvert)}
             >
-                {humanFriendlyDuration(stepsWithCount[histogramStep]?.average_conversion_time)}
+                {humanFriendlyDuration(conversionMetrics.average)}
             </Button>
         </div>
     )

@@ -21,6 +21,18 @@ export function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepR
     }
 }
 
+// Gets last filled step if steps[index] is empty.
+// Useful in calculating total and average times for total conversions where the last step has 0 count
+export function getLastFilledStep(steps: FunnelStep[], index?: number): FunnelStep {
+    const firstIndex = Math.min(steps.length, Math.max(0, index || steps.length - 1)) + 1
+    return (
+        steps
+            .slice(0, firstIndex)
+            .reverse()
+            .find((s) => s.count > 0) || steps[0]
+    )
+}
+
 export function humanizeStepCount(count: number): string {
     return count > 9999 ? humanizeNumber(count, 2) : count.toLocaleString()
 }

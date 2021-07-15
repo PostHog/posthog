@@ -24,7 +24,7 @@ import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { calcPercentage } from './funnelUtils'
+import { calcPercentage, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 function wait(ms = 1000): Promise<any> {
@@ -151,8 +151,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     actions.setSteps(result.result as FunnelStep[])
 
                     // We make another api call to api/funnels for time conversion data
+                    let binsResult: FunnelsTimeConversionResult | null = null
                     if (params.display === ChartDisplayType.FunnelsTimeToConvert && values.stepsWithCount.length > 1) {
-                        let binsResult: FunnelsTimeConversionResult | null = null
                         params.funnel_viz_type = 'time_to_convert'
 
                         const isAllSteps = values.histogramStep.from_step === -1
@@ -357,34 +357,46 @@ export const funnelLogic = kea<funnelLogicType>({
                 return stepsDropdown
             },
         ],
-        totalConversionRate: [
-            () => [selectors.stepsWithCount],
-            (stepsWithCount) =>
-                stepsWithCount.length > 1
-                    ? calcPercentage(stepsWithCount[stepsWithCount.length - 1].count, stepsWithCount[0].count)
-                    : 0,
-        ],
         areFiltersValid: [
             () => [selectors.filters],
             (filters) => {
                 return (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
             },
         ],
-        conversionTimes: [
+        conversionMetrics: [
             () => [selectors.stepsWithCount, selectors.histogramStep],
             (stepsWithCount, timeStep) => {
-                const isAllSteps = timeStep.from_step === -1
-                const l = Math.max(1, isAllSteps ? 1 : timeStep.from_step), // step 0 will always have null conversion times
-                    r = Math.min(stepsWithCount.length, isAllSteps ? stepsWithCount.length : timeStep.to_step)
-                const subStepsWithCount = stepsWithCount.slice(l, r) // grab steps defined by histogramStep boundary
+                if (stepsWithCount.length <= 1) {
+                    return {
+                        average: 0,
+                        sum: 0,
+                        stepRate: 0,
+                        totalRate: 0,
+                    }
+                }
 
-                const totalTime = subStepsWithCount
-                    .map((s: FunnelStep) => s.average_conversion_time * s.count) // calculate total times per step
-                    .reduce((a: number, b: number) => a + b, 0) // add it up
-                const totalCount = subStepsWithCount
-                    .map((s: FunnelStep) => s.count) // get counts
-                    .reduce((a: number, b: number) => a + b, 0) // add it up
-                return { average: totalTime / totalCount, sum: totalCount }
+                const isAllSteps = timeStep.from_step === -1
+                const fromStep = isAllSteps
+                    ? getReferenceStep(stepsWithCount, FunnelStepReference.total)
+                    : stepsWithCount[timeStep.from_step]
+                const toStep = isAllSteps ? getLastFilledStep(stepsWithCount) : stepsWithCount[timeStep.to_step]
+
+                // total sum from first step
+                // note: if last step has 0 count, it makes sense to say that total time to convert is 0
+                const sum =
+                    toStep.count === 0
+                        ? 0
+                        : stepsWithCount
+                              .slice(0, toStep.order + 1)
+                              .map((s: FunnelStep) => s.average_conversion_time * s.count) // calculate total times per step
+                              .reduce((a: number, b: number) => a + b, 0) // add it up
+
+                return {
+                    average: toStep?.average_conversion_time || 0,
+                    sum,
+                    stepRate: calcPercentage(toStep.count, fromStep.count),
+                    totalRate: calcPercentage(stepsWithCount[stepsWithCount.length - 1].count, stepsWithCount[0].count),
+                }
             },
         ],
     }),

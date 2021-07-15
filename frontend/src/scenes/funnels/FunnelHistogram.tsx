@@ -10,15 +10,13 @@ import './FunnelHistogram.scss'
 import { FUNNELS_TIME_TO_CONVERT } from 'lib/constants'
 
 export function FunnelHistogramHeader(): JSX.Element | null {
-    const { stepsWithCount, stepReference, histogramStep, histogramStepsDropdown } = useValues(funnelLogic)
+    const { stepsWithCount, stepReference, histogramStepsDropdown } = useValues(funnelLogic)
     const { changeHistogramStep } = useActions(funnelLogic)
     const { allFilters } = useValues(insightLogic)
 
     if (allFilters.display !== FUNNELS_TIME_TO_CONVERT) {
         return null
     }
-
-    console.log('histogram step', histogramStep)
 
     return (
         <div className="funnel__header__steps">
