@@ -75,6 +75,10 @@
                 {
                     "name": "PISCINA_ATOMICS_TIMEOUT",
                     "value": "3000"
+                },
+                {
+                    "name": "USING_PGBOUNCER",
+                    "value": "True"
                 }
             ],
             "secrets": [

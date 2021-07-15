@@ -5,8 +5,8 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ViewType } from '../insightLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { ViewType } from '~/types'
 
 const { TabPane } = Tabs
 
