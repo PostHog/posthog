@@ -70,11 +70,12 @@ WHERE team_id = %(team_id)s
   {query}
 """
 
-GET_LATEST_PERSON_DISTINCT_ID_SQL = """
-SELECT * FROM person_distinct_id JOIN (
-    SELECT distinct_id, max(_offset) as _offset FROM person_distinct_id WHERE team_id = %(team_id)s GROUP BY distinct_id
-) as person_max ON person_distinct_id.distinct_id = person_max.distinct_id AND person_distinct_id._offset = person_max._offset
+GET_TEAM_PERSON_DISTINCT_IDS = """
+SELECT team_id, person_id, distinct_id
+FROM person_distinct_id
 WHERE team_id = %(team_id)s
+GROUP BY person_id, distinct_id, team_id
+HAVING sum(sign) > 0
 """
 
 GET_LATEST_PERSON_ID_SQL = """
@@ -177,34 +178,26 @@ INSERT_PERSON_STATIC_COHORT = (
 GET_PERSON_IDS_BY_FILTER = """
 SELECT DISTINCT p.id
 FROM ({latest_person_sql}) AS p
-INNER JOIN (
-    SELECT person_id, distinct_id
-    FROM ({latest_distinct_id_sql})
-    WHERE team_id = %(team_id)s
-) AS pdi ON p.id = pdi.person_id
+INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON p.id = pdi.person_id
 WHERE team_id = %(team_id)s
   {distinct_query}
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL,
     distinct_query="{distinct_query}",
-    latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
 )
 
 GET_PERSON_BY_DISTINCT_ID = """
 SELECT p.id
 FROM ({latest_person_sql}) AS p
-INNER JOIN (
-    SELECT person_id, distinct_id
-    FROM ({latest_distinct_id_sql})
-    WHERE team_id = %(team_id)s
-) AS pdi ON p.id = pdi.person_id
+INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON p.id = pdi.person_id
 WHERE team_id = %(team_id)s
   AND pdi.distinct_id = %(distinct_id)s
   {distinct_query}
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL,
     distinct_query="{distinct_query}",
-    latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
 )
 
 INSERT_PERSON_SQL = """
@@ -239,7 +232,7 @@ PEOPLE_THROUGH_DISTINCT_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
     {latest_person_sql}
 ) as person INNER JOIN (
-    SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE distinct_id IN ({content_sql}) AND team_id = %(team_id)s
+    SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE distinct_id IN ({content_sql}) AND team_id = %(team_id)s
 ) as pdi ON person.id = pdi.person_id
 WHERE team_id = %(team_id)s
 GROUP BY id, created_at, team_id, properties, is_identified
@@ -251,7 +244,7 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id
     SELECT id FROM (
         {latest_person_sql}
     ) as person INNER JOIN (
-        SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE distinct_id IN ({content_sql}) AND team_id = %(team_id)s
+        SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE distinct_id IN ({content_sql}) AND team_id = %(team_id)s
     ) as pdi ON person.id = pdi.person_id
     WHERE team_id = %(team_id)s
     GROUP BY id
@@ -262,7 +255,7 @@ PEOPLE_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
     {latest_person_sql}
 ) as person INNER JOIN (
-    SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE person_id IN ({content_sql}) AND team_id = %(team_id)s
+    SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE person_id IN ({content_sql}) AND team_id = %(team_id)s
 ) as pdi ON person.id = pdi.person_id
 GROUP BY id, created_at, team_id, properties, is_identified
 LIMIT 100 OFFSET %(offset)s
@@ -273,7 +266,7 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id
     SELECT id FROM (
         {latest_person_sql}
     ) as person INNER JOIN (
-        SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE person_id IN ({content_sql}) AND team_id = %(team_id)s
+        SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE person_id IN ({content_sql}) AND team_id = %(team_id)s
     ) as pdi ON person.id = pdi.person_id
     WHERE team_id = %(team_id)s
     GROUP BY id
@@ -297,14 +290,6 @@ AND person_id IN
     )
     WHERE 1 = 1 {filters}
 )
-"""
-
-GET_TEAM_PERSON_DISTINCT_IDS = """
-SELECT team_id, person_id, distinct_id
-FROM person_distinct_id
-WHERE team_id = %(team_id)s
-GROUP BY person_id, distinct_id, team_id
-HAVING sum(sign) > 0
 """
 
 GET_PERSON_PROPERTIES_COUNT = """

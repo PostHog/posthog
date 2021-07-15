@@ -14,7 +14,6 @@ from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.person import (
-    GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_SQL,
     GET_TEAM_PERSON_DISTINCT_IDS,
     INSERT_COHORT_ALL_PEOPLE_SQL,
@@ -127,7 +126,7 @@ def retrieve_stickiness_people(target_entity: Entity, filter: StickinessFilter, 
             content_sql=content_sql,
             query="",
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         ),
         params,
     )
@@ -143,7 +142,7 @@ def insert_stickiness_people_into_cohort(cohort: Cohort, target_entity: Entity, 
                 query="",
                 latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
                 cohort_table=PERSON_STATIC_COHORT_TABLE,
-                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
             {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
         )
