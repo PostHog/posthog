@@ -96,7 +96,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         formatted_results = funnel_trends._format_results(results)
 
         self.assertEqual(len(results), 7)
-        self.assertEqual(formatted_results[0]["days"][0], ["2021-06-07"])
+        self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
 
     def test_only_one_user_reached_one_step(self):
         _create_person(distinct_ids=["user a"], team=self.team)
