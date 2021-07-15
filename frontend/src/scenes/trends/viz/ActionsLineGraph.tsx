@@ -8,6 +8,7 @@ import { ACTIONS_BAR_CHART } from 'lib/constants'
 import { ChartParams } from '~/types'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { router } from 'kea-router'
+import { personsModalLogic } from '../personsModalLogic'
 
 export function ActionsLineGraph({
     dashboardItemId,
@@ -24,7 +25,7 @@ export function ActionsLineGraph({
         cachedResults,
     })
     const { filters, indexedResults, resultsLoading, visibilityMap } = useValues(logic)
-    const { loadPeople } = useActions(logic)
+    const { loadPeople } = useActions(personsModalLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
 
     return indexedResults && !resultsLoading ? (
@@ -45,14 +46,15 @@ export function ActionsLineGraph({
                         ? null
                         : (point) => {
                               const { dataset, day } = point
-                              loadPeople(
-                                  dataset.action || 'session',
-                                  dataset.label,
-                                  day,
-                                  day,
-                                  dataset.breakdown_value || dataset.status,
-                                  true
-                              )
+                              loadPeople({
+                                  action: dataset.action || 'session',
+                                  label: dataset.label,
+                                  date_from: day,
+                                  date_to: day,
+                                  filters: filters,
+                                  breakdown_value: dataset.breakdown_value || dataset.status,
+                                  saveOriginal: true,
+                              })
                           }
                 }
             />

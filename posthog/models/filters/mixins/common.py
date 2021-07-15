@@ -166,8 +166,8 @@ class SessionMixin(BaseParamMixin):
 class OffsetMixin(BaseParamMixin):
     @cached_property
     def offset(self) -> int:
-        _offset = self._data.get(OFFSET)
-        return int(_offset or "0")
+        offset_raw = self._data.get(OFFSET)
+        return int(offset_raw) if offset_raw else 0
 
     @include_dict
     def offset_to_dict(self):

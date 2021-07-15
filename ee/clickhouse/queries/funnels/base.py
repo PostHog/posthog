@@ -250,9 +250,12 @@ class ClickhouseFunnelBase(ABC, Funnel):
             conditions.append("steps = %(step_num)s")
 
         if self._filter.funnel_step_breakdown:
-            self.params.update(
-                {"breakdown_prop_value": [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]}
+            prop_vals = (
+                [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]
+                if isinstance(self._filter.funnel_step_breakdown, str)
+                else [self._filter.funnel_step_breakdown]
             )
+            self.params.update({"breakdown_prop_value": prop_vals})
             conditions.append("prop IN %(breakdown_prop_value)s")
 
         return " AND ".join(conditions)
