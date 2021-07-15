@@ -137,7 +137,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             "funnel_window_days": 14,
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-14 00:00:00",
-            "exclusions": [{"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},],
+            "exclusions": [{"id": "x 1 2", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},],
         }
         filter = Filter(data=filters)
         funnel = ClickhouseFunnel(filter, self.team)
@@ -150,7 +150,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
         # event 2
         person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk)
         _create_event(team=self.team, event="user signed up", distinct_id="person2", timestamp="2021-05-01 03:00:00")
-        _create_event(team=self.team, event="x", distinct_id="person2", timestamp="2021-05-01 03:30:00")
+        _create_event(team=self.team, event="x 1 2", distinct_id="person2", timestamp="2021-05-01 03:30:00")
         _create_event(team=self.team, event="paid", distinct_id="person2", timestamp="2021-05-01 04:00:00")
 
         # event 3

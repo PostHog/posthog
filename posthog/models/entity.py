@@ -90,6 +90,10 @@ class ExclusionEntity(Entity, FunnelFromToStepsMixin):
     def __init__(self, data: Dict[str, Any]) -> None:
         super().__init__(data)
 
+    @property
+    def sql_id(self):
+        return self.id.replace(" ", "_") if isinstance(self.id, str) else self.id
+
     def to_dict(self) -> Dict[str, Any]:
 
         ret = super().to_dict()
