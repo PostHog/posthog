@@ -724,6 +724,7 @@ export interface ChartParams {
     color?: string
     filters: Partial<FilterType>
     inSharedMode?: boolean
+    showPersonsModal?: boolean
     cachedResults?: TrendResult
     view: ViewType
 }
