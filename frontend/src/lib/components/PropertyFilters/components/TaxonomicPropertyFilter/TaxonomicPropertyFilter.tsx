@@ -2,7 +2,7 @@
 Contains the property filter component w/ properties and cohorts separated in tabs. Also includes infinite-scroll remote loading.
 */
 import './TaxonomicPropertyFilter.scss'
-import React, { useMemo, useRef } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 import { Button, Card, Dropdown, Input } from 'antd'
 import { useValues, useActions, BindLogic } from 'kea'
 import { PropertyFilterInternalProps } from '../PropertyFilter'
@@ -23,7 +23,10 @@ export function TaxonomicPropertyFilter({
     disablePopover,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
+
     const searchInputRef = useRef<Input | null>(null)
+    const focusInput = (): void => searchInputRef.current?.focus()
+
     const { setFilter } = useActions(propertyFilterLogic)
 
     const logic = taxonomicPropertyFilterLogic({ pageKey, filterIndex: index })
@@ -42,11 +45,8 @@ export function TaxonomicPropertyFilter({
     const showInitialSearchInline = !disablePopover && !filter?.type && !filter?.key
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
 
-    const focusInput = (): void => searchInputRef.current?.focus()
-
     const searchInput = (
         <Input
-            autoFocus
             placeholder="Search event or person properties"
             value={searchQuery}
             ref={(ref) => (searchInputRef.current = ref)}
@@ -78,6 +78,12 @@ export function TaxonomicPropertyFilter({
 
     const searchResults = <InfiniteSelectResults pageKey={pageKey} filterIndex={index} focusInput={focusInput} />
 
+    useEffect(() => {
+        if (dropdownOpen) {
+            window.setTimeout(() => focusInput(), 1)
+        }
+    }, [dropdownOpen])
+
     return (
         <div className="taxonomic-property-filter">
             <BindLogic logic={taxonomicPropertyFilterLogic} props={{ pageKey, filterIndex: index }}>
@@ -108,7 +114,11 @@ export function TaxonomicPropertyFilter({
                                     {filter?.type === 'cohort' ? (
                                         <span>{selectedCohortName || `Cohort #${filter?.value}`}</span>
                                     ) : filter?.key ? (
-                                        <PropertyKeyInfo value={filter?.key || ''} style={{ display: 'inline' }} />
+                                        <PropertyKeyInfo
+                                            value={filter.key}
+                                            style={{ display: 'inline' }}
+                                            disablePopover
+                                        />
                                     ) : (
                                         <span>Add filter</span>
                                     )}

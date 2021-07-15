@@ -54,7 +54,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
     key: (props) => `${props.pageKey}-${props.filterIndex}-${props.type}`,
 
     connect: (props: TaxonomicPropertyFilterListLogicProps) => ({
-        values: [taxonomicPropertyFilterLogic(props), ['searchQuery']],
+        values: [taxonomicPropertyFilterLogic(props), ['searchQuery', 'filter']],
         actions: [taxonomicPropertyFilterLogic(props), ['setSearchQuery', 'selectItem as selectFilterItem']],
     }),
 
@@ -68,9 +68,9 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
         loadRemoteItems: (options: LoaderOptions) => options,
     },
 
-    reducers: () => ({
+    reducers: {
         index: [
-            0,
+            -1 as number,
             {
                 setIndex: (_, { index }) => index,
                 loadRemoteItemsSuccess: (state, { remoteItems }) => (remoteItems.queryChanged ? 0 : state),
@@ -82,7 +82,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
                 setLimit: (_, { limit }) => limit,
             },
         ],
-    }),
+    },
 
     loaders: ({ values }) => ({
         remoteItems: [
@@ -219,13 +219,24 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
         ],
         totalCount: [(s) => [s.items], (items) => items.count || 0],
         results: [(s) => [s.items], (items) => items.results],
-        selectedItem: [(s) => [s.index, s.items], (index, items) => items.results[index]],
+        selectedItem: [(s) => [s.index, s.items], (index, items) => (index > 0 ? items.results[index] : undefined)],
     },
 
-    events: ({ actions, values }) => ({
+    events: ({ actions, values, props }) => ({
         afterMount: () => {
             if (values.isRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            } else if (values.filter?.type === props.type) {
+                const {
+                    filter: { key, value },
+                    results,
+                } = values
+
+                if (props.type === 'cohort') {
+                    actions.setIndex(results.findIndex((r) => r.id === value))
+                } else {
+                    actions.setIndex(results.findIndex((r) => r.name === key))
+                }
             }
         },
     }),
