@@ -219,7 +219,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
         ],
         totalCount: [(s) => [s.items], (items) => items.count || 0],
         results: [(s) => [s.items], (items) => items.results],
-        selectedItem: [(s) => [s.index, s.items], (index, items) => (index > 0 ? items.results[index] : undefined)],
+        selectedItem: [(s) => [s.index, s.items], (index, items) => (index >= 0 ? items.results[index] : undefined)],
     },
 
     events: ({ actions, values, props }) => ({
