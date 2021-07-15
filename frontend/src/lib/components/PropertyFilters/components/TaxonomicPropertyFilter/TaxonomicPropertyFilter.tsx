@@ -3,7 +3,7 @@ Contains the property filter component w/ properties and cohorts separated in ta
 */
 import './TaxonomicPropertyFilter.scss'
 import React, { useEffect, useMemo, useRef } from 'react'
-import { Button, Card, Dropdown, Input } from 'antd'
+import { Button, Card, Col, Dropdown, Input } from 'antd'
 import { useValues, useActions, BindLogic } from 'kea'
 import { PropertyFilterInternalProps } from '../PropertyFilter'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
@@ -94,15 +94,27 @@ export function TaxonomicPropertyFilter({
     }, [dropdownOpen, showInitialSearchInline])
 
     return (
-        <div className="taxonomic-property-filter">
+        <div className={`taxonomic-property-filter${!disablePopover ? ' in-dropdown' : ' row-on-page'}`}>
             <BindLogic logic={taxonomicPropertyFilterLogic} props={{ pageKey, filterIndex: index }}>
-                <div className="taxonomic-filter-row">
-                    {showInitialSearchInline ? (
-                        <div className="taxonomic-filter-standalone">
-                            {searchInput}
-                            {searchResults}
-                        </div>
-                    ) : (
+                {showInitialSearchInline ? (
+                    <div className="taxonomic-filter-standalone">
+                        {searchInput}
+                        {searchResults}
+                    </div>
+                ) : (
+                    <div className="taxonomic-filter-row">
+                        <Col className="taxonomic-where">
+                            {index === 0 ? (
+                                <>
+                                    <span className="arrow">&#8627;</span>
+                                    <span className="text">where</span>
+                                </>
+                            ) : (
+                                <span className="stateful-badge and" style={{ fontSize: '90%' }}>
+                                    AND
+                                </span>
+                            )}
+                        </Col>
                         <Dropdown
                             overlay={
                                 <Card className="taxonomic-filter-dropdown">
@@ -118,54 +130,52 @@ export function TaxonomicPropertyFilter({
                                 }
                             }}
                         >
-                            <Button onClick={() => openDropdown()}>
-                                <div style={{ display: 'flex' }}>
-                                    {filter?.type === 'cohort' ? (
-                                        <span>{selectedCohortName || `Cohort #${filter?.value}`}</span>
-                                    ) : filter?.key ? (
-                                        <PropertyKeyInfo
-                                            value={filter.key}
-                                            style={{ display: 'inline' }}
-                                            disablePopover
-                                        />
-                                    ) : (
-                                        <span>Add filter</span>
-                                    )}
-                                    <SelectDownIcon />
-                                </div>
+                            <Button
+                                className={`taxonomic-button${!filter?.type && !filter?.key ? ' add-filter' : ''}`}
+                                onClick={() => openDropdown()}
+                            >
+                                {filter?.type === 'cohort' ? (
+                                    <div>{selectedCohortName || `Cohort #${filter?.value}`}</div>
+                                ) : filter?.key ? (
+                                    <PropertyKeyInfo value={filter.key} disablePopover />
+                                ) : (
+                                    <div>Add filter</div>
+                                )}
+                                <SelectDownIcon />
                             </Button>
                         </Dropdown>
-                    )}
 
-                    {showOperatorValueSelect && (
-                        <OperatorValueSelect
-                            type={filter?.type}
-                            propkey={filter?.key}
-                            operator={filter?.operator}
-                            value={filter?.value}
-                            onChange={(newOperator, newValue) => {
-                                if (filter?.key && filter?.type) {
-                                    setFilter(index, filter?.key, newValue || null, newOperator, filter?.type)
-                                }
-                                if (
-                                    newOperator &&
-                                    newValue &&
-                                    !isOperatorMulti(newOperator) &&
-                                    !isOperatorRegex(newOperator)
-                                ) {
-                                    onComplete()
-                                }
-                            }}
-                            columnOptions={{
-                                flex: 1,
-                                style: {
-                                    maxWidth: '50vw',
-                                    minWidth: '6rem',
-                                },
-                            }}
-                        />
-                    )}
-                </div>
+                        {showOperatorValueSelect && (
+                            <OperatorValueSelect
+                                type={filter?.type}
+                                propkey={filter?.key}
+                                operator={filter?.operator}
+                                value={filter?.value}
+                                onChange={(newOperator, newValue) => {
+                                    if (filter?.key && filter?.type) {
+                                        setFilter(index, filter?.key, newValue || null, newOperator, filter?.type)
+                                    }
+                                    if (
+                                        newOperator &&
+                                        newValue &&
+                                        !isOperatorMulti(newOperator) &&
+                                        !isOperatorRegex(newOperator)
+                                    ) {
+                                        onComplete()
+                                    }
+                                }}
+                                columnOptions={[
+                                    {
+                                        className: 'taxonomic-operator',
+                                    },
+                                    {
+                                        className: 'taxonomic-value-select',
+                                    },
+                                ]}
+                            />
+                        )}
+                    </div>
+                )}
             </BindLogic>
         </div>
     )

@@ -46,7 +46,7 @@ export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps):
     }
 
     return (
-        <div style={{ minHeight: '200px' }}>
+        <div className="taxonomic-infinite-list">
             <AutoSizer>
                 {({ height, width }) => (
                     <List
