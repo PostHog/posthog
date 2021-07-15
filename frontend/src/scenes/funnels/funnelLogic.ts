@@ -332,7 +332,6 @@ export const funnelLogic = kea<funnelLogicType>({
             (stepsWithCount) => {
                 const stepsDropdown: FunnelTimeConversionStep[] = []
 
-                console.log('steps with count', stepsWithCount)
                 if (stepsWithCount.length > 1) {
                     stepsDropdown.push({
                         label: `All steps`,
