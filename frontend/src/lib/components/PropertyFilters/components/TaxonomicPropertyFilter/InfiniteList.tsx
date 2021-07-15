@@ -5,6 +5,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useActions, useValues } from 'kea'
 import { infiniteListLogic } from './infiniteListLogic'
 import { taxonomicPropertyFilterLogic } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/taxonomicPropertyFilterLogic'
+import { filterMatchesItem } from 'lib/components/PropertyFilters/utils'
 
 interface InfiniteListProps {
     pageKey: string
@@ -24,13 +25,7 @@ export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps):
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         const item = results[rowIndex]
 
-        const isSelected =
-            item &&
-            filter &&
-            filter.type === type &&
-            // TODO: this special case for cohorts is implemented in a few different places,
-            //       and should be consolidated
-            (filter.type === 'cohort' ? filter?.value === item.id : filter?.key === item.name)
+        const isSelected = filterMatchesItem(filter, item, type)
 
         return item ? (
             <AntDesignList.Item
