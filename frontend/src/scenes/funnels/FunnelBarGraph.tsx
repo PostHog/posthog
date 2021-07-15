@@ -1,6 +1,5 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
 import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
-import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined } from '@ant-design/icons'
@@ -23,6 +22,7 @@ import {
     getSeriesPositionName,
     humanizeStepCount,
 } from './funnelUtils'
+import { FunnelStep } from '~/types'
 
 interface FunnelBarGraphProps {
     layout?: FunnelLayout

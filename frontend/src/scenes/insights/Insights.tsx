@@ -424,11 +424,9 @@ export function Insights(): JSX.Element {
 
 function FunnelInsight(): JSX.Element {
     const {
-        stepsWithCount,
         isValidFunnel,
         stepsWithCountLoading,
         filters: { display },
-        timeConversionBins,
     } = useValues(funnelLogic({}))
     const { clickhouseFeatures } = useValues(funnelLogic())
 
@@ -442,7 +440,7 @@ function FunnelInsight(): JSX.Element {
         >
             {stepsWithCountLoading && <Loading />}
             {isValidFunnel ? (
-                <FunnelViz filters={{ display }} steps={stepsWithCount} timeConversionBins={timeConversionBins} />
+                <FunnelViz filters={{ display }} />
             ) : (
                 !stepsWithCountLoading && (
                     <div

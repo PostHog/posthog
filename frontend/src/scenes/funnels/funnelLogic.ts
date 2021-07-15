@@ -26,26 +26,26 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { calcPercentage } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
-function aggregateBreakdownResult({
-    result: breakdownList,
-    ...apiResponse
-}: FunnelResult<FunnelStep[][]>): FunnelResult<FunnelStepWithNestedBreakdown[]> {
-    let result: FunnelStepWithNestedBreakdown[] = []
-    if (breakdownList.length) {
-        result = breakdownList[0].map((step, i) => ({
-            ...step,
-            breakdown_value: step.breakdown,
-            count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
-            breakdown: breakdownList.reduce((allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]], []),
-            average_conversion_time: null,
-            people: [],
-        }))
-    }
-    return {
-        ...apiResponse,
-        result,
-    }
-}
+// function aggregateBreakdownResult({
+//     result: breakdownList,
+//     ...apiResponse
+// }: FunnelResult<FunnelStep[][]>): FunnelResult<FunnelStepWithNestedBreakdown[]> {
+//     let result: FunnelStepWithNestedBreakdown[] = []
+//     if (breakdownList.length) {
+//         result = breakdownList[0].map((step, i) => ({
+//             ...step,
+//             breakdown_value: step.breakdown,
+//             count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
+//             breakdown: breakdownList.reduce((allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]], []),
+//             average_conversion_time: null,
+//             people: [],
+//         }))
+//     }
+//     return {
+//         ...apiResponse,
+//         result,
+//     }
+// }
 
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
@@ -122,14 +122,17 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         setStepsWithCountLoading: (stepsWithCountLoading: boolean) => ({ stepsWithCountLoading }),
         loadConversionWindow: (days: number) => ({ days }),
         setConversionWindowInDays: (days: number) => ({ days }),
-        openPersonsModal: (step: FunnelStep | FunnelStep, stepNumber: number, breakdown_value?: string) => ({
+        openPersonsModal: (
+            step: FunnelStep | FunnelStepWithNestedBreakdown,
+            stepNumber: number,
+            breakdown_value?: string
+        ) => ({
             step,
             stepNumber,
             breakdown_value,
         }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         setBarGraphLayout: (barGraphLayout: FunnelLayout) => ({ barGraphLayout }),
-        setTimeConversionBins: (timeConversionBins: number[]) => ({ timeConversionBins }),
         changeHistogramStep: (histogramStep: number) => ({ histogramStep }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
     }),
@@ -141,43 +144,32 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
 
     loaders: ({ props, values, actions }) => ({
         results: [
-            [] as (FunnelStep | FunnelStepWithNestedBreakdown)[],
+            [] as FunnelStep[] | FunnelStep[][],
             {
-                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[]> => {
+                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[] | FunnelStep[][]> => {
                     actions.setStepsWithCountLoading(true)
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
                         return props.cachedResults as FunnelStep[]
                     }
 
-                    const { from_dashboard } = values.filters
-                    const cleanedParams = cleanFunnelParams(values.filters)
-                    const params = {
-                        ...(refresh ? { refresh: true } : {}),
-                        ...(from_dashboard ? { from_dashboard } : {}),
-                        ...cleanedParams,
-                        funnel_window_days: values.conversionWindowInDays,
-                        ...(!values.featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]
-                            ? { breakdown: null, breakdown_type: null }
-                            : {}),
-                    }
-                    let result // Tricky: pollFunnel would ideally return a FunnelResult or FunnelResult<FunnelStep[][]> based on whether its input params include breakdown
+                    let result
                     const queryId = uuid()
                     insightLogic.actions.startQuery(queryId)
-                    const eventCount = params.events?.length || 0
-                    const actionCount = params.actions?.length || 0
-                    const interval = params.interval || ''
-
                     try {
-                        result = await (params.breakdown
-                            ? pollFunnel<FunnelResult<FunnelStep[][]>>(params)
-                            : pollFunnel(params))
+                        result = await pollFunnel(values.params)
+                        eventUsageLogic.actions.reportFunnelCalculated(
+                            values.eventCount,
+                            values.actionCount,
+                            values.interval,
+                            true
+                        )
                     } catch (e) {
                         breakpoint()
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                         eventUsageLogic.actions.reportFunnelCalculated(
-                            eventCount,
-                            actionCount,
-                            interval,
+                            values.eventCount,
+                            values.actionCount,
+                            values.interval,
                             false,
                             e.message
                         )
@@ -185,36 +177,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     }
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
-                    if (params.breakdown && values.clickhouseFeatures) {
-                        const aggregatedResult = aggregateBreakdownResult(result as FunnelResult<FunnelStep[][]>)
-                        actions.setSteps(aggregatedResult.result)
-                        return aggregatedResult.result
-                    }
-
-                    actions.setSteps(result.result as FunnelStep[])
-                    // We make another api call to api/funnels for time conversion data
-                    let binsResult: FunnelResult<number[]>
-                    if (params.display === ChartDisplayType.FunnelsTimeToConvert && values.stepsWithCount.length > 1) {
-                        try {
-                            params.funnel_viz_type = 'time_to_convert'
-                            params.funnel_to_step = values.histogramStep
-                            binsResult = await pollFunnel(params)
-                        } catch (e) {
-                            breakpoint()
-                            insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
-                            eventUsageLogic.actions.reportFunnelCalculated(
-                                eventCount,
-                                actionCount,
-                                interval,
-                                false,
-                                e.message
-                            )
-                            return []
-                        }
-                        insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, binsResult.last_refresh)
-                        actions.setTimeConversionBins(binsResult.result)
-                    }
-                    return result.result as FunnelStep[]
+                    return result.result
                 },
             },
         ],
@@ -223,6 +186,36 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             {
                 loadPeople: async (steps) => {
                     return (await api.get('api/person/?uuid=' + steps[0].people.join(','))).results
+                },
+            },
+        ],
+        timeConversionBins: [
+            [] as [number, number][],
+            {
+                loadTimeConversionBins: async () => {
+                    let binsResult: FunnelResult<[number, number][]>
+                    console.log({ f: values.filters, s: values.stepsWithCount })
+                    if (values.filters.display === ChartDisplayType.FunnelsTimeToConvert) {
+                        try {
+                            binsResult = await pollFunnel({
+                                ...values.params,
+                                funnel_viz_type: 'time_to_convert',
+                                funnel_to_step: values.histogramStep,
+                            })
+                            console.log({ binsResult })
+                        } catch (e) {
+                            eventUsageLogic.actions.reportFunnelCalculated(
+                                values.eventCount,
+                                values.actionCount,
+                                values.interval,
+                                false,
+                                e.message
+                            )
+                            return []
+                        }
+                        return binsResult.result
+                    }
+                    return []
                 },
             },
         ],
@@ -274,12 +267,6 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                 setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
             },
         ],
-        timeConversionBins: [
-            [],
-            {
-                setTimeConversionBins: (_, { timeConversionBins }) => timeConversionBins,
-            },
-        ],
         histogramStep: [
             1,
             {
@@ -294,7 +281,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         ],
     }),
 
-    selectors: ({ selectors }) => ({
+    selectors: ({ props, selectors, values }) => ({
         peopleSorted: [
             () => [selectors.stepsWithCount, selectors.people],
             (steps, people) => {
@@ -314,7 +301,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
         isValidFunnel: [
             () => [selectors.stepsWithCount, selectors.timeConversionBins],
-            (stepsWithCount: FunnelStep[], timeConversionBins: number[]) => {
+            (stepsWithCount: FunnelStep[], timeConversionBins: [number, number][]) => {
                 return (
                     (stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1) ||
                     timeConversionBins?.length > 0
@@ -381,6 +368,25 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                 return (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
             },
         ],
+        params: [
+            () => [],
+            () => {
+                const { from_dashboard } = values.filters
+                const cleanedParams = cleanFunnelParams(values.filters)
+                return {
+                    ...(props.refresh ? { refresh: true } : {}),
+                    ...(from_dashboard ? { from_dashboard } : {}),
+                    ...cleanedParams,
+                    funnel_window_days: values.conversionWindowInDays,
+                    ...(!values.featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]
+                        ? { breakdown: null, breakdown_type: null }
+                        : {}),
+                }
+            },
+        ],
+        eventCount: [() => [selectors.params], (params) => params.events?.length || 0],
+        actionCount: [() => [selectors.params], (params) => params.actions?.length || 0],
+        interval: [() => [selectors.params], (params) => params.interval || ''],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -421,6 +427,10 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             await breakpoint(1000)
             actions.setConversionWindowInDays(days)
             actions.loadResults()
+        },
+        loadResultsSuccess: async () => {
+            // We make another api call to api/funnels for time conversion data
+            actions.loadTimeConversionBins()
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
             personsModalLogic.actions.setShowingPeople(true)

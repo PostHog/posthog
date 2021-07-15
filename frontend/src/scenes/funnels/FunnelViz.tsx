@@ -1,5 +1,5 @@
 // DEPRECATED: This file has been deprecated in favor of FunnelBarGraph.tsx
-import React, { useRef, useEffect, useState } from 'react'
+import React, { useRef, useEffect } from 'react'
 import FunnelGraph from 'funnel-graph-js'
 import { Loading, humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues, BindLogic } from 'kea'
@@ -23,16 +23,13 @@ interface FunnelVizProps extends Omit<ChartParams, 'view'> {
 }
 
 export function FunnelViz({
-    steps: stepsParam,
     filters: defaultFilters,
-    timeConversionBins,
     dashboardItemId,
     cachedResults,
     inSharedMode,
     color = 'white',
-}: FunnelVizProps): JSX.Element | null {
+}: Omit<ChartParams, 'view'>): JSX.Element | null {
     const container = useRef<HTMLDivElement | null>(null)
-    const [steps, setSteps] = useState(stepsParam)
     const logic = funnelLogic({ dashboardItemId, cachedResults, filters: defaultFilters })
     const {
         results: stepsResult,
@@ -42,7 +39,9 @@ export function FunnelViz({
         areFiltersValid,
     } = useValues(logic)
     const { loadResults: loadFunnel, loadConversionWindow } = useActions(logic)
-    const [{ fromItem }] = useState(router.values.hashParams)
+    const {
+        hashParams: { fromItem },
+    } = useValues(router)
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -88,7 +87,7 @@ export function FunnelViz({
     }
 
     useEffect(() => {
-        if (stepsParam) {
+        if (steps) {
             buildChart()
         } else {
             loadFunnel()
