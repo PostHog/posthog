@@ -299,6 +299,14 @@ AND person_id IN
 )
 """
 
+GET_TEAM_PERSON_DISTINCT_IDS = """
+SELECT person_id, distinct_id
+FROM person_distinct_id
+WHERE team_id = %(team_id)s
+GROUP BY person_id, distinct_id, team_id
+HAVING sum(sign) > 0
+"""
+
 GET_PERSON_PROPERTIES_COUNT = """
 SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
 FROM person

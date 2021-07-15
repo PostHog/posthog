@@ -21,6 +21,7 @@ from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_SQL,
+    GET_TEAM_PERSON_DISTINCT_IDS,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL,
     PEOPLE_SQL,
     PEOPLE_THROUGH_DISTINCT_SQL,
@@ -167,6 +168,7 @@ def _process_content_sql(team: Team, entity: Entity, filter: Filter):
             filters=prop_filters,
             breakdown_filter="",
             person_filter=person_filter,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             **active_user_params,
         )
     else:
