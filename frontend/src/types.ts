@@ -9,7 +9,6 @@ import {
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { Dayjs } from 'dayjs'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
@@ -559,10 +558,23 @@ export enum ChartDisplayType {
     FunnelsTimeToConvert = 'FunnelsTimeToConvert',
 }
 
-export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+
+// NB! Keep InsightType and ViewType in sync!
+export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+export enum ViewType {
+    TRENDS = 'TRENDS',
+    STICKINESS = 'STICKINESS',
+    LIFECYCLE = 'LIFECYCLE',
+    SESSIONS = 'SESSIONS',
+    FUNNELS = 'FUNNELS',
+    RETENTION = 'RETENTION',
+    PATHS = 'PATHS',
+    // Views that are not insights:
+    HISTORY = 'HISTORY',
+}
 
 export enum PathType {
     PageView = '$pageview',
@@ -606,6 +618,7 @@ export interface FilterType {
     funnel_step?: number
     funnel_viz_type?: string // this and the below param is used for funnels time to convert, it'll be updated soon
     funnel_to_step?: number
+    compare?: boolean
 }
 
 export interface SystemStatusSubrows {
@@ -711,6 +724,7 @@ export interface ChartParams {
     color?: string
     filters: Partial<FilterType>
     inSharedMode?: boolean
+    showPersonsModal?: boolean
     cachedResults?: TrendResult
     view: ViewType
 }
@@ -754,10 +768,16 @@ export interface PreflightStatus {
     plugins: boolean
     redis: boolean
     db: boolean
+    /** An initiated instance is one that already has any organization(s). */
     initiated: boolean
+    /** Org creation is allowed on Cloud OR initiated self-hosted organizations with a license and MULTI_ORG_ENABLED. */
+    can_create_org: boolean
+    /** Whether this is PostHog Cloud. */
     cloud: boolean
     celery: boolean
+    /** Whether EE code is available (but not necessarily a license). */
     ee_available?: boolean
+    /** Is ClickHouse used as the analytics database instead of Postgres. */
     is_clickhouse_enabled?: boolean
     realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
     db_backend?: 'postgres' | 'clickhouse'
@@ -766,6 +786,7 @@ export interface PreflightStatus {
     opt_out_capture?: boolean
     posthog_version?: string
     email_service_available?: boolean
+    /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null

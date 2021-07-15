@@ -6,7 +6,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART } from 'lib/constants'
 import { ChartParams } from '~/types'
-import { ViewType } from 'scenes/insights/insightLogic'
+import { ViewType } from '~/types'
 import { router } from 'kea-router'
 import { personsModalLogic } from '../personsModalLogic'
 
@@ -16,6 +16,7 @@ export function ActionsLineGraph({
     filters: filtersParam,
     cachedResults,
     inSharedMode = false,
+    showPersonsModal = true,
     view,
 }: ChartParams): JSX.Element {
     const logic = trendsLogic({
@@ -41,6 +42,7 @@ export function ActionsLineGraph({
                 dashboardItemId={dashboardItemId || fromItem}
                 inSharedMode={inSharedMode}
                 interval={filters.interval}
+                showPersonsModal={showPersonsModal}
                 onClick={
                     dashboardItemId
                         ? null

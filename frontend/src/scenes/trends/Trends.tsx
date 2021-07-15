@@ -13,7 +13,7 @@ import {
 import { ActionsPie, ActionsLineGraph, ActionsBarValueGraph, ActionsTable } from './viz'
 import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
-import { ViewType } from 'scenes/insights/insightLogic'
+import { ViewType } from '~/types'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'

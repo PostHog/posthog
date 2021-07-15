@@ -22,18 +22,18 @@ from posthog.api import (
     capture,
     dashboard,
     decide,
-    organization,
     projects_router,
     router,
+    signup,
     user,
 )
 from posthog.demo import demo
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_signed_up
 
-from .api.organization import OrganizationSignupSerializer
+from .api.signup import SignupSerializer
 from .models import OrganizationInvite, Team, User
-from .utils import render_template
+from .utils import get_can_create_org, render_template
 from .views import health, login_required, preflight_check, robots_txt, stats
 
 
@@ -62,8 +62,11 @@ class CompanyNameForm(forms.Form):
 
 def finish_social_signup(request):
     """
-    TODO: DEPRECATED in favor of posthog.api.organization.OrganizationSocialSignupSerializer
+    TODO: DEPRECATED in favor of posthog.api.signup.SocialSignupSerializer
     """
+    if not get_can_create_org():
+        return redirect("/login?error=no_new_organizations")
+
     if request.method == "POST":
         form = CompanyNameForm(request.POST)
         if form.is_valid():
@@ -91,7 +94,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
         if not organization_name or email_opt_in is None:
             return redirect(finish_social_signup)
 
-        serializer = OrganizationSignupSerializer(
+        serializer = SignupSerializer(
             data={
                 "organization_name": organization_name,
                 "email_opt_in": email_opt_in,
@@ -208,9 +211,9 @@ urlpatterns = [
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/user", user.user),
-    opt_slash_path("api/signup", organization.OrganizationSignupViewset.as_view()),
-    opt_slash_path("api/social_signup", organization.OrganizationSocialSignupViewset.as_view()),
-    path("api/signup/<str:invite_id>/", organization.OrganizationInviteSignupViewset.as_view()),
+    opt_slash_path("api/signup", signup.SignupViewset.as_view()),
+    opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
+    path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),

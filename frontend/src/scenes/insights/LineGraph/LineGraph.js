@@ -39,6 +39,7 @@ export function LineGraph({
     percentage = false,
     interval = undefined,
     totalValue,
+    showPersonsModal = true,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -68,10 +69,10 @@ export function LineGraph({
 
     const annotationsCondition =
         type === 'line' &&
-        datasets.length > 0 &&
+        datasets?.length > 0 &&
         !datasets[0].compare &&
         !inSharedMode &&
-        datasets[0].labels[0] !== '1 day' // stickiness graphs
+        datasets[0].labels?.[0] !== '1 day' // stickiness graphs
 
     const isLightTheme = color === 'white'
     const colors = {
@@ -221,7 +222,7 @@ export function LineGraph({
             precision: 0,
         }
 
-        const inspectUsersLabel = !dashboardItemId && onClick
+        const inspectUsersLabel = !dashboardItemId && onClick && showPersonsModal
 
         const newUITooltipOptions = {
             enabled: false, // disable builtin tooltip (use custom markup)

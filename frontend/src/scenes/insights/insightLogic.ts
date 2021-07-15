@@ -7,22 +7,10 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FilterType } from '~/types'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { FilterType, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
-
-export enum ViewType {
-    TRENDS = 'TRENDS',
-    STICKINESS = 'STICKINESS',
-    LIFECYCLE = 'LIFECYCLE',
-    SESSIONS = 'SESSIONS',
-    FUNNELS = 'FUNNELS',
-    RETENTION = 'RETENTION',
-    PATHS = 'PATHS',
-    HISTORY = 'HISTORY',
-}
-
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
+import { Scene, sceneLogic } from 'scenes/sceneLogic'
 
 /*
 InsightLogic maintains state for changing between insight features
@@ -46,17 +34,23 @@ export const logicFromInsight = (insight: string, logicProps: Record<string, any
     }
 }
 
-export const insightLogic = kea<insightLogicType<ViewType>>({
+export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
         setCachedUrl: (type: ViewType, url: string) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: (queryId: string) => ({ queryId }),
-        endQuery: (queryId: string, view: string, lastRefresh: string | null, exception?: Record<string, any>) => ({
+        endQuery: (queryId: string, view: ViewType, lastRefresh: string | null, exception?: Record<string, any>) => ({
             queryId,
             view,
             lastRefresh,
+            exception,
+        }),
+        abortQuery: (queryId: string, view: ViewType, scene: Scene | null, exception?: Record<string, any>) => ({
+            queryId,
+            view,
+            scene,
             exception,
         }),
         setMaybeShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
@@ -172,6 +166,18 @@ export const insightLogic = kea<insightLogicType<ViewType>>({
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
             actions.setIsLoading(true)
+        },
+        abortQuery: ({ queryId, view, scene, exception }) => {
+            const duration = new Date().getTime() - values.queryStartTimes[queryId]
+            const tags = {
+                insight: view,
+                scene: scene,
+                success: !exception,
+                ...exception,
+            }
+
+            posthog.capture('insight aborted', { ...tags, duration })
+            captureInternalMetric({ method: 'timing', metric: 'insight_abort_time', value: duration, tags })
         },
         endQuery: ({ queryId, view, lastRefresh, exception }) => {
             if (values.timeout) {
