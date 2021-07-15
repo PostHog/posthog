@@ -21,6 +21,8 @@ import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { sceneLogic } from 'scenes/sceneLogic'
+
 interface TrendResponse {
     result: TrendResult[]
     next?: string
@@ -162,6 +164,9 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     return { result: props.cachedResults } as TrendResponse
                 }
 
+                // fetch this now, as it might be different when we report below
+                const { scene } = sceneLogic.values
+
                 // If a query is in progress, debounce before making the second query
                 if (cache.abortController) {
                     await breakpoint(300)
@@ -190,6 +195,14 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                         )
                     }
                 } catch (e) {
+                    if (e.name === 'AbortError') {
+                        insightLogic.actions.abortQuery(
+                            queryId,
+                            (values.filters.insight as ViewType) || ViewType.TRENDS,
+                            scene,
+                            e
+                        )
+                    }
                     breakpoint()
                     cache.abortController = null
                     insightLogic.actions.endQuery(
@@ -226,9 +239,11 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
 
     reducers: ({ props }) => ({
         filters: [
-            props.filters
+            (props.filters
                 ? props.filters
-                : (state: Record<string, any>) => cleanFilters(router.selectors.searchParams(state)),
+                : (state: Record<string, any>) => cleanFilters(router.selectors.searchParams(state))) as Partial<
+                FilterType
+            >,
             {
                 setFilters: (state, { filters, mergeFilters }) => {
                     const newState = state?.insight && TRENDS_BASED_INSIGHTS.includes(state.insight) ? state : {}
