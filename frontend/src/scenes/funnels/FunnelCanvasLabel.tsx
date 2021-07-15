@@ -1,6 +1,5 @@
 // This file contains funnel-related components that are used in the general insights scope
 import { useActions, useValues } from 'kea'
-import { FUNNELS_TIME_TO_CONVERT, FUNNEL_VIZ } from 'lib/constants'
 import { humanFriendlyDuration } from 'lib/utils'
 import React from 'react'
 import { Button } from 'antd'
@@ -21,14 +20,14 @@ export function FunnelCanvasLabel(): JSX.Element | null {
 
     return (
         <div className="funnel-canvas-label">
-            {allFilters.display === FUNNEL_VIZ && (
+            {allFilters.display === ChartDisplayType.FunnelViz && (
                 <>
                     <span className="text-muted-alt">Total conversion rate: </span>
                     <span>{conversionMetrics.totalRate}%</span>
                     <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                 </>
             )}
-            {allFilters.display === FUNNELS_TIME_TO_CONVERT && (
+            {allFilters.display === ChartDisplayType.FunnelsTimeToConvert && (
                 <>
                     <span className="text-muted-alt">Total time to convert: </span>
                     <span>{humanFriendlyDuration(conversionMetrics.sum)}</span>
@@ -38,7 +37,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
             <span className="text-muted-alt">Mean time to convert: </span>
             <Button
                 type="link"
-                disabled={allFilters.display === FUNNELS_TIME_TO_CONVERT}
+                disabled={allFilters.display === ChartDisplayType.FunnelsTimeToConvert}
                 onClick={() => setChartFilter(ChartDisplayType.FunnelsTimeToConvert)}
             >
                 {humanFriendlyDuration(conversionMetrics.average)}
