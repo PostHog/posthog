@@ -1,13 +1,12 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
-import { TrendPeople, parsePeopleParams, trendsLogic } from 'scenes/trends/trendsLogic'
+import { TrendPeople, parsePeopleParams } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input, Row, Col, Skeleton } from 'antd'
 import { deepLinkToPersonSessions } from 'scenes/persons/PersonsTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ViewType } from 'scenes/insights/insightLogic'
-import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter } from '~/types'
+import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter, ViewType } from '~/types'
 import { ACTION_TYPE, EVENT_TYPE, FEATURE_FLAGS } from 'lib/constants'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -34,19 +33,19 @@ const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterTyp
 interface Props {
     visible: boolean
     view: ViewType
+    filters: Partial<FilterType>
     onSaveCohort: () => void
 }
 
-export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element {
-    const { people, filters, loadingMorePeople, firstLoadedPeople, peopleLoading } = useValues(
-        trendsLogic({ dashboardItemId: null, view })
-    )
-    const { setPersonsModalFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
-    const { setShowingPeople, loadMorePeople, setFirstLoadedPeople } = useActions(
-        trendsLogic({ dashboardItemId: null, view })
-    )
-    const { searchTerm } = useValues(personsModalLogic)
-    const { setSearchTerm } = useActions(personsModalLogic)
+export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JSX.Element {
+    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, peopleLoading } = useValues(personsModalLogic)
+    const {
+        setShowingPeople,
+        loadMorePeople,
+        setFirstLoadedPeople,
+        setPersonsModalFilters,
+        setSearchTerm,
+    } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const title =
         filters.shown_as === 'Stickiness'
@@ -147,7 +146,7 @@ export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element
                                     value={searchTerm}
                                     onSearch={(term) =>
                                         term
-                                            ? setPersonsModalFilters(term, people)
+                                            ? setPersonsModalFilters(term, people, filters)
                                             : setFirstLoadedPeople(firstLoadedPeople)
                                     }
                                 />
