@@ -5,6 +5,28 @@ from posthog.models.cohort import Cohort
 
 
 class ClickhouseFunnel(ClickhouseFunnelBase):
+    """
+    A basic ordered funnel.
+
+    ## Query Intuition
+    We start with all events of interest (coming from the `FunnelEventQuery`). The query runs in different levels: at each
+    level, we first get the minimum timestamp of every event following the previous event. Then, we trickle up the levels, till we get to the top level,
+    which implies all events are sorted in increasing order.
+    Each level is a subquery.
+
+    ## Exclusion Intuition
+    Event exclusion between steps means that if this specific event happened between two funnel steps, we disqualify the user, not showing them in the results.
+    To include event exclusions inside the funnel, the critical insight is that the exclusion is just like a parallel step to the funnel step that happens after
+    the exclusion start step.
+    For example, if we have a funnel with steps [1, 2, 3, 4] and we want to exclude events between step 2 and step 4, then the exclusion step semantics are just
+    like step 3 semantics. We want to find this event after step 2.
+    Since it's a parallel step, we don't need to add an extra level, we can reuse the existing levels.
+    See `get_comparison_cols` and `_get_partition_cols` for how this works.
+
+    Exclusion doesn't support duplicates like: steps [event 1, event 2], and excluding event 1 between steps 1 and 2.
+
+    """
+
     def get_query(self):
         max_steps = len(self._filter.entities)
 
@@ -82,21 +104,47 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         else:
             formatted_query = self._get_inner_event_query()
 
+        exclusion_clause = self._get_exclusion_condition()
+
         return f"""
-        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {self._get_step_times(max_steps)} {self._get_breakdown_prop()} FROM (
+        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)} {self._get_breakdown_prop()} FROM (
             {formatted_query}
         ) WHERE step_0 = 1
+        {'AND exclusion = 0' if exclusion_clause else ''}
+        SETTINGS allow_experimental_window_functions = 1
         """
 
+    def _get_comparison_at_step(self, index: int, level_index: int):
+        or_statements: List[str] = []
+
+        for i in range(level_index, index + 1):
+            or_statements.append(f"latest_{i} < latest_{level_index - 1}")
+
+        return " OR ".join(or_statements)
+
     def get_comparison_cols(self, level_index: int, max_steps: int):
+        """
+        level_index: The current smallest comparison step. Everything before
+        level index is already at the minimum ordered timestamps.
+        """
         cols: List[str] = []
         for i in range(0, max_steps):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
+                for exclusion in self._filter.exclusions:
+                    if exclusion.funnel_from_step + 1 == i:
+                        cols.append(f"exclusion_latest_{exclusion.funnel_from_step}")
             else:
                 comparison = self._get_comparison_at_step(i, level_index)
                 cols.append(f"if({comparison}, NULL, latest_{i}) as latest_{i}")
+
+                for exclusion in self._filter.exclusions:
+                    if exclusion.funnel_from_step + 1 == i:
+                        cols.append(
+                            f"if(exclusion_latest_{exclusion.funnel_from_step} < latest_{exclusion.funnel_from_step}, NULL, exclusion_latest_{exclusion.funnel_from_step}) as exclusion_latest_{exclusion.funnel_from_step}"
+                        )
+
         return ", ".join(cols)
 
     def build_step_subquery(self, level_index: int, max_steps: int):

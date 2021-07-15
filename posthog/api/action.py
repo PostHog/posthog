@@ -10,6 +10,7 @@ from django.dispatch import receiver
 from django.utils.timezone import now
 from rest_framework import authentication, request, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -225,7 +226,12 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         properties = request.GET.get("properties", "{}")
 
-        data = {"properties": json.loads(properties)}
+        try:
+            properties = json.loads(properties)
+        except json.decoder.JSONDecodeError:
+            raise ValidationError("Properties are unparsable!")
+
+        data: Dict[str, Any] = {"properties": properties}
         start_entity_data = request.GET.get("start_entity", None)
         if start_entity_data:
             entity_data = json.loads(start_entity_data)

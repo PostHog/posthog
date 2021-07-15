@@ -1,3 +1,4 @@
+import { humanizeNumber } from 'lib/utils'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { getChartColors } from 'lib/colors'
 import { FunnelStep } from '~/types'
@@ -55,4 +56,8 @@ export function getSeriesPositionName(
         return index === 0 ? 'first' : index === breakdownMaxIndex ? 'last' : undefined
     }
     return
+}
+
+export function humanizeStepCount(count: number): string {
+    return count > 9999 ? humanizeNumber(count, 2) : count.toLocaleString()
 }

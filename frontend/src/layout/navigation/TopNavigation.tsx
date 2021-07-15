@@ -179,7 +179,7 @@ export function TopNavigation(): JSX.Element {
                     </Link>
                 </div>
             </div>
-            <div className="divider mt-05" />
+            {((user?.organizations.length ?? 0) > 1 || preflight?.can_create_org) && <div className="divider mt-05" />}
             <div className="organizations">
                 {user?.organizations.map((organization) => {
                     if (organization.id == user.organization?.id) {
@@ -191,28 +191,30 @@ export function TopNavigation(): JSX.Element {
                         </a>
                     )
                 })}
-                <a
-                    style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
-                    onClick={() =>
-                        guardPremiumFeature(
-                            user,
-                            preflight,
-                            showUpgradeModal,
-                            'organizations_projects',
-                            'multiple organizations',
-                            'Organizations group people building products together. An organization can then have multiple projects.',
-                            () => {
-                                setOrganizationModalShown(true)
-                            },
-                            {
-                                cloud: false,
-                                selfHosted: true,
-                            }
-                        )
-                    }
-                >
-                    <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
-                </a>
+                {preflight?.can_create_org && (
+                    <a
+                        style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
+                        onClick={() =>
+                            guardPremiumFeature(
+                                user,
+                                preflight,
+                                showUpgradeModal,
+                                'organizations_projects',
+                                'multiple organizations',
+                                'Organizations group people building products together. An organization can then have multiple projects.',
+                                () => {
+                                    setOrganizationModalShown(true)
+                                },
+                                {
+                                    cloud: false,
+                                    selfHosted: true,
+                                }
+                            )
+                        }
+                    >
+                        <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
+                    </a>
+                )}
             </div>
             <div className="divider mb-05" />
             <div className="text-center">

@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { autocorrectInterval, objectsEqual, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
@@ -16,12 +16,14 @@ import {
     PathType,
     PersonType,
     MappedFunnelStep,
+    ViewType,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { calcPercentage } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 function aggregateBreakdownResult({
@@ -166,10 +168,11 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     const eventCount = params.events?.length || 0
                     const actionCount = params.actions?.length || 0
                     const interval = params.interval || ''
+
                     try {
                         result = await pollFunnel(params)
-                        eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
                     } catch (e) {
+                        breakpoint()
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                         eventUsageLogic.actions.reportFunnelCalculated(
                             eventCount,
@@ -197,6 +200,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                             params.funnel_to_step = values.histogramStep
                             binsResult = await pollFunnel(params)
                         } catch (e) {
+                            breakpoint()
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                             eventUsageLogic.actions.reportFunnelCalculated(
                                 eventCount,
@@ -362,6 +366,19 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     }
                 })
                 return stepsDropdown
+            },
+        ],
+        totalConversionRate: [
+            () => [selectors.stepsWithCount],
+            (stepsWithCount) =>
+                stepsWithCount.length > 1
+                    ? calcPercentage(stepsWithCount[stepsWithCount.length - 1].count, stepsWithCount[0].count)
+                    : 0,
+        ],
+        areFiltersValid: [
+            () => [selectors.filters],
+            (filters) => {
+                return (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
             },
         ],
     }),

@@ -1,3 +1,4 @@
+// DEPRECATED: We now use the PersonModal.tsx to show person information for funnels
 import React from 'react'
 import { useValues } from 'kea'
 import { funnelLogic } from './funnelLogic'
