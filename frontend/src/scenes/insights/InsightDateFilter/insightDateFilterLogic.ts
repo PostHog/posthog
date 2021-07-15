@@ -9,7 +9,7 @@ interface UrlParams {
     date_to?: string
 }
 
-export const insightDateFilterLogic = kea<insightDateFilterLogicType<UrlParams>>({
+export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
     actions: () => ({
         setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({
             dateFrom,
