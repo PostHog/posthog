@@ -682,6 +682,7 @@ export interface TrendResultWithAggregate extends TrendResult {
 }
 
 export interface FunnelStep {
+    // The type returned from the API.
     action_id: string
     average_conversion_time: number | null
     count: number
@@ -695,6 +696,7 @@ export interface FunnelStep {
 }
 
 export interface MappedFunnelStep extends Omit<FunnelStep, 'breakdown'> {
+    // A more useful type which reflects the hierarchy of a breakdown.
     breakdown?: FunnelStep[]
 }
 

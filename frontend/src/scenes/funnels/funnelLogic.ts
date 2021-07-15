@@ -35,8 +35,8 @@ function aggregateBreakdownResult({
             breakdown_value: step.breakdown,
             count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
             breakdown: breakdownList.reduce((allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]], []),
-            average_conversion_time: null,
-            people: [],
+            average_conversion_time: null, // TODO API needs to return a weighted average
+            people: [], // We could concatenate and de-dupe the UUIDs from breakdown values here, but it would be more performant to do it on backend
         }))
     }
     return {
@@ -67,6 +67,7 @@ interface TimeStepOption {
 async function pollFunnel(
     params: FunnelRequestParams
 ): Promise<FunnelResult & FunnelResult<FunnelStep[][]> & FunnelResult<number[]>> {
+    // Tricky: This API endpoint has wildly different return types depending on parameters.
     const { refresh, ...bodyParams } = params
     let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
     const start = window.performance.now()
