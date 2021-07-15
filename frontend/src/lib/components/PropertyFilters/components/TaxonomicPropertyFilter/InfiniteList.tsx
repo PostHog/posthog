@@ -1,5 +1,5 @@
 import React from 'react'
-import { List as AntDesignList, Skeleton } from 'antd'
+import { Skeleton } from 'antd'
 import { List, ListRowProps, ListRowRenderer, AutoSizer } from 'react-virtualized'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useActions, useValues } from 'kea'
@@ -28,20 +28,26 @@ export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps):
         const isSelected = filterMatchesItem(filter, item, type)
 
         return item ? (
-            <AntDesignList.Item
-                className={[rowIndex === index && 'hover', isSelected && 'selected'].filter((a) => a).join(' ')}
+            <div
                 key={item.id}
+                className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
                 onClick={() => selectItem(type, item.id, item.name)}
                 onMouseOver={() => mouseInteractionsEnabled && setIndex(rowIndex)}
                 style={style}
                 data-attr={`prop-filter-${type}-${rowIndex}`}
             >
                 <PropertyKeyInfo value={item.name} disablePopover />
-            </AntDesignList.Item>
+            </div>
         ) : (
-            <AntDesignList.Item key={`__skeleton_${rowIndex}`} style={style} data-attr={`prop-filter-${type}-${index}`}>
+            <div
+                key={`__skeleton_${rowIndex}`}
+                className={`taxonomic-list-row skeleton-row${rowIndex === index ? ' hover' : ''}`}
+                onMouseOver={() => mouseInteractionsEnabled && setIndex(rowIndex)}
+                style={style}
+                data-attr={`prop-filter-${type}-${rowIndex}`}
+            >
                 <Skeleton active title={false} paragraph={{ rows: 1 }} />
-            </AntDesignList.Item>
+            </div>
         )
     }
 
