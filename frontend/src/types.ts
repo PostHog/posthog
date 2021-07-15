@@ -84,6 +84,7 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeatures[]
+    domain_whitelist: string[]
 }
 
 export interface OrganizationMemberType {
