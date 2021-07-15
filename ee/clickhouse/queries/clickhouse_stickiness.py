@@ -57,7 +57,7 @@ class ClickhouseStickiness(Stickiness):
                 parsed_date_to=parsed_date_to,
                 filters=prop_filters,
                 trunc_func=trunc_func,
-                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             )
         else:
             content_sql = STICKINESS_SQL.format(
