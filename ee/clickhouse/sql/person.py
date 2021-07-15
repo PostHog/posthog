@@ -274,11 +274,11 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id
 """
 
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
-SELECT distinct_id FROM person_distinct_id JOIN (
-    SELECT distinct_id, max(_offset) as _offset FROM person_distinct_id WHERE team_id = %(team_id)s GROUP BY distinct_id
-) as person_max ON person_distinct_id.distinct_id = person_max.distinct_id AND person_distinct_id._offset = person_max._offset
-WHERE team_id = %(team_id)s
-AND person_id IN
+SELECT distinct_id
+FROM (
+    {GET_TEAM_PERSON_DISTINCT_IDS}
+)
+WHERE person_id IN
 (
     SELECT id
     FROM (
@@ -290,7 +290,9 @@ AND person_id IN
     )
     WHERE 1 = 1 {filters}
 )
-"""
+""".format(
+    filters="{filters}", GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+)
 
 GET_PERSON_PROPERTIES_COUNT = """
 SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
