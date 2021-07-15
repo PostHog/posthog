@@ -58,6 +58,11 @@ TEST = (
 E2E_TESTING = get_from_env(
     "E2E_TESTING", False, type_cast=str_to_bool,
 )  # whether the app is currently running for E2E tests
+if E2E_TESTING:
+    print_warning(
+        ("️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests.")
+    )
+
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
 SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
@@ -357,6 +362,10 @@ SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
 SOCIAL_AUTH_GITLAB_KEY = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
+
+
+# Support creating multiple organizations in a single instance. Requires a premium license.
+MULTI_ORG_ENABLED = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)
 
 
 # See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS

@@ -768,10 +768,16 @@ export interface PreflightStatus {
     plugins: boolean
     redis: boolean
     db: boolean
+    /** An initiated instance is one that already has any organization(s). */
     initiated: boolean
+    /** Org creation is allowed on Cloud OR initiated self-hosted organizations with a license and MULTI_ORG_ENABLED. */
+    can_create_org: boolean
+    /** Whether this is PostHog Cloud. */
     cloud: boolean
     celery: boolean
+    /** Whether EE code is available (but not necessarily a license). */
     ee_available?: boolean
+    /** Is ClickHouse used as the analytics database instead of Postgres. */
     is_clickhouse_enabled?: boolean
     realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
     db_backend?: 'postgres' | 'clickhouse'
@@ -780,6 +786,7 @@ export interface PreflightStatus {
     opt_out_capture?: boolean
     posthog_version?: string
     email_service_available?: boolean
+    /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null

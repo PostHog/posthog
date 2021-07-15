@@ -7,7 +7,7 @@ from rest_framework import status
 
 from posthog.constants import RDBMS
 from posthog.models import User
-from posthog.models.organization import OrganizationInvite
+from posthog.models.organization import Organization, OrganizationInvite
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
@@ -34,6 +34,7 @@ class TestPreflight(APIBaseTest):
                 "cloud": False,
                 "realm": "hosted",
                 "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
+                "can_create_org": False,
             },
         )
 
@@ -66,6 +67,7 @@ class TestPreflight(APIBaseTest):
                     "is_event_property_usage_enabled": False,
                     "licensed_users_available": None,
                     "site_url": "http://localhost:8000",
+                    "can_create_org": False,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -74,7 +76,6 @@ class TestPreflight(APIBaseTest):
     def test_cloud_preflight_request_unauthenticated(self):
 
         self.client.logout()  # make sure it works anonymously
-        User.objects.all().delete()
 
         with self.settings(MULTI_TENANCY=True, PRIMARY_DB=RDBMS.CLICKHOUSE):
             response = self.client.get("/_preflight/")
@@ -88,16 +89,16 @@ class TestPreflight(APIBaseTest):
                     "plugins": True,
                     "celery": True,
                     "db": True,
-                    "initiated": False,
+                    "initiated": True,
                     "cloud": True,
                     "realm": "cloud",
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
+                    "can_create_org": True,
                 },
             )
 
     @pytest.mark.ee
     def test_cloud_preflight_request(self):
-
         with self.settings(MULTI_TENANCY=True, PRIMARY_DB=RDBMS.CLICKHOUSE, SITE_URL="https://app.posthog.com"):
             response = self.client.get("/_preflight/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -126,13 +127,13 @@ class TestPreflight(APIBaseTest):
                     "is_event_property_usage_enabled": False,
                     "licensed_users_available": None,
                     "site_url": "https://app.posthog.com",
+                    "can_create_org": True,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
     @pytest.mark.ee
     def test_cloud_preflight_request_with_social_auth_providers(self):
-
         with self.settings(
             SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="test_key",
             SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
@@ -167,11 +168,13 @@ class TestPreflight(APIBaseTest):
                     "is_event_property_usage_enabled": False,
                     "licensed_users_available": None,
                     "site_url": "http://localhost:8000",
+                    "can_create_org": True,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
     @pytest.mark.ee
+    @pytest.mark.skip_on_multitenancy
     def test_ee_preflight_with_users_limit(self):
 
         from ee.models.license import License, LicenseManager
@@ -185,3 +188,32 @@ class TestPreflight(APIBaseTest):
         response = self.client.get("/_preflight/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["licensed_users_available"], 1)
+        self.assertEqual(response.json()["can_create_org"], False)
+
+    def test_can_create_org_in_fresh_instance(self):
+        Organization.objects.all().delete()
+
+        response = self.client.get("/_preflight/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["can_create_org"], True)
+
+    @pytest.mark.ee
+    @pytest.mark.skip_on_multitenancy
+    def test_can_create_org_with_multi_org(self):
+
+        # First with no license
+        with self.settings(MULTI_ORG_ENABLED=True):
+            response = self.client.get("/_preflight/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["can_create_org"], False)
+
+        # Now with proper license
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+        )
+        with self.settings(MULTI_ORG_ENABLED=True):
+            response = self.client.get("/_preflight/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["can_create_org"], True)
