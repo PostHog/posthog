@@ -46,7 +46,7 @@ function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
     )
 }
 
-function DomainWhitelist(): JSX.Element {
+function DomainWhitelist({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { socialAuthAvailable } = useValues(preflightLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
@@ -61,7 +61,7 @@ function DomainWhitelist(): JSX.Element {
             </h2>
             {socialAuthAvailable ? (
                 <div>
-                    Add domains to your whitelisted. When <b>new users</b> log in through a social provider (e.g.
+                    Trusted domains for authentication. When <b>new users</b> log in through a social provider (e.g.
                     Google) using an email address on any of your whitelisted domains, they'll be{' '}
                     <b>automatically added to this organization.</b>
                     <div className="mt-05">
@@ -74,6 +74,7 @@ function DomainWhitelist(): JSX.Element {
                                 style={{ width: '40rem', maxWidth: '100%' }}
                                 onBlur={() => updateOrganization({ domain_whitelist: localList })}
                                 value={localList}
+                                disabled={isRestricted}
                             >
                                 {currentOrganization.domain_whitelist.map((domain) => (
                                     <Select.Option key={domain} value={domain}>
@@ -112,7 +113,7 @@ export function OrganizationSettings({ user }: { user: UserType }): JSX.Element 
             <Card>
                 <RestrictedArea Component={DisplayName} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
-                <DomainWhitelist />
+                <RestrictedArea Component={DomainWhitelist} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
                 <Invites />
                 <Divider />

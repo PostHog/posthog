@@ -89,9 +89,17 @@ class TestOrganizationAPI(APIBaseTest):
 
     def test_cannot_rename_organization_if_not_owner_or_admin(self):
         response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.organization.refresh_from_db()
         self.assertNotEqual(self.organization.name, "ASDFG")
+
+    def test_cannot_update_domain_whitelist_if_non_admin_or_higher(self):
+        response = self.client.patch(
+            f"/api/organizations/@current", {"domain_whitelist": ["posthog.com", "movies.posthog.com"]}
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.domain_whitelist, [])
 
     @patch("posthoganalytics.capture")
     def test_member_can_complete_onboarding_setup(self, mock_capture):
