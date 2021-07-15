@@ -122,7 +122,7 @@ export function Cohorts(): JSX.Element {
                                 <ExportOutlined />
                             </Tooltip>
                         </a>
-                        {cohort.id !== 'new' && (
+                        {cohort.id !== 'new' && cohort.id !== 'personsModalNew' && (
                             <DeleteWithUndo
                                 endpoint="cohort"
                                 object={{ name: cohort.name, id: cohort.id }}

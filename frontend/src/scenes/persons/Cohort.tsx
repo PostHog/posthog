@@ -37,15 +37,16 @@ function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
     }
     return (
         <>
-            {cohort.id === 'new' && (
-                <>
-                    <Button size="small" type="link" onClick={() => setCohort({ ...cohort, is_static: undefined })}>
-                        <ArrowLeftOutlined /> Create dynamic cohort instead
-                    </Button>
-                    <br />
-                    <br />
-                </>
-            )}
+            {cohort.id === 'new' ||
+                (cohort.id === 'personsModalNew' && (
+                    <>
+                        <Button size="small" type="link" onClick={() => setCohort({ ...cohort, is_static: undefined })}>
+                            <ArrowLeftOutlined /> Create dynamic cohort instead
+                        </Button>
+                        <br />
+                        <br />
+                    </>
+                ))}
             <Dragger {...props}>
                 <p className="ant-upload-drag-icon">
                     <InboxOutlined />
@@ -53,7 +54,7 @@ function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
                 <p className="ant-upload-text">Click or drag CSV to this area to upload</p>
                 <p className="ant-upload-hint">Make sure the file has a single column with the user's distinct_id.</p>
             </Dragger>
-            {cohort.id !== 'new' && (
+            {cohort.id !== 'new' && cohort.id !== 'personsModalNew' && (
                 <p style={{ marginTop: '1rem' }}>
                     This is a static cohort with <strong>{cohort.count}</strong> user{cohort.count !== 1 && 's'}. If you
                     upload another .csv file, those users will be added to this cohort.
@@ -68,15 +69,16 @@ function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
     const { cohort } = useValues(logic)
     return (
         <>
-            {cohort.id === 'new' && (
-                <>
-                    <Button size="small" type="link" onClick={() => setCohort({ ...cohort, is_static: undefined })}>
-                        <ArrowLeftOutlined /> Create static cohort instead
-                    </Button>
-                    <br />
-                    <br />
-                </>
-            )}
+            {cohort.id === 'new' ||
+                (cohort.id === 'personsModalNew' && (
+                    <>
+                        <Button size="small" type="link" onClick={() => setCohort({ ...cohort, is_static: undefined })}>
+                            <ArrowLeftOutlined /> Create static cohort instead
+                        </Button>
+                        <br />
+                        <br />
+                    </>
+                ))}
             {cohort.groups.map((group: CohortGroupType, index: number) => (
                 <React.Fragment key={index}>
                     <CohortGroup
@@ -197,7 +199,7 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                 </div>
             </form>
             <Divider />
-            {cohort.id !== 'new' && <Persons cohort={cohort} key={lastSavedAt} />}
+            {cohort.id !== 'new' && cohort.id !== 'personsModalNew' && <Persons cohort={cohort} key={lastSavedAt} />}
         </div>
     )
 }
