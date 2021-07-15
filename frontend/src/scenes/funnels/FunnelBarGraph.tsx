@@ -1,6 +1,6 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
 import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
-import { MappedFunnelStep } from '~/types'
+import { FunnelStep } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined } from '@ant-design/icons'
@@ -26,7 +26,7 @@ import {
 
 interface FunnelBarGraphProps {
     layout?: FunnelLayout
-    steps: MappedFunnelStep[]
+    steps: FunnelStep[]
 }
 
 interface BarProps {

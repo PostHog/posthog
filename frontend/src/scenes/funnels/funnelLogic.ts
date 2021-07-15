@@ -15,8 +15,8 @@ import {
     FunnelResult,
     PathType,
     PersonType,
-    MappedFunnelStep,
     ViewType,
+    FunnelStepWithNestedBreakdown,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
@@ -29,16 +29,16 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 function aggregateBreakdownResult({
     result: breakdownList,
     ...apiResponse
-}: FunnelResult<FunnelStep[][]>): FunnelResult<MappedFunnelStep[]> {
-    let result: MappedFunnelStep[] = []
+}: FunnelResult<FunnelStep[][]>): FunnelResult<FunnelStepWithNestedBreakdown[]> {
+    let result: FunnelStepWithNestedBreakdown[] = []
     if (breakdownList.length) {
         result = breakdownList[0].map((step, i) => ({
             ...step,
             breakdown_value: step.breakdown,
             count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
             breakdown: breakdownList.reduce((allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]], []),
-            average_conversion_time: null, // TODO API needs to return a weighted average
-            people: [], // We could concatenate and de-dupe the UUIDs from breakdown values here, but it would be more performant to do it on backend
+            average_conversion_time: null,
+            people: [],
         }))
     }
     return {
@@ -66,9 +66,7 @@ interface TimeStepOption {
     count: number
 }
 
-async function pollFunnel(
-    params: FunnelRequestParams
-): Promise<FunnelResult & FunnelResult<FunnelStep[][]> & FunnelResult<number[]>> {
+async function pollFunnel<T = FunnelResult>(params: FunnelRequestParams): Promise<T> {
     // Tricky: This API endpoint has wildly different return types depending on parameters.
     const { refresh, ...bodyParams } = params
     let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
@@ -113,7 +111,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
     },
 
     actions: () => ({
-        setSteps: (steps: MappedFunnelStep[]) => ({ steps }),
+        setSteps: (steps: (FunnelStep | FunnelStepWithNestedBreakdown)[]) => ({ steps }),
         clearFunnel: true,
         setFilters: (filters: Partial<FilterType>, refresh = false, mergeWithExisting = true) => ({
             filters,
@@ -124,7 +122,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         setStepsWithCountLoading: (stepsWithCountLoading: boolean) => ({ stepsWithCountLoading }),
         loadConversionWindow: (days: number) => ({ days }),
         setConversionWindowInDays: (days: number) => ({ days }),
-        openPersonsModal: (step: FunnelStep | MappedFunnelStep, stepNumber: number, breakdown_value?: string) => ({
+        openPersonsModal: (step: FunnelStep | FunnelStep, stepNumber: number, breakdown_value?: string) => ({
             step,
             stepNumber,
             breakdown_value,
@@ -143,12 +141,12 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
 
     loaders: ({ props, values, actions }) => ({
         results: [
-            [] as MappedFunnelStep[],
+            [] as (FunnelStep | FunnelStepWithNestedBreakdown)[],
             {
-                loadResults: async (refresh = false, breakpoint): Promise<MappedFunnelStep[]> => {
+                loadResults: async (refresh = false, breakpoint): Promise<FunnelStep[]> => {
                     actions.setStepsWithCountLoading(true)
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
-                        return props.cachedResults as MappedFunnelStep[]
+                        return props.cachedResults as FunnelStep[]
                     }
 
                     const { from_dashboard } = values.filters
@@ -170,7 +168,9 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     const interval = params.interval || ''
 
                     try {
-                        result = await pollFunnel(params)
+                        result = await (params.breakdown
+                            ? pollFunnel<FunnelResult<FunnelStep[][]>>(params)
+                            : pollFunnel(params))
                     } catch (e) {
                         breakpoint()
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
@@ -186,12 +186,12 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                     if (params.breakdown && values.clickhouseFeatures) {
-                        const aggregatedResult = aggregateBreakdownResult(result)
+                        const aggregatedResult = aggregateBreakdownResult(result as FunnelResult<FunnelStep[][]>)
                         actions.setSteps(aggregatedResult.result)
                         return aggregatedResult.result
                     }
 
-                    actions.setSteps(result.result as MappedFunnelStep[])
+                    actions.setSteps(result.result as FunnelStep[])
                     // We make another api call to api/funnels for time conversion data
                     let binsResult: FunnelResult<number[]>
                     if (params.display === ChartDisplayType.FunnelsTimeToConvert && values.stepsWithCount.length > 1) {
@@ -214,7 +214,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, binsResult.last_refresh)
                         actions.setTimeConversionBins(binsResult.result)
                     }
-                    return result.result as MappedFunnelStep[]
+                    return result.result as FunnelStep[]
                 },
             },
         ],
@@ -238,7 +238,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             },
         ],
         stepsWithCount: [
-            [] as MappedFunnelStep[],
+            [] as (FunnelStep | FunnelStepWithNestedBreakdown)[],
             {
                 clearFunnel: () => [],
                 setSteps: (_, { steps }) => steps,

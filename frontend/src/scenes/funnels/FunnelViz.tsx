@@ -10,7 +10,7 @@ import { FunnelBarGraph } from './FunnelBarGraph'
 import { router } from 'kea-router'
 import { InputNumber } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { ChartDisplayType, ChartParams, MappedFunnelStep } from '~/types'
+import { ChartDisplayType, ChartParams, FunnelStep } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelHistogram } from './FunnelHistogram'
 import { FunnelEmptyState } from 'scenes/insights/EmptyStates'
@@ -18,7 +18,7 @@ import { FunnelEmptyState } from 'scenes/insights/EmptyStates'
 import './FunnelViz.scss'
 
 interface FunnelVizProps extends Omit<ChartParams, 'view'> {
-    steps: MappedFunnelStep[]
+    steps: FunnelStep[]
     timeConversionBins: number[]
 }
 
