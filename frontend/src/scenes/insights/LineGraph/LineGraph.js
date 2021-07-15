@@ -69,10 +69,10 @@ export function LineGraph({
 
     const annotationsCondition =
         type === 'line' &&
-        datasets.length > 0 &&
+        datasets?.length > 0 &&
         !datasets[0].compare &&
         !inSharedMode &&
-        datasets[0].labels[0] !== '1 day' // stickiness graphs
+        datasets[0].labels?.[0] !== '1 day' // stickiness graphs
 
     const isLightTheme = color === 'white'
     const colors = {
