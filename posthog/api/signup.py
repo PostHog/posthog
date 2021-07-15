@@ -292,16 +292,21 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
     invite_id = strategy.session_get("invite_id")
     if not invite_id:
 
-        # Check if the user is on a whitelisted domain
-        domain = user_email.split("@")[-1]
-        # TODO: Handle multiple organizations with the same whitelisted domain
-        domain_organization = Organization.objects.filter(domain_whitelist__contains=[domain]).first()
+        domain_organization: Optional[Organization] = None
+
+        # TODO: This feature is currently available only in self-hosted
+        if not settings.MULTI_TENANCY:
+            # Check if the user is on a whitelisted domain
+            domain = user_email.split("@")[-1]
+            # TODO: Handle multiple organizations with the same whitelisted domain
+            domain_organization = Organization.objects.filter(domain_whitelist__contains=[domain]).first()
 
         if domain_organization:
             backend_processor = "domain_whitelist"
             user = User.objects.create_and_join(
                 organization=domain_organization, email=user_email, password=None, first_name=user_name
             )
+
         else:
             organization_name = strategy.session_get("organization_name", None)
             email_opt_in = strategy.session_get("email_opt_in", None)

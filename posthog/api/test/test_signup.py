@@ -385,6 +385,27 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(user.organization_memberships.first().level, OrganizationMembership.Level.MEMBER)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    def test_social_signup_is_disabled_in_cloud(self, mock_request):
+        Organization.objects.create(name="Hogflix Movies", domain_whitelist=["hogflix.posthog.com"])
+        user_count = User.objects.count()
+        org_count = Organization.objects.count()
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, 302)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {"access_token": "123", "email": "jane@hogflix.posthog.com"}
+
+        with self.settings(MULTI_TENANCY=True):
+            response = self.client.get(url, follow=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/signup/finish/")  # page where user will create a new org
+
+        self.assertEqual(User.objects.count(), user_count)
+        self.assertEqual(Organization.objects.count(), org_count)
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
     def test_api_cannot_use_whitelist_for_different_domain(self, mock_request):
         Organization.objects.create(name="Test org", domain_whitelist=["good.com"])
 

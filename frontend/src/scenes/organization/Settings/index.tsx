@@ -104,6 +104,7 @@ function DomainWhitelist({ isRestricted }: RestrictedComponentProps): JSX.Elemen
 }
 
 export function OrganizationSettings({ user }: { user: UserType }): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
     return (
         <>
             <PageHeader
@@ -113,8 +114,15 @@ export function OrganizationSettings({ user }: { user: UserType }): JSX.Element 
             <Card>
                 <RestrictedArea Component={DisplayName} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
-                <RestrictedArea Component={DomainWhitelist} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
-                <Divider />
+                {!preflight?.cloud && (
+                    <>
+                        <RestrictedArea
+                            Component={DomainWhitelist}
+                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
+                        />
+                        <Divider />
+                    </>
+                )}
                 <Invites />
                 <Divider />
                 <Members user={user} />
