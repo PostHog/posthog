@@ -16,6 +16,7 @@ export function ActionsLineGraph({
     filters: filtersParam,
     cachedResults,
     inSharedMode = false,
+    showPersonsModal = true,
     view,
 }: ChartParams): JSX.Element {
     const logic = trendsLogic({
@@ -41,6 +42,7 @@ export function ActionsLineGraph({
                 dashboardItemId={dashboardItemId || fromItem}
                 inSharedMode={inSharedMode}
                 interval={filters.interval}
+                showPersonsModal={showPersonsModal}
                 onClick={
                     dashboardItemId
                         ? null
