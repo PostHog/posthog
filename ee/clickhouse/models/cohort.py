@@ -180,6 +180,7 @@ def is_precalculated_query(cohort: Cohort) -> bool:
         cohort.last_calculation
         and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
         and settings.USE_PRECALCULATED_CH_COHORT_PEOPLE
+        and not cohort.is_static  # static cohorts are handled within the regular cohort filter query path
     ):
         return True
     else:

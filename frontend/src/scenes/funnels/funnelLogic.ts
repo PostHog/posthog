@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
-import { autocorrectInterval, humanFriendlyDuration, objectsEqual, uuid } from 'lib/utils'
+import { autocorrectInterval, objectsEqual, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -18,7 +18,7 @@ import {
     PersonType,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS, FunnelBarLayout } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
@@ -29,6 +29,7 @@ function wait(ms = 1000): Promise<any> {
         setTimeout(resolve, ms)
     })
 }
+
 const SECONDS_TO_POLL = 3 * 60
 
 interface TimeStepOption {
@@ -94,9 +95,10 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         setConversionWindowInDays: (days: number) => ({ days }),
         openPersonsModal: (step: FunnelStep, stepNumber: number) => ({ step, stepNumber }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
-        setBarGraphLayout: (barGraphLayout: FunnelBarLayout) => ({ barGraphLayout }),
+        setBarGraphLayout: (barGraphLayout: FunnelLayout) => ({ barGraphLayout }),
         setTimeConversionBins: (timeConversionBins: number[]) => ({ timeConversionBins }),
         changeHistogramStep: (histogramStep: number) => ({ histogramStep }),
+        setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
     }),
 
     connect: {
@@ -152,6 +154,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
 
                     actions.setSteps(result.result as FunnelStep[])
 
+                    // We make another api call to api/funnels for time conversion data
                     let binsResult: FunnelsTimeConversionResult | null = null
                     if (params.display === ChartDisplayType.FunnelsTimeToConvert && values.stepsWithCount.length > 1) {
                         try {
@@ -233,7 +236,7 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             },
         ],
         barGraphLayout: [
-            FunnelBarLayout.vertical as FunnelBarLayout,
+            FunnelLayout.vertical as FunnelLayout,
             {
                 setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
             },
@@ -248,6 +251,12 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
             1,
             {
                 changeHistogramStep: (_, { histogramStep }) => histogramStep,
+            },
+        ],
+        isGroupingOutliers: [
+            true,
+            {
+                setIsGroupingOutliers: (_, { isGroupingOutliers }) => isGroupingOutliers,
             },
         ],
     }),
@@ -284,9 +293,10 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                 )
             },
         ],
-        autoCalculate: [
+        clickhouseFeatures: [
             () => [selectors.featureFlags, selectors.preflight],
             (featureFlags, preflight) => {
+                // Controls auto-calculation of results and ability to break down values
                 return !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled)
             },
         ],
@@ -298,9 +308,19 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         histogramGraphData: [
             () => [selectors.timeConversionBins],
             (timeConversionBins) => {
-                const time = timeConversionBins.map((bin: number[]) => humanFriendlyDuration(`${bin[0]}`))
-                const personsAmount = timeConversionBins.map((bin: number[]) => bin[1])
-                return { time, personsAmount }
+                if (timeConversionBins.length < 2) {
+                    return []
+                }
+                const binSize = timeConversionBins[1][0] - timeConversionBins[0][0]
+                return timeConversionBins.map(([id, count]: [id: number, count: number]) => {
+                    const value = Math.max(0, id)
+                    return {
+                        id: value,
+                        bin0: value,
+                        bin1: value + binSize,
+                        count,
+                    }
+                })
             },
         ],
         histogramStepsDropdown: [
@@ -320,6 +340,12 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
                 return stepsDropdown
             },
         ],
+        areFiltersValid: [
+            () => [selectors.filters],
+            (filters) => {
+                return (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -332,8 +358,8 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
         setFilters: ({ refresh }) => {
             // FUNNEL_BAR_VIZ removes the Calculate button
             // Query performance is suboptimal on psql
-            const { autoCalculate } = values
-            if (refresh || autoCalculate) {
+            const { clickhouseFeatures } = values
+            if (refresh || clickhouseFeatures) {
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)

@@ -11,7 +11,7 @@ import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
-import { FunnelBarLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import { calcPercentage, getReferenceStep } from './funnelUtils'
 
 function humanizeOrder(order: number): number {
@@ -19,7 +19,7 @@ function humanizeOrder(order: number): number {
 }
 
 interface FunnelBarGraphProps {
-    layout?: FunnelBarLayout
+    layout?: FunnelLayout
     steps: FunnelStep[]
 }
 
@@ -27,23 +27,23 @@ interface BarProps {
     percentage: number
     name?: string
     onBarClick?: () => void
-    layout?: FunnelBarLayout
+    layout?: FunnelLayout
 }
 
 type LabelPosition = 'inside' | 'outside'
 
-function Bar({ percentage, name, onBarClick, layout = FunnelBarLayout.horizontal }: BarProps): JSX.Element {
+function Bar({ percentage, name, onBarClick, layout = FunnelLayout.horizontal }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
     const { funnelPersonsEnabled } = useValues(funnelLogic)
-    const dimensionProperty = layout === FunnelBarLayout.horizontal ? 'width' : 'height'
+    const dimensionProperty = layout === FunnelLayout.horizontal ? 'width' : 'height'
     const cursorType = funnelPersonsEnabled ? 'pointer' : ''
 
     function decideLabelPosition(): void {
         // Place label inside or outside bar, based on whether it fits
-        if (layout === FunnelBarLayout.horizontal) {
+        if (layout === FunnelLayout.horizontal) {
             const barWidth = barRef.current?.clientWidth ?? null
             const labelWidth = labelRef.current?.clientWidth ?? null
             if (barWidth !== null && labelWidth !== null) {
@@ -183,14 +183,14 @@ function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeIns
                 className="text-muted"
                 style={{ paddingRight: 4, display: 'inline-block', visibility: infoTextVisible ? undefined : 'hidden' }}
             >
-                Average time:
+                Mean time:
             </span>
             <ValueInspectorButton
                 innerRef={buttonRef}
                 style={{ paddingLeft: 0, paddingRight: 0 }}
                 onClick={onClick}
                 disabled={disabled}
-                title="Average time elapsed between completing this step and starting the next one."
+                title="Mean time elapsed between completing this step and starting the next one."
             >
                 {humanFriendlyDuration(averageTime, 2)}
             </ValueInspectorButton>
@@ -207,8 +207,8 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
         <div className={`funnel-bar-graph ${layout}`}>
             {steps.map((step, i) => {
                 const basisStep = getReferenceStep(steps, stepReference, i)
-                const showLineBefore = layout === FunnelBarLayout.horizontal && i > 0
-                const showLineAfter = layout === FunnelBarLayout.vertical || i < steps.length - 1
+                const showLineBefore = layout === FunnelLayout.horizontal && i > 0
+                const showLineAfter = layout === FunnelLayout.vertical || i < steps.length - 1
                 return (
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">

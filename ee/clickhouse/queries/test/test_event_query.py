@@ -29,7 +29,8 @@ def _create_cohort(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     groups = kwargs.pop("groups")
-    cohort = Cohort.objects.create(team=team, name=name, groups=groups)
+    is_static = kwargs.pop("is_static", False)
+    cohort = Cohort.objects.create(team=team, name=name, groups=groups, is_static=is_static)
     return cohort
 
 
@@ -180,4 +181,21 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
         sync_execute(query, params)
-        print(sqlparse.format(query, reindent=True))
+
+    # smoke test make sure query is formatted and runs
+    def test_static_cohort_filter(self):
+        cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
+
+        filter = Filter(
+            data={
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "events": [{"id": "viewed", "order": 0},],
+                "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+            }
+        )
+
+        entity = Entity({"id": "viewed", "type": "events",})
+
+        query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
+        sync_execute(query, params)
