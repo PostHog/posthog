@@ -157,14 +157,12 @@ export function FunnelViz({
                         dashboardItemId
                             ? null
                             : (point) => {
-                                  const { dataset, day } = point
                                   loadPeople({
                                       action: { id: point.index, name: point.label, properties: [], type: 'actions' },
                                       label: point.label,
-                                      date_from: day,
-                                      date_to: day,
+                                      date_from: point.day,
+                                      date_to: point.day,
                                       filters: filters,
-                                      breakdown_value: dataset.breakdown_value || dataset.status,
                                       saveOriginal: true,
                                   })
                               }

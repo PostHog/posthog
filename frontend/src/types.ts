@@ -616,9 +616,9 @@ export interface FilterType {
     filter_test_accounts?: boolean
     from_dashboard?: boolean
     funnel_step?: number
-    funnel_viz_type?: string // this and the below param is used for funnels time to convert, it'll be updated soon
+    funnel_viz_type?: string // this and funnel_to_step is used for funnels time to convert
     funnel_to_step?: number
-    entrance_period_start?: string
+    entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
     compare?: boolean
 }
