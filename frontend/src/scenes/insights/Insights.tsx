@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
-import { humanFriendlyDuration, isMobile, Loading } from 'lib/utils'
+import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
@@ -23,7 +23,7 @@ import { Paths } from 'scenes/paths/Paths'
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
+import { insightLogic, logicFromInsight } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
@@ -35,7 +35,7 @@ import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { HotKeys } from '~/types'
+import { HotKeys, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
@@ -46,6 +46,7 @@ import { PersonModal } from 'scenes/trends/PersonModal'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { FunnelHeaderActions } from 'scenes/funnels/FunnelHistogram'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -78,7 +79,6 @@ export function Insights(): JSX.Element {
     const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
-    const { stepsWithCount, histogramStep } = useValues(funnelLogic())
 
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
@@ -340,19 +340,17 @@ export function Insights(): JSX.Element {
                                 className="insights-graph-container"
                             >
                                 <div>
-                                    <Row style={{ justifyContent: 'space-between', marginTop: -8, marginBottom: 16 }}>
-                                        {allFilters.display === FUNNELS_TIME_TO_CONVERT && (
-                                            <div>
-                                                Average time:{' '}
-                                                <span className="l4" style={{ color: 'var(--primary)' }}>
-                                                    {humanFriendlyDuration(
-                                                        stepsWithCount[histogramStep]?.average_conversion_time
-                                                    )}
-                                                </span>
-                                            </div>
-                                        )}
+                                    <Row
+                                        style={{
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            marginTop: -8,
+                                            marginBottom: 16,
+                                        }}
+                                    >
+                                        {allFilters.display === FUNNELS_TIME_TO_CONVERT && <FunnelHeaderActions />}
                                         {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
-                                            <div className="text-muted-alt" style={{ marginLeft: 'auto' }}>
+                                            <div className="text-muted-alt">
                                                 Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
                                                 <Button
                                                     size="small"
@@ -398,11 +396,7 @@ export function Insights(): JSX.Element {
                                 !showErrorMessage &&
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
-                                allFilters.display === FUNNEL_VIZ && (
-                                    <Card style={{ marginTop: 8 }}>
-                                        <FunnelPeople />
-                                    </Card>
-                                )}
+                                allFilters.display === FUNNEL_VIZ && <FunnelPeople />}
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&
                                     allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
@@ -439,17 +433,14 @@ function FunnelInsight(): JSX.Element {
         filters: { display },
         timeConversionBins,
     } = useValues(funnelLogic({}))
+    const { clickhouseFeatures } = useValues(funnelLogic())
+
     const { featureFlags } = useValues(featureFlagLogic)
-    const { autoCalculate } = useValues(funnelLogic())
-    const fluidHeight = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display === FUNNEL_VIZ
-    const funnelHistogram = display === FUNNELS_TIME_TO_CONVERT
 
     return (
         <div
             style={
-                fluidHeight
-                    ? {}
-                    : { height: 300, position: 'relative', marginBottom: `${funnelHistogram ? '32px' : 0}` }
+                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? {} : { height: 300, position: 'relative', marginBottom: 0 }
             }
         >
             {stepsWithCountLoading && <Loading />}
@@ -463,8 +454,8 @@ function FunnelInsight(): JSX.Element {
                         }}
                     >
                         <span>
-                            Enter the details to your funnel {!autoCalculate && `and click 'calculate'`} to create a
-                            funnel visualization
+                            Enter the details to your funnel {!clickhouseFeatures && `and click 'calculate'`} to create
+                            a funnel visualization
                         </span>
                     </div>
                 )
@@ -474,9 +465,13 @@ function FunnelInsight(): JSX.Element {
 }
 
 function FunnelPeople(): JSX.Element {
-    const { stepsWithCount } = useValues(funnelLogic())
-    if (stepsWithCount && stepsWithCount.length > 0) {
-        return <People />
+    const { stepsWithCount, areFiltersValid } = useValues(funnelLogic())
+    if (areFiltersValid && stepsWithCount && stepsWithCount.length > 0) {
+        return (
+            <Card style={{ marginTop: 8 }}>
+                <People />
+            </Card>
+        )
     }
     return <></>
 }

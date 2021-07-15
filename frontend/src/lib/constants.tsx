@@ -247,7 +247,7 @@ export enum Environments {
     TEST = 'test',
 }
 
-export enum FunnelBarLayout {
+export enum FunnelLayout {
     horizontal = 'horizontal',
     vertical = 'vertical',
 }

@@ -1,20 +1,21 @@
 import React, { useRef, useEffect, useState } from 'react'
 import FunnelGraph from 'funnel-graph-js'
 import { Loading, humanFriendlyDuration } from 'lib/utils'
-import { useActions, useValues } from 'kea'
-import './FunnelViz.scss'
+import { useActions, useValues, BindLogic } from 'kea'
 import { funnelLogic } from './funnelLogic'
 import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
 import { FunnelBarGraph } from './FunnelBarGraph'
 import { router } from 'kea-router'
-import { IllustrationDanger } from 'lib/components/icons'
 import { InputNumber, Row } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ActionFilter, ChartDisplayType, ChartParams, FunnelStep } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelHistogram } from './FunnelHistogram'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { FunnelEmptyState } from 'scenes/insights/EmptyStates'
+
+import './FunnelViz.scss'
 
 interface FunnelVizProps extends Omit<ChartParams, 'view'> {
     steps: FunnelStep[]
@@ -33,7 +34,13 @@ export function FunnelViz({
     const container = useRef<HTMLDivElement | null>(null)
     const [steps, setSteps] = useState(stepsParam)
     const logic = funnelLogic({ dashboardItemId, cachedResults, filters: defaultFilters })
-    const { results: stepsResult, resultsLoading: funnelLoading, filters, conversionWindowInDays } = useValues(logic)
+    const {
+        results: stepsResult,
+        resultsLoading: funnelLoading,
+        filters,
+        conversionWindowInDays,
+        areFiltersValid,
+    } = useValues(logic)
     const { loadResults: loadFunnel, loadConversionWindow } = useActions(logic)
     const { loadPeople } = useActions(personsModalLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
@@ -107,17 +114,16 @@ export function FunnelViz({
         }
     }, [stepsResult, funnelLoading])
 
+    // Leave this at top. All filter visualizations require > 1 action or event filter
+    if (!areFiltersValid) {
+        return (
+            <BindLogic logic={funnelLogic} props={{ dashboardItemId, cachedResults, filters: defaultFilters }}>
+                <FunnelEmptyState />
+            </BindLogic>
+        )
+    }
+
     if (filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
-        if ((filters.events?.length || 0) + (filters.actions?.length || 0) == 1) {
-            return (
-                <div className="insight-empty-state error-message">
-                    <div className="illustration-main">
-                        <IllustrationDanger />
-                    </div>
-                    <h3 className="l3">You can only use funnel trends with more than one funnel step.</h3>
-                </div>
-            )
-        }
         return steps && steps.length > 0 && steps[0].labels ? (
             <>
                 <Row style={{ marginTop: -16, justifyContent: 'center' }}>

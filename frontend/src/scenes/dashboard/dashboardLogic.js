@@ -8,10 +8,9 @@ import React from 'react'
 import { clearDOMTextSelection, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Button } from 'antd'
-import { DashboardMode } from '../../types'
+import { DashboardMode, ViewType } from '~/types'
 
 export const AUTO_REFRESH_INTERVAL_MINS = 5
 

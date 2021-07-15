@@ -4,14 +4,26 @@ import api from 'lib/api'
 import { autocorrectInterval, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, ShownAsValue } from 'lib/constants'
-import { ViewType, insightLogic, defaultFilterTestAccounts, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, ShownAsValue } from 'lib/constants'
+import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
-import { ActionFilter, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes, PathType } from '~/types'
+import {
+    ActionFilter,
+    ChartDisplayType,
+    EntityTypes,
+    FilterType,
+    PathType,
+    PersonType,
+    PropertyFilter,
+    TrendResult,
+    ViewType,
+} from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { sceneLogic } from 'scenes/sceneLogic'
+
 interface TrendResponse {
     result: TrendResult[]
     next?: string
@@ -42,15 +54,15 @@ interface PeopleParamType {
     lifecycle_type?: string
 }
 
-function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
+function cleanFilters(filters: Partial<FilterType>): Partial<FilterType> {
     return {
         insight: ViewType.TRENDS,
         ...filters,
         interval: autocorrectInterval(filters),
         display:
             filters.session && filters.session === 'dist'
-                ? ACTIONS_TABLE
-                : filters.display || ACTIONS_LINE_GRAPH_LINEAR,
+                ? ChartDisplayType.ActionsTable
+                : filters.display || ChartDisplayType.ActionsLineGraphLinear,
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
         properties: filters.properties || [],
@@ -145,38 +157,70 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
         values: [actionsModel, ['actions']],
     },
 
-    loaders: ({ values, props }) => ({
+    loaders: ({ cache, values, props }) => ({
         _results: {
             __default: {} as TrendResponse,
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return { result: props.cachedResults } as TrendResponse
                 }
+
+                // fetch this now, as it might be different when we report below
+                const { scene } = sceneLogic.values
+
+                // If a query is in progress, debounce before making the second query
+                if (cache.abortController) {
+                    await breakpoint(300)
+                    cache.abortController.abort()
+                }
+                cache.abortController = new AbortController()
+
                 const queryId = uuid()
                 insightLogic.actions.startQuery(queryId)
+
                 let response
                 try {
                     if (values.filters?.insight === ViewType.SESSIONS || values.filters?.session) {
                         response = await api.get(
                             'api/insight/session/?' +
                                 (refresh ? 'refresh=true&' : '') +
-                                toAPIParams(filterClientSideParams(values.filters))
+                                toAPIParams(filterClientSideParams(values.filters)),
+                            cache.abortController.signal
                         )
                     } else {
                         response = await api.get(
                             'api/insight/trend/?' +
                                 (refresh ? 'refresh=true&' : '') +
-                                toAPIParams(filterClientSideParams(values.filters))
+                                toAPIParams(filterClientSideParams(values.filters)),
+                            cache.abortController.signal
                         )
                     }
                 } catch (e) {
-                    console.error(e)
+                    if (e.name === 'AbortError') {
+                        insightLogic.actions.abortQuery(
+                            queryId,
+                            (values.filters.insight as ViewType) || ViewType.TRENDS,
+                            scene,
+                            e
+                        )
+                    }
                     breakpoint()
-                    insightLogic.actions.endQuery(queryId, values.filters.insight || ViewType.TRENDS, null, e)
+                    cache.abortController = null
+                    insightLogic.actions.endQuery(
+                        queryId,
+                        (values.filters.insight as ViewType) || ViewType.TRENDS,
+                        null,
+                        e
+                    )
                     return []
                 }
                 breakpoint()
-                insightLogic.actions.endQuery(queryId, values.filters.insight || ViewType.TRENDS, response.last_refresh)
+                cache.abortController = null
+                insightLogic.actions.endQuery(
+                    queryId,
+                    (values.filters.insight as ViewType) || ViewType.TRENDS,
+                    response.last_refresh
+                )
 
                 return response
             },
@@ -346,12 +390,15 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
         },
     }),
 
-    events: ({ actions, props }) => ({
+    events: ({ actions, cache, props }) => ({
         afterMount: () => {
             if (props.dashboardItemId) {
                 // loadResults gets called in urlToAction for non-dashboard insights
                 actions.loadResults()
             }
+        },
+        beforeUnmount: () => {
+            cache.abortController?.abort()
         },
     }),
 
