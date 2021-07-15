@@ -11,7 +11,6 @@ import {
     ACTIONS_TABLE,
     ACTIONS_BAR_CHART_VALUE,
     FEATURE_FLAGS,
-    FUNNELS_TIME_TO_CONVERT,
     ACTIONS_LINE_GRAPH_LINEAR,
 } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
