@@ -19,20 +19,14 @@ SELECT groupArray(day_start) as date, groupArray(counts) as data, status FROM (
                         SELECT person_id, day as base_day, events.subsequent_day as subsequent_day  FROM (
                             SELECT DISTINCT person_id, {trunc_func}(events.timestamp) day FROM events
                             JOIN
-                            (SELECT person_id,
-                                        distinct_id
-                                FROM person_distinct_id
-                                WHERE team_id = %(team_id)s) pdi on events.distinct_id = pdi.distinct_id
+                            ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on events.distinct_id = pdi.distinct_id
                             WHERE team_id = %(team_id)s AND {event_query} {filters}
                             GROUP BY person_id, day HAVING day <= toDateTime(%(date_to)s) AND day >= toDateTime(%(prev_date_from)s)
                         ) base
                         JOIN (
                             SELECT DISTINCT person_id, {trunc_func}(events.timestamp) subsequent_day FROM events
                             JOIN
-                            (SELECT person_id,
-                                        distinct_id
-                                FROM person_distinct_id
-                                WHERE team_id = %(team_id)s) pdi on events.distinct_id = pdi.distinct_id
+                            ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on events.distinct_id = pdi.distinct_id
                             WHERE team_id = %(team_id)s AND {event_query} {filters}
                             GROUP BY person_id, subsequent_day HAVING subsequent_day <= toDateTime(%(date_to)s) AND subsequent_day >= toDateTime(%(prev_date_from)s)
                         ) events ON base.person_id = events.person_id
@@ -43,10 +37,7 @@ SELECT groupArray(day_start) as date, groupArray(counts) as data, status FROM (
                     SELECT person_id, min(day) as base_day, min(day) as subsequent_day  FROM (
                         SELECT DISTINCT person_id, {trunc_func}(events.timestamp) day FROM events
                         JOIN
-                        (SELECT person_id,
-                                    distinct_id
-                            FROM person_distinct_id
-                            WHERE team_id = %(team_id)s) pdi on events.distinct_id = pdi.distinct_id
+                        ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on events.distinct_id = pdi.distinct_id
                         WHERE team_id = %(team_id)s AND {event_query} {filters}
                         GROUP BY person_id, day HAVING day <= toDateTime(%(date_to)s) AND day >= toDateTime(%(prev_date_from)s)
                     ) base
@@ -56,10 +47,7 @@ SELECT groupArray(day_start) as date, groupArray(counts) as data, status FROM (
                         SELECT person_id, total as base_day, day_start as subsequent_day FROM (
                             SELECT DISTINCT person_id, groupArray({trunc_func}(events.timestamp)) day FROM events
                             JOIN
-                            (SELECT person_id,
-                                        distinct_id
-                                FROM person_distinct_id
-                                WHERE team_id = %(team_id)s) pdi on events.distinct_id = pdi.distinct_id
+                            ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on events.distinct_id = pdi.distinct_id
                             WHERE team_id = %(team_id)s AND {event_query} {filters}
                             AND toDateTime(events.timestamp) <= toDateTime(%(date_to)s) AND {trunc_func}(events.timestamp) >= toDateTime(%(date_from)s)
                             GROUP BY person_id
@@ -76,10 +64,7 @@ SELECT groupArray(day_start) as date, groupArray(counts) as data, status FROM (
                 JOIN (
                     SELECT DISTINCT person_id, {trunc_func}(min(events.timestamp)) earliest FROM events
                     JOIN
-                    (SELECT person_id,
-                                distinct_id
-                        FROM person_distinct_id
-                        WHERE team_id = %(team_id)s) pdi on events.distinct_id = pdi.distinct_id
+                    ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on events.distinct_id = pdi.distinct_id
                   WHERE team_id = %(team_id)s AND {event_query} {filters}
                     GROUP BY person_id
                 ) earliest ON e.person_id = earliest.person_id
@@ -100,20 +85,14 @@ SELECT person_id FROM (
             SELECT person_id, day as base_day, events.subsequent_day as subsequent_day  FROM (
                 SELECT DISTINCT person_id, {trunc_func}(events.timestamp) day FROM events
                 JOIN
-                (SELECT person_id,
-                            distinct_id
-                    FROM person_distinct_id
-                    WHERE team_id = %(team_id)s) pdi on events.distinct_id = pdi.distinct_id
+                ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on events.distinct_id = pdi.distinct_id
                 WHERE team_id = %(team_id)s AND {event_query} {filters}
                 GROUP BY person_id, day HAVING day <= toDateTime(%(date_to)s) AND day >= toDateTime(%(prev_date_from)s)
             ) base
             JOIN (
                 SELECT DISTINCT person_id, {trunc_func}(events.timestamp) subsequent_day FROM events
                 JOIN
-                (SELECT person_id,
-                            distinct_id
-                    FROM person_distinct_id
-                    WHERE team_id = %(team_id)s) pdi on events.distinct_id = pdi.distinct_id
+                ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on events.distinct_id = pdi.distinct_id
                 WHERE team_id = %(team_id)s AND {event_query} {filters}
                 GROUP BY person_id, subsequent_day HAVING subsequent_day <= toDateTime(%(date_to)s) AND subsequent_day >= toDateTime(%(prev_date_from)s)
             ) events ON base.person_id = events.person_id
@@ -124,10 +103,7 @@ SELECT person_id FROM (
         SELECT person_id, min(day) as base_day, min(day) as subsequent_day  FROM (
             SELECT DISTINCT person_id, {trunc_func}(events.timestamp) day FROM events
             JOIN
-            (SELECT person_id,
-                        distinct_id
-                FROM person_distinct_id
-                WHERE team_id = %(team_id)s) pdi on events.distinct_id = pdi.distinct_id
+            ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on events.distinct_id = pdi.distinct_id
             WHERE team_id = %(team_id)s AND {event_query} {filters}
             GROUP BY person_id, day HAVING day <= toDateTime(%(date_to)s) AND day >= toDateTime(%(prev_date_from)s)
         ) base
@@ -137,10 +113,7 @@ SELECT person_id FROM (
             SELECT person_id, dummy as base_day, day_start as subsequent_day FROM (
                 SELECT DISTINCT person_id, groupArray({trunc_func}(events.timestamp)) day FROM events
                 JOIN
-                (SELECT person_id,
-                            distinct_id
-                    FROM person_distinct_id
-                    WHERE team_id = %(team_id)s) pdi on events.distinct_id = pdi.distinct_id
+                ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on events.distinct_id = pdi.distinct_id
                 WHERE team_id = %(team_id)s AND {event_query} {filters}
                 AND toDateTime(events.timestamp) <= toDateTime(%(date_to)s) AND {trunc_func}(events.timestamp) >= toDateTime(%(date_from)s)
                 GROUP BY person_id
@@ -157,10 +130,7 @@ SELECT person_id FROM (
     JOIN (
         SELECT DISTINCT person_id, {trunc_func}(min(events.timestamp)) earliest FROM events
         JOIN
-        (SELECT person_id,
-                    distinct_id
-            FROM person_distinct_id
-            WHERE team_id = %(team_id)s) pdi on events.distinct_id = pdi.distinct_id
+        ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on events.distinct_id = pdi.distinct_id
         WHERE team_id = %(team_id)s AND {event_query} {filters}
         GROUP BY person_id
     ) earliest ON e.person_id = earliest.person_id
