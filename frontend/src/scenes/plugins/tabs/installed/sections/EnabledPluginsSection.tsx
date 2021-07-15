@@ -92,7 +92,14 @@ export function EnabledPluginSection(): JSX.Element {
             >
                 Save order
             </Button>
-            <Button type="default" icon={<CloseOutlined />} onClick={cancelRearranging}>
+            <Button
+                type="default"
+                icon={<CloseOutlined />}
+                onClick={(e) => {
+                    cancelRearranging()
+                    e.stopPropagation()
+                }}
+            >
                 Cancel
             </Button>
         </>

@@ -611,8 +611,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
                 return filteredEnabledPlugins.filter(
                     (plugin) =>
                         !plugin.capabilities ||
-                        plugin.capabilities.methods.includes('processEvent') ||
-                        plugin.capabilities.methods.includes('processEventBatch')
+                        (plugin.capabilities.methods &&
+                            (plugin.capabilities.methods.includes('processEvent') ||
+                                plugin.capabilities.methods.includes('processEventBatch')))
                 )
             },
         ],

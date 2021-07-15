@@ -98,7 +98,6 @@ export function PluginDrawer(): JSX.Element {
         }
         setInvisibleFields(fieldsToSetAsInvisible)
     }
-    console.log(editingPlugin?.capabilities)
 
     const determineAndSetRequiredFields = (): void => {
         const fieldsToSetAsRequired = []

@@ -7,13 +7,16 @@ export function PluginsSearch(): JSX.Element {
     const { searchTerm, rearranging } = useValues(pluginsLogic)
     const { setSearchTerm } = useActions(pluginsLogic)
     return (
-        <Input
+        <Input.Search
+            data-attr="plugins-search"
             placeholder="Start typing to search for a plugin"
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{ maxWidth: 400, height: 40, borderRadius: 5, marginTop: 5, marginBottom: 10 }}
-            disabled={rearranging}
+            autoFocus
             value={searchTerm || ''}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            enterButton
             allowClear
+            style={{ maxWidth: 400, marginTop: 5, marginBottom: 10 }}
+            disabled={rearranging}
         />
     )
 }
