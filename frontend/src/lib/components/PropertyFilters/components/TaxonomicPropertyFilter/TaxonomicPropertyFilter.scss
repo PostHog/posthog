@@ -3,7 +3,7 @@
     padding: 10px;
     min-width: 300px;
     width: 100%;
-    max-width: 100%;
+    max-width: calc(100vw - 20px);
 }
 
 .taxonomic-infinite-list {
