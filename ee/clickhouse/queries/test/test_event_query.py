@@ -29,7 +29,7 @@ def _create_cohort(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     groups = kwargs.pop("groups")
-    is_static = kwargs.pop("is_static")
+    is_static = kwargs.pop("is_static", False)
     cohort = Cohort.objects.create(team=team, name=name, groups=groups, is_static=is_static)
     return cohort
 
