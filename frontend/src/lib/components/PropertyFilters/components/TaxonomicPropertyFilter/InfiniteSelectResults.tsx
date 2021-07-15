@@ -9,9 +9,10 @@ import { InfiniteList } from 'lib/components/PropertyFilters/components/Taxonomi
 export interface InfiniteSelectResultsProps {
     pageKey: string
     filterIndex: number
+    focusInput: () => void
 }
 
-export function InfiniteSelectResults({ pageKey, filterIndex }: InfiniteSelectResultsProps): JSX.Element {
+export function InfiniteSelectResults({ pageKey, filterIndex, focusInput }: InfiniteSelectResultsProps): JSX.Element {
     const filterLogic = taxonomicPropertyFilterLogic({ pageKey, filterIndex })
     const { activeTab } = useValues(filterLogic)
     const { setActiveTab } = useActions(filterLogic)
@@ -24,7 +25,15 @@ export function InfiniteSelectResults({ pageKey, filterIndex }: InfiniteSelectRe
     }
 
     return (
-        <Tabs activeKey={activeTab || groups[0].type} onChange={setActiveTab} tabPosition="top" animated={false}>
+        <Tabs
+            activeKey={activeTab || groups[0].type}
+            onChange={(value) => {
+                setActiveTab(value)
+                focusInput()
+            }}
+            tabPosition="top"
+            animated={false}
+        >
             {groups.map(({ name, type }) => {
                 const count = counts[type]
                 const tabTitle = (

@@ -2,7 +2,7 @@
 Contains the property filter component w/ properties and cohorts separated in tabs. Also includes infinite-scroll remote loading.
 */
 import './TaxonomicPropertyFilter.scss'
-import React, { useMemo } from 'react'
+import React, { useMemo, useRef } from 'react'
 import { Button, Card, Dropdown, Input } from 'antd'
 import { useValues, useActions, BindLogic } from 'kea'
 import { PropertyFilterInternalProps } from '../PropertyFilter'
@@ -23,6 +23,7 @@ export function TaxonomicPropertyFilter({
     disablePopover,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
+    const searchInputRef = useRef<Input | null>(null)
 
     const { setFilter } = useActions(propertyFilterLogic)
 
@@ -38,6 +39,7 @@ export function TaxonomicPropertyFilter({
             autoFocus
             placeholder="Search event or person properties"
             value={searchQuery}
+            ref={(ref) => (searchInputRef.current = ref)}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
                 if (e.key === 'ArrowUp') {
@@ -62,7 +64,13 @@ export function TaxonomicPropertyFilter({
             }}
         />
     )
-    const searchResults = <InfiniteSelectResults pageKey={pageKey} filterIndex={index} />
+    const searchResults = (
+        <InfiniteSelectResults
+            pageKey={pageKey}
+            filterIndex={index}
+            focusInput={() => searchInputRef.current?.focus()}
+        />
+    )
 
     return (
         <div className="taxonomic-property-filter">

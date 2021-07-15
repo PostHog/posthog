@@ -55,10 +55,11 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
 
     connect: (props: TaxonomicPropertyFilterListLogicProps) => ({
         values: [taxonomicPropertyFilterLogic(props), ['searchQuery']],
-        actions: [taxonomicPropertyFilterLogic(props), ['setSearchQuery']],
+        actions: [taxonomicPropertyFilterLogic(props), ['setSearchQuery', 'selectItem as selectFilterItem']],
     }),
 
     actions: {
+        selectSelected: true,
         moveUp: true,
         moveDown: true,
         setIndex: (index: number) => ({ index }),
@@ -133,7 +134,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
         ],
     }),
 
-    listeners: ({ values, actions }) => ({
+    listeners: ({ values, actions, props }) => ({
         onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
             if (values.isRemoteDataSource) {
                 let loadFrom: number | null = null
@@ -162,6 +163,12 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
         moveDown: () => {
             const { index, totalCount } = values
             actions.setIndex((index + 1) % totalCount)
+        },
+        selectSelected: () => {
+            const item = values.selectedItem
+            if (item) {
+                actions.selectFilterItem(props.type, item.id, item.name)
+            }
         },
     }),
 
@@ -212,6 +219,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
         ],
         totalCount: [(s) => [s.items], (items) => items.count || 0],
         results: [(s) => [s.items], (items) => items.results],
+        selectedItem: [(s) => [s.index, s.items], (index, items) => items.results[index]],
     },
 
     events: ({ actions, values }) => ({

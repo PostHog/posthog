@@ -14,15 +14,15 @@ interface InfiniteListProps {
 
 export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps): JSX.Element {
     const filterLogic = taxonomicPropertyFilterLogic({ pageKey, filterIndex })
-    const { filter } = useValues(filterLogic)
+    const { filter, mouseInteractionsEnabled } = useValues(filterLogic)
     const { selectItem } = useActions(filterLogic)
 
     const listLogic = infiniteListLogic({ pageKey, filterIndex, type })
-    const { results, totalCount } = useValues(listLogic)
-    const { onRowsRendered } = useActions(listLogic)
+    const { results, totalCount, index } = useValues(listLogic)
+    const { onRowsRendered, setIndex } = useActions(listLogic)
 
-    const renderItem: ListRowRenderer = ({ index, style }: ListRowProps): JSX.Element | null => {
-        const item = results[index]
+    const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
+        const item = results[rowIndex]
 
         const isSelected =
             item &&
@@ -34,16 +34,17 @@ export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps):
 
         return item ? (
             <AntDesignList.Item
-                className={isSelected ? 'selected' : undefined}
+                className={[rowIndex === index && 'hover', isSelected && 'selected'].filter((a) => a).join(' ')}
                 key={item.id}
                 onClick={() => selectItem(type, item.id, item.name)}
+                onMouseOver={() => mouseInteractionsEnabled && setIndex(rowIndex)}
                 style={style}
-                data-attr={`prop-filter-${type}-${index}`}
+                data-attr={`prop-filter-${type}-${rowIndex}`}
             >
                 <PropertyKeyInfo value={item.name} disablePopover />
             </AntDesignList.Item>
         ) : (
-            <AntDesignList.Item key={`__skeleton_${index}`} style={style} data-attr={`prop-filter-${type}-${index}`}>
+            <AntDesignList.Item key={`__skeleton_${rowIndex}`} style={style} data-attr={`prop-filter-${type}-${index}`}>
                 <Skeleton active title={false} paragraph={{ rows: 1 }} />
             </AntDesignList.Item>
         )
@@ -61,6 +62,7 @@ export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps):
                         rowHeight={32}
                         rowRenderer={renderItem}
                         onRowsRendered={onRowsRendered}
+                        scrollToIndex={index}
                     />
                 )}
             </AutoSizer>

@@ -18,6 +18,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     actions: () => ({
         moveUp: true,
         moveDown: true,
+        enableMouseInteractions: true,
         tabLeft: true,
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
@@ -37,7 +38,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         activeTab: [
             (state: any) => {
                 const type = selectors.filter(state)?.type
-                return groups.find((g) => g.type === type)?.type || null
+                return groups.find((g) => g.type === type)?.type || groups[0]?.type
             },
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
@@ -48,6 +49,17 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             {
                 openDropdown: () => true,
                 closeDropdown: () => false,
+            },
+        ],
+        mouseInteractionsEnabled: [
+            // This fixes a bug with keyboard up/down scrolling when the mouse is over the list.
+            // Otherwise shifting list elements cause the "hover" action to be triggered randomly.
+            true,
+            {
+                moveUp: () => false,
+                moveDown: () => false,
+                setActiveTab: () => true, // reset immediately if clicked on a tab
+                enableMouseInteractions: () => true, // called 100ms after up/down
             },
         ],
     }),
@@ -89,15 +101,19 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             actions.closeDropdown()
         },
 
-        moveUp: () => {
+        moveUp: async (_, breakpoint) => {
             if (values.activeTab) {
                 infiniteListLogic({ ...props, type: values.activeTab }).actions.moveUp()
+                await breakpoint(100)
+                actions.enableMouseInteractions()
             }
         },
 
-        moveDown: () => {
+        moveDown: async (_, breakpoint) => {
             if (values.activeTab) {
                 infiniteListLogic({ ...props, type: values.activeTab }).actions.moveDown()
+                await breakpoint(100)
+                actions.enableMouseInteractions()
             }
         },
 
