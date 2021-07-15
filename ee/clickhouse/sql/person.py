@@ -215,10 +215,6 @@ INSERT_PERSON_DISTINCT_ID = """
 INSERT INTO person_distinct_id SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, now(), 0 VALUES
 """
 
-UPDATE_PERSON_PROPERTIES = """
-ALTER TABLE person UPDATE properties = %(properties)s where id = %(id)s
-"""
-
 DELETE_PERSON_BY_ID = """
 INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 1
 """
