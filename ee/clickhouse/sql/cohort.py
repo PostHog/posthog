@@ -3,7 +3,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 from .clickhouse import COLLAPSING_MERGE_TREE, table_engine
 
 CALCULATE_COHORT_PEOPLE_SQL = """
-SELECT distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) where {query} AND team_id = %(team_id)s
+SELECT distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) where {query}
 """
 
 CREATE_COHORTPEOPLE_TABLE_SQL = """
