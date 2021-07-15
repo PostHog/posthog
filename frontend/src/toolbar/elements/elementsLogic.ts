@@ -6,8 +6,7 @@ import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForE
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { elementsLogicType } from './elementsLogicType'
-import { ActionStepType, ActionType } from '~/types'
-import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
+import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { posthog } from '~/toolbar/posthog'
@@ -16,17 +15,7 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
-export const elementsLogic = kea<
-    elementsLogicType<
-        ActionStepType,
-        ActionForm,
-        ActionType,
-        ElementWithMetadata,
-        ActionElementWithMetadata,
-        ActionElementMap,
-        ElementMap
-    >
->({
+export const elementsLogic = kea<elementsLogicType<ActionElementMap, ElementMap>>({
     actions: {
         enableInspect: true,
         disableInspect: true,
@@ -269,15 +258,15 @@ export const elementsLogic = kea<
         ],
 
         selectedElementMeta: [
-            (s) => [s.selectedElement, s.elementMap, s.actionsForElementMap],
-            (selectedElement, elementMap, actionsForElementMap) => {
+            (s) => [s.selectedElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (selectedElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (selectedElement) {
                     const meta = elementMap.get(selectedElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(selectedElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }
@@ -287,15 +276,15 @@ export const elementsLogic = kea<
         ],
 
         hoverElementMeta: [
-            (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap],
-            (hoverElement, elementMap, actionsForElementMap) => {
+            (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (hoverElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (hoverElement) {
                     const meta = elementMap.get(hoverElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(hoverElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }
@@ -305,15 +294,15 @@ export const elementsLogic = kea<
         ],
 
         highlightElementMeta: [
-            (s) => [s.highlightElement, s.elementMap, s.actionsForElementMap],
-            (highlightElement, elementMap, actionsForElementMap) => {
+            (s) => [s.highlightElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
+            (highlightElement, elementMap, actionsForElementMap, dataAttributes) => {
                 if (highlightElement) {
                     const meta = elementMap.get(highlightElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(highlightElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }

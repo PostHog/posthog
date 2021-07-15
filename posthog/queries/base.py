@@ -1,8 +1,11 @@
-import copy
-from typing import Any, Callable, Dict, List, Optional, Union
+import json
+from typing import Any, Callable, Dict, List, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models.query import Prefetch
+from rest_framework import request
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.entity import Entity
@@ -31,7 +34,7 @@ def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> Q
 
 def determine_compared_filter(filter) -> Filter:
     if not filter.date_to or not filter.date_from:
-        raise ValueError("You need date_from and date_to to compare")
+        raise ValidationError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
     return filter.with_data({"date_from": date_from.date().isoformat(), "date_to": date_to.date().isoformat()})
 
@@ -97,32 +100,42 @@ def filter_events(
     team_id: int, filter, entity: Optional[Entity] = None, include_dates: bool = True, interval_annotation=None
 ) -> Q:
     filters = Q()
-    if filter.date_from and include_dates:
-        filters &= Q(timestamp__gte=filter.date_from)
     relativity = relativedelta(days=1)
+    date_from = filter.date_from
     if filter.interval == "hour":
         relativity = relativedelta(hours=1)
     elif filter.interval == "minute":
         relativity = relativedelta(minutes=1)
     elif filter.interval == "week":
         relativity = relativedelta(weeks=1)
+        date_from = filter.date_from - relativedelta(days=filter.date_from.weekday() + 1)
     elif filter.interval == "month":
         relativity = relativedelta(months=1) - relativity  # go to last day of month instead of first of next
+        date_from = filter.date_from.replace(day=1)
+
+    if filter.date_from and include_dates:
+        filters &= Q(timestamp__gte=date_from)
     if include_dates:
         filters &= Q(timestamp__lte=filter.date_to + relativity)
-    if filter.properties:
-        filters &= properties_to_Q(filter.properties, team_id=team_id)
+    if filter.properties or filter.filter_test_accounts:
+        filters &= properties_to_Q(filter.properties, team_id=team_id, filter_test_accounts=filter.filter_test_accounts)
     if entity and entity.properties:
         filters &= properties_to_Q(entity.properties, team_id=team_id)
     return filters
 
 
-def properties_to_Q(properties: List[Property], team_id: int, is_person_query: bool = False) -> Q:
+def properties_to_Q(
+    properties: List[Property], team_id: int, is_person_query: bool = False, filter_test_accounts: bool = False
+) -> Q:
     """
     Converts a filter to Q, for use in Django ORM .filter()
     If you're filtering a Person QuerySet, use is_person_query to avoid doing an unnecessary nested loop
     """
     filters = Q()
+
+    if filter_test_accounts:
+        test_account_filters = Team.objects.only("test_account_filters").get(id=team_id).test_account_filters
+        properties.extend([Property(**prop) for prop in test_account_filters])
 
     if len(properties) == 0:
         return filters
@@ -166,13 +179,13 @@ def properties_to_Q(properties: List[Property], team_id: int, is_person_query: b
 
         for item in cohort_properties:
             if item.key == "id":
+                cohort_id = int(cast(Union[str, int], item.value))
                 filters &= Q(
                     Exists(
-                        CohortPeople.objects.filter(cohort_id=int(item.value), person_id=OuterRef("person_id"),).only(
-                            "id"
-                        )
+                        CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("person_id"),).only("id")
                     )
                 )
+
     return filters
 
 
@@ -181,6 +194,37 @@ def entity_to_Q(entity: Entity, team_id: int) -> Q:
     if entity.properties:
         result &= properties_to_Q(entity.properties, team_id)
     return result
+
+
+def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -> QuerySet:
+    if request.GET.get("id"):
+        ids = request.GET["id"].split(",")
+        queryset = queryset.filter(id__in=ids)
+    if request.GET.get("uuid"):
+        uuids = request.GET["uuid"].split(",")
+        queryset = queryset.filter(uuid__in=uuids)
+    if request.GET.get("search"):
+        parts = request.GET["search"].split(" ")
+        contains = []
+        for part in parts:
+            if ":" in part:
+                matcher, key = part.split(":")
+                if matcher == "has":
+                    # Matches for example has:email or has:name
+                    queryset = queryset.filter(properties__has_key=key)
+            else:
+                contains.append(part)
+        queryset = queryset.filter(
+            Q(properties__icontains=" ".join(contains)) | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
+        ).distinct("id")
+    if request.GET.get("cohort"):
+        queryset = queryset.filter(cohort__id=request.GET["cohort"])
+    if request.GET.get("properties"):
+        filter = Filter(data={"properties": json.loads(request.GET["properties"])})
+        queryset = queryset.filter(properties_to_Q(filter.properties, team_id=team_id))
+
+    queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+    return queryset
 
 
 class BaseQuery:

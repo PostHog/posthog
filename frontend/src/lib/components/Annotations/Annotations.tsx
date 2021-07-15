@@ -1,11 +1,25 @@
 import React from 'react'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
-import { AnnotationScope } from 'lib/constants'
+import { AnnotationType, AnnotationScope } from '~/types'
 
-export const Annotations = function Annotations({
+interface AnnotationsProps {
+    dates: string[]
+    leftExtent: number
+    interval: number
+    topExtent: number
+    dashboardItemId?: number
+    color: string | null
+    graphColor: string
+    accessoryColor: string | null
+    currentDateMarker: string
+    onClick: () => void
+    onClose: () => void
+}
+
+export function Annotations({
     dates,
     leftExtent,
     interval,
@@ -17,7 +31,7 @@ export const Annotations = function Annotations({
     onClose,
     graphColor,
     currentDateMarker,
-}: Record<string, any>): JSX.Element[] {
+}: AnnotationsProps): JSX.Element[] {
     const { diffType, groupedAnnotations } = useValues(
         annotationsLogic({
             pageKey: dashboardItemId ? dashboardItemId : null,
@@ -39,17 +53,22 @@ export const Annotations = function Annotations({
     const markers: JSX.Element[] = []
     dates &&
         dates.forEach((date: string, index: number) => {
-            const annotations = groupedAnnotations[moment(date).startOf(diffType)]
+            const annotations =
+                groupedAnnotations[
+                    dayjs(date)
+                        .startOf(diffType as dayjs.OpUnitType)
+                        .format('YYYY-MM-DD')
+                ]
             if (annotations) {
                 markers.push(
                     <AnnotationMarker
                         elementId={dates[index]}
-                        label={moment(dates[index]).format('MMMM Do YYYY')}
+                        label={dayjs(dates[index]).format('MMMM Do YYYY')}
                         key={index}
                         left={index * interval + leftExtent - 12.5}
                         top={topExtent}
                         annotations={annotations}
-                        onCreate={(input, applyAll) => {
+                        onCreate={(input: string, applyAll: boolean) => {
                             if (applyAll) {
                                 createGlobalAnnotation(input, dates[index], dashboardItemId)
                             } else if (dashboardItemId) {
@@ -58,7 +77,7 @@ export const Annotations = function Annotations({
                                 createAnnotation(input, dates[index])
                             }
                         }}
-                        onDelete={(data) => {
+                        onDelete={(data: AnnotationType) => {
                             annotations.length === 1 && onClose?.()
                             if (data.scope !== AnnotationScope.DashboardItem) {
                                 deleteGlobalAnnotation(data.id)

@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import { SelectBoxItem, SelectedItem } from 'lib/components/SelectBox'
 import { selectBoxLogicType } from './selectBoxLogicType'
 import Fuse from 'fuse.js'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const scrollUpIntoView = (key: string): void => {
     const searchList = document.querySelector('.search-list')
@@ -35,7 +36,7 @@ export const searchItems = (sources: SelectedItem[], search: string): SelectedIt
         .map((result) => result.item)
 }
 
-export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem>>({
+export const selectBoxLogic = kea<selectBoxLogicType>({
     props: {} as {
         items: SelectBoxItem[]
         updateFilter: (type: any, id: string | number, name: string) => void
@@ -51,19 +52,19 @@ export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem
         selectedItem: [
             null as SelectedItem | null,
             {
-                setSelectedItem: (_, { item }: { item: SelectedItem | null }) => item,
+                setSelectedItem: (_, { item }) => item,
             },
         ],
         blockMouseOver: [
             false,
             {
-                setBlockMouseOver: (_, { block }: { block: boolean }) => block,
+                setBlockMouseOver: (_, { block }) => block,
             },
         ],
         search: [
             '',
             {
-                setSearch: (_, { search }: { search: string }) => search,
+                setSearch: (_, { search }) => search,
             },
         ],
     },
@@ -81,9 +82,32 @@ export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem
                 )
             },
         ],
+        data: [
+            (s) => [s.search],
+            (search): SelectBoxItem[] => {
+                if (!search) {
+                    return props.items
+                }
+                const newItems: SelectBoxItem[] = []
+                for (const item of props.items) {
+                    newItems.push({
+                        ...item,
+                        dataSource: searchItems(item.dataSource, search),
+                        metadata: { search },
+                    })
+                }
+                return newItems
+            },
+        ],
     }),
     listeners: ({ props, values, actions }) => ({
         clickSelectedItem: ({ item, group }: { item: SelectedItem; group: SelectBoxItem }) => {
+            if (item.onSelect) {
+                item.onSelect({ item, group })
+                if (item.onSelectPreventDefault) {
+                    return
+                }
+            }
             props.updateFilter(group.type, group.getValue(item), group.getLabel(item))
         },
         setBlockMouseOver: ({ block }: { block: boolean }) => {
@@ -91,7 +115,15 @@ export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem
                 setTimeout(() => actions.setBlockMouseOver(false), 200)
             }
         },
-        onKeyDown: ({ e }: { e: React.KeyboardEvent }) => {
+        onKeyDown: async (
+            {
+                e,
+            }: {
+                e: React.KeyboardEvent
+            },
+            breakpoint
+        ) => {
+            await breakpoint(100) // debounce for 100ms
             let allSources = props.items.map((item) => item.dataSource).flat()
             allSources = !values.search ? allSources : searchItems(allSources, values.search)
             const currentIndex =
@@ -118,6 +150,19 @@ export const selectBoxLogic = kea<selectBoxLogicType<SelectedItem, SelectBoxItem
             }
             e.stopPropagation()
             e.preventDefault()
+        },
+        setSearch: async ({ search }, breakpoint) => {
+            await breakpoint(700)
+            if (values.data[0].metadata?.search === search) {
+                const extraProps = {} as Record<string, number>
+                for (const item of values.data) {
+                    extraProps[`count_${item.key}`] = item.dataSource.length
+                    if (item.key === 'events') {
+                        extraProps.count_posthog_events = item.dataSource.filter(({ name }) => name[0] === '$').length
+                    }
+                }
+                eventUsageLogic.actions.reportEventSearched(search, extraProps)
+            }
         },
     }),
 })

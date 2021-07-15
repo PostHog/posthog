@@ -2,44 +2,52 @@ import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Button, Form, Input } from 'antd'
-import MonacoEditor from 'react-monaco-editor'
+import MonacoEditor from '@monaco-editor/react'
 import { Drawer } from 'lib/components/Drawer'
 
-const defaultSource = `// /* Runs on every event */
-function processEvent(event, { config }) {
-    // Some events (like $identify) don't have properties
+// @ts-ignore
+import SCAFFOLD_index from '!raw-loader!@posthog/plugin-scaffold/dist/index.d.ts'
+// @ts-ignore
+import SCAFFOLD_errors from '!raw-loader!@posthog/plugin-scaffold/dist/errors.d.ts'
+// @ts-ignore
+import SCAFFOLD_types from '!raw-loader!@posthog/plugin-scaffold/dist/types.d.ts'
+
+const defaultSource = `// Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
+
+// Processes each event, optionally transforming it
+export function processEvent(event, { config }) {
+    // Some events (such as $identify) don't have properties
     if (event.properties) {
-        event.properties['hello'] = \`Hello \${config.name || 'world'}\`
+        event.properties['hello'] = \`Hello \${config.name}\`
     }
-    
-    // Return the event to injest, return nothing to discard  
+    // Return the event to be ingested, or return null to discard
     return event
 }
 
-// /* Ran whenever the plugin VM initialises */
-// function setupPlugin (meta) {
-// 
-// }
+// Runs when the plugin is loaded, allows for preparing it as needed
+export function setupPlugin (meta) {
+    console.log(\`The date is \${new Date().toDateString()}\`)
+}
 
-// /* Ran once per hour on each worker instance */
-// function runEveryHour(meta) {
-//     const weather = await (await fetch('https://weather.example.api/?city=New+York')).json()
-//     posthog.capture('weather', { degrees: weather.deg, fahrenheit: weather.us })
-// }
-`
+// Runs every hour on the hour
+async function runEveryHour(meta) {
+    const response = await fetch('https://palabras-aleatorias-public-api.herokuapp.com/random')
+    const data = await response.json()
+    const randomSpanishWord = data.body.Word
+    console.log(\`¡\${randomSpanishWord.toUpperCase()}!\`)
+}`
 
 const defaultConfig = [
     {
         markdown: 'Specify your config here',
     },
     {
-        key: 'username',
+        key: 'name',
         name: 'Person to greet',
         type: 'string',
         hint: 'Used to personalise the property `hello`',
-        default: '',
+        default: 'world',
         required: false,
-        order: 2,
     },
 ]
 
@@ -77,7 +85,7 @@ export function PluginSource(): JSX.Element {
             forceRender={true}
             visible={editingSource}
             onClose={() => setEditingSource(false)}
-            width={'min(90vw, 820px)'}
+            width={'min(90vw, 64rem)'}
             title={`Coding Plugin: ${editingPlugin?.name}`}
             placement="left"
             footer={
@@ -95,20 +103,45 @@ export function PluginSource(): JSX.Element {
                 {editingSource ? (
                     <>
                         <p>
-                            <a href="https://posthog.com/docs/plugins/overview" target="_blank">
-                                Read the documentation.
+                            Read our{' '}
+                            <a href="https://posthog.com/docs/plugins/build/overview" target="_blank">
+                                plugin building overview in PostHog Docs
+                            </a>{' '}
+                            for a good grasp of possibilities.
+                            <br />
+                            Once satisfied with your plugin, feel free to{' '}
+                            <a
+                                href="https://posthog.com/docs/plugins/build/tutorial#submitting-your-plugin"
+                                target="_blank"
+                            >
+                                submit it to the official Plugin Library
                             </a>
+                            .
                         </p>
                         <Form.Item label="Name" name="name" required rules={[requiredRule]}>
                             <Input />
                         </Form.Item>
                         <Form.Item label="Source Code" name="source" required rules={[requiredRule]}>
                             <MonacoEditor
-                                language="javascript"
+                                language="typescript"
                                 theme="vs-dark"
                                 height={400}
                                 options={{
                                     minimap: { enabled: false },
+                                }}
+                                beforeMount={(monaco) => {
+                                    monaco.languages.typescript.typescriptDefaults.addExtraLib(
+                                        `declare module '@posthog/plugin-scaffold' { ${SCAFFOLD_index} }`,
+                                        'file:///node_modules/@types/@posthog/plugin-scaffold/index.d.ts'
+                                    )
+                                    monaco.languages.typescript.typescriptDefaults.addExtraLib(
+                                        `declare module '@posthog/plugin-scaffold' { ${SCAFFOLD_types} }`,
+                                        'file:///node_modules/@types/@posthog/plugin-scaffold/types.d.ts'
+                                    )
+                                    monaco.languages.typescript.typescriptDefaults.addExtraLib(
+                                        `declare module '@posthog/plugin-scaffold' { ${SCAFFOLD_errors} }`,
+                                        'file:///node_modules/@types/@posthog/plugin-scaffold/errors.d.ts'
+                                    )
                                 }}
                             />
                         </Form.Item>

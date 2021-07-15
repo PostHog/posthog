@@ -11,7 +11,10 @@ import {
 } from 'scenes/retention/types'
 
 import './RetentionTable.scss'
-import moment from 'moment'
+import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
+dayjs.extend(utc)
+
 import { ColumnsType } from 'antd/lib/table'
 
 export function RetentionTable({
@@ -39,12 +42,12 @@ export function RetentionTable({
     useEffect(() => {
         setIsLatestPeriod(periodIsLatest(date_to, period))
     }, [date_to, period])
-
     const columns: ColumnsType<Record<string, any>> = [
         {
             title: 'Date',
             key: 'date',
-            render: (row) => moment.utc(row.date).format(period === 'h' ? 'MMM D, h a' : 'MMM D'),
+            render: (row) =>
+                period === 'Hour' ? dayjs(row.date).format('MMM D, h a') : dayjs.utc(row.date).format('MMM D'),
             align: 'center',
         },
         {
@@ -106,7 +109,7 @@ export function RetentionTable({
             {results && (
                 <Modal
                     visible={modalVisible}
-                    closable={false}
+                    closable={true}
                     onCancel={dismissModal}
                     footer={<Button onClick={dismissModal}>Close</Button>}
                     style={{
@@ -114,7 +117,7 @@ export function RetentionTable({
                         minWidth: results[selectedRow]?.values[0]?.count === 0 ? '10%' : '90%',
                         fontSize: 16,
                     }}
-                    title={results[selectedRow] ? moment.utc(results[selectedRow].date).format('MMMM D, YYYY') : ''}
+                    title={results[selectedRow] ? dayjs(results[selectedRow].date).format('MMMM D, YYYY') : ''}
                 >
                     {results && !peopleLoading ? (
                         <div>
@@ -132,7 +135,7 @@ export function RetentionTable({
                                                         .map((data, index) => <th key={index}>{data.label}</th>)}
                                             </tr>
                                             <tr>
-                                                <td />
+                                                <td>user_id</td>
                                                 {results &&
                                                     results[selectedRow]?.values.map((data: any, index: number) => (
                                                         <td key={index}>
@@ -154,7 +157,12 @@ export function RetentionTable({
                                                 people.result.map((personAppearances: RetentionTableAppearanceType) => (
                                                     <tr key={personAppearances.person.id}>
                                                         <td className="text-overflow" style={{ minWidth: 200 }}>
-                                                            <Link to={`/person_by_id/${personAppearances.person.id}`}>
+                                                            <Link
+                                                                to={`/person/${encodeURIComponent(
+                                                                    personAppearances.person.distinct_ids[0]
+                                                                )}`}
+                                                                data-attr="retention-person-link"
+                                                            >
                                                                 {personAppearances.person.name}
                                                             </Link>
                                                         </td>
@@ -218,12 +226,12 @@ const periodIsLatest = (date_to: string, period: string): boolean => {
         return true
     }
 
-    const curr = moment(date_to)
+    const curr = dayjs(date_to)
     if (
-        (period == 'Hour' && curr.isSame(moment(), 'hour')) ||
-        (period == 'Day' && curr.isSame(moment(), 'day')) ||
-        (period == 'Week' && curr.isSame(moment(), 'week')) ||
-        (period == 'Month' && curr.isSame(moment(), 'month'))
+        (period == 'Hour' && curr.isSame(dayjs(), 'hour')) ||
+        (period == 'Day' && curr.isSame(dayjs(), 'day')) ||
+        (period == 'Week' && curr.isSame(dayjs(), 'week')) ||
+        (period == 'Month' && curr.isSame(dayjs(), 'month'))
     ) {
         return true
     } else {

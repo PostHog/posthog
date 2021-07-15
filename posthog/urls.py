@@ -1,11 +1,9 @@
-from typing import Any, Callable, Optional, Union, cast
+from typing import Any, Callable, Optional, Union
 from urllib.parse import urlparse
 
-import posthoganalytics
 from django import forms
 from django.conf import settings
 from django.contrib import admin
-from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
@@ -24,54 +22,23 @@ from posthog.api import (
     capture,
     dashboard,
     decide,
-    organization,
     projects_router,
     router,
+    signup,
     user,
 )
 from posthog.demo import demo
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_signed_up
 
-from .api.organization import OrganizationSignupSerializer
+from .api.signup import SignupSerializer
 from .models import OrganizationInvite, Team, User
-from .utils import render_template
-from .views import health, login_required, preflight_check, stats, system_status
+from .utils import get_can_create_org, render_template
+from .views import health, login_required, preflight_check, robots_txt, stats
 
 
 def home(request, *args, **kwargs):
     return render_template("index.html", request)
-
-
-def login_view(request):
-    if request.user.is_authenticated:
-        return redirect("/")
-
-    if not User.objects.exists():
-        return redirect("/preflight")
-    if request.method == "POST":
-        email = request.POST["email"]
-        password = request.POST["password"]
-        user = cast(Optional[User], authenticate(request, email=email, password=password))
-        next_url = request.GET.get("next")
-        if user is not None:
-            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-            if user.distinct_id:
-                posthoganalytics.capture(user.distinct_id, "user logged in")
-            if next_url:
-                return redirect(next_url)
-            return redirect("/")
-        else:
-            return render_template(
-                "login.html",
-                request=request,
-                context={
-                    "email": email,
-                    "error": True,
-                    "action": "/login" if not next_url else f"/login?next={next_url}",
-                },
-            )
-    return render_template("login.html", request)
 
 
 class TeamInviteSurrogate:
@@ -95,8 +62,11 @@ class CompanyNameForm(forms.Form):
 
 def finish_social_signup(request):
     """
-    TODO: DEPRECATED in favor of posthog.api.organization.OrganizationSocialSignupSerializer
+    TODO: DEPRECATED in favor of posthog.api.signup.SocialSignupSerializer
     """
+    if not get_can_create_org():
+        return redirect("/login?error=no_new_organizations")
+
     if request.method == "POST":
         form = CompanyNameForm(request.POST)
         if form.is_valid():
@@ -113,7 +83,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
     if user:
         return {"is_new": False}
     user_email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
-    user_name = details["fullname"]
+    user_name = details["fullname"] or details["username"]
     strategy.session_set("user_name", user_name)
     strategy.session_set("backend", backend.name)
     from_invite = False
@@ -124,7 +94,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
         if not organization_name or email_opt_in is None:
             return redirect(finish_social_signup)
 
-        serializer = OrganizationSignupSerializer(
+        serializer = SignupSerializer(
             data={
                 "organization_name": organization_name,
                 "email_opt_in": email_opt_in,
@@ -233,19 +203,17 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
-    opt_slash_path("_system_status", system_status),
     # admin
     path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),
     # api
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
-    opt_slash_path("api/user/change_password", user.change_password),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/user", user.user),
-    opt_slash_path("api/signup", organization.OrganizationSignupViewset.as_view()),
-    opt_slash_path("api/social_signup", organization.OrganizationSocialSignupViewset.as_view()),
-    path("api/signup/<str:invite_id>/", organization.OrganizationInviteSignupViewset.as_view()),
+    opt_slash_path("api/signup", signup.SignupViewset.as_view()),
+    opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
+    path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
@@ -260,7 +228,6 @@ urlpatterns = [
     opt_slash_path("s", capture.get_event),  # session recordings
     # auth
     path("logout", logout, name="login"),
-    path("login", login_view, name="login"),
     path("signup/finish/", finish_social_signup, name="signup_finish"),
     path("", include("social_django.urls", namespace="social")),
     *(
@@ -281,20 +248,9 @@ urlpatterns = [
     path("accounts/", include("django.contrib.auth.urls")),
 ]
 
-
-if settings.DEBUG:
-    try:
-        import debug_toolbar
-    except ImportError:
-        pass
-    else:
-        urlpatterns.append(path("__debug__/", include(debug_toolbar.urls)))
-
-    @csrf_exempt
-    def debug(request):
-        assert False, locals()
-
-    urlpatterns.append(path("debug/", debug))
+# Allow crawling on PostHog Cloud, disable for all self-hosted installations
+if not settings.MULTI_TENANCY:
+    urlpatterns.append(opt_slash_path("robots.txt", robots_txt))
 
 if settings.TEST:
 
@@ -307,11 +263,10 @@ if settings.TEST:
 
     urlpatterns.append(path("delete_events/", delete_events))
 
+
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*"]
+frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*", "login"]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 
-urlpatterns += [
-    re_path(r"^.*", login_required(home)),
-]
+urlpatterns.append(re_path(r"^.*", login_required(home)))

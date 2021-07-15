@@ -46,7 +46,7 @@ export function DraggableButton(): JSX.Element {
                 savePosition={saveHeatmapPosition}
             >
                 <div className="toolbar-block">
-                    <HeatmapStats buttonMode />
+                    <HeatmapStats />
                 </div>
             </ButtonWindow>
 

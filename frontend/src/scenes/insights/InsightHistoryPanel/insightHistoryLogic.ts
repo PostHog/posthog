@@ -8,7 +8,13 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 const updateInsightState = (
     state: DashboardItemType[],
-    { item, insight }: { item?: DashboardItemType; insight?: DashboardItemType },
+    {
+        item,
+        insight,
+    }: {
+        item?: DashboardItemType
+        insight?: DashboardItemType
+    },
     isSaved?: boolean
 ): DashboardItemType[] => {
     item = item || insight
@@ -30,7 +36,8 @@ const updateInsightState = (
     return map
 }
 
-export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType>>({
+/* insightHistoryLogic - Handles all logic for saved insights and recent history */
+export const insightHistoryLogic = kea<insightHistoryLogicType>({
     loaders: ({ actions }) => ({
         insights: {
             __default: [] as DashboardItemType[],
@@ -39,7 +46,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
                     'api/insight/?' +
                         toParams({
                             order: '-created_at',
-                            limit: 20,
+                            limit: 25,
                             user: true,
                         })
                 )
@@ -55,7 +62,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
                         toParams({
                             order: '-created_at',
                             saved: true,
-                            limit: 100,
+                            limit: 25,
                             user: true,
                         })
                 )
@@ -71,7 +78,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
                         toParams({
                             order: '-created_at',
                             saved: true,
-                            limit: 100,
+                            limit: 25,
                         })
                 )
                 actions.setTeamInsightsNext(response.next)
@@ -83,20 +90,17 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
         insights: {
             updateInsights: (state, { insights }) => [...state, ...insights],
             updateInsightSuccess: updateInsightState,
-            // @ts-expect-error - kea.js typing issue
-            [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
+            [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: updateInsightState,
         },
         savedInsights: {
             updateSavedInsights: (state, { insights }) => [...state, ...insights],
             updateInsightSuccess: (state, itemOrInsight) => updateInsightState(state, itemOrInsight, true),
-            // @ts-expect-error - kea.js typing issue
-            [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
+            [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: updateInsightState,
         },
         teamInsights: {
             updateTeamInsights: (state, { insights }) => [...state, ...insights],
             updateInsightSuccess: (state, itemOrInsight) => updateInsightState(state, itemOrInsight, true),
-            // @ts-expect-error - kea.js typing issue
-            [dashboardItemsModel.actions.renameDashboardItemSuccess]: updateInsightState,
+            [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: updateInsightState,
         },
         insightsNext: [
             null as null | string,

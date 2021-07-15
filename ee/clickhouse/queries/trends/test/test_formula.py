@@ -9,7 +9,6 @@ from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.models import Cohort, Person
 from posthog.models.filters.filter import Filter
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
-from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.test.base import APIBaseTest
 
 
@@ -19,10 +18,12 @@ def _create_event(**kwargs):
 
 
 class TestFormula(AbstractIntervalTest, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def setUp(self):
         super().setUp()  # type: ignore
 
-        person = Person.objects.create(
+        Person.objects.create(
             team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
         )
         with freeze_time("2020-01-02T13:01:01Z"):
@@ -139,7 +140,7 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
 
     def test_week_interval(self):
         data = self._run({"date_from": "-2w", "interval": "week"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
-        self.assertEqual(data, [1350.0])
+        self.assertEqual(data, [0.0, 2160.0])
 
     def test_month_interval(self):
         data = self._run({"date_from": "-2m", "interval": "month"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
@@ -160,10 +161,10 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
 
     def test_breakdown(self):
         action_response = self._run({"formula": "A - B", "breakdown": "location"})
-        self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 450.0, 0.0])
-        self.assertEqual(action_response[0]["label"], "London")
-        self.assertEqual(action_response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 250.0, 0.0, 0.0])
-        self.assertEqual(action_response[1]["label"], "Paris")
+        self.assertEqual(action_response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 450.0, 0.0])
+        self.assertEqual(action_response[1]["label"], "London")
+        self.assertEqual(action_response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 250.0, 0.0, 0.0])
+        self.assertEqual(action_response[2]["label"], "Paris")
 
     def test_breakdown_cohort(self):
         cohort = Cohort.objects.create(

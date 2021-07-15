@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.utils.safestring import mark_safe
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import gettext_lazy as _
 
 from posthog.models import (
     Action,
@@ -12,6 +12,8 @@ from posthog.models import (
     FeatureFlag,
     Organization,
     Person,
+    Plugin,
+    PluginConfig,
     Team,
     User,
 )
@@ -23,6 +25,28 @@ admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(DashboardItem)
+
+
+@admin.register(Plugin)
+class PluginAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "organization_id",
+        "is_global",
+    )
+    list_filter = ("plugin_type", "is_global")
+    search_fields = ("name",)
+    ordering = ("-created_at",)
+
+
+@admin.register(PluginConfig)
+class PluginConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        "plugin_id",
+        "team_id",
+    )
+    ordering = ("-created_at",)
 
 
 @admin.register(Event)
@@ -96,6 +120,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "setup_section_2_completed",
         "created_at",
         "updated_at",
+        "plugins_access_level",
         "billing_plan",
         "organization_billing_link",
         "usage",
@@ -106,7 +131,14 @@ class OrganizationAdmin(admin.ModelAdmin):
     ]
     readonly_fields = ["created_at", "updated_at", "billing_plan", "organization_billing_link", "usage"]
     search_fields = ("name", "members__email")
-    list_display = ("name", "created_at", "members_count", "first_member", "organization_billing_link")
+    list_display = (
+        "name",
+        "created_at",
+        "plugins_access_level",
+        "members_count",
+        "first_member",
+        "organization_billing_link",
+    )
 
     def members_count(self, organization: Organization):
         return organization.members.count()

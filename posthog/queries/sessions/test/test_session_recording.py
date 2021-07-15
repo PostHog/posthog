@@ -5,7 +5,7 @@ from freezegun import freeze_time
 from posthog.models import Person, User
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingEvent, SessionRecordingViewed
-from posthog.queries.sessions.session_recording import SessionRecording, filter_sessions_by_recordings
+from posthog.queries.sessions.session_recording import SessionRecording, join_with_session_recordings
 from posthog.test.base import BaseTest
 
 
@@ -47,11 +47,18 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 self.create_snapshot("user", "3", now() + relativedelta(seconds=15))
                 self.create_snapshot("user", "3", now() + relativedelta(seconds=20))
                 self.create_snapshot("user", "3", now() + relativedelta(seconds=60))
-                self.create_snapshot("user", "4", now() + relativedelta(seconds=999))
-                self.create_snapshot("user", "4", now() + relativedelta(seconds=1020))
+                self.create_chunked_snapshot(
+                    "user", "4", now() + relativedelta(seconds=999), {"chunk_id": "afb", "has_full_snapshot": True}
+                )
+                self.create_snapshot("user", "4", now() + relativedelta(seconds=1020), type=1)
 
                 self.create_snapshot("broken-user", "5", now() + relativedelta(seconds=10), type=3)
-                self.create_snapshot("broken-user", "5", now() + relativedelta(seconds=20), type=3)
+                self.create_chunked_snapshot(
+                    "broken-user",
+                    "5",
+                    now() + relativedelta(seconds=20),
+                    {"chunk_id": "afb", "has_full_snapshot": False},
+                )
 
                 sessions = [
                     {"distinct_id": "user", "start_time": now(), "end_time": now() + relativedelta(seconds=100)},
@@ -68,7 +75,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
                 self.assertEqual([r["session_recordings"] for r in results], expected)
 
-        def test_filter_sessions_by_recordings(self):
+        def test_join_with_session_recordings(self):
             _, team2, user2 = User.objects.bootstrap("Test2", "sessions@posthog.com", None)
 
             SessionRecordingViewed.objects.create(team=self.team, user_id=self.user.pk, session_id="1")
@@ -76,7 +83,15 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
             self._test_filter_sessions(
                 SessionsFilter(data={"user_id": self.user.pk}),
-                [[{"id": "1", "viewed": True}, {"id": "3", "viewed": False}], [], [{"id": "2", "viewed": False}], []],
+                [
+                    [
+                        {"id": "1", "recording_duration": 25, "viewed": True},
+                        {"id": "3", "recording_duration": 45, "viewed": False},
+                    ],
+                    [],
+                    [{"id": "2", "recording_duration": 13, "viewed": False}],
+                    [],
+                ],
             )
 
         def test_filter_sessions_by_recording_duration_gt(self):
@@ -84,7 +99,12 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 SessionsFilter(
                     data={"filters": [{"type": "recording", "key": "duration", "operator": "gt", "value": 15}]}
                 ),
-                [[{"id": "1", "viewed": False}, {"id": "3", "viewed": False}]],
+                [
+                    [
+                        {"id": "1", "recording_duration": 25, "viewed": False},
+                        {"id": "3", "recording_duration": 45, "viewed": False},
+                    ]
+                ],
             )
 
         def test_filter_sessions_by_unseen_recording(self):
@@ -93,7 +113,12 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 SessionsFilter(
                     data={"filters": [{"type": "recording", "key": "unseen", "value": 1}], "user_id": self.user.pk}
                 ),
-                [[{"id": "1", "viewed": False}, {"id": "3", "viewed": False}]],
+                [
+                    [
+                        {"id": "1", "recording_duration": 25, "viewed": False},
+                        {"id": "3", "recording_duration": 45, "viewed": False},
+                    ]
+                ],
             )
 
         def test_filter_sessions_by_recording_duration_lt(self):
@@ -101,7 +126,10 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 SessionsFilter(
                     data={"filters": [{"type": "recording", "key": "duration", "operator": "lt", "value": 30}]}
                 ),
-                [[{"id": "1", "viewed": False}], [{"id": "2", "viewed": False}]],
+                [
+                    [{"id": "1", "recording_duration": 25, "viewed": False}],
+                    [{"id": "2", "recording_duration": 13, "viewed": False}],
+                ],
             )
 
         def test_query_run_with_no_sessions(self):
@@ -116,10 +144,19 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 snapshot_data={"timestamp": timestamp.timestamp(), "type": type},
             )
 
+        def create_chunked_snapshot(self, distinct_id, session_id, timestamp, snapshot_data):
+            event_factory(
+                team_id=self.team.pk,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                session_id=session_id,
+                snapshot_data=snapshot_data,
+            )
+
     return TestSessionRecording
 
 
 class DjangoSessionRecordingTest(
-    session_recording_test_factory(SessionRecording, filter_sessions_by_recordings, SessionRecordingEvent.objects.create)  # type: ignore
+    session_recording_test_factory(SessionRecording, join_with_session_recordings, SessionRecordingEvent.objects.create)  # type: ignore
 ):
     pass

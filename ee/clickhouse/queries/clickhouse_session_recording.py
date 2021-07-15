@@ -9,7 +9,7 @@ from posthog.queries.base import BaseQuery
 from posthog.queries.sessions.session_recording import DistinctId
 from posthog.queries.sessions.session_recording import SessionRecording as BaseSessionRecording
 from posthog.queries.sessions.session_recording import Snapshots
-from posthog.queries.sessions.session_recording import filter_sessions_by_recordings as _filter_sessions_by_recordings
+from posthog.queries.sessions.session_recording import join_with_session_recordings as _join_with_session_recordings
 
 OPERATORS = {"gt": ">", "lt": "<"}
 
@@ -35,7 +35,7 @@ SESSIONS_IN_RANGE_QUERY = """
             distinct_id,
             MIN(timestamp) AS start_time,
             MAX(timestamp) AS end_time,
-            COUNT(JSONExtractInt(snapshot_data, 'type') = 2 ? 1 : NULL) as full_snapshots
+            COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
         FROM session_recording_events
         WHERE
             team_id = %(team_id)s
@@ -58,8 +58,8 @@ class SessionRecording(BaseSessionRecording):
         return response[0][0], response[0][1], [json.loads(snapshot_data) for _, _, snapshot_data in response]
 
 
-def filter_sessions_by_recordings(team: Team, sessions_results: List[Any], filter: SessionsFilter) -> List[Any]:
-    return _filter_sessions_by_recordings(team, sessions_results, filter, query=query_sessions_in_range)
+def join_with_session_recordings(team: Team, sessions_results: List[Any], filter: SessionsFilter) -> List[Any]:
+    return _join_with_session_recordings(team, sessions_results, filter, query=query_sessions_in_range)
 
 
 def query_sessions_in_range(

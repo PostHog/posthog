@@ -2,9 +2,12 @@
 Module to centralize event reporting on the server-side.
 """
 
+from typing import List
+
 import posthoganalytics
 
 from posthog.models import Organization, User
+from posthog.utils import get_instance_realm
 
 
 def report_user_signed_up(
@@ -26,6 +29,7 @@ def report_user_signed_up(
         "new_onboarding_enabled": new_onboarding_enabled,
         "signup_backend_processor": backend_processor,
         "signup_social_provider": social_provider,
+        "realm": get_instance_realm(),
     }
 
     # TODO: This should be $set_once as user props.
@@ -50,6 +54,16 @@ def report_user_joined_organization(organization: Organization, current_user: Us
     )
 
 
+def report_user_logged_in(
+    distinct_id: str,
+    social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
+) -> None:
+    """
+    Reports that a user has logged in to PostHog.
+    """
+    posthoganalytics.capture(distinct_id, "user logged in", properties={"social_provider": social_provider})
+
+
 def report_onboarding_completed(organization: Organization, current_user: User) -> None:
     """
     Reports that the `new-onboarding-2822` has been completed.
@@ -61,6 +75,17 @@ def report_onboarding_completed(organization: Organization, current_user: User) 
     posthoganalytics.identify(current_user.distinct_id, {"onboarding_completed": True})
     posthoganalytics.capture(
         current_user.distinct_id, "onboarding completed", properties={"team_members_count": team_members_count},
+    )
+
+
+def report_user_updated(user: User, updated_attrs: List[str]) -> None:
+    """
+    Reports a user has been updated. This includes current_team, current_organization & password.
+    """
+
+    updated_attrs.sort()
+    posthoganalytics.capture(
+        user.distinct_id, "user updated", properties={"updated_attrs": updated_attrs},
     )
 
 

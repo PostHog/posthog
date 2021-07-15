@@ -17,8 +17,6 @@ from posthog.constants import (
     SHOWN_AS,
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_CUMULATIVE,
-    TRENDS_FUNNEL,
-    TRENDS_LINEAR,
     TRENDS_PIE,
     TRENDS_STICKINESS,
 )

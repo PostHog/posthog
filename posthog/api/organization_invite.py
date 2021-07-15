@@ -1,22 +1,22 @@
 from typing import Any, Dict, cast
 
-from django.db import models
 from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.shared import UserBasicSerializer
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
+from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions
 from posthog.tasks.email import send_invite
 
 
 class OrganizationInviteSerializer(serializers.ModelSerializer):
-    created_by = UserSerializer(many=False, read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = OrganizationInvite
@@ -32,9 +32,9 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "emailing_attempt_made",
             "created_at",
             "updated_at",
-            "emailing_attempt_made",
         ]
         extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
 
@@ -104,7 +104,7 @@ class OrganizationInviteViewSet(
 
         organization = Organization.objects.get(id=self.organization_id)
         report_bulk_invited(
-            self.request.user.distinct_id,
+            cast(User, self.request.user).distinct_id,
             invitee_count=len(serializer.validated_data),
             name_count=sum(1 for invite in serializer.validated_data if invite.get("first_name")),
             current_invite_count=organization.active_invites.count(),

@@ -1,22 +1,27 @@
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 
+from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
-from posthog.models.filters import Filter
-from posthog.models.filters.path_filter import PathFilter
+from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
+from posthog.models.filters.sessions_filter import SessionEventsFilter
 from posthog.queries.base import TIME_IN_SECONDS
 from posthog.types import FilterType
 
 
-def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple[str, str, dict]:
+def parse_timestamps(
+    filter: Union[FilterType, SessionEventsFilter], team_id: int, table: str = ""
+) -> Tuple[str, str, dict]:
     date_from = None
     date_to = None
     params = {}
     if filter.date_from:
-        date_from = "and {table}timestamp >= '{}'".format(format_ch_timestamp(filter.date_from, filter), table=table,)
+
+        date_from = "AND {table}timestamp >= '{}'".format(format_ch_timestamp(filter.date_from, filter), table=table,)
         params.update({"date_from": format_ch_timestamp(filter.date_from, filter)})
     else:
         try:
@@ -24,12 +29,12 @@ def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple
         except IndexError:
             date_from = ""
         else:
-            date_from = "and {table}timestamp >= '{}'".format(format_ch_timestamp(earliest_date, filter), table=table,)
+            date_from = "AND {table}timestamp >= '{}'".format(format_ch_timestamp(earliest_date, filter), table=table,)
             params.update({"date_from": format_ch_timestamp(earliest_date, filter)})
 
     _date_to = filter.date_to
 
-    date_to = "and {table}timestamp <= '{}'".format(format_ch_timestamp(_date_to, filter, " 23:59:59"), table=table,)
+    date_to = "AND {table}timestamp <= '{}'".format(format_ch_timestamp(_date_to, filter, " 23:59:59"), table=table,)
     params.update({"date_to": format_ch_timestamp(_date_to, filter, " 23:59:59")})
 
     return date_from or "", date_to or "", params
@@ -46,7 +51,11 @@ def format_ch_timestamp(timestamp: datetime, filter, default_hour_min: str = " 0
 
 
 def get_earliest_timestamp(team_id: int) -> datetime:
-    return sync_execute(GET_EARLIEST_TIMESTAMP_SQL, {"team_id": team_id})[0][0]
+    results = sync_execute(GET_EARLIEST_TIMESTAMP_SQL, {"team_id": team_id})
+    if len(results) > 0:
+        return results[0][0]
+    else:
+        return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 
 def get_time_diff(
@@ -56,10 +65,18 @@ def get_time_diff(
     _start_time = start_time or get_earliest_timestamp(team_id)
     _end_time = end_time or timezone.now()
 
-    diff = _end_time - _start_time
-    round_interval = diff.total_seconds() >= TIME_IN_SECONDS[interval] * 2
+    if interval == "month":
+        rel_delta = relativedelta(_end_time.replace(day=1), _start_time.replace(day=1))
+        return (rel_delta.years * 12) + rel_delta.months + 1, TIME_IN_SECONDS["month"], True
 
-    return int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + 1, TIME_IN_SECONDS[interval], round_interval
+    diff = _end_time - _start_time
+    if interval == "week":
+        round_interval = True
+    else:
+        round_interval = diff.total_seconds() >= TIME_IN_SECONDS[interval] * 2
+
+    addition = 2 if interval == "week" else 1
+    return int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + addition, TIME_IN_SECONDS[interval], round_interval
 
 
 PERIOD_TRUNC_MINUTE = "toStartOfMinute"
@@ -85,7 +102,7 @@ def get_trunc_func_ch(period: Optional[str]) -> str:
     elif period == "month":
         return PERIOD_TRUNC_MONTH
     else:
-        raise ValueError(f"Period {period} is unsupported.")
+        raise ValidationError(f"Period {period} is unsupported.")
 
 
 def date_from_clause(interval_annotation: str, round_interval: bool) -> str:

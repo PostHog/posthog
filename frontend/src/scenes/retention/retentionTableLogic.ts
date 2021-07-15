@@ -1,13 +1,13 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { toParams, objectsEqual } from 'lib/utils'
-import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { toParams, objectsEqual, uuid } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE } from 'lib/constants'
-import { actionsModel } from '~/models'
-import { ActionType } from '~/types'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { actionsModel } from '~/models/actionsModel'
+import { ActionType, FilterType, ViewType } from '~/types'
 import {
     RetentionTablePayload,
     RetentionTrendPayload,
@@ -15,11 +15,10 @@ import {
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
-
-const RETENTION_RECURRING = 'retention_recurring'
-const RETENTION_FIRST_TIME = 'retention_first_time'
 
 export const retentionOptions = {
     [`${RETENTION_FIRST_TIME}`]: 'First Time',
@@ -32,7 +31,7 @@ export const retentionOptionDescriptions = {
 }
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
-function defaultFilters(filters: Record<string, any>): Record<string, any> {
+export function defaultFilters(filters: Record<string, any>): Record<string, any> {
     return {
         target_entity: filters.target_entity || {
             id: '$pageview',
@@ -45,18 +44,12 @@ function defaultFilters(filters: Record<string, any>): Record<string, any> {
         retention_type: filters.retention_type || RETENTION_FIRST_TIME,
         display: filters.display || ACTIONS_TABLE,
         properties: filters.properties || [],
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        insight: ViewType.RETENTION,
     }
 }
 
-export const retentionTableLogic = kea<
-    retentionTableLogicType<
-        RetentionTablePayload,
-        RetentionTrendPayload,
-        RetentionTablePeoplePayload,
-        RetentionTrendPeoplePayload,
-        ActionType
-    >
->({
+export const retentionTableLogic = kea<retentionTableLogicType>({
     key: (props) => {
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
@@ -67,17 +60,19 @@ export const retentionTableLogic = kea<
                 if (!refresh && (props.cachedResults || props.preventLoading) && values.filters === props.filters) {
                     return props.cachedResults
                 }
-                insightLogic.actions.startQuery()
+                const queryId = uuid()
+                insightLogic.actions.startQuery(queryId)
                 let res
                 const urlParams = toParams({ ...values.filters, ...(refresh ? { refresh: true } : {}) })
                 try {
                     res = await api.get(`api/insight/retention/?${urlParams}`)
                 } catch (e) {
-                    insightLogic.actions.endQuery(ViewType.RETENTION, false, e)
+                    breakpoint()
+                    insightLogic.actions.endQuery(queryId, ViewType.RETENTION, null, e)
                     return []
                 }
                 breakpoint()
-                insightLogic.actions.endQuery(ViewType.RETENTION, res.last_refresh)
+                insightLogic.actions.endQuery(queryId, ViewType.RETENTION, res.last_refresh)
                 return res.result
             },
         },
@@ -101,6 +96,7 @@ export const retentionTableLogic = kea<
         values: [actionsModel, ['actions']],
     },
     actions: () => ({
+        // TODO: This needs to be properly typed with `FilterType`. N.B. We're currently mixing snake_case and pascalCase attribute names.
         setFilters: (filters: Record<string, any>) => ({ filters }),
         loadMorePeople: true,
         updatePeople: (people) => ({ people }),
@@ -112,7 +108,7 @@ export const retentionTableLogic = kea<
         filters: [
             props.filters
                 ? defaultFilters(props.filters as Record<string, any>)
-                : (state: Record<string, any>) => defaultFilters(router.selectors.searchParams(state)),
+                : (state) => defaultFilters(router.selectors.searchParams(state)),
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -138,6 +134,10 @@ export const retentionTableLogic = kea<
             (selectors) => [(selectors as any).actions],
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
         ],
+        filtersLoading: [
+            () => [eventDefinitionsModel.selectors.loaded, propertyDefinitionsModel.selectors.loaded],
+            (eventsLoaded, propertiesLoaded) => !eventsLoaded || !propertiesLoaded,
+        ],
     },
     events: ({ actions, props }) => ({
         afterMount: () => props.dashboardItemId && actions.loadResults(),
@@ -147,13 +147,13 @@ export const retentionTableLogic = kea<
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.filters, router.values.hashParams]
+            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
         },
         setProperties: () => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.filters, router.values.hashParams]
+            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
         },
     }),
     urlToAction: ({ actions, values, key }) => ({
@@ -200,7 +200,7 @@ export const retentionTableLogic = kea<
                 actions.updatePeople(newPeople)
             }
         },
-        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
+        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: FilterType) => {
             if (props.dashboardItemId) {
                 actions.setFilters(filters)
             }

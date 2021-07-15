@@ -2,17 +2,17 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
-from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import gettext_lazy as _
+from rest_framework.exceptions import ValidationError
 
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey
 from .team import Team
-from .utils import generate_random_token, sane_repr
+from .utils import UUIDClassicModel, generate_random_token, sane_repr
 
 
 class UserManager(BaseUserManager):
@@ -85,7 +85,11 @@ class UserManager(BaseUserManager):
             return personal_api_key.user
 
 
-class User(AbstractUser):
+def events_column_config_default() -> Dict[str, Any]:
+    return {"active": "DEFAULT"}
+
+
+class User(AbstractUser, UUIDClassicModel):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []
 
@@ -96,7 +100,6 @@ class User(AbstractUser):
         (TOOLBAR, TOOLBAR),
     ]
 
-    username = None  # type: ignore
     current_organization = models.ForeignKey(
         "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+",
     )
@@ -104,11 +107,17 @@ class User(AbstractUser):
     email = models.EmailField(_("email address"), unique=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
+
+    # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
+    events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
+
+    # Remove unused attributes from `AbstractUser`
+    username = None  # type: ignore
 
     objects: UserManager = UserManager()  # type: ignore
 

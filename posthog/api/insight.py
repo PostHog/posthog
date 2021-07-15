@@ -1,39 +1,77 @@
-from distutils.util import strtobool
-from typing import Any, Dict, List
+from typing import Any, Dict, Type
 
 from django.core.cache import cache
 from django.db.models import QuerySet
 from django.db.models.query_utils import Q
 from django.utils.timezone import now
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import format_next_url
 from posthog.celery import update_cache_item_task
-from posthog.constants import FROM_DASHBOARD, INSIGHT, INSIGHT_FUNNELS, INSIGHT_PATHS, TRENDS_STICKINESS
+from posthog.constants import (
+    FROM_DASHBOARD,
+    INSIGHT,
+    INSIGHT_FUNNELS,
+    INSIGHT_PATHS,
+    INSIGHT_STICKINESS,
+    TRENDS_STICKINESS,
+)
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Event, Filter, Team
-from posthog.models.filters import Filter, RetentionFilter
+from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
-from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.utils import generate_cache_key, get_safe_cache, should_refresh, str_to_bool
 
 
-class InsightSerializer(serializers.ModelSerializer):
-    result = serializers.SerializerMethodField()
-    created_by = serializers.SerializerMethodField()
+class InsightBasicSerializer(serializers.ModelSerializer):
+    """
+    Simplified serializer to speed response times when loading large amounts of objects.
+    """
 
     class Meta:
         model = DashboardItem
         fields = [
             "id",
+            "short_id",
+            "name",
+            "filters",
+            "dashboard",
+            "color",
+            "last_refresh",
+            "refreshing",
+            "saved",
+        ]
+        read_only_fields = ("short_id",)
+
+    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError()
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        representation["filters"] = instance.dashboard_filters()
+        return representation
+
+
+class InsightSerializer(InsightBasicSerializer):
+    result = serializers.SerializerMethodField()
+    created_by = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = DashboardItem
+        fields = [
+            "id",
+            "short_id",
             "name",
             "filters",
             "filters_hash",
@@ -52,6 +90,7 @@ class InsightSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "created_by",
             "created_at",
+            "short_id",
         )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
@@ -65,7 +104,7 @@ class InsightSerializer(serializers.ModelSerializer):
         elif validated_data["dashboard"].team == team:
             created_by = validated_data.pop("created_by", request.user)
             dashboard_item = DashboardItem.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, **validated_data
+                team=team, last_refresh=now(), created_by=created_by, **validated_data,
             )
             return dashboard_item
         else:
@@ -80,15 +119,6 @@ class InsightSerializer(serializers.ModelSerializer):
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
         return result.get("data")
 
-    def get_created_by(self, dashboard_item: DashboardItem):
-        if dashboard_item.created_by:
-            return UserSerializer(dashboard_item.created_by).data
-
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        representation["filters"] = instance.dashboard_filters()
-        return representation
-
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
@@ -96,6 +126,15 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = DashboardItem.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["short_id"]
+
+    def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+        if (self.action == "list" or self.action == "retrieve") and str_to_bool(
+            self.request.query_params.get("basic", "0"),
+        ):
+            return InsightBasicSerializer
+        return super().get_serializer_class()
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -116,7 +155,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         for key in filters:
             if key == "saved":
-                if strtobool(str(request.GET["saved"])):
+                if str_to_bool(request.GET["saved"]):
                     queryset = queryset.filter(Q(saved=True) | Q(dashboard__isnull=False))
                 else:
                     queryset = queryset.filter(Q(saved=False))
@@ -149,13 +188,15 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_trends(request)
-        return Response(result)
+        filter = Filter(request=request)
+        next = format_next_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
+        return Response({**result, "next": next})
 
     @cached_function()
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request)
-        if filter.shown_as == TRENDS_STICKINESS:
+        if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
             earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
             stickiness_filter = StickinessFilter(
                 request=request, team=team, get_earliest_timestamp=earliest_timestamp_func
@@ -194,7 +235,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # - from_dashboard: (dict) determines funnel is being retrieved from dashboard item to update dashboard_item metadata
     # - **shared filter types
     # ******************************************
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_funnel(request)
 
@@ -203,9 +244,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function()
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
-        refresh = request.GET.get("refresh", None)
+        refresh = should_refresh(request)
 
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
+        filter = Filter(request=request, data={**request.data, "insight": INSIGHT_FUNNELS})
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
         result = {"loading": True}
 
@@ -216,14 +257,15 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             if cached_result:
                 task_id = cached_result.get("task_id", None)
                 if not task_id:
-                    return cached_result["data"]
+                    return {"result": cached_result["result"]}
                 else:
                     return {"result": result}
 
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
         task = update_cache_item_task.delay(cache_key, CacheType.FUNNEL, payload)
-        task_id = task.id
-        cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
+        if not task.ready():
+            task_id = task.id
+            cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
 
         self._refresh_dashboard(request=request)
         return {"result": result}

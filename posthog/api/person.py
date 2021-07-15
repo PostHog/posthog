@@ -1,6 +1,6 @@
 import json
 import warnings
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Count, Func, Prefetch, Q, QuerySet
 from django_filters import rest_framework as filters
@@ -14,13 +14,13 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.utils import get_target_entity
-from posthog.constants import TRENDS_LINEAR, TRENDS_TABLE
-from posthog.models import Event, Filter, Person
+from posthog.api.utils import format_next_url, get_target_entity
+from posthog.constants import TRENDS_TABLE
+from posthog.models import Cohort, Event, Filter, Person, User
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.queries.base import properties_to_Q
+from posthog.queries.base import filter_persons, properties_to_Q
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
@@ -98,35 +98,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
-        if request.GET.get("id"):
-            ids = request.GET["id"].split(",")
-            queryset = queryset.filter(id__in=ids)
-        if request.GET.get("uuid"):
-            uuids = request.GET["uuid"].split(",")
-            queryset = queryset.filter(uuid__in=uuids)
-        if request.GET.get("search"):
-            parts = request.GET["search"].split(" ")
-            contains = []
-            for part in parts:
-                if ":" in part:
-                    matcher, key = part.split(":")
-                    if matcher == "has":
-                        # Matches for example has:email or has:name
-                        queryset = queryset.filter(properties__has_key=key)
-                else:
-                    contains.append(part)
-            queryset = queryset.filter(
-                Q(properties__icontains=" ".join(contains))
-                | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
-            ).distinct("id")
-        if request.GET.get("cohort"):
-            queryset = queryset.filter(cohort__id=request.GET["cohort"])
-        if request.GET.get("properties"):
-            filter = Filter(data={"properties": json.loads(request.GET["properties"])})
-            queryset = queryset.filter(properties_to_Q(filter.properties, team_id=self.team_id))
-
-        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-        return queryset
+        return filter_persons(self.team_id, request, queryset)
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
@@ -140,36 +112,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         return self._filter_request(self.request, super().get_queryset())
-
-    @action(methods=["GET"], detail=False)
-    def by_distinct_id(self, request, **kwargs):
-        """
-        DEPRECATED in favor of /api/person/?distinct_id={id}
-        """
-        warnings.warn(
-            "/api/person/by_distinct_id/ endpoint is deprecated; use /api/person/ instead.", DeprecationWarning,
-        )
-        result = self.get_by_distinct_id(request)
-        return response.Response(result)
-
-    def get_by_distinct_id(self, request):
-        person = self.get_queryset().get(persondistinctid__distinct_id=str(request.GET["distinct_id"]))
-        return PersonSerializer(person).data
-
-    @action(methods=["GET"], detail=False)
-    def by_email(self, request, **kwargs):
-        """
-        DEPRECATED in favor of /api/person/?email={email}
-        """
-        warnings.warn(
-            "/api/person/by_email/ endpoint is deprecated; use /api/person/ instead.", DeprecationWarning,
-        )
-        result = self.get_by_email(request)
-        return response.Response(result)
-
-    def get_by_email(self, request):
-        person = self.get_queryset().get(properties__email=str(request.GET["email"]))
-        return PersonSerializer(person).data
 
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs) -> response.Response:
@@ -241,7 +183,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:
 
-        team = request.user.team
+        team = cast(User, request.user).team
         if not team:
             return response.Response(
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
@@ -262,20 +204,23 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
 
         limit = int(request.GET.get("limit", 100))
-
         next_url: Optional[str] = request.get_full_path()
         people = self.lifecycle_class().get_people(
-            target_date=target_date_parsed, filter=filter, team_id=team.pk, lifecycle_type=lifecycle_type, limit=limit,
+            target_date=target_date_parsed,
+            filter=filter,
+            team_id=team.pk,
+            lifecycle_type=lifecycle_type,
+            request=request,
+            limit=limit,
         )
         next_url = paginated_result(people, request, filter.offset)
-
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request) -> response.Response:
 
         display = request.GET.get("display", None)
-        team = request.user.team
+        team = cast(User, request.user).team
         if not team:
             return response.Response(
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
@@ -294,7 +239,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def stickiness(self, request: request.Request) -> response.Response:
-        team = request.user.team
+        team = cast(User, request.user).team
         if not team:
             return response.Response(
                 {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
@@ -305,23 +250,21 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         target_entity = get_target_entity(request)
 
-        people = self.stickiness_class().people(target_entity, filter, team)
+        people = self.stickiness_class().people(target_entity, filter, team, request)
         next_url = paginated_result(people, request, filter.offset)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
+    @action(methods=["GET"], detail=False)
+    def cohorts(self, request: request.Request) -> response.Response:
+        from posthog.api.cohort import CohortSerializer
+
+        person = self.get_queryset().get(id=str(request.GET["person_id"]))
+        cohorts = Cohort.objects.annotate(count=Count("people")).filter(people__id=person.id)
+
+        return response.Response({"results": CohortSerializer(cohorts, many=True).data})
+
 
 def paginated_result(
-    entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0
+    entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0,
 ) -> Optional[str]:
-    next_url: Optional[str] = request.get_full_path()
-    if len(entites) > 99 and next_url:
-        if "offset" in next_url:
-            next_url = next_url[1:]
-            next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
-        else:
-            next_url = request.build_absolute_uri(
-                "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
-            )
-    else:
-        next_url = None
-    return next_url
+    return format_next_url(request, offset, 100) if len(entites) > 99 else None

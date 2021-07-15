@@ -6,7 +6,7 @@
 
     .action-filter-drag-handle {
         cursor: move;
-        padding-right: 2px;
+        padding: 4px 2px 0 0;
         color: $text_default;
         font-size: 1.2em;
         svg {
@@ -16,4 +16,11 @@
     .ant-row.mt {
         margin-top: 0;
     }
+}
+
+.add-action-event-button {
+    border-color: $border_dark;
+    color: $primary;
+    padding-left: $default_spacing * 2.5;
+    padding-right: $default_spacing * 2.5;
 }

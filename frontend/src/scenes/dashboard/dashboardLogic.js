@@ -4,51 +4,54 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
-import { Link } from 'lib/components/Link'
 import React from 'react'
-import { isAndroidOrIOS, clearDOMTextSelection, toParams } from 'lib/utils'
+import { clearDOMTextSelection, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
-import { ViewType } from 'scenes/insights/insightLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dateFilterLogic } from 'lib/components/DateFilter/dateFilterLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Button } from 'antd'
+import { DashboardMode, ViewType } from '~/types'
+
+export const AUTO_REFRESH_INTERVAL_MINS = 5
 
 export const dashboardLogic = kea({
-    connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic, dateFilterLogic],
+    connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
 
     key: (props) => props.id,
 
     actions: () => ({
         addNewDashboard: true,
-        renameDashboard: true,
-        setIsSharedDashboard: (id, isShared) => ({ id, isShared }),
+        triggerDashboardUpdate: (payload) => ({ payload }),
+        setIsSharedDashboard: (id, isShared) => ({ id, isShared }), // whether the dashboard is shared or not
+        // dashboardMode represents the current state in which the dashboard is being viewed (:TODO: move definitions to TS)
+        setDashboardMode: (mode, source) => ({ mode, source }), // see DashboardMode
         updateLayouts: (layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth, columns) => ({ containerWidth, columns }),
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
-        enableDragging: true,
-        enableWobblyDragging: true,
-        disableDragging: true,
-        refreshDashboardItem: (id) => ({ id }),
         refreshAllDashboardItems: true,
         updateAndRefreshDashboard: true,
+        setDates: (dateFrom, dateTo, reloadDashboard = true) => ({ dateFrom, dateTo, reloadDashboard }),
+        addGraph: true, // takes the user to insights to add a graph
+        deleteTag: (tag) => ({ tag }),
+        saveNewTag: (tag) => ({ tag }),
+        setAutoRefresh: (enabled) => ({ enabled }), // enabled: boolean
     }),
 
-    loaders: ({ props }) => ({
+    loaders: ({ actions, props }) => ({
         allItems: [
             {},
             {
-                loadDashboardItems: async () => {
+                loadDashboardItems: async ({ refresh = undefined } = {}) => {
                     try {
                         const dashboard = await api.get(
-                            `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`
+                            `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken, refresh })}`
                         )
-                        dateFilterLogic.actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to)
+                        actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
                         if (error.status === 404) {
-                            // silently escape
                             return []
                         }
                         throw error
@@ -64,6 +67,16 @@ export const dashboardLogic = kea({
         ],
     }),
     reducers: ({ props }) => ({
+        filters: [
+            { date_from: null, date_to: null },
+            {
+                setDates: (state, { dateFrom, dateTo }) => ({
+                    ...state,
+                    date_from: dateFrom || null,
+                    date_to: dateTo || null,
+                }),
+            },
+        ],
         allItems: {
             [dashboardItemsModel.actions.renameDashboardItemSuccess]: (state, { item }) => {
                 return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
@@ -95,12 +108,10 @@ export const dashboardLogic = kea({
                 return { ...state, items: item.dashboard === parseInt(props.id) ? [...state.items, item] : state.items }
             },
         },
-        draggingEnabled: [
-            () => (isAndroidOrIOS() ? 'off' : 'on'),
+        columns: [
+            null,
             {
-                enableDragging: () => 'on',
-                enableWobblyDragging: () => 'wobbly',
-                disableDragging: () => 'off',
+                updateContainerWidth: (_, { columns }) => columns,
             },
         ],
         containerWidth: [
@@ -109,21 +120,52 @@ export const dashboardLogic = kea({
                 updateContainerWidth: (_, { containerWidth }) => containerWidth,
             },
         ],
-        columns: [
+        dashboardMode: [
             null,
             {
-                updateContainerWidth: (_, { columns }) => columns,
+                setDashboardMode: (_, { mode }) => mode,
+            },
+        ],
+        lastDashboardModeSource: [
+            null,
+            {
+                setDashboardMode: (_, { source }) => source, // used to determine what input to focus on edit mode
+            },
+        ],
+        autoRefresh: [
+            false,
+            {
+                setAutoRefresh: (_, { enabled }) => enabled,
             },
         ],
     }),
     selectors: ({ props, selectors }) => ({
         items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [() => [selectors.allItemsLoading], (allItemsLoading) => allItemsLoading],
+        lastRefreshed: [
+            () => [selectors.items],
+            (items) => {
+                if (!items || !items.length) {
+                    return null
+                }
+                let lastRefreshed = items[0].last_refresh
+
+                for (const item of items) {
+                    if (item.last_refresh < lastRefreshed) {
+                        lastRefreshed = item.last_refresh
+                    }
+                }
+
+                return lastRefreshed
+            },
+        ],
         dashboard: [
-            () => [selectors.allItems, dashboardsModel.selectors.dashboards],
-            (allItems, dashboards) => {
-                let dashboard = dashboards.find((d) => d.id === props.id) || false
-                return dashboard ? dashboard : allItems
+            () => [dashboardsModel.selectors.sharedDashboards, dashboardsModel.selectors.dashboards],
+            (sharedDashboards, dashboards) => {
+                if (sharedDashboards && !!sharedDashboards[props.id]) {
+                    return sharedDashboards[props.id]
+                }
+                return dashboards.find((d) => d.id === props.id)
             },
         ],
         breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 })],
@@ -178,9 +220,9 @@ export const dashboardLogic = kea({
                             // how low are things in "w" consecutive of columns
                             const segmentCount = cols[col] - w + 1
                             const lowestSegments = Array.from(Array(segmentCount)).map(() => -1)
-                            for (let i = 0; i < segmentCount; i++) {
-                                for (let j = i; j <= i + w - 1; j++) {
-                                    lowestSegments[i] = Math.max(lowestSegments[i], lowestPoints[j])
+                            for (let k = 0; k < segmentCount; k++) {
+                                for (let j = k; j <= k + w - 1; j++) {
+                                    lowestSegments[k] = Math.max(lowestSegments[k], lowestPoints[j])
                                 }
                             }
 
@@ -202,8 +244,8 @@ export const dashboardLogic = kea({
                                 h,
                             })
 
-                            for (let i = lowestIndex; i <= lowestIndex + w - 1; i++) {
-                                lowestPoints[i] = Math.max(lowestPoints[i], lowestDepth + h)
+                            for (let k = lowestIndex; k <= lowestIndex + w - 1; k++) {
+                                lowestPoints[k] = Math.max(lowestPoints[k], lowestDepth + h)
                             }
                         })
 
@@ -226,16 +268,29 @@ export const dashboardLogic = kea({
             },
         ],
     }),
-    events: ({ actions, cache }) => ({
-        afterMount: [actions.loadDashboardItems],
+    events: ({ actions, cache, props }) => ({
+        afterMount: () => {
+            actions.loadDashboardItems({ refresh: props.internal })
+            if (props.shareToken) {
+                actions.setDashboardMode(
+                    props.internal ? DashboardMode.Internal : DashboardMode.Public,
+                    DashboardEventSource.Browser
+                )
+                dashboardsModel.actions.loadSharedDashboard(props.shareToken)
+            }
+        },
         beforeUnmount: () => {
             if (cache.draggingToastId) {
                 toast.dismiss(cache.draggingToastId)
                 cache.draggingToastId = null
             }
+
+            if (cache.autoRefreshInterval) {
+                window.clearInterval(cache.autoRefreshInterval)
+                cache.autoRefreshInterval = null
+            }
         },
     }),
-
     listeners: ({ actions, values, key, cache }) => ({
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-${key}` }).actions.prompt({
@@ -246,101 +301,124 @@ export const dashboardLogic = kea({
                 success: (name) => dashboardsModel.actions.addDashboard({ name }),
             })
         },
-
         [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
             router.actions.push(`/dashboard/${dashboard.id}`)
         },
-
         setIsSharedDashboard: ({ id, isShared }) => {
             dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
+            eventUsageLogic.actions.reportDashboardShareToggled(isShared)
         },
-
-        renameDashboard: async () => {
-            prompt({ key: `rename-dashboard-${key}` }).actions.prompt({
-                title: 'Rename dashboard',
-                placeholder: 'Please enter the new name',
-                value: values.dashboard.name,
-                error: 'You must enter name',
-                success: (name) => dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name }),
-            })
+        triggerDashboardUpdate: ({ payload }) => {
+            dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
         },
-
         updateLayouts: () => {
             actions.saveLayouts()
         },
-
         saveLayouts: async (_, breakpoint) => {
             await breakpoint(300)
             await api.update(`api/dashboard_item/layouts`, {
                 items: values.items.map((item) => {
                     const layouts = {}
-                    Object.entries(item.layouts).forEach(([key, layout]) => {
+                    Object.entries(item.layouts).forEach(([layoutKey, layout]) => {
                         const { i, ...rest } = layout // eslint-disable-line
-                        layouts[key] = rest
+                        layouts[layoutKey] = rest
                     })
                     return { id: item.id, layouts }
                 }),
             })
         },
-
         updateItemColor: ({ id, color }) => {
             api.update(`api/insight/${id}`, { color })
         },
-
-        enableWobblyDragging: () => {
-            clearDOMTextSelection()
-            window.setTimeout(clearDOMTextSelection, 200)
-            window.setTimeout(clearDOMTextSelection, 1000)
-
-            if (!cache.draggingToastId) {
-                cache.draggingToastId = toast(
-                    <>
-                        <p className="headline">Rearranging panels!</p>
-                        <p>
-                            <Link onClick={() => actions.disableDragging()}>Click here</Link> to stop.
-                        </p>
-                    </>,
-                    {
-                        autoClose: false,
-                        onClick: () => actions.disableDragging(),
-                        closeButton: false,
-                        className: 'drag-items-toast',
-                    }
-                )
-            }
-        },
-        enableDragging: () => {
-            if (cache.draggingToastId) {
-                toast.dismiss(cache.draggingToastId)
-                cache.draggingToastId = null
-            }
-        },
-        disableDragging: () => {
-            if (cache.draggingToastId) {
-                toast.dismiss(cache.draggingToastId)
-                cache.draggingToastId = null
-            }
-        },
-        refreshDashboardItem: async ({ id }, breakpoint) => {
-            const dashboardItem = await api.get(`api/insight/${id}`)
-            await breakpoint()
-            dashboardsModel.actions.updateDashboardItem(dashboardItem)
-            if (dashboardItem.refreshing) {
-                setTimeout(() => actions.refreshDashboardItem(id), 1000)
-            }
-        },
         refreshAllDashboardItems: async (_, breakpoint) => {
-            await breakpoint(200)
+            await breakpoint(100)
             dashboardItemsModel.actions.refreshAllDashboardItems({})
+
+            eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
-            const filters = {
-                date_from: dateFilterLogic.values.dates.dateFrom,
-                date_to: dateFilterLogic.values.dates.dateTo,
+            actions.updateDashboard(values.filters)
+            dashboardItemsModel.actions.refreshAllDashboardItems(values.filters)
+        },
+        setDates: ({ reloadDashboard }) => {
+            if (reloadDashboard) {
+                actions.updateAndRefreshDashboard()
             }
-            actions.updateDashboard(filters)
-            dashboardItemsModel.actions.refreshAllDashboardItems(filters)
+            eventUsageLogic.actions.reportDashboardDateRangeChanged(values.filters.date_from, values.filters.date_to)
+        },
+        setDashboardMode: async ({ mode, source }) => {
+            // Edit mode special handling
+            if (mode === DashboardMode.Fullscreen) {
+                document.body.classList.add('fullscreen-scroll')
+            } else {
+                document.body.classList.remove('fullscreen-scroll')
+            }
+            if (mode === DashboardMode.Edit) {
+                clearDOMTextSelection()
+
+                if (!cache.draggingToastId) {
+                    cache.draggingToastId = toast(
+                        <>
+                            <h1>Dashboard edit mode</h1>
+                            <p>Tap below when finished.</p>
+                            <div className="text-right">
+                                <Button>Finish editing</Button>
+                            </div>
+                        </>,
+                        {
+                            type: 'info',
+                            autoClose: false,
+                            onClick: () => actions.setDashboardMode(null, DashboardEventSource.Toast),
+                            closeButton: false,
+                            className: 'drag-items-toast accent-border',
+                        }
+                    )
+                }
+            } else {
+                // Clean edit mode toast if applicable
+                if (cache.draggingToastId) {
+                    toast.dismiss(cache.draggingToastId)
+                    cache.draggingToastId = null
+                }
+            }
+
+            eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
+        },
+        addGraph: () => {
+            router.actions.push(
+                `/insights?insight=TRENDS#backTo=${encodeURIComponent(values.dashboard.name)}&backToURL=/dashboard/${
+                    values.dashboard.id
+                }`
+            )
+        },
+        saveNewTag: ({ tag }) => {
+            if (values.dashboard.tags.includes(tag)) {
+                toast.error(
+                    // TODO: move to errorToast once #3561 is merged
+                    <div>
+                        <h1>Oops! Can't add that tag</h1>
+                        <p>Your dashboard already has that tag.</p>
+                    </div>
+                )
+                return
+            }
+            actions.triggerDashboardUpdate({ tags: [...values.dashboard.tags, tag] })
+        },
+        deleteTag: async ({ tag }, breakpoint) => {
+            await breakpoint(100)
+            actions.triggerDashboardUpdate({ tags: values.dashboard.tags.filter((_tag) => _tag !== tag) })
+        },
+        setAutoRefresh: ({ enabled }) => {
+            if (cache.autoRefreshInterval) {
+                window.clearInterval(cache.autoRefreshInterval)
+                cache.autoRefreshInterval = null
+            }
+            if (enabled) {
+                cache.autoRefreshInterval = window.setInterval(() => {
+                    actions.loadDashboardItems({ refresh: true })
+                }, AUTO_REFRESH_INTERVAL_MINS * 60 * 1000)
+            }
         },
     }),
 })

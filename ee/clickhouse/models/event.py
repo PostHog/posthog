@@ -4,12 +4,12 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import celery
 import pytz
-import statsd
 from dateutil.parser import isoparse
 from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
 from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
@@ -63,12 +63,15 @@ def create_event(
 
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
 
-    if team.slack_incoming_webhook or (
-        team.organization.is_feature_available("zapier")
-        and Hook.objects.filter(event="action_performed", team=team).exists()
+    if not settings.PLUGIN_SERVER_ACTION_MATCHING and (
+        team.slack_incoming_webhook
+        or (
+            team.organization.is_feature_available("zapier")
+            and Hook.objects.filter(event="action_performed", team=team).exists()
+        )
     ):
         try:
-            statsd.Counter("%s_posthog_cloud_hooks_send_task" % (settings.STATSD_PREFIX,)).increment()
+            statsd.incr("posthog_cloud_hooks_send_task")
             celery.current_app.send_task(
                 "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
                 (
@@ -87,11 +90,6 @@ def create_event(
             capture_exception()
 
     return str(event_uuid)
-
-
-def get_events():
-    events = sync_execute(GET_EVENTS_SQL)
-    return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
 
 
 def get_events_by_team(team_id: Union[str, int]):
@@ -155,8 +153,16 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     def get_person(self, event):
         if not self.context.get("people") or event[5] not in self.context["people"]:
-            return event[5]
-        return self.context["people"][event[5]].properties.get("email", event[5])
+            return None
+
+        person = self.context["people"][event[5]]
+        return {
+            "is_identified": person.is_identified,
+            "distinct_ids": [person.distinct_ids[0]],  # only send the first one to avoid a payload bloat
+            "properties": {
+                key: person.properties[key] for key in ["email", "name", "username"] if key in person.properties
+            },
+        }
 
     def get_elements(self, event):
         if not event[6]:
@@ -185,9 +191,9 @@ def determine_event_conditions(
             params.update({"before": timestamp})
         elif k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s)"""
-            distinct_ids = Person.objects.filter(pk=v, team_id=team.pk)[0].distinct_ids
-            distinct_ids = [distinct_id.__str__() for distinct_id in distinct_ids]
-            params.update({"distinct_ids": distinct_ids})
+            person = Person.objects.filter(pk=v, team_id=team.pk).first()
+            distinct_ids = person.distinct_ids if person is not None else []
+            params.update({"distinct_ids": list(map(str, distinct_ids))})
         elif k == "distinct_id":
             result += "AND distinct_id = %(distinct_id)s"
             params.update({"distinct_id": v})

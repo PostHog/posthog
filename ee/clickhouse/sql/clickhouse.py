@@ -3,16 +3,22 @@ from typing import Optional
 from posthog.settings import CLICKHOUSE_ENABLE_STORAGE_POLICY, CLICKHOUSE_REPLICATION, KAFKA_HOSTS, TEST
 
 STORAGE_POLICY = "SETTINGS storage_policy = 'hot_to_cold'" if CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
-TABLE_ENGINE = (
+REPLACING_TABLE_ENGINE = (
     "ReplicatedReplacingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}', {ver})"
     if CLICKHOUSE_REPLICATION
     else "ReplacingMergeTree({ver})"
 )
 
-TABLE_MERGE_ENGINE = (
+MERGE_TABLE_ENGINE = (
     "ReplicatedReplacingMergeTree('/clickhouse/tables/{{shard}}/posthog.{table}', '{{replica}}')"
     if CLICKHOUSE_REPLICATION
     else "MergeTree()"
+)
+
+COLLAPSING_TABLE_ENGINE = (
+    "ReplicatedCollapsingMergeTree('/clickhouse/tables/noshard/posthog.{table}', '{{replica}}-{{shard}}', {ver})"
+    if CLICKHOUSE_REPLICATION
+    else "CollapsingMergeTree({ver})"
 )
 
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
@@ -36,12 +42,17 @@ KAFKA_COLUMNS = """
 , _offset UInt64
 """
 
+COLLAPSING_MERGE_TREE = "collapsing_merge_tree"
+REPLACING_MERGE_TREE = "replacing_merge_tree"
 
-def table_engine(table: str, ver: Optional[str] = None) -> str:
-    if ver:
-        return TABLE_ENGINE.format(table=table, ver=ver)
+
+def table_engine(table: str, ver: Optional[str] = None, engine_type: Optional[str] = None) -> str:
+    if engine_type == COLLAPSING_MERGE_TREE and ver:
+        return COLLAPSING_TABLE_ENGINE.format(table=table, ver=ver)
+    elif engine_type == REPLACING_MERGE_TREE and ver:
+        return REPLACING_TABLE_ENGINE.format(table=table, ver=ver)
     else:
-        return TABLE_MERGE_ENGINE.format(table=table)
+        return MERGE_TABLE_ENGINE.format(table=table)
 
 
 def kafka_engine(
@@ -64,5 +75,5 @@ def kafka_engine(
         )
 
 
-def ttl_period():
-    return "" if TEST else "TTL toDate(created_at) + INTERVAL 3 WEEK"
+def ttl_period(field: str = "created_at", weeks: int = 3):
+    return "" if TEST else f"TTL toDate({field}) + INTERVAL {weeks} WEEK"

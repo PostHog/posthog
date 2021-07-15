@@ -1,7 +1,341 @@
 # Changelog
 
-### 1.21.0 - Wednesday 17 February 2021
+### 1.26.0 - Tuesday 15 June 2021
 
+- Feature flags for Node.js and Go
+
+- [Node.js](https://github.com/PostHog/posthog-node/pull/29)
+- [Go](https://github.com/PostHog/posthog-go/pull/2)
+
+You requested and we delivered! 
+
+`posthog-node` and `posthog-go` now both support feature flags. [Ruby](https://github.com/PostHog/posthog-ruby/pull/6) and [PHP](https://github.com/PostHog/posthog-php/pull/12) are coming next.
+
+We're making our libraries world-class, and this cycle also saw significant improvements to `posthog-python`, `posthog-js`, and `posthog-flutter`. We now have a dedicated team responsible for our libraries, so expect development to speed up!
+
+Thank you to everyone in the community for supporting us with feature requests and PRs. 
+
+- [Funnel trends](https://github.com/PostHog/posthog/pull/4419)
+
+![Funnel Trends](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/funnel-trends.png)
+
+Following a few refactors, funnel trends are now available in beta for Cloud and self-hosted [Scale](https://posthog.com/pricing) users. 
+
+Funnel trends let you see how conversion in a funnel changes over time, as well as specify the time taken between steps for a conversion to be counted.
+
+- [CSV download for users in a datapoint](https://github.com/PostHog/posthog/pull/4175)
+
+![CSV Download](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/csvexport.png)
+
+If you didn't already know, almost all datapoints in PostHog's 'Insights' section are clickable and reveal the users that make up that datapoint.
+
+Well, now those users can be exported in CSV format, so you can use them in other tools or even create a static PostHog cohort from them.
+
+Thanks a lot for building this [c3ho](https://github.com/c3ho)!
+
+- [Request retries for posthog-js](https://github.com/PostHog/posthog-js/issues/199)
+
+Continuing on the libraries theme, a much-requested feature is now live for `posthog-js`: retries!
+
+Requests that fail because of for example, the client's network connection, will now be retried up to 10 times within an hour, making sure you miss as few events as possible. So if your user's internet goes down and comes back up, you'll still receive the events that happened when they were offline.
+
+Also, Neil fixed a bug that sent requests to a wrong endpoint (with no impact on tracking). You can read about how Neil solved this issue on his [blog](https://neilkakkar.com/debugging-open-source.html).
+
+- New plugins for Redshift, PostgreSQL, Salesforce, and PagerDuty
+
+We've just released 4 new integrations with major platforms to enhance your PostHog experience. 
+
+Export data to Redshift, Postgres, and Salesforce, and leverage the PagerDuty plugin to get alerts when metrics in PostHog cross thresholds you specify.
+
+- New querying experience
+
+![New querying experience](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/new-querying.png)
+
+We've redesigned and significantly improved the performance of the query builder in PostHog 'Trends'! 
+
+Let us know what you think about it on [Slack](https://posthog.com/slack).
+
+### 1.25.0 - Thursday 13 May 2021
+
+- 100x more, for free
+
+We have increased our free volume on [PostHog Cloud](app.posthog.com) to 1 million events per month for free, instead of the previous 10k.
+
+That means your next PostHog Cloud bill will be up to 225$/month cheaper!
+
+It's important to us that you have enough room to determine if PostHog is the right fit for you, before committing to the platform.
+
+This change is also retroactive, so existing PostHog users have already had this change applied to their accounts. 
+
+Enjoy!
+
+- [Legends for charts in 'Trends'](https://github.com/PostHog/posthog/pull/3434)
+
+![Legends](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/legends.png)
+
+This feature isn't new to all of you, because we've been testing it out with a [feature flag](https://posthog.com/docs/tutorials/feature-flags). However, legends for charts in 'Trends' are now enabled for everyone!
+
+With legends, you're able to determine with more clarity the different sections/lines you see on a graph, see the exact values for each datapoint, and disable sections with one click. You can find them under your graph in 'Trends'.
+
+- [Plugin Logs](https://github.com/PostHog/posthog/pull/3482)
+
+![Plugin Logs](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/plugin-logs.png)
+
+Plugins are now able to use the JavaScript `console` API to specify errors that will be shown to users in the PostHog UI. This makes it easier to both debug your own plugins as a developer, and understand what's wrong about your configuration as a plugin user.
+
+- [Lifecycle Toggles](https://github.com/PostHog/posthog/pull/3961)
+
+![Lifecycle Toggles](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/lifecycle-toggles.png)
+
+Li joined us this cycle and started making an impact from day 1! 
+
+As a result of her work, you can now toggle different sections of lifecycle graphs on and off, in order to dig into the metrics that matter most to you. 
+
+This change also came with an addition of more in-product hints about the lifecycle functionality.
+
+- [Resizable Table Columns](https://github.com/PostHog/posthog/pull/3927)
+
+![Resizable Columns](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/resizable-columns.png)
+
+Sam is another one of our new team members who's been smashing it from the moment he joined!
+
+This cycle, in addition to picking up a variety of product fixes and improvements, he also shipped resizable columns for our tables, allowing you to easily get more details from an event, session, or feature flag without having to click on it.
+
+- [Job queues for plugins](https://github.com/PostHog/plugin-server/pull/325)
+
+Plugins keep getting more and more powerful every new release, and this cycle was no exception.
+
+Plugin developers can now leverage job queues to implement a variety of asynchronous tasks, including retry mechanisms. 
+
+In addition, plugins can now leverage have two more functions: `onEvent` and `onSnapshot`.
+
+These are read-only functions that run on processed events and are particularly useful for export plugins. `onSnapshot` handles session recording events while `onEvent` handles all other events.
+
+For more information about this, check our [_Building Your Own Plugin_ page](https://posthog.com/docs/plugins/build).
+
+- [Fuzzy search for properties](https://github.com/PostHog/posthog/pull/4091)
+
+In addition to making significant changes to improve the experience of users with massive amounts of event names and properties, we have also implemented fuzzy search for properties.
+
+This means that to find a property on a filter, you no longer have to type an exact subset of its name, as our search mechanism will still be able to identify what you mean even if you have a few typos or forgot the _exact_ name of the property.
+
+
+### 1.24.0 - Wednesday 14 April 2021
+
+- [GeoIP plugin for all](https://github.com/PostHog/posthog/pull/3894)
+
+![GeoIP](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/geoip.png)
+
+Plugins are now live on PostHog Cloud, and, as a bonus, we have now added out-of-the-box support for the PostHog GeoIP plugin, which adds location properties to your events, such as country and city, as well as a dozen other values!
+
+The plugin works on both cloud and self-hosted installations (`1.24.0` minimum).
+
+- [New 'Cohorts' tab on person pages](https://github.com/PostHog/posthog/pull/3744)
+
+![Cohorts tab](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/person-cohorts.png)
+
+When viewing a person's page in PostHog, you can now toggle between a view of their properties and a view of the cohorts this person is in, giving you a lot more context on the user you're looking at.
+
+- [Toolbar support for custom data attributes](https://github.com/PostHog/posthog/pull/3761)
+
+![Data attr](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/data-attr.png)
+
+To make the experience of using the PostHog toolbar better, we have recommended that you set `data-attr` on your elements, so that the toolbar can leverage it for finding elements. However, since a lot of our users already used their own data attributes, we now support adding a list of your own data attributes for the toolbar to look for. 
+
+You can configure this in 'Project Settings'.
+
+- [Dashboard collaboration features](https://github.com/PostHog/posthog/pull/3756)
+
+![Dashboard collab](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/dashboard-collab.png)
+
+Our dashboards keep getting better with every new release, and this one is no different!
+
+Dashboards now support descriptions and tags, making it easier for teams to collaborate when creating internal analytics reports.
+
+These are enterprise features available to our paying Cloud customers, and to enterprise self-hosted users.
+
+If you're interested in having these features on your self-hosted PostHog instance, contact us on <i>sales@posthog.com</i>.
+
+- [S3 export plugin](https://posthog.com/plugins/s3-export)
+
+We have a new plugin that sends PostHog events to an S3 bucket.
+
+The plugin works on both PostHog Cloud and self-hosted installations (`1.24.0` minimum) - [check it out here](https://posthog.com/plugins/s3-export).
+
+- [Session recording for heavy websites](https://github.com/PostHog/posthog/pull/3705)
+
+If you tell Karl you found an issue with session recording, he will fix it.
+
+Such was the case with session recording for heavy websites (e.g. those with a lot of images/CSS). We were failing to process large snapshots, leading users of these websites unable to get many session recordings.
+
+This is now fixed - expect a lot more recordings available to you from now on!
+
+- [New configuration options for posthog-js](https://github.com/PostHog/posthog-js/pull/209)
+
+Following user requests, there are now 10 new config options for `posthog-js`, allowing you to use autocapture with greater privacy for your users, as well as tailor session recording configuration.
+
+The new options are:
+
+- `mask_all_text`: Specifies if PostHog should capture the `textContent` of autocaptured elements
+- `mask_all_element_attributes`: Specifies if PostHog should capture the attributes of autocaptured elements
+- `session_recording`: Accepts an object that lets you configure the following `rrweb` options:
+    - `blockClass`
+    - `blockSelector`
+    - `ignoreClass`
+    - `maskAllInputs`
+    - `maskInputOptions`
+    - `maskInputFn`
+    - `slimDOMOptions`
+    - `collectFonts`
+
+See our [JS Integration page](https://posthog.com/docs/integrations/js-integration) for more details.
+
+- [Track session starts](https://posthog.com/plugins/first-time-event-tracker)
+
+Our First Time Event Tracker plugin now also tracks session starts. By enabling it you will get `session_started` events in PostHog, as well as events that started a session will be tagged with property `is_first_event_in_session` set to `true`.
+
+### 1.23.1 - Monday 22 March 2021
+
+- [Optimized Background Action Calculation](https://github.com/PostHog/posthog/pull/3717).
+
+We've made the interval between background action calculations configurable, with a default of 5 minutes. Previously the interval was set in stone at 30 seconds, which could cause unmanageable database load in some conditions.
+
+### 1.23.0 - Thursday 18 March 2021
+
+
+- [Date Filter for Heatmaps](https://github.com/PostHog/posthog/pull/3586)
+
+![Toolbar Date Filter](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/toolbar-date.png)
+
+Following a fierce battle with Webpack, Marius brought us the heatmap date filters. 
+
+Our heatmaps are now on a whole new level as they are no longer set to show only the last 7 days but allow you to pick any date range. You can now see heatmaps of yesterday, the last 30 days, or any range you like!
+
+- [Automatic Filtering of Test Accounts](https://github.com/PostHog/posthog/pull/3492)
+
+![Filter test accounts](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/filter-test-accounts.png)
+
+If you've ever found yourself looking at a graph and wondering: "how much do events from me and my team affect this data?", well, your days of wondering are over.
+
+We now provide you with a toggle in 'Insights' to automatically filter out test accounts and your team's accounts your team from your graphs. Out of the box we provide you with some basic relevant filters, but you can also configure this yourself in 'Settings'.
+
+- [Webhooks Are Back - And They're Better](https://github.com/PostHog/posthog/pulls?q=is%3Apr+is%3Aclosed+webhook)
+
+![Webhooks](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/webhooks.png)
+
+Members of our community pointed out to us that our latest release caused some issues with webhooks on self-hosted FOSS installations. Largley with help from various community members who provided us with context and feedback, we have now addressed these issues and webhooks should work as normal on 1.23.0.
+
+However, we made sure to throw in a little treat to make up for it. You can now access all event properties in your webhook messages, which opens up a whole new realm of possibilities for creating useful alerts and notifications for when certain actions are triggered in PostHog.
+
+- [Organization Settings & Gravatar Support](https://github.com/PostHog/posthog/pull/3584)
+
+![Gravatars](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/gravatar.png)
+
+PostHog now has an 'Organization Settings' page that lets you rename and delete your organization, as well as manage invites.
+
+Oh, and don't we all love gravatars? 
+
+Well, if you have one set for your email, PostHog will now display it on your profile and the 'Organization Settings' page.
+
+- [First Time Event Tracker Plugin](https://posthog.com/plugins/first-time-event-tracker)
+
+![](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/first-time-plugin.png)
+
+Based on user requests, we have now built a plugin that adds two boolean properties to your events:
+
+- `is_event_first_ever`: tells you if the event if the first event of its kind
+- `is_event_first_for_user`: tells you if the event is the first event of its kind for the user
+
+By enabling it you are then able to add a filter for those properties on all your analytics, to determine things like conversion rates from first touch.
+
+> **Important:** This plugin will only work on events ingested after the plugin was enabled. This means it will register events as being the first if there were events that occurred before it was enabled. 
+
+### 1.22.0 - Wednesday 3 March 2021
+
+#### Important Announcement for Self-Hosted Users
+
+If you're self hosting PostHog, make sure you have your plugin server up and running correctly. You can check that this is the case by looking at the color of the middle circle on the top left of the PostHog UI.
+
+If your plugin server is running, this will be a green checkmark, and hovering over it will give the message "All systems operational", like so:
+
+![Plugin server](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/plugin-server.png)
+
+From this version (1.22.0) onwards, if your plugin server is not running, this circle will turn orange/yellow. You can click on the server to verify if your plugin server is indeed the problem.
+
+This is important because from the next release onwards we will move our event ingestion to the plugin server, meaning that you **will not be able to ingest events** if your plugin server isn't running. 
+
+- [Bar Charts by Graph Series/Value](https://github.com/PostHog/posthog/pull/3457)
+
+![Bar chart by values](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/bar-value.png)
+
+Before this change, our bar charts would always be time-based, meaning that if you had multiple graph series (values), these would just all be stacked into one bar for each time period.
+
+However, we now support two different types of bar charts! When selecting a chart type, you will see the options 'Time' and 'Value' under 'Bar Chart'. Selecting 'Value' will give you the view from the image above, where each graph series is represented in a separate bar, with the value consisting of the aggregate value for the time period specified.
+
+- [UTM Tags Automatically Set as User Properties](https://github.com/PostHog/plugin-server/pull/214)
+
+![UTM Tags](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/utm-tags.png)
+
+PostHot now automatically sets user properties from [UTM tags](https://en.wikipedia.org/wiki/UTM_parameters). You can now filter and create cohorts of users much more easily based on what campaign, source, or medium brought them to your product or landing page. This is a big feature for us as it gives our users an automatic way of connecting marketing and product to have a more complete view of your business. We're very excited for our community to start using this feature and extending it through [plugins](https://posthog.com/docs/plugins/).
+
+- [Multiple Value Selector for Equality Filters](https://github.com/PostHog/posthog/pull/3422)
+
+![Multiple equality selector](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/multiple-selector.png)
+
+Writing complex filters is now easier than ever before. You can now select multiple values for Equality Filters instead of just one - this will simplify filter creation and debugging and just save people a lot of time!
+
+- [Refreshing Dashboards and Updating Time Range for All Panels](https://github.com/PostHog/posthog/pull/3363)
+
+![Dashboards New UX](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/dashboards-ux.png)
+
+It's now easier to work through your key metrics in Dashboards:
+
+- All dashboard panels can be refreshed at the same time to ensure you're not seeing cached results
+- Time ranges for all dashboard panels can be changed at the same time
+- The dashboard author and creation time are displayed below the title
+
+- [A Much Better UI for Person Pages](https://github.com/PostHog/posthog/pull/3461)
+
+![Persons New UX](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/persons-v2.png)
+
+The UI of our person pages just got a whole lot better! As is often the case with our larger features, this isn't news to all of you. We had this behind a feature flag and have now decided to roll it out for everyone.
+
+Now you can visualize user properties alongside a user's events, and most of the context you need on a person is available to you in a sleek UI without you needing to scroll.
+
+Oh, and the code got much better as a result too...
+- [Exposing $set and $set_once on all events](https://github.com/PostHog/posthog/pull/3363)
+
+![Set properties on any event](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/%24set.png)
+
+The event properties `$set` and `$set_once` can now be used on any event to set properties directly to the user associated with that event.
+
+Previously, this would only work on `$identify` events, making it so that you needed to call multiple methods in order to send an event and set user properties based on the same data. But now, you can do it all in one, as shown in the image above.
+
+- [Event Sequence Timer Plugin](https://posthog.com/plugins/event-sequence-timer-plugin)
+
+![Event Sequence Timer Plugin](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/time-events.png)
+
+Our users requested a way to measure the time passed between certain events, and this is it!
+
+By installing the Event Sequence Timer Plugin, you can specify as many sets of events as you want and the plugin will track the time between them, either using a first touch or last touch mechanism.
+
+It will then add a property to your events that allows you to easily build visualizations in PostHog of the average, minimum, and maximum time between events, as well as all the other mathematical operations we support.
+
+- [Property Flattener Plugin](https://posthog.com/plugins/property-flattener)
+
+![Property Flattener Plugin](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/flattener.png)
+
+The new Property Flattener Plugin allows you to convert event properties contained in a nested structure into a flat structure, allowing you to set filters based on the nested properties.
+
+
+- [Project API Key Autofill in Docs for Cloud Users](https://github.com/PostHog/posthog.com/pull/998)
+
+![Docs Token Autofill](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/token-autofill.png)
+
+If you're a user of PostHog Cloud, we now autofill your Project API Key and API Host automatically in the Docs for you, meaning you can copy-paste snippets and use them directly with no manual changes!
+
+This key will be based on the last project you used in PostHog, and you can check what project that is by simply hovering your cursor over the highlighted key.
+### 1.21.0 - Wednesday 17 February 2021
 
 - [New Navigation For All](https://github.com/PostHog/posthog/pull/3167)
 
@@ -74,7 +408,7 @@ Get your Bitbucket release tags into PostHog as annotations on your graphs, so y
 
 ### 1.20.0 - Tuesday 19 January 2021
 
-- [Plugins, Plugins, and more Plugins](/plugins)
+- [Plugins, Plugins, and more Plugins](https://posthog.com/plugins)
 
 ![Plugin Library Screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/plugin-library.png)
 
@@ -84,7 +418,7 @@ Besides a whole bunch work to deliver performance improvements and mature the Po
 
 **A shiny new plugin library**
 
-We have released a [plugin library](/plugins) where you can browse through all the plugins built by our core team and community, and made sure the library is populated with plugins! Thus, we now have integrations that support getting data from GitHub and GitLab, or sending data over to BigQuery and Hubspot, for example. 
+We have released a [plugin library](https://posthog.com/plugins) where you can browse through all the plugins built by our core team and community, and made sure the library is populated with plugins! Thus, we now have integrations that support getting data from GitHub and GitLab, or sending data over to BigQuery and Hubspot, for example. 
 
 We're working to make plugins available on Cloud, but, in the meanwhile, if you're self-hosting, do check out our plugins and let us know what you think!
 
@@ -164,7 +498,7 @@ By using gzip-based compression, we have now significantly improved performance 
 
 ![New Actions UX Screenshot](https://posthog.com/static/1f931cd359d1238e8ecba8d72a0be0c4/8c557/actions-ux.png)
 
-This might not be news to all of you, since we have been experimenting with our actions UX using [feature flags](/docs/features/feature-flags). However, we're now rolling out a new UX for creating actions to all PostHog users, so try it out let us know what you think!
+This might not be news to all of you, since we have been experimenting with our actions UX using [feature flags](https://posthog.com/docs/features/feature-flags). However, we're now rolling out a new UX for creating actions to all PostHog users, so try it out let us know what you think!
 
 - [New operations for numerical properties](https://github.com/PostHog/posthog/pull/2630)
 
@@ -676,8 +1010,8 @@ Keep the tickets coming!
 
 As an open core company, we have to conciliate our open source efforts with our ability to generate revenue. Generating revenue is how we're able to continue to sustain our extensive work in the open source space. 
 
-Thus, after a lot of brainstorming and [calls with the likes of Sid Sijbrandij](/blog/a-chat-with-sid), CEO of multibillion dollar [open core company GitLab](https://about.gitlab.com/install/ce-or-ee/), we settled on a business model that allows PostHog to be a sustainable company in the open source space. 
-
+Thus, after a lot of brainstorming and [calls with the likes of Sid Sijbrandij](https://posthog.com/blog/a-chat-with-sid), CEO of multibillion dollar [open core company GitLab](https://about.gitlab.com/install/ce-or-ee/), we settled on a business model that allows PostHog to be a sustainable company in the open source space. 
+c
 This led to the creation of two key things: an `ee` subdirectory on our [main repo](https://github.com/PostHog/posthog), and a new repository called [posthog-foss](https://github.com/PostHog/posthog-foss). We'll be explaining these in more detail in the future, but, for now, you should know that to run fully MIT-licensed software, you can either clone the main repo and delete the `ee` subdirectory (without any consequences), or clone our posthog-foss repo, which is a mirror of the main repository without proprietary code.
 
 In addition, if you're an enterprise customer looking for added functionality and improved performance, contact us at sales@posthog.com to discuss the license for using our proprietary features. 
@@ -741,7 +1075,7 @@ You can find more information about this on our ['Securing PostHog' page](https:
 
 ### 1.13.0 – Thursday 13 August
 
-- [PostHog is Now Available on Segment!](/blog/posthog-segment-integration)
+- [PostHog is Now Available on Segment!](https://posthog.com/blog/posthog-segment-integration)
 
 ![](https://raw.githubusercontent.com/posthog/posthog.com/b1b5c23/contents/images/posthog-segment.png)
 

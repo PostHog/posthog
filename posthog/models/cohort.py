@@ -1,9 +1,8 @@
-import json
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
-from django.contrib.postgres.fields import JSONField
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.db.models import Q
@@ -11,7 +10,8 @@ from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
+from posthog.models.utils import sane_repr
 
 from .action import Action
 from .event import Event
@@ -31,19 +31,38 @@ ON CONFLICT DO NOTHING
 
 class Group(object):
     def __init__(
-        self, properties: Optional[Dict[str, Any]] = None, action_id: Optional[int] = None, days: Optional[int] = None,
+        self,
+        properties: Optional[Dict[str, Any]] = None,
+        action_id: Optional[int] = None,
+        event_id: Optional[str] = None,
+        days: Optional[int] = None,
+        count: Optional[int] = None,
+        count_operator: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ):
-        if not properties and not action_id:
-            raise ValueError("Cohort group needs properties or action_id")
+        if not properties and not action_id and not event_id:
+            raise ValueError("Cohort group needs properties or action_id or event_id")
         self.properties = properties
         self.action_id = action_id
+        self.event_id = event_id
         self.days = days
+        self.count = count
+        self.count_operator = count_operator
+        self.start_date = start_date
+        self.end_date = end_date
+
+    def to_dict(self) -> Dict[str, Any]:
+        dup = self.__dict__.copy()
+        dup["start_date"] = self.start_date.isoformat() if self.start_date else self.start_date
+        dup["end_date"] = self.end_date.isoformat() if self.end_date else self.end_date
+        return dup
 
 
 class CohortManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
         if kwargs.get("groups"):
-            kwargs["groups"] = [Group(**group).__dict__ for group in kwargs["groups"]]
+            kwargs["groups"] = [Group(**group).to_dict() for group in kwargs["groups"]]
         cohort = super().create(*args, **kwargs)
         return cohort
 
@@ -52,7 +71,7 @@ class Cohort(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
-    groups: JSONField = JSONField(default=list)
+    groups: models.JSONField = models.JSONField(default=list)
     people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
 
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
@@ -81,7 +100,7 @@ class Cohort(models.Model):
             "deleted": self.deleted,
         }
 
-    def calculate_people(self, use_clickhouse=is_ee_enabled()):
+    def calculate_people(self, use_clickhouse=is_clickhouse_enabled()):
         if self.is_static:
             return
         try:
@@ -117,12 +136,18 @@ class Cohort(models.Model):
             self.save()
             capture_exception(err)
 
+    def calculate_people_ch(self):
+        if is_clickhouse_enabled():
+            from ee.clickhouse.models.cohort import recalculate_cohortpeople
+
+            recalculate_cohortpeople(self)
+
     def insert_users_by_list(self, items: List[str]) -> None:
         """
         Items can be distinct_id or email
         """
         batchsize = 1000
-        use_clickhouse = is_ee_enabled()
+        use_clickhouse = is_clickhouse_enabled()
         if use_clickhouse:
             from ee.clickhouse.models.cohort import insert_static_cohort
         try:
@@ -222,6 +247,8 @@ class Cohort(models.Model):
                 filter = Filter(data=group)
                 filters |= Q(properties_to_Q(filter.properties, team_id=self.team_id, is_person_query=True))
         return filters
+
+    __repr__ = sane_repr("id", "name", "last_calculation")
 
 
 class CohortPeople(models.Model):

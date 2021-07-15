@@ -5,24 +5,19 @@ import { useActions, useValues } from 'kea'
 import { Responsive, WidthProvider } from 'react-grid-layout'
 
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
-import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
-import { DashboardItemType } from '~/types'
+import { isMobile, triggerResize, triggerResizeAfterADelay } from 'lib/utils'
+import { DashboardItemType, DashboardMode } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 
 const ReactGridLayout = WidthProvider(Responsive)
-const noop = (): void => {}
 
-export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX.Element {
-    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, draggingEnabled } = useValues(dashboardLogic)
-    const {
-        loadDashboardItems,
-        refreshDashboardItem,
-        updateLayouts,
-        updateContainerWidth,
-        updateItemColor,
-        enableWobblyDragging,
-    } = useActions(dashboardLogic)
+export function DashboardItems(): JSX.Element {
+    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, dashboardMode } = useValues(dashboardLogic)
+    const { loadDashboardItems, updateLayouts, updateContainerWidth, updateItemColor, setDashboardMode } = useActions(
+        dashboardLogic
+    )
     const { duplicateDashboardItem } = useActions(dashboardItemsModel)
 
     // make sure the dashboard takes up the right size
@@ -32,14 +27,15 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
     // can not click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef<number | null>(null)
+    const className =
+        'layout' +
+        (dashboardMode === DashboardMode.Edit ? (isMobile() ? ' dragging-items wobbly' : ' dragging-items') : '')
 
     return (
         <ReactGridLayout
-            className={`layout${draggingEnabled !== 'off' ? ' dragging-items' : ''}${
-                draggingEnabled === 'wobbly' ? ' wobbly' : ''
-            }`}
-            isDraggable={!inSharedMode && draggingEnabled !== 'off'}
-            isResizable={!inSharedMode && draggingEnabled !== 'off'}
+            className={className}
+            isDraggable={dashboardMode === DashboardMode.Edit}
+            isResizable={dashboardMode === DashboardMode.Edit}
             layouts={layouts}
             rowHeight={50}
             margin={[20, 20]}
@@ -103,10 +99,10 @@ export function DashboardItems({ inSharedMode }: { inSharedMode: boolean }): JSX
                         }
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
-                        inSharedMode={inSharedMode}
-                        enableWobblyDragging={draggingEnabled !== 'off' ? noop : enableWobblyDragging}
+                        dashboardMode={dashboardMode}
+                        isOnEditMode={dashboardMode === DashboardMode.Edit}
+                        setEditMode={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.LongPress)}
                         index={index}
-                        onRefresh={() => refreshDashboardItem(item.id)}
                     />
                 </div>
             ))}

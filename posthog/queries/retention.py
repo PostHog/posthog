@@ -6,6 +6,7 @@ from django.db.models.expressions import Exists, F, OuterRef
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
 from django.db.models.query import Prefetch, QuerySet
 from django.db.models.query_utils import Q
+from rest_framework.exceptions import ValidationError
 from rest_framework.utils.serializer_helpers import ReturnDict
 from sentry_sdk.api import capture_exception
 
@@ -85,7 +86,9 @@ class Retention(BaseQuery):
         trunc, fields = self._get_trunc_func("timestamp", period)
 
         if is_first_time_retention:
-            filtered_events = events.filter(properties_to_Q(filter.properties, team_id=team.pk))
+            filtered_events = events.filter(
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+            )
             first_date = (
                 filtered_events.filter(entity_condition)
                 .values("person_id", "event", "action")
@@ -101,7 +104,7 @@ class Retention(BaseQuery):
             )
         else:
             filtered_events = events.filter(filter.date_filter_Q).filter(
-                properties_to_Q(filter.properties, team_id=team.pk)
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
             )
             first_date = (
                 filtered_events.filter(entity_condition)
@@ -189,12 +192,14 @@ class Retention(BaseQuery):
         events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk)
 
         filtered_events = events.filter(filter.recurring_date_filter_Q()).filter(
-            properties_to_Q(filter.properties, team_id=team.pk)
+            properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
         )
 
         inner_events = (
             Event.objects.filter(team_id=team.pk)
-            .filter(properties_to_Q(filter.properties, team_id=team.pk))
+            .filter(
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+            )
             .add_person_id(team.pk)
             .filter(**{"person_id": OuterRef("id")})
             .filter(entity_condition)
@@ -205,7 +210,9 @@ class Retention(BaseQuery):
             if is_first_time_retention
             else Event.objects.filter(team_id=team.pk)
             .filter(filter.reference_date_filter_Q())
-            .filter(properties_to_Q(filter.properties, team_id=team.pk))
+            .filter(
+                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+            )
             .add_person_id(team.pk)
             .filter(**{"person_id": OuterRef("id")})
             .filter(entity_condition)
@@ -299,7 +306,7 @@ class Retention(BaseQuery):
         elif entity.type == TREND_FILTER_TYPE_ACTIONS:
             return Q(action__pk=entity.id), "{}.action_id = %s".format(table)
         else:
-            raise ValueError(f"Entity type not supported")
+            raise ValidationError(f"Entity type not supported")
 
     def _get_trunc_func(
         self, subject: str, period: str
@@ -329,7 +336,7 @@ class Retention(BaseQuery):
             """
             return TruncMonth(subject), fields
         else:
-            raise ValueError(f"Period {period} is unsupported.")
+            raise ValidationError(f"Period {period} is unsupported.")
 
 
 def appearance_to_markers(vals: List, num_intervals: int) -> List:

@@ -1,12 +1,6 @@
 @import '~/vars';
 
-.graph-container {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-}
-
-.actions-graph {
+.insights-page {
     .top-bar {
         .ant-tabs,
         .ant-tabs-nav-list {
@@ -15,21 +9,142 @@
         .ant-btn-loading-icon {
             display: none;
         }
+
+        .ant-tabs-tab {
+            padding: 0; // More compact tabs to save vertical space
+        }
     }
+
     hr {
         margin: 1rem 0;
+    }
+
+    .ant-card-bordered {
+        @extend .mixin-base-bordered-card;
+    }
+
+    .hotkey {
+        margin-bottom: 0;
+        background-color: rgba($primary, 0.1) !important;
+        border-color: rgba($primary, 0.1) !important;
+    }
+
+    .ant-tabs-tab:not(.ant-tabs-tab-active):hover {
+        .hotkey {
+            background-color: rgba($primary, 0.2) !important;
+        }
+    }
+
+    .insight-controls {
+        overflow: visible;
+        position: relative;
+        margin-bottom: $default_spacing / 2;
+        border: 1px solid $border_light;
+
+        .ant-card-body {
+            padding: $default_spacing * 0.8 $default_spacing;
+        }
+
+        .collapse-control {
+            position: absolute;
+            right: $default_spacing / 2;
+            top: $default_spacing / 2;
+            cursor: pointer;
+            z-index: $z_raised;
+        }
+
+        &.collapsed {
+            cursor: pointer;
+            border-color: $primary !important;
+            .tabs-inner {
+                display: none;
+            }
+
+            .collapse-control {
+                top: 50%;
+                transform: translateY(-50%);
+            }
+        }
+    }
+
+    .insights-graph-container {
+        .ant-card-head {
+            border: 1px solid $border;
+            min-height: unset;
+            background-color: $bg_mid;
+            padding-right: $default_spacing / 4;
+
+            @media screen and (max-width: $md) {
+                padding-left: $default_spacing / 4;
+            }
+
+            .ant-card-head-title {
+                padding: $default_spacing / 2 0;
+            }
+        }
+        .display-config-inner {
+            display: flex;
+            align-items: center;
+
+            @media screen and (max-width: $md) {
+                overflow-x: auto;
+            }
+        }
+    }
+
+    .insight-title-container {
+        display: flex;
+        align-items: center;
+
+        .insight-title-text {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    }
+
+    .insights-tab-actions {
+        margin-left: auto;
+        padding: 0 1rem;
+        display: flex;
+        flex-wrap: nowrap;
+
+        .btn-reset {
+            color: rgba($danger, 0.8);
+        }
+        .btn-save {
+            border-color: $primary;
+            color: $primary;
+            &:hover {
+                border-color: darken($primary, 30%);
+                color: darken($primary, 30%);
+            }
+        }
+    }
+
+    .retention-date-picker {
+        background-color: transparent;
+        border: 0;
+        input::placeholder {
+            color: $text_default;
+        }
     }
 }
 
 .insight-empty-state {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
     padding-top: $default_spacing * 2;
     padding-bottom: $default_spacing * 2;
+
     &.error-message {
         .illustration-main {
             color: $danger;
         }
 
-        h3 {
+        h2 {
             color: $danger;
         }
     }
@@ -39,23 +154,33 @@
             color: $warning;
         }
 
-        h3 {
+        h2 {
             color: $warning;
         }
     }
 
-    .illustration-main {
-        font-size: 3rem;
-        line-height: 1em;
-        text-align: center;
-        margin-bottom: 1rem;
+    &.info-message {
+        .illustration-main {
+            color: $border;
+        }
     }
 
-    h3 {
-        text-align: center;
-    }
+    .insight-empty-state__wrapper {
+        max-width: 600px;
 
-    ol {
-        margin-top: $default_spacing / 2;
+        .illustration-main {
+            font-size: 5rem;
+            line-height: 1em;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        h2 {
+            text-align: center;
+        }
+
+        ol {
+            margin-top: $default_spacing / 2;
+        }
     }
 }

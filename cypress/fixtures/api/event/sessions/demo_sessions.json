@@ -14,7 +14,11 @@
                     "properties": {},
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:33.831566+00:00",
-                    "person": "01777279-ff1b-0051-1fbd-b89614430f72",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -24,7 +28,11 @@
                     "properties": {},
                     "event": "installed_app",
                     "timestamp": "2021-02-04T13:55:33.831583+00:00",
-                    "person": "01777279-ff1b-0051-1fbd-b89614430f72",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -36,7 +44,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:48.831631+00:00",
-                    "person": "01777279-ff1b-0051-1fbd-b89614430f72",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -48,7 +60,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:56:03.831663+00:00",
-                    "person": "01777279-ff1b-0051-1fbd-b89614430f72",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -60,7 +76,11 @@
                     },
                     "event": "rated_app",
                     "timestamp": "2021-02-04T13:56:18.831693+00:00",
-                    "person": "01777279-ff1b-0051-1fbd-b89614430f72",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -72,7 +92,11 @@
                     },
                     "event": "watched_movie",
                     "timestamp": "2021-02-04T13:57:13.831602+00:00",
-                    "person": "01777279-ff1b-0051-1fbd-b89614430f72",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -96,7 +120,11 @@
                     "properties": {},
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:33.828731+00:00",
-                    "person": "01777279-ff1b-003e-70d7-fd45f1f1f43b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -106,7 +134,11 @@
                     "properties": {},
                     "event": "installed_app",
                     "timestamp": "2021-02-04T13:55:33.828749+00:00",
-                    "person": "01777279-ff1b-003e-70d7-fd45f1f1f43b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -118,7 +150,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:48.828797+00:00",
-                    "person": "01777279-ff1b-003e-70d7-fd45f1f1f43b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -130,7 +166,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:56:03.828827+00:00",
-                    "person": "01777279-ff1b-003e-70d7-fd45f1f1f43b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -142,7 +182,11 @@
                     },
                     "event": "rated_app",
                     "timestamp": "2021-02-04T13:56:18.828855+00:00",
-                    "person": "01777279-ff1b-003e-70d7-fd45f1f1f43b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -154,7 +198,11 @@
                     },
                     "event": "watched_movie",
                     "timestamp": "2021-02-04T13:57:13.828767+00:00",
-                    "person": "01777279-ff1b-003e-70d7-fd45f1f1f43b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -178,7 +226,11 @@
                     "properties": {},
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:33.827525+00:00",
-                    "person": "01777279-ff1b-0037-1dac-4325a8e58e7e",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -188,7 +240,11 @@
                     "properties": {},
                     "event": "installed_app",
                     "timestamp": "2021-02-04T13:55:33.827545+00:00",
-                    "person": "01777279-ff1b-0037-1dac-4325a8e58e7e",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -200,7 +256,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:48.827598+00:00",
-                    "person": "01777279-ff1b-0037-1dac-4325a8e58e7e",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -212,7 +272,11 @@
                     },
                     "event": "watched_movie",
                     "timestamp": "2021-02-04T13:57:13.827565+00:00",
-                    "person": "01777279-ff1b-0037-1dac-4325a8e58e7e",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -236,7 +300,11 @@
                     "properties": {},
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:33.826415+00:00",
-                    "person": "01777279-ff1b-0030-2685-ae9e52533421",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -246,7 +314,11 @@
                     "properties": {},
                     "event": "installed_app",
                     "timestamp": "2021-02-04T13:55:33.826433+00:00",
-                    "person": "01777279-ff1b-0030-2685-ae9e52533421",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -258,7 +330,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:48.826482+00:00",
-                    "person": "01777279-ff1b-0030-2685-ae9e52533421",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -270,7 +346,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:56:03.826513+00:00",
-                    "person": "01777279-ff1b-0030-2685-ae9e52533421",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -282,7 +362,11 @@
                     },
                     "event": "rated_app",
                     "timestamp": "2021-02-04T13:56:18.826542+00:00",
-                    "person": "01777279-ff1b-0030-2685-ae9e52533421",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -294,7 +378,11 @@
                     },
                     "event": "watched_movie",
                     "timestamp": "2021-02-04T13:57:13.826452+00:00",
-                    "person": "01777279-ff1b-0030-2685-ae9e52533421",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -318,7 +406,11 @@
                     "properties": {},
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:33.826316+00:00",
-                    "person": "01777279-ff1b-002f-af76-94912ef0e236",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -328,7 +420,11 @@
                     "properties": {},
                     "event": "installed_app",
                     "timestamp": "2021-02-04T13:55:33.826334+00:00",
-                    "person": "01777279-ff1b-002f-af76-94912ef0e236",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -340,7 +436,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:48.826383+00:00",
-                    "person": "01777279-ff1b-002f-af76-94912ef0e236",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -352,7 +452,11 @@
                     },
                     "event": "watched_movie",
                     "timestamp": "2021-02-04T13:57:13.826353+00:00",
-                    "person": "01777279-ff1b-002f-af76-94912ef0e236",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -386,7 +490,11 @@
                     "properties": {},
                     "event": "installed_app",
                     "timestamp": "2021-02-04T13:55:33.820724+00:00",
-                    "person": "01777279-ff1b-000b-980e-815302415c4b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -398,7 +506,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:48.820774+00:00",
-                    "person": "01777279-ff1b-000b-980e-815302415c4b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -410,7 +522,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:56:03.820805+00:00",
-                    "person": "01777279-ff1b-000b-980e-815302415c4b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -422,7 +538,11 @@
                     },
                     "event": "rated_app",
                     "timestamp": "2021-02-04T13:56:18.820835+00:00",
-                    "person": "01777279-ff1b-000b-980e-815302415c4b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -434,7 +554,11 @@
                     },
                     "event": "watched_movie",
                     "timestamp": "2021-02-04T13:57:13.820744+00:00",
-                    "person": "01777279-ff1b-000b-980e-815302415c4b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -458,7 +582,11 @@
                     "properties": {},
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:33.820438+00:00",
-                    "person": "01777279-ff1b-0009-7b14-6ed4c372c531",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -468,7 +596,11 @@
                     "properties": {},
                     "event": "installed_app",
                     "timestamp": "2021-02-04T13:55:33.820458+00:00",
-                    "person": "01777279-ff1b-0009-7b14-6ed4c372c531",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -480,7 +612,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:48.820509+00:00",
-                    "person": "01777279-ff1b-0009-7b14-6ed4c372c531",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -492,7 +628,11 @@
                     },
                     "event": "watched_movie",
                     "timestamp": "2021-02-04T13:57:13.820478+00:00",
-                    "person": "01777279-ff1b-0009-7b14-6ed4c372c531",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -520,7 +660,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:31.579113+00:00",
-                    "person": "01777279-f65b-0004-aed0-c825464180ef",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -535,7 +679,11 @@
                     },
                     "event": "$autocapture",
                     "timestamp": "2021-02-04T13:55:45.579137+00:00",
-                    "person": "01777279-f65b-0004-aed0-c825464180ef",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -550,7 +698,11 @@
                     },
                     "event": "$autocapture",
                     "timestamp": "2021-02-04T13:56:00.579172+00:00",
-                    "person": "01777279-f65b-0004-aed0-c825464180ef",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -564,7 +716,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:56:01.579206+00:00",
-                    "person": "01777279-f65b-0004-aed0-c825464180ef",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -592,7 +748,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:31.580601+00:00",
-                    "person": "01777279-f65b-000f-53e8-01abaa5b1d86",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -607,7 +767,11 @@
                     },
                     "event": "$autocapture",
                     "timestamp": "2021-02-04T13:55:45.580629+00:00",
-                    "person": "01777279-f65b-000f-53e8-01abaa5b1d86",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -635,7 +799,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:31.580446+00:00",
-                    "person": "01777279-f65b-000d-8945-d7cea8f0f63b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -650,7 +818,11 @@
                     },
                     "event": "$autocapture",
                     "timestamp": "2021-02-04T13:55:45.580496+00:00",
-                    "person": "01777279-f65b-000d-8945-d7cea8f0f63b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -678,7 +850,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:31.579976+00:00",
-                    "person": "01777279-f65b-0009-a1f3-8d3f02ee499a",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -693,7 +869,11 @@
                     },
                     "event": "$autocapture",
                     "timestamp": "2021-02-04T13:55:45.580003+00:00",
-                    "person": "01777279-f65b-0009-a1f3-8d3f02ee499a",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -721,7 +901,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:31.578682+00:00",
-                    "person": "01777279-f65a-001e-f914-f106864d9332",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -736,7 +920,11 @@
                     },
                     "event": "$autocapture",
                     "timestamp": "2021-02-04T13:55:45.578705+00:00",
-                    "person": "01777279-f65a-001e-f914-f106864d9332",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -764,7 +952,11 @@
                     },
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:31.578310+00:00",
-                    "person": "01777279-f65a-0019-3076-d99ce1215ba4",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -779,7 +971,11 @@
                     },
                     "event": "$autocapture",
                     "timestamp": "2021-02-04T13:55:45.578337+00:00",
-                    "person": "01777279-f65a-0019-3076-d99ce1215ba4",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -803,7 +999,11 @@
                     "properties": {},
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:40.674044+00:00",
-                    "person": "0177727a-19eb-001f-0fa4-8e87aa6a1d5b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -816,7 +1016,11 @@
                     },
                     "event": "purchase",
                     "timestamp": "2021-02-04T13:55:40.674063+00:00",
-                    "person": "0177727a-19eb-001f-0fa4-8e87aa6a1d5b",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }
@@ -840,7 +1044,11 @@
                     "properties": {},
                     "event": "$pageview",
                     "timestamp": "2021-02-04T13:55:33.834478+00:00",
-                    "person": "01777279-ff1b-0066-5989-fb1cd49dfc84",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 },
@@ -850,7 +1058,11 @@
                     "properties": {},
                     "event": "installed_app",
                     "timestamp": "2021-02-04T13:55:33.834496+00:00",
-                    "person": "01777279-ff1b-0066-5989-fb1cd49dfc84",
+                    "person": {
+                        "distinct_ids": ["3098885c-59f1-4dc0-b3e6-cbab713481c2"],
+                        "is_identified": false,
+                        "properties": {}
+                    },
                     "elements": [],
                     "elements_chain": ""
                 }

@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react'
-import { Layout, Menu, Modal, Popover } from 'antd'
+import { Layout, Menu, Modal, Popover, Tooltip } from 'antd'
 import {
     ProjectFilled,
     ApiFilled,
@@ -9,15 +9,15 @@ import {
     PushpinFilled,
     PlusOutlined,
     SettingOutlined,
+    HomeOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { triggerResizeAfterADelay } from 'lib/utils'
+import { Scene, sceneLogic } from 'scenes/sceneLogic'
+import { isMobile } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import lgLogo from 'public/posthog-logo-white.svg'
 import smLogo from 'public/icon-white.svg'
-import { hot } from 'react-hot-loader/root'
 import './Navigation.scss'
 import {
     IconCohorts,
@@ -30,13 +30,19 @@ import {
 } from 'lib/components/icons'
 import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
-import { dashboardsModel } from '~/models'
-import { DashboardType } from '~/types'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardType, HotKeys } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { canViewPlugins } from 'scenes/plugins/access'
+import { useGlobalKeyboardHotkeys, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { router } from 'kea-router'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 // to show the right page in the sidebar
-const sceneOverride: Record<string, string> = {
+const sceneOverride: Partial<Record<Scene, string>> = {
     action: 'actions',
     person: 'persons',
     dashboard: 'dashboards',
@@ -47,33 +53,79 @@ interface MenuItemProps {
     icon: JSX.Element
     identifier: string
     to: string
+    hotkey?: HotKeys
+    tooltip?: string
     onClick?: () => void
 }
 
-const MenuItem = ({ title, icon, identifier, to, onClick }: MenuItemProps): JSX.Element => {
-    const { scene, loadingScene } = useValues(sceneLogic)
-    const { collapseMenu } = useActions(navigationLogic)
+const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: MenuItemProps): JSX.Element => {
+    const { activeScene } = useValues(sceneLogic)
+    const { hotkeyNavigationEngaged } = useValues(navigationLogic)
+    const { collapseMenu, setHotkeyNavigationEngaged } = useActions(navigationLogic)
+    const { push } = useActions(router)
+    const { reportHotkeyNavigation } = useActions(eventUsageLogic)
 
-    function activeScene(): string {
-        const nominalScene = loadingScene || scene
-        // Scenes with special handling can go here
-        return sceneOverride[nominalScene] || nominalScene
-    }
+    const isActive = activeScene && identifier === (sceneOverride[activeScene] || activeScene)
 
     function handleClick(): void {
         onClick?.()
         collapseMenu()
+        setHotkeyNavigationEngaged(false)
     }
+
+    useKeyboardHotkeys(
+        hotkeyNavigationEngaged && hotkey
+            ? {
+                  [hotkey]: {
+                      action: () => {
+                          handleClick()
+                          if (to) {
+                              push(to)
+                          }
+                          reportHotkeyNavigation('global', hotkey)
+                      },
+                  },
+              }
+            : {},
+        undefined,
+        true
+    )
 
     return (
         <Link to={to} onClick={handleClick}>
-            <div
-                className={`menu-item${activeScene() === identifier ? ' menu-item-active' : ''}`}
-                data-attr={`menu-item-${identifier}`}
+            <Tooltip
+                title={
+                    tooltip && !isMobile() ? (
+                        <>
+                            <div className="mb-025">
+                                <b>{title}</b>
+                                {hotkey && (
+                                    <>
+                                        <span className="hotkey menu-tooltip-hotkey">G</span>
+                                        <span className="hotkey-plus" />
+                                        <span className="hotkey menu-tooltip-hotkey">{hotkey.toUpperCase()}</span>
+                                    </>
+                                )}
+                            </div>
+                            {tooltip}
+                        </>
+                    ) : undefined
+                }
+                placement="left"
             >
-                {icon}
-                <span className="menu-title text-center">{title}</span>
-            </div>
+                <div
+                    className={`menu-item${isActive ? ' menu-item-active' : ''}`}
+                    data-attr={`menu-item-${identifier}`}
+                >
+                    {icon}
+                    <span className="menu-title text-center">{title}</span>
+                    {hotkey && (
+                        <span className={`hotkey${hotkeyNavigationEngaged ? '' : ' hide'}`}>
+                            {hotkey.toUpperCase()}
+                        </span>
+                    )}
+                </div>
+            </Tooltip>
         </Link>
     )
 }
@@ -138,16 +190,22 @@ function PinnedDashboards(): JSX.Element {
     )
 }
 
-export const MainNavigation = hot(_MainNavigation)
-function _MainNavigation(): JSX.Element {
+export function MainNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible } = useValues(navigationLogic)
-    const { setMenuCollapsed, collapseMenu, setToolbarModalOpen, setPinnedDashboardsVisible } = useActions(
+    const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible, hotkeyNavigationEngaged } = useValues(
         navigationLogic
     )
+    const {
+        setMenuCollapsed,
+        collapseMenu,
+        setToolbarModalOpen,
+        setPinnedDashboardsVisible,
+        setHotkeyNavigationEngaged,
+    } = useActions(navigationLogic)
     const navRef = useRef<HTMLDivElement | null>(null)
     const [canScroll, setCanScroll] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEscapeKey(collapseMenu, [menuCollapsed])
 
@@ -168,6 +226,8 @@ function _MainNavigation(): JSX.Element {
         setCanScroll(calcCanScroll(navRef.current))
     }, [navRef])
 
+    useGlobalKeyboardHotkeys({ g: { action: () => setHotkeyNavigationEngaged(!hotkeyNavigationEngaged) } })
+
     return (
         <>
             <div className={`navigation-mobile-overlay${!menuCollapsed ? ' open' : ''}`} onClick={collapseMenu} />
@@ -179,20 +239,38 @@ function _MainNavigation(): JSX.Element {
                 trigger={null}
                 onCollapse={(collapsed) => {
                     setMenuCollapsed(collapsed)
-                    triggerResizeAfterADelay()
                 }}
                 className="navigation-main"
             >
                 <div className="navigation-inner" ref={navRef} onScroll={handleNavScroll}>
                     <div className="nav-logo">
-                        <Link to="/insights">
-                            <img src={smLogo} className="logo-sm" alt="" />
-                            <img src={lgLogo} className="logo-lg" alt="" />
-                        </Link>
+                        {
+                            <Link to="/insights">
+                                <img src={smLogo} className="logo-sm" alt="" />
+                                <img src={lgLogo} className="logo-lg" alt="" />
+                            </Link>
+                        }
                     </div>
                     {currentOrganization?.setup.is_active && (
-                        <MenuItem title="Setup" icon={<SettingOutlined />} identifier="onboardingSetup" to="/setup" />
+                        <MenuItem
+                            title="Setup"
+                            icon={<SettingOutlined />}
+                            identifier="onboardingSetup"
+                            to="/setup"
+                            hotkey="u"
+                        />
                     )}
+                    {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
+                        <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to="/home" />
+                    )}
+                    <MenuItem
+                        title="Insights"
+                        icon={<IconInsights />}
+                        identifier="insights"
+                        to="/insights?insight=TRENDS"
+                        hotkey="i"
+                        tooltip="Answers to all your analytics questions."
+                    />
                     <Popover
                         content={PinnedDashboards}
                         placement="right"
@@ -209,43 +287,78 @@ function _MainNavigation(): JSX.Element {
                                 identifier="dashboards"
                                 to="/dashboard"
                                 onClick={() => setPinnedDashboardsVisible(false)}
+                                hotkey="d"
                             />
                         </div>
                     </Popover>
+
+                    <div className="divider" />
                     <MenuItem
-                        title="Insights"
-                        icon={<IconInsights />}
-                        identifier="insights"
-                        to="/insights?insight=TRENDS"
+                        title="Events"
+                        icon={<IconEvents />}
+                        identifier="events"
+                        to="/events"
+                        hotkey="e"
+                        tooltip="List of events and actions"
+                    />
+                    <MenuItem
+                        title="Sessions"
+                        icon={<ClockCircleFilled />}
+                        identifier="sessions"
+                        to="/sessions"
+                        hotkey="s"
+                        tooltip="Understand interactions based by visits and watch session recordings"
                     />
                     <div className="divider" />
-                    <MenuItem title="Events" icon={<IconEvents />} identifier="events" to="/events" />
-                    <MenuItem title="Sessions" icon={<ClockCircleFilled />} identifier="sessions" to="/sessions" />
-                    <div className="divider" />
-                    <MenuItem title="Persons" icon={<IconPerson />} identifier="persons" to="/persons" />
-                    <MenuItem title="Cohorts" icon={<IconCohorts />} identifier="cohorts" to="/cohorts" />
+                    <MenuItem
+                        title="Persons"
+                        icon={<IconPerson />}
+                        identifier="persons"
+                        to="/persons"
+                        hotkey="p"
+                        tooltip="Understand your users individually"
+                    />
+                    <MenuItem
+                        title="Cohorts"
+                        icon={<IconCohorts />}
+                        identifier="cohorts"
+                        to="/cohorts"
+                        hotkey="c"
+                        tooltip="Group users for easy filtering"
+                    />
                     <div className="divider" />
                     <MenuItem
                         title="Feat. Flags"
                         icon={<IconFeatureFlags />}
                         identifier="featureFlags"
                         to="/feature_flags"
+                        hotkey="f"
+                        tooltip="Controlled feature releases"
                     />
                     <div className="divider" />
-                    {user?.plugin_access.configure ? (
-                        <MenuItem title="Plugins" icon={<ApiFilled />} identifier="plugins" to="/project/plugins" />
-                    ) : null}
+                    {canViewPlugins(user?.organization) && (
+                        <MenuItem
+                            title="Plugins"
+                            icon={<ApiFilled />}
+                            identifier="plugins"
+                            to="/project/plugins"
+                            hotkey="l"
+                            tooltip="Extend your analytics functionality"
+                        />
+                    )}
                     <MenuItem
                         title="Annotations"
                         icon={<MessageOutlined />}
                         identifier="annotations"
                         to="/annotations"
+                        hotkey="a"
                     />
                     <MenuItem
                         title="Project"
                         icon={<ProjectFilled />}
                         identifier="projectSettings"
                         to="/project/settings"
+                        hotkey="j"
                     />
                     <div className="divider" />
                     <MenuItem
@@ -253,6 +366,7 @@ function _MainNavigation(): JSX.Element {
                         icon={<IconToolbar />}
                         identifier="toolbar"
                         to=""
+                        hotkey="t"
                         onClick={() => setToolbarModalOpen(true)}
                     />
                     <div className={`scroll-indicator ${canScroll ? '' : 'hide'}`} onClick={scrollToBottom}>

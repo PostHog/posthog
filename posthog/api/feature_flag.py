@@ -1,19 +1,22 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
-from django.db import IntegrityError
+import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import serializers, viewsets
+from rest_framework import request, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.shared import UserBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
+from posthog.models.feature_flag import get_active_feature_flags
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
-    created_by = UserSerializer(required=False, read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
@@ -47,28 +50,47 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         else:
             return None
 
+    def validate_key(self, value):
+        exclude_kwargs = {}
+        if self.instance:
+            exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
+
+        if (
+            FeatureFlag.objects.filter(key=value, team=self.context["request"].user.team, deleted=False)
+            .exclude(**exclude_kwargs)
+            .exists()
+        ):
+            raise serializers.ValidationError("There is already a feature flag with this key.", code="unique")
+
+        return value
+
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         self._update_filters(validated_data)
-        try:
-            FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
-            feature_flag = super().create(validated_data)
-        except IntegrityError:
-            raise serializers.ValidationError("This key already exists.", code="key-exists")
 
-        return feature_flag
+        FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
+        instance = super().create(validated_data)
 
-    def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:  # type: ignore
-        try:
-            validated_key = validated_data.get("key", None)
-            if validated_key:
-                FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
-            self._update_filters(validated_data)
-            return super().update(instance, validated_data)
-        except IntegrityError:
-            raise serializers.ValidationError("This key already exists.", code="key-exists")
+        posthoganalytics.capture(
+            request.user.distinct_id, "feature flag created", instance.get_analytics_metadata(),
+        )
+
+        return instance
+
+    def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
+        request = self.context["request"]
+        validated_key = validated_data.get("key", None)
+        if validated_key:
+            FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
+        self._update_filters(validated_data)
+        instance = super().update(instance, validated_data)
+
+        posthoganalytics.capture(
+            request.user.distinct_id, "feature flag updated", instance.get_analytics_metadata(),
+        )
+        return instance
 
     def _update_filters(self, validated_data):
         if "get_filters" in validated_data:
@@ -83,7 +105,15 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
+        queryset = FeatureFlag.objects.filter(team=self.team)
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
         return queryset.order_by("-created_at")
+
+    @action(methods=["GET"], detail=False)
+    def for_user(self, request: request.Request, **kwargs):
+        distinct_id = request.GET.get("distinct_id", None)
+        if not distinct_id:
+            raise serializers.ValidationError("Please provide a distinct_id to continue.")
+        flags = get_active_feature_flags(self.team, distinct_id)
+        return Response({"distinct_id": distinct_id, "flags_enabled": flags})

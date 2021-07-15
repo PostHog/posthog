@@ -6,6 +6,7 @@ SESSIONS_DISTINCT_ID_SQL = """
     {date_from}
     {date_to}
     {person_filters}
+    {action_filters}
     ORDER BY timestamp DESC
     LIMIT %(distinct_id_limit)s
 """
@@ -16,12 +17,9 @@ SESSION_SQL = """
         gid,
         dateDiff('second', toDateTime(arrayReduce('min', groupArray(timestamp))), toDateTime(arrayReduce('max', groupArray(timestamp)))) AS elapsed,
         arrayReduce('min', groupArray(timestamp)) as start_time,
-        groupArray(uuid) uuids,
-        groupArray(event) events,
-        groupArray(properties) properties,
-        groupArray(timestamp) timestamps,
-        groupArray(elements_chain) elements_chain,
-        arrayReduce('max', groupArray(timestamp)) as end_time
+        arrayReduce('max', groupArray(timestamp)) as end_time,
+        JSONExtractString(arrayElement(groupArray(properties), 1), '$current_url') as start_url,
+        JSONExtractString(arrayElement(groupArray(properties), -1), '$current_url') as end_url
         {filters_select_clause}
     FROM (
         SELECT
@@ -32,7 +30,7 @@ SESSION_SQL = """
             properties,
             elements_chain,
             arraySum(arraySlice(gids, 1, idx)) AS gid
-            {filters_timestamps_clause}
+            {matches_action_clauses}
         FROM (
             SELECT
                 groupArray(timestamp) as timestamps,
@@ -98,4 +96,20 @@ SESSION_SQL = """
     ORDER BY
         end_time DESC
     {sessions_limit}
+"""
+
+SESSION_EVENTS = """
+SELECT
+    uuid,
+    event,
+    properties,
+    timestamp,
+    elements_chain
+FROM events
+WHERE team_id = %(team_id)s
+  AND event != '$feature_flag_called'
+  AND distinct_id = %(distinct_id)s
+  {date_from}
+  {date_to}
+ORDER BY timestamp
 """

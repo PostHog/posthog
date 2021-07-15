@@ -1,3 +1,4 @@
+import dayjs from 'dayjs'
 import {
     formatLabel,
     identifierToHuman,
@@ -7,6 +8,12 @@ import {
     compactNumber,
     limitTextLength,
     pluralize,
+    endWithPunctation,
+    dateFilterToText,
+    hexToRGBA,
+    average,
+    median,
+    humanFriendlyDuration,
 } from './utils'
 
 describe('capitalizeFirstLetter()', () => {
@@ -38,14 +45,14 @@ describe('formatLabel()', () => {
     given('action', () => ({}))
 
     it('formats the label', () => {
-        expect(given.subject).toEqual('some_event (Total) ')
+        expect(given.subject).toEqual('some_event')
     })
 
     describe('DAU queries', () => {
         given('action', () => ({ math: 'dau' }))
 
         it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (Active Users) ')
+            expect(given.subject).toEqual('some_event (Unique users) ')
         })
     })
 
@@ -58,10 +65,15 @@ describe('formatLabel()', () => {
     })
 
     describe('action with properties', () => {
-        given('action', () => ({ properties: [{ value: 'hello' }, { operator: 'gt', value: 5 }] }))
+        given('action', () => ({
+            properties: [
+                { value: 'hello', key: 'greeting' },
+                { operator: 'gt', value: 5 },
+            ],
+        }))
 
         it('is formatted', () => {
-            expect(given.subject).toEqual('some_event (Total)  (= hello, > 5)')
+            expect(given.subject).toEqual('some_event (greeting = hello, > 5)')
         })
     })
 })
@@ -104,10 +116,10 @@ describe('compactNumber()', () => {
         expect(compactNumber(10)).toEqual('10')
         expect(compactNumber(293)).toEqual('293')
         expect(compactNumber(5001)).toEqual('5K')
-        expect(compactNumber(5312)).toEqual('5.3K')
-        expect(compactNumber(5392)).toEqual('5.4K')
-        expect(compactNumber(2833102, 2)).toEqual('2.83M')
-        expect(compactNumber(8283310234)).toEqual('8.3B')
+        expect(compactNumber(5312)).toEqual('5.31K')
+        expect(compactNumber(5392)).toEqual('5.39K')
+        expect(compactNumber(2833102)).toEqual('2.83M')
+        expect(compactNumber(8283310234)).toEqual('8.28B')
     })
 })
 
@@ -139,5 +151,86 @@ describe('pluralize()', () => {
         expect(pluralize(28321, 'member')).toEqual('28321 members')
         expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
         expect(pluralize(3, 'word', null, false)).toEqual('words')
+    })
+})
+
+describe('endWithPunctation()', () => {
+    it('adds period at the end when needed', () => {
+        expect(endWithPunctation('Hello')).toEqual('Hello.')
+        expect(endWithPunctation('Learn more! ')).toEqual('Learn more!')
+        expect(endWithPunctation('Stop.')).toEqual('Stop.')
+        expect(endWithPunctation(null)).toEqual('')
+        expect(endWithPunctation('   ')).toEqual('')
+        expect(endWithPunctation('  Why? ')).toEqual('Why?')
+    })
+})
+
+describe('dateFilterToText()', () => {
+    it('handles dayjs dates', () => {
+        const from = dayjs('2018-04-04T16:00:00.000Z')
+        const to = dayjs('2018-04-09T15:05:00.000Z')
+
+        expect(dateFilterToText(from, to, 'custom')).toEqual('2018-04-04 - 2018-04-09')
+    })
+
+    it('handles various ranges', () => {
+        expect(dateFilterToText('dStart', null, 'default')).toEqual('Today')
+        expect(dateFilterToText('2020-01-02', '2020-01-05', 'default')).toEqual('2020-01-02 - 2020-01-05')
+        expect(dateFilterToText(null, null, 'default')).toEqual('default')
+        expect(dateFilterToText('-24h', null, 'default')).toEqual('Last 24 hours')
+        expect(dateFilterToText('-48h', undefined, 'default')).toEqual('Last 48 hours')
+        expect(dateFilterToText('-1d', 'dStart', 'default')).toEqual('Yesterday')
+        expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
+    })
+})
+
+describe('hexToRGBA()', () => {
+    it('converts hex to RGBA correctly', () => {
+        expect(hexToRGBA('#ff0000', 0.3)).toEqual('rgba(255,0,0,0.3)')
+        expect(hexToRGBA('#0000Cc', 0)).toEqual('rgba(0,0,204,0)')
+        expect(hexToRGBA('#5375ff', 1)).toEqual('rgba(83,117,255,1)')
+    })
+})
+
+describe('average()', () => {
+    it('calculates average correctly', () => {
+        expect(average([9, 4, 1, 3, 5, 7])).toEqual(4.8)
+        expect(average([72, 35, 68, 66, 70, 9, 81])).toEqual(57.3) // Tests rounding too
+        expect(average([86.4, 46.321, 45.304, 34.1, 147])).toEqual(71.8) // Tests rounding too
+    })
+})
+
+describe('median()', () => {
+    it('returns middle number if array length is odd', () => {
+        expect(median([9, 4, 1, 3, 5, 7, 3, 6, 14])).toEqual(5)
+    })
+    it('returns avg of middle numbers if array length is even', () => {
+        expect(median([9, 4, 0, 5, 7, 3, 6, 14])).toEqual(5.5)
+    })
+})
+
+describe('humanFriendlyDuration()', () => {
+    it('returns correct value for <= 60', () => {
+        expect(humanFriendlyDuration(60)).toEqual('1min')
+        expect(humanFriendlyDuration(45)).toEqual('45s')
+    })
+    it('returns correct value for 60 < t < 120', () => {
+        expect(humanFriendlyDuration(90)).toEqual('1min 30s')
+    })
+    it('returns correct value for t > 120', () => {
+        expect(humanFriendlyDuration(360)).toEqual('6mins')
+    })
+    it('returns correct value for t >= 3600', () => {
+        expect(humanFriendlyDuration(3600)).toEqual('1hr')
+        expect(humanFriendlyDuration(3601)).toEqual('1hr 1s')
+        expect(humanFriendlyDuration(3961)).toEqual('1hr 6mins 1s')
+    })
+    it('returns correct value for t >= 86400', () => {
+        expect(humanFriendlyDuration(86400)).toEqual('1d')
+    })
+    it('truncates to specified # of units', () => {
+        expect(humanFriendlyDuration(3961, 2)).toEqual('1hr 6mins')
+        expect(humanFriendlyDuration(30, 2)).toEqual('30s') // no change
+        expect(humanFriendlyDuration(30, 0)).toEqual('') // returns no units (useless)
     })
 })

@@ -43,6 +43,7 @@ import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -112,11 +113,11 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 export const commandPaletteLogic = kea<
     commandPaletteLogicType<
         Command,
+        CommandFlow,
         CommandRegistrations,
         CommandResult,
-        CommandFlow,
-        RegExpCommandPairs,
-        CommandResultDisplayable
+        CommandResultDisplayable,
+        RegExpCommandPairs
     >
 >({
     connect: {
@@ -395,7 +396,9 @@ export const commandPaletteLogic = kea<
         commandSearchResultsGrouped: [
             (selectors) => [selectors.commandSearchResults, selectors.activeFlow],
             (commandSearchResults: CommandResult[], activeFlow: CommandFlow | null) => {
-                const resultsGrouped: { [scope: string]: CommandResult[] } = {}
+                const resultsGrouped: {
+                    [scope: string]: CommandResult[]
+                } = {}
                 if (activeFlow) {
                     resultsGrouped[activeFlow.scope ?? '?'] = []
                 }
@@ -596,7 +599,7 @@ export const commandPaletteLogic = kea<
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver:
                     userLogic.values.user?.is_staff ||
-                    userLogic.values.user?.is_debug ||
+                    preflightLogic.values.preflight?.is_debug ||
                     userLogic.values.user?.is_impersonated
                         ? {
                               icon: PlusOutlined,
@@ -714,7 +717,7 @@ export const commandPaletteLogic = kea<
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
-                                        dashboardsModel.actions.addDashboard({ name: argument, push: true })
+                                        dashboardsModel.actions.addDashboard({ name: argument, show: true })
                                     },
                                 }
                             }

@@ -1,10 +1,13 @@
 import secrets
+import string
 import uuid
 from collections import defaultdict, namedtuple
 from time import time
-from typing import Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from django.db import models
+
+BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
 
 
 class UUIDT(uuid.UUID):
@@ -50,12 +53,33 @@ class UUIDT(uuid.UUID):
         cls.current_series_per_ms[unix_time_ms] %= 65_536
         return series
 
+    @classmethod
+    def is_valid_uuid(cls, candidate: Any) -> bool:
+        if type(candidate) != str:
+            return False
+        hex = candidate.replace("urn:", "").replace("uuid:", "")
+        hex = hex.strip("{}").replace("-", "")
+        if len(hex) != 32:
+            return False
+        return 0 <= int(hex, 16) < 1 << 128
+
 
 class UUIDModel(models.Model):
+    """Base Django Model with default autoincremented ID field replaced with UUIDT."""
+
     class Meta:
         abstract = True
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
+
+
+class UUIDClassicModel(models.Model):
+    """Base Django Model with default autoincremented ID field kept and a UUIDT field added."""
+
+    class Meta:
+        abstract = True
+
+    uuid: models.UUIDField = models.UUIDField(unique=True, default=UUIDT, editable=False)
 
 
 def sane_repr(*attrs: str, include_id=True) -> Callable[[object], str]:
@@ -82,7 +106,28 @@ def generate_random_token(nbytes: int = 32) -> str:
     Random 32 bytes - default value here - is believed to be sufficiently secure for practically all purposes:
     https://docs.python.org/3/library/secrets.html#how-many-bytes-should-tokens-use
     """
-    return secrets.token_urlsafe(nbytes)
+    return int_to_base(secrets.randbits(nbytes * 8), 62)
+
+
+def generate_random_token_project() -> str:
+    return "phc_" + generate_random_token()  # "c" standing for "client"
+
+
+def generate_random_token_personal() -> str:
+    return "phx_" + generate_random_token()  # "x" standing for nothing in particular
+
+
+def int_to_base(number: int, base: int) -> str:
+    if base > 62:
+        raise ValueError("Cannot convert integer to base above 62")
+    alphabet = BASE62[:base]
+    if number < 0:
+        return "-" + int_to_base(-number, base)
+    value = ""
+    while number != 0:
+        number, index = divmod(number, len(alphabet))
+        value = alphabet[index] + value
+    return value or "0"
 
 
 class Percentile(models.Aggregate):

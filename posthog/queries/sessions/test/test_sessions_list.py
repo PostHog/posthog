@@ -1,4 +1,3 @@
-import pytz
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -6,30 +5,60 @@ from freezegun import freeze_time
 from posthog.models import Action, ActionStep, Cohort, Event, Organization, Person, SessionRecordingEvent
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.sessions.sessions_list import SessionsList
+from posthog.tasks.calculate_action import calculate_action, calculate_actions_from_last_calculation
 from posthog.test.base import BaseTest
 
 
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
+def _create_action(team, name, properties=[]):
     action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
+    ActionStep.objects.create(action=action, event=name, properties=properties)
     return action
 
 
 def sessions_list_test_factory(sessions, event_factory, session_recording_event_factory):
     class TestSessionsList(BaseTest):
+        @freeze_time("2012-01-15T04:01:34.000Z")
         def test_sessions_list(self):
             self.create_test_data()
 
-            with freeze_time("2012-01-15T04:01:34.000Z"):
-                response, _ = self.run_query(SessionsFilter(data={"properties": []}))
+            response, _ = self.run_query(SessionsFilter(data={"properties": []}))
 
-                self.assertEqual(len(response), 2)
-                self.assertEqual(response[0]["distinct_id"], "2")
+            self.assertEqual(len(response), 2)
+            self.assertEqual(response[0]["distinct_id"], "2")
 
-                response, _ = self.run_query(SessionsFilter(data={"properties": [{"key": "$os", "value": "Mac OS X"}]}))
-                self.assertEqual(len(response), 1)
+            response, _ = self.run_query(SessionsFilter(data={"properties": [{"key": "$os", "value": "Mac OS X"}]}))
+            self.assertEqual(len(response), 1)
+            self.assertEqual(response[0]["distinct_id"], "1")
+
+        @freeze_time("2012-01-15T04:01:34.000Z")
+        def test_sessions_list_keys(self):
+            self.create_test_data()
+
+            response, _ = self.run_query(SessionsFilter(data={"properties": []}))
+            self.assertEqual(
+                set(response[0].keys()) - {"email"},
+                {
+                    "distinct_id",
+                    "global_session_id",
+                    "length",
+                    "start_time",
+                    "end_time",
+                    "start_url",
+                    "end_url",
+                    "matching_events",
+                    "session_recordings",
+                },
+            )
+
+        @freeze_time("2012-01-15T04:01:34.000Z")
+        def test_start_end_url(self):
+            self.create_test_data()
+
+            response, _ = self.run_query(SessionsFilter(data={"properties": []}))
+            self.assertDictContainsSubset(
+                {"distinct_id": "2", "start_url": "aloha.com/2", "end_url": "aloha.com/lastpage"}, response[0]
+            )
+            self.assertDictContainsSubset({"distinct_id": "1", "start_url": None, "end_url": None}, response[1])
 
         def test_sessions_and_cohort(self):
             self.create_test_data()
@@ -103,20 +132,33 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
 
         @freeze_time("2012-01-15T04:01:34.000Z")
         def test_filter_by_entity_action(self):
-            action1 = _create_action(name="custom-event", team=self.team)
-            action2 = _create_action(name="another-event", team=self.team)
+            action1 = _create_action(
+                name="custom-event", team=self.team, properties=[{"key": "$os", "value": "Windows 95"}]
+            )
+            action2 = _create_action(name="custom-event", team=self.team)
+            action3 = _create_action(name="another-event", team=self.team)
 
             self.create_test_data()
+
+            calculate_action(action1.id)
+            calculate_action(action2.id)
+            calculate_action(action3.id)
 
             self.assertLength(
                 self.run_query(
                     SessionsFilter(data={"filters": [{"type": "action_type", "key": "id", "value": action1.id}]})
                 )[0],
-                2,
+                1,
             )
             self.assertLength(
                 self.run_query(
                     SessionsFilter(data={"filters": [{"type": "action_type", "key": "id", "value": action2.id}]})
+                )[0],
+                2,
+            )
+            self.assertLength(
+                self.run_query(
+                    SessionsFilter(data={"filters": [{"type": "action_type", "key": "id", "value": action3.id}]})
                 )[0],
                 1,
             )
@@ -129,7 +171,7 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
                                 {
                                     "type": "action_type",
                                     "key": "id",
-                                    "value": action1.id,
+                                    "value": action2.id,
                                     "properties": [{"key": "$os", "value": "Mac OS X"}],
                                 }
                             ]
@@ -217,13 +259,21 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
         def create_test_data(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 event_factory(team=self.team, event="$pageview", distinct_id="1")
-                event_factory(team=self.team, event="$pageview", distinct_id="2")
+                event_factory(
+                    team=self.team, event="$pageview", distinct_id="2", properties={"$current_url": "aloha.com/1"}
+                )
             with freeze_time("2012-01-14T03:25:34.000Z"):
                 event_factory(team=self.team, event="$pageview", distinct_id="1")
                 event_factory(team=self.team, event="$pageview", distinct_id="2")
+            with freeze_time("2012-01-15T03:58:34.000Z"):
+                event_factory(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id="2",
+                    properties={"$os": "Windows 95", "$current_url": "aloha.com/2"},
+                )
             with freeze_time("2012-01-15T03:59:34.000Z"):
-                event_factory(team=self.team, event="$pageview", distinct_id="2")
-                event_factory(team=self.team, event="custom-event", distinct_id="2", properties={"$os": "Windows 95"})
+                event_factory(team=self.team, event="custom-event", distinct_id="2")
             with freeze_time("2012-01-15T03:59:35.000Z"):
                 event_factory(team=self.team, event="$pageview", distinct_id="1")
                 event_factory(team=self.team, event="custom-event", distinct_id="2", properties={"$os": "Windows 95"})
@@ -231,11 +281,17 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
                 event_factory(team=self.team, event="custom-event", distinct_id="1", properties={"$os": "Mac OS X"})
                 event_factory(team=self.team, event="another-event", distinct_id="2", properties={"$os": "Windows 95"})
             with freeze_time("2012-01-15T04:13:22.000Z"):
-                event_factory(team=self.team, event="$pageview", distinct_id="2")
+                event_factory(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id="2",
+                    properties={"$current_url": "aloha.com/lastpage"},
+                )
             team_2 = Organization.objects.bootstrap(None)[2]
             Person.objects.create(team=self.team, distinct_ids=["1", "3", "4"], properties={"email": "bla"})
             # Test team leakage
             Person.objects.create(team=team_2, distinct_ids=["1", "3", "4"], properties={"email": "bla"})
+            calculate_actions_from_last_calculation()
 
         def create_large_testset(self):
             for i in range(100):

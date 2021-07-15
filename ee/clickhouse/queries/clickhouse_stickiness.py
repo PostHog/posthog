@@ -4,6 +4,8 @@ from typing import Any, Dict, Optional, Tuple
 from django.conf import settings
 from django.db.models.expressions import F
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 from rest_framework.utils.serializer_helpers import ReturnDict
 from sentry_sdk.api import capture_exception
 
@@ -13,6 +15,7 @@ from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.person import (
+    GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_SQL,
     INSERT_COHORT_ALL_PEOPLE_SQL,
     PEOPLE_SQL,
@@ -34,13 +37,15 @@ class ClickhouseStickiness(Stickiness):
     def stickiness(self, entity: Entity, filter: StickinessFilter, team_id: int) -> Dict[str, Any]:
 
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            filter.properties, team_id, filter_test_accounts=filter.filter_test_accounts
+        )
         trunc_func = get_trunc_func_ch(filter.interval)
 
         params: Dict = {"team_id": team_id}
         params = {**params, **prop_filter_params, "num_intervals": filter.total_intervals}
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = Action.objects.get(pk=entity.id)
+            action = entity.get_action()
             action_query, action_params = format_action_filter(action)
             if action_query == "":
                 return {}
@@ -53,6 +58,7 @@ class ClickhouseStickiness(Stickiness):
                 parsed_date_to=parsed_date_to,
                 filters=prop_filters,
                 trunc_func=trunc_func,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             )
         else:
             content_sql = STICKINESS_SQL.format(
@@ -62,24 +68,23 @@ class ClickhouseStickiness(Stickiness):
                 parsed_date_to=parsed_date_to,
                 filters=prop_filters,
                 trunc_func=trunc_func,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             )
 
         counts = sync_execute(content_sql, params)
         return self.process_result(counts, filter)
 
-    def _retrieve_people(self, target_entity: Entity, filter: StickinessFilter, team: Team) -> ReturnDict:
+    def _retrieve_people(
+        self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request
+    ) -> ReturnDict:
         return retrieve_stickiness_people(target_entity, filter, team)
 
 
 def _format_entity_filter(entity: Entity) -> Tuple[str, Dict]:
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        try:
-            action = Action.objects.get(pk=entity.id)
-            action_query, params = format_action_filter(action)
-            entity_filter = "AND {}".format(action_query)
-
-        except Action.DoesNotExist:
-            raise ValueError("This action does not exist")
+        action = entity.get_action()
+        action_query, params = format_action_filter(action)
+        entity_filter = "AND {}".format(action_query)
     else:
         entity_filter = "AND event = %(event)s"
         params = {"event": entity.id}
@@ -89,7 +94,9 @@ def _format_entity_filter(entity: Entity) -> Tuple[str, Dict]:
 
 def _process_content_sql(target_entity: Entity, filter: StickinessFilter, team: Team) -> Tuple[str, Dict[str, Any]]:
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
-    prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+    prop_filters, prop_filter_params = parse_prop_clauses(
+        filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+    )
     entity_sql, entity_params = _format_entity_filter(entity=target_entity)
     trunc_func = get_trunc_func_ch(filter.interval)
 
@@ -107,6 +114,7 @@ def _process_content_sql(target_entity: Entity, filter: StickinessFilter, team: 
         parsed_date_to=parsed_date_to,
         filters=prop_filters,
         trunc_func=trunc_func,
+        latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
     )
     return content_sql, params
 
@@ -116,7 +124,12 @@ def retrieve_stickiness_people(target_entity: Entity, filter: StickinessFilter, 
     content_sql, params = _process_content_sql(target_entity, filter, team)
 
     people = sync_execute(
-        PEOPLE_SQL.format(content_sql=content_sql, query="", latest_person_sql=GET_LATEST_PERSON_SQL.format(query="")),
+        PEOPLE_SQL.format(
+            content_sql=content_sql,
+            query="",
+            latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+        ),
         params,
     )
     return ClickhousePersonSerializer(people, many=True).data
@@ -131,6 +144,7 @@ def insert_stickiness_people_into_cohort(cohort: Cohort, target_entity: Entity, 
                 query="",
                 latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
                 cohort_table=PERSON_STATIC_COHORT_TABLE,
+                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             ),
             {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
         )

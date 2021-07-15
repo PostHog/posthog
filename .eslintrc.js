@@ -43,7 +43,8 @@ module.exports = {
         '@typescript-eslint/no-empty-function': 'off',
         '@typescript-eslint/no-inferrable-types': 'off',
         '@typescript-eslint/ban-ts-comment': 'off',
-        'no-shadow': 'warn',
+        'no-shadow': 'error',
+        '@typescript-eslint/no-non-null-assertion': 'error',
         curly: 'error',
     },
     overrides: [

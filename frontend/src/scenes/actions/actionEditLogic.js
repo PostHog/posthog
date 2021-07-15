@@ -12,17 +12,9 @@ export const actionEditLogic = kea({
         actionAlreadyExists: (actionId) => ({ actionId }),
     }),
 
-    loaders: ({ props }) => ({
-        action: {
-            loadAction: async () => {
-                return await api.get(props.apiURL + 'api/action/' + props.id)
-            },
-        },
-    }),
-
-    reducers: () => ({
+    reducers: ({ props }) => ({
         action: [
-            null,
+            props.action,
             {
                 setAction: (_, { action }) => action,
             },
@@ -40,6 +32,14 @@ export const actionEditLogic = kea({
                 setCreateNew: (_, { createNew }) => createNew,
             },
         ],
+    }),
+
+    loaders: ({ props }) => ({
+        actionCount: {
+            loadActionCount: async () => {
+                return (await api.get('api/action/' + props.id + '/count')).count
+            },
+        },
     }),
 
     listeners: ({ values, props, actions }) => ({
@@ -71,13 +71,7 @@ export const actionEditLogic = kea({
     events: ({ actions, props }) => ({
         afterMount: async () => {
             if (props.id) {
-                const action = await api.get(
-                    'api/action/' +
-                        props.id +
-                        '/?include_count=1' +
-                        (props.temporaryToken ? '&temporary_token=' + props.temporaryToken : '')
-                )
-                actions.setAction(action)
+                actions.loadActionCount()
             } else {
                 actions.setAction({ name: '', steps: [{ isNew: uuid() }] })
             }

@@ -1,8 +1,10 @@
 import { kea } from 'kea'
-import { objectsEqual, toParams } from 'lib/utils'
+import { errorToast, objectsEqual, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import moment from 'moment'
+import dayjs from 'dayjs'
+import { userLogic } from 'scenes/userLogic'
+import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 
 const POLL_TIMEOUT = 5000
 
@@ -21,9 +23,9 @@ const formatEvents = (events, newEvents, apiUrl) => {
         if (
             index > 0 &&
             eventsFormatted[index - 1].event &&
-            !moment(event.event.timestamp).isSame(eventsFormatted[index - 1].event.timestamp, 'day')
+            !dayjs(event.event.timestamp).isSame(eventsFormatted[index - 1].event.timestamp, 'day')
         ) {
-            eventsFormatted.splice(index, 0, { date_break: moment(event.event.timestamp).format('LL') })
+            eventsFormatted.splice(index, 0, { date_break: dayjs(event.event.timestamp).format('LL') })
         }
     })
     if (newEvents.length > 0) {
@@ -47,9 +49,12 @@ export const eventsTableLogic = kea({
 
     actions: () => ({
         setProperties: (properties) => ({ properties }),
+        setColumnConfig: (columnConfig) => ({ columnConfig }),
+        setColumnConfigSaving: (saving) => ({ saving }), // Type: boolean
         fetchEvents: (nextParams = null) => ({ nextParams }),
         fetchEventsSuccess: (events, hasNext = false, isNext = false) => ({ events, hasNext, isNext }),
         fetchNextEvents: true,
+        fetchOrPollFailure: (error) => ({ error }),
         flipSort: true,
         pollEvents: true,
         pollEventsSuccess: (events) => ({ events }),
@@ -71,7 +76,7 @@ export const eventsTableLogic = kea({
             },
         ],
         eventFilter: [
-            false,
+            '',
             {
                 setEventFilter: (_, { event }) => event,
             },
@@ -82,6 +87,7 @@ export const eventsTableLogic = kea({
                 fetchEvents: (state, { nextParams }) => (nextParams ? state : state || null),
                 setDelayedLoading: () => true,
                 fetchEventsSuccess: () => false,
+                fetchOrPollFailure: () => false,
             },
         ],
         isLoadingNext: [
@@ -140,23 +146,20 @@ export const eventsTableLogic = kea({
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
         ],
+        columnConfigSaving: [
+            false,
+            {
+                setColumnConfigSaving: (_, { saving }) => saving,
+            },
+        ],
     }),
 
     selectors: ({ selectors, props }) => ({
-        propertiesForUrl: [
-            () => [selectors.properties],
-            (properties) => {
-                if (Object.keys(properties).length > 0) {
-                    return { properties }
-                } else {
-                    return ''
-                }
-            },
-        ],
         eventsFormatted: [
             () => [selectors.events, selectors.newEvents],
             (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
         ],
+        columnConfig: [() => [userLogic.selectors.user], (user) => user?.events_column_config?.active || 'DEFAULT'],
     }),
 
     events: ({ values }) => ({
@@ -168,12 +171,20 @@ export const eventsTableLogic = kea({
 
     actionToUrl: ({ values }) => ({
         setProperties: () => {
-            return [router.values.location.pathname, values.propertiesForUrl, window.location.hash]
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    properties: values.properties,
+                },
+                window.location.hash,
+                { replace: true },
+            ]
         },
     }),
 
     urlToAction: ({ actions, values }) => ({
-        '*': (_, searchParams) => {
+        '*': (_, searchParams, hashParams) => {
             try {
                 // if the url changed, but we are not anymore on the page we were at when the logic was mounted
                 if (router.values.location.pathname !== values.initialPathname) {
@@ -185,16 +196,18 @@ export const eventsTableLogic = kea({
                 return
             }
 
-            if (
-                !objectsEqual(searchParams?.properties, []) &&
-                !objectsEqual(searchParams.properties || {}, values.properties)
-            ) {
+            const isFirstRedirect = hashParams.backTo // first time we've navigated here from another page
+            if (!objectsEqual(searchParams.properties || {}, values.properties) || isFirstRedirect) {
                 actions.setProperties(searchParams.properties || {})
             }
         },
     }),
 
     listeners: ({ actions, values, props }) => ({
+        setColumnConfig: ({ columnConfig }) => {
+            actions.setColumnConfigSaving(true)
+            userLogic.actions.updateUser({ events_column_config: { active: columnConfig } })
+        },
         setProperties: () => actions.fetchEvents(),
         flipSort: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),
@@ -225,7 +238,15 @@ export const eventsTableLogic = kea({
                     orderBy: [values.orderBy],
                 })
 
-                const events = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                let events = null
+
+                try {
+                    events = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                } catch (error) {
+                    actions.fetchOrPollFailure(error)
+                    return
+                }
+
                 breakpoint()
                 actions.fetchEventsSuccess(events.results, events.next, !!nextParams)
 
@@ -251,7 +272,15 @@ export const eventsTableLogic = kea({
                 params.after = event.timestamp || event.event.timestamp
             }
 
-            const events = await api.get(`${props.apiUrl || 'api/event/'}?${toParams(params)}`)
+            let events = null
+
+            try {
+                events = await api.get(`${props.apiUrl || 'api/event/'}?${toParams(params)}`)
+            } catch (e) {
+                // We don't call fetchOrPollFailure because we don't to generate an error alert for this
+                return
+            }
+
             breakpoint()
 
             if (props.live) {
@@ -261,6 +290,21 @@ export const eventsTableLogic = kea({
             }
 
             actions.setPollTimeout(setTimeout(actions.pollEvents, POLL_TIMEOUT))
+        },
+        fetchOrPollFailure: ({ error }) => {
+            errorToast(
+                undefined,
+                'There was a problem fetching your events. Please refresh this page to try again.',
+                error.detail,
+                error.code
+            )
+        },
+        [userLogic.actionTypes.updateUserSuccess]: () => {
+            actions.setColumnConfigSaving(false)
+            tableConfigLogic.actions.setState(null)
+        },
+        [userLogic.actionTypes.updateUserFailure]: () => {
+            actions.setColumnConfigSaving(false)
         },
     }),
 })

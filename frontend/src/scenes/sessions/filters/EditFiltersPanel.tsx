@@ -1,9 +1,9 @@
 import React from 'react'
 import { Button, Card, Divider, Space } from 'antd'
 import { useActions, useValues } from 'kea'
-import { DownOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons'
+import { SaveOutlined, SearchOutlined } from '@ant-design/icons'
 import { CloseButton } from 'lib/components/CloseButton'
-import { EventTypePropertyFilter, PersonPropertyFilter, RecordingPropertyFilter } from '~/types'
+import { Entity, PersonPropertyFilter, PropertyFilter, PropertyOperator, ViewType } from '~/types'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
 import { EventPropertyFilter } from 'scenes/sessions/filters/EventPropertyFilter'
 import { PersonFilter } from 'scenes/sessions/filters/UserFilter'
@@ -11,6 +11,11 @@ import { DurationFilter } from 'scenes/sessions/filters/DurationFilter'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { AddFilterButton } from 'scenes/sessions/filters/AddFilterButton'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+import { LinkButton } from 'lib/components/LinkButton'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { ACTION_TYPE, EVENT_TYPE } from 'lib/constants'
+import { toParams } from 'lib/utils'
+import { SelectDownIcon } from 'lib/components/SelectDownIcon'
 
 interface Props {
     onSubmit: () => void
@@ -73,6 +78,79 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
             AND
         </span>
     )
+    const properties: PropertyFilter[] = []
+    const events: Entity[] = []
+    const actions: Entity[] = []
+
+    Object.entries(displayedFilters).forEach(([key, values]) => {
+        if (key === ACTION_TYPE) {
+            values.forEach((filter) => {
+                if (
+                    filter.item.label &&
+                    (typeof filter.item.value === 'string' || typeof filter.item.value === 'number')
+                ) {
+                    actions.push({
+                        id: filter.item.value,
+                        name: filter.item.label,
+                        type: 'actions',
+                        order: 0,
+                    })
+                }
+            })
+        }
+        if (key === EVENT_TYPE) {
+            values.forEach((filter) => {
+                if (
+                    filter.item.label &&
+                    (typeof filter.item.value === 'string' || typeof filter.item.value === 'number')
+                ) {
+                    events.push({
+                        id: filter.item.value,
+                        name: filter.item.label,
+                        type: 'events',
+                        order: 0,
+                    })
+                }
+            })
+        }
+        if (key === 'cohort') {
+            values.forEach((filter) => {
+                if (filter.item.value) {
+                    properties.push({
+                        key: 'id',
+                        value: filter.item.value,
+                        type: 'cohort',
+                        operator: PropertyOperator.Exact,
+                    })
+                }
+            })
+        }
+        if (key === 'person') {
+            values.forEach((filter) => {
+                if (filter.item.value) {
+                    properties.push({
+                        key: filter.item.key,
+                        value: filter.item.value,
+                        type: 'person',
+                        operator: (filter.item as PersonPropertyFilter).operator,
+                    })
+                }
+            })
+        }
+    })
+
+    const params = {
+        insight: ViewType.TRENDS,
+        interval: 'day',
+        display: 'ActionsLineGraph',
+        events,
+        actions,
+        properties,
+    }
+    const encodedParams = toParams(params)
+    const insightLink = `/insights?${encodedParams}#backTo=Sessions&backToURL=${
+        window.location.pathname + window.location.search
+    }`
 
     return (
         <Card>
@@ -94,20 +172,19 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                                             justifyContent: 'space-between',
                                             alignItems: 'center',
                                         }}
+                                        data-attr="edit-session-filter"
                                     >
-                                        <strong>{item.label}</strong>
-                                        <DownOutlined style={{ fontSize: 12, color: '#bfbfbf' }} />
+                                        <PropertyKeyInfo value={item.label ?? ''} />
+                                        <SelectDownIcon className="text-muted" />
                                     </Button>
                                     <SessionsFilterBox selector={selector} />
                                 </div>
-                                {['event_type', 'action_type'].includes(item.type) && (
-                                    <EventPropertyFilter filter={item as EventTypePropertyFilter} selector={selector} />
+                                {(item.type === 'event_type' || item.type === 'action_type') && (
+                                    <EventPropertyFilter filter={item} selector={selector} />
                                 )}
-                                {item.type === 'person' && (
-                                    <PersonFilter filter={item as PersonPropertyFilter} selector={selector} />
-                                )}
+                                {item.type === 'person' && <PersonFilter filter={item} selector={selector} />}
                                 {item.type === 'recording' && item.key === 'duration' && (
-                                    <DurationFilter filter={item as RecordingPropertyFilter} selector={selector} />
+                                    <DurationFilter filter={item} selector={selector} />
                                 )}
                             </div>
                             {filters.length > 1 && andTag(index < filters.length - 1)}
@@ -125,18 +202,25 @@ export function EditFiltersPanel({ onSubmit }: Props): JSX.Element | null {
                 </div>
             ))}
 
-            <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                {filtersDirty && <div className="text-warning">There are unapplied filters.</div>}
-                <Button disabled={!!activeFilter} onClick={() => openEditFilter({ id: null })}>
-                    <span>
-                        <SaveOutlined /> Save filter
-                    </span>
-                </Button>
-                <Button type="primary" onClick={onSubmit} data-attr="sessions-apply-filters">
-                    <span>
-                        <SearchOutlined /> Apply filters
-                    </span>
-                </Button>
+            <Space style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Space>
+                    <LinkButton to={insightLink}>
+                        <span>View Insights</span>
+                    </LinkButton>
+                </Space>
+                <Space>
+                    {filtersDirty && <div className="text-warning">There are unapplied filters.</div>}
+                    <Button disabled={!!activeFilter} onClick={() => openEditFilter({ id: null })}>
+                        <span>
+                            <SaveOutlined /> Save filter
+                        </span>
+                    </Button>
+                    <Button type="primary" onClick={onSubmit} data-attr="sessions-apply-filters">
+                        <span>
+                            <SearchOutlined /> Apply filters
+                        </span>
+                    </Button>
+                </Space>
             </Space>
         </Card>
     )

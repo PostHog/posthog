@@ -85,21 +85,23 @@ class TestWebhookMessage(BaseTest):
         action1 = Action.objects.create(team=self.team, name="action1", id=1)
 
         token_user_noprop = ["user", "notaproperty"]
-        with self.assertRaises(ValueError):
-            text, markdown = get_value_of_token(action1, event1, "http://localhost:8000", token_user_noprop)
+        text, markdown = get_value_of_token(action1, event1, "http://localhost:8000", token_user_noprop)
+        self.assertEqual(text, "undefined")
 
     def test_get_formatted_message(self) -> None:
         self.team.slack_incoming_webhook = "https://hooks.slack.com/services/"
-        event1 = Event.objects.create(team=self.team, distinct_id="2", properties={"$browser": "Chrome"})
+        event1 = Event.objects.create(
+            team=self.team, distinct_id="2", properties={"$browser": "Chrome", "page_title": "Pricing"}
+        )
         action1 = Action.objects.create(
             team=self.team,
             name="action1",
             id=1,
-            slack_message_format="[user.name] did action from browser [user.browser]",
+            slack_message_format="[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit]",
         )
 
         text, markdown = get_formatted_message(action1, event1, "https://localhost:8000")
-        self.assertEqual(text, "2 did action from browser Chrome")
+        self.assertEqual(text, "2 from Chrome on Pricing page with undefined")
 
     def test_get_formatted_message_default(self) -> None:
         """
@@ -122,4 +124,4 @@ class TestWebhookMessage(BaseTest):
             slack_message_format="[user.name] did thing from browser [user.bbbrowzer]",
         )
         text, markdown = get_formatted_message(action1, event1, "https://localhost:8000")
-        self.assertIn("Error", text)
+        self.assertIn("undefined", text)

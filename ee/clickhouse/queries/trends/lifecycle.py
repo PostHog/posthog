@@ -3,6 +3,8 @@ from typing import Any, Callable, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query import Prefetch
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -31,7 +33,7 @@ class ClickhouseLifecycle(LifecycleTrend):
         elif interval == "month":
             return relativedelta(months=1), "1 MONTH", "1 DAY"
         else:
-            raise ValueError("{interval} not supported")
+            raise ValidationError("{interval} not supported")
 
     def _format_lifecycle_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
         date_from = filter.date_from
@@ -47,13 +49,15 @@ class ClickhouseLifecycle(LifecycleTrend):
         event_params: Dict[str, Any] = {}
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            props_to_filter, team_id, filter_test_accounts=filter.filter_test_accounts
+        )
 
         _, _, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
-                action = Action.objects.get(pk=entity.id)
+                action = entity.get_action()
                 event_query, event_params = format_action_filter(action)
             except:
                 return "", {}, self._parse_result(filter, entity)
@@ -99,7 +103,13 @@ class ClickhouseLifecycle(LifecycleTrend):
         return _parse
 
     def get_people(
-        self, filter: Filter, team_id: int, target_date: datetime, lifecycle_type: str, limit: int = 100,
+        self,
+        filter: Filter,
+        team_id: int,
+        target_date: datetime,
+        lifecycle_type: str,
+        request: Request,
+        limit: int = 100,
     ):
         entity = filter.entities[0]
         date_from = filter.date_from
@@ -120,7 +130,7 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
-                action = Action.objects.get(pk=entity.id)
+                action = entity.get_action()
                 event_query, event_params = format_action_filter(action)
             except:
                 return []
@@ -129,7 +139,9 @@ class ClickhouseLifecycle(LifecycleTrend):
             event_params = {"event": entity.id}
 
         props_to_filter = [*filter.properties, *entity.properties]
-        prop_filters, prop_filter_params = parse_prop_clauses(props_to_filter, team_id)
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            props_to_filter, team_id, filter_test_accounts=filter.filter_test_accounts
+        )
 
         result = sync_execute(
             LIFECYCLE_PEOPLE_SQL.format(

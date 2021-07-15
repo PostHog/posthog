@@ -31,19 +31,15 @@ jobs:
               with:
                   python-version: 3.8
 
-            - uses: actions/cache@v1
-              with:
-                  path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/requirements-dev.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
-
-            - name: Install Python dependencies with pip
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-backend-tests
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  python -m pip install -U pip
-                  python -m pip install -r requirements.txt
                   python -m pip install -r requirements-dev.txt
-              if: steps.cache.outputs.cache-hit != 'true'
+                  python -m pip install -r requirements.txt
 
             - name: Check formatting
               run: |
@@ -66,6 +62,7 @@ jobs:
     django:
         name: Django tests – Py ${{ matrix.python-version }}
         runs-on: ubuntu-latest
+
         strategy:
             fail-fast: false
             matrix:
@@ -96,19 +93,15 @@ jobs:
               with:
                   python-version: ${{ matrix.python-version }}
 
-            - uses: actions/cache@v1
-              with:
-                  path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-${{ matrix.python-version }}-
-
-            - name: Install requirements.txt dependencies with pip
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-backend-tests
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  python -m pip install --upgrade pip
+                  python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-django
-              if: steps.cache.outputs.cache-hit != 'true'
 
             - name: Check migrations
               env:
@@ -184,20 +177,15 @@ jobs:
               with:
                   python-version: 3.8
 
-            - uses: actions/cache@v2
-              with:
-                  path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
-
-            - name: Install requirements.txt dependencies with pip
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-backend-tests
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  cd deploy
-                  python -m pip install --upgrade pip
-                  python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-django
-              if: steps.cache.outputs.cache-hit != 'true'
+                  python -m pip install -r deploy/requirements-dev.txt
+                  python -m pip install -r deploy/requirements.txt
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
@@ -212,6 +200,13 @@ jobs:
               uses: actions/checkout@v2
               with:
                   path: 'deploy/'
+
+            - name: Install requirements.txt dependencies with pip at current branch
+              run: |
+                  cd deploy
+                  python -m pip install --upgrade pip
+                  python -m pip install -r requirements.txt
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
 
             - name: Link posthog-cloud at current branch
               run: |
@@ -250,6 +245,7 @@ jobs:
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
               run: |
+                  source .env.template
                   cd deploy
                   pytest multi_tenancy messaging -m "not skip_on_multitenancy"
             - name: Run EE tests
@@ -262,7 +258,7 @@ jobs:
                   CLICKHOUSE_VERIFY: 'False'
               run: |
                   cd deploy/
-                  pytest ee
+                  pytest ee -s -m "not skip_on_multitenancy"
 
     foss:
         name: Django tests – FOSS
@@ -288,19 +284,15 @@ jobs:
               with:
                   python-version: 3.8
 
-            - uses: actions/cache@v1
-              with:
-                  path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pip-
-
-            - name: Install requirements.txt dependencies with pip
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-backend-tests
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  python -m pip install --upgrade pip
+                  python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-django
-              if: steps.cache.outputs.cache-hit != 'true'
 
             - name: Remove ee
               run: |

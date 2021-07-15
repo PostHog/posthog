@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Button, Dropdown } from 'antd'
+import { Button, Card, Dropdown, Switch, Tooltip } from 'antd'
 import {
     ProjectOutlined,
     DownOutlined,
@@ -17,65 +17,126 @@ import {
     SearchOutlined,
     SettingOutlined,
     UserAddOutlined,
+    InfoCircleOutlined,
 } from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { hot } from 'react-hot-loader/root'
 import { isMobile, platformCommandControlKey } from 'lib/utils'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
-import { BulkInviteModal } from 'scenes/organization/TeamMembers/BulkInviteModal'
+import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
 import { UserType } from '~/types'
-import { CreateInviteModalWithButton } from 'scenes/organization/TeamMembers/CreateInviteModal'
+import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Environments } from 'lib/constants'
+import md5 from 'md5'
+
+export interface ProfilePictureProps {
+    name?: string
+    email?: string
+    small?: boolean
+}
+
+export function ProfilePicture({ name, email, small }: ProfilePictureProps): JSX.Element {
+    const [didImageError, setDidImageError] = useState(false)
+    const pictureClass = small ? 'profile-picture small' : 'profile-picture'
+    if (email && !didImageError) {
+        const emailHash = md5(email.trim().toLowerCase())
+        const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
+        return (
+            <img
+                className={pictureClass}
+                src={gravatarUrl}
+                onError={() => setDidImageError(true)}
+                title={`This is ${email}'s Gravatar.`}
+                alt=""
+            />
+        )
+    } else if (name) {
+        return <div className={pictureClass}>{name[0]?.toUpperCase()}</div>
+    } else if (email) {
+        return <div className={pictureClass}>{email[0]?.toUpperCase()}</div>
+    }
+    return <div className={pictureClass}>?</div>
+}
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
         <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
-            <div className="pp">{user.name[0]?.toUpperCase()}</div>
+            <ProfilePicture name={user.first_name} email={user.email} />
             <div className="details hide-lte-lg">
-                <span>{user.name}</span>
+                <span>{user.first_name}</span>
                 <span>{user.organization?.name}</span>
             </div>
         </div>
     )
 }
 
-export const TopNavigation = hot(_TopNavigation)
-export function _TopNavigation(): JSX.Element {
-    const {
-        setMenuCollapsed,
-        setChangelogModalOpen,
-        updateCurrentOrganization,
-        updateCurrentProject,
-        setInviteMembersModalOpen,
-    } = useActions(navigationLogic)
-    const { menuCollapsed, systemStatus, updateAvailable, changelogModalOpen, inviteMembersModalOpen } = useValues(
+export function TopNavigation(): JSX.Element {
+    const { setMenuCollapsed, setChangelogModalOpen, setInviteMembersModalOpen, setFilteredEnvironment } = useActions(
         navigationLogic
     )
+    const {
+        menuCollapsed,
+        systemStatus,
+        updateAvailable,
+        changelogModalOpen,
+        inviteMembersModalOpen,
+        filteredEnvironment,
+    } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
-    const { logout } = useActions(userLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { billing } = useValues(billingLogic)
+    const { logout, updateCurrentTeam, updateCurrentOrganization } = useActions(userLogic)
     const { showUpgradeModal } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
     const { push } = router.actions
     const { showPalette } = useActions(commandPaletteLogic)
     const [projectModalShown, setProjectModalShown] = useState(false) // TODO: Move to Kea (using useState for backwards-compatibility with TopSelectors.tsx)
     const [organizationModalShown, setOrganizationModalShown] = useState(false) // TODO: Same as above
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
             <div className="whoami" style={{ paddingRight: 16, paddingLeft: 16 }}>
-                <div className="pp">{user?.name[0]?.toUpperCase()}</div>
+                <ProfilePicture name={user?.first_name} email={user?.email} />
                 <div className="details">
                     <span>{user?.email}</span>
                     <span>{user?.organization?.name}</span>
                 </div>
             </div>
             <div className="text-center mt" style={{ paddingRight: 16, paddingLeft: 16 }}>
+                {preflight?.cloud && billing?.should_display_current_bill && (
+                    <Link to="/organization/billing" data-attr="top-menu-billing-usage">
+                        <Card
+                            bodyStyle={{ padding: 4, fontWeight: 'bold' }}
+                            style={{ marginBottom: 16, cursor: 'pointer' }}
+                        >
+                            <span className="text-small text-muted">
+                                <b>Current usage</b>
+                            </span>
+                            <div style={{ fontSize: '1.05rem' }}>
+                                {billing?.current_bill_amount !== undefined && billing?.current_bill_amount !== null ? (
+                                    `$${billing?.current_bill_amount?.toLocaleString()}`
+                                ) : (
+                                    <>
+                                        Unavailable{' '}
+                                        <Tooltip title="We can't show your current bill amount right now. Please check back in a few minutes. If you keep seeing this message, contact us.">
+                                            <InfoCircleOutlined />
+                                        </Tooltip>
+                                    </>
+                                )}
+                            </div>
+                        </Card>
+                    </Link>
+                )}
                 <div>
-                    {user?.email_service_available ? (
+                    {preflight?.email_service_available ? (
                         <Button
                             type="primary"
                             icon={<UserAddOutlined />}
@@ -91,7 +152,7 @@ export function _TopNavigation(): JSX.Element {
                 </div>
                 <div style={{ marginTop: 10 }}>
                     <LinkButton
-                        to="/organization/members"
+                        to="/organization/settings"
                         data-attr="top-menu-item-org-settings"
                         style={{ width: '100%' }}
                         icon={<SettingOutlined />}
@@ -99,7 +160,7 @@ export function _TopNavigation(): JSX.Element {
                         Organization Settings
                     </LinkButton>
                 </div>
-                {user?.is_multi_tenancy ? (
+                {preflight?.cloud ? (
                     <div className="mt-05">
                         <Link to="/organization/billing" data-attr="top-menu-item-billing">
                             Billing
@@ -118,7 +179,7 @@ export function _TopNavigation(): JSX.Element {
                     </Link>
                 </div>
             </div>
-            <div className="divider mt-05" />
+            {((user?.organizations.length ?? 0) > 1 || preflight?.can_create_org) && <div className="divider mt-05" />}
             <div className="organizations">
                 {user?.organizations.map((organization) => {
                     if (organization.id == user.organization?.id) {
@@ -130,26 +191,30 @@ export function _TopNavigation(): JSX.Element {
                         </a>
                     )
                 })}
-                <a
-                    style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
-                    onClick={() =>
-                        guardPremiumFeature(
-                            user,
-                            showUpgradeModal,
-                            'organizations_projects',
-                            'multiple organizations',
-                            () => {
-                                setOrganizationModalShown(true)
-                            },
-                            {
-                                cloud: false,
-                                selfHosted: true,
-                            }
-                        )
-                    }
-                >
-                    <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
-                </a>
+                {preflight?.can_create_org && (
+                    <a
+                        style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
+                        onClick={() =>
+                            guardPremiumFeature(
+                                user,
+                                preflight,
+                                showUpgradeModal,
+                                'organizations_projects',
+                                'multiple organizations',
+                                'Organizations group people building products together. An organization can then have multiple projects.',
+                                () => {
+                                    setOrganizationModalShown(true)
+                                },
+                                {
+                                    cloud: false,
+                                    selfHosted: true,
+                                }
+                            )
+                        }
+                    >
+                        <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
+                    </a>
+                )}
             </div>
             <div className="divider mb-05" />
             <div className="text-center">
@@ -167,7 +232,7 @@ export function _TopNavigation(): JSX.Element {
                 {user?.organization?.teams &&
                     user.organization.teams.map((team) => {
                         return (
-                            <a onClick={() => updateCurrentProject(team.id, '/')} key={team.id}>
+                            <a onClick={() => updateCurrentTeam(team.id, '/')} key={team.id}>
                                 <span style={{ flexGrow: 1 }}>{team.name}</span>
                                 <span
                                     className="settings"
@@ -176,7 +241,7 @@ export function _TopNavigation(): JSX.Element {
                                         if (team.id === user?.team?.id) {
                                             push('/project/settings')
                                         } else {
-                                            updateCurrentProject(team.id, '/project/settings')
+                                            updateCurrentTeam(team.id, '/project/settings')
                                         }
                                     }}
                                 >
@@ -192,9 +257,11 @@ export function _TopNavigation(): JSX.Element {
                     onClick={() =>
                         guardPremiumFeature(
                             user,
+                            preflight,
                             showUpgradeModal,
                             'organizations_projects',
                             'multiple projects',
+                            'Projects allow you to separate data and configuration for different products or environments.',
                             () => {
                                 setProjectModalShown(true)
                             }
@@ -226,7 +293,7 @@ export function _TopNavigation(): JSX.Element {
                                 type="primary"
                             />
                         )}
-                        {(!user?.is_multi_tenancy || user.is_staff) && (
+                        {(!preflight?.cloud || user?.is_staff) && (
                             <Badge
                                 data-attr="system-status-badge"
                                 type={systemStatus ? 'success' : 'danger'}
@@ -235,7 +302,7 @@ export function _TopNavigation(): JSX.Element {
                                 className="mr"
                             />
                         )}
-                        {!user?.is_multi_tenancy && (
+                        {!preflight?.cloud && (
                             <Badge
                                 data-attr="update-indicator-badge"
                                 type={updateAvailable ? 'warning' : undefined}
@@ -256,6 +323,30 @@ export function _TopNavigation(): JSX.Element {
                 </div>
                 {user && (
                     <div>
+                        {featureFlags['test-environment-3149'] && (
+                            <div className="global-environment-switch">
+                                <label
+                                    htmlFor="global-environment-switch"
+                                    className={filteredEnvironment === Environments.TEST ? 'test' : ''}
+                                >
+                                    <Tooltip title="Toggle to view only test or production data everywhere. Click to learn more.">
+                                        <a href="https://posthog.com/docs" target="_blank" rel="noopener">
+                                            <InfoCircleOutlined />
+                                        </a>
+                                    </Tooltip>
+                                    {filteredEnvironment === Environments.PRODUCTION ? 'Production' : 'Test'}
+                                </label>
+                                <Switch
+                                    // @ts-expect-error - below works even if it's not defined as a prop
+                                    id="global-environment-switch"
+                                    checked={filteredEnvironment === Environments.PRODUCTION}
+                                    defaultChecked={filteredEnvironment === Environments.PRODUCTION}
+                                    onChange={(val) =>
+                                        setFilteredEnvironment(val ? Environments.PRODUCTION : Environments.TEST)
+                                    }
+                                />
+                            </div>
+                        )}
                         <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
                             <div>
                                 <WhoAmI user={user} />

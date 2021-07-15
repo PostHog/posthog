@@ -3,19 +3,25 @@ import { useValues, useActions, useMountedLogic } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { actionsModel } from '~/models/actionsModel'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Link } from 'lib/components/Link'
 import { Button, Row } from 'antd'
 import { useState } from 'react'
-import SaveModal from '../../SaveModal'
+import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
+import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
+import { InsightTitle } from '../InsightTitle'
+import { SaveOutlined } from '@ant-design/icons'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
+import { InsightActionBar } from '../InsightActionBar'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic())
+    const { isStepsEmpty, filters, stepsWithCount, clickhouseFeatures } = useValues(funnelLogic())
+    const { featureFlags } = useValues(featureFlagLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
-    const { actions, actionsLoading } = useValues(actionsModel)
     const [savingModal, setSavingModal] = useState<boolean>(false)
 
     const showModal = (): void => setSavingModal(true)
@@ -27,24 +33,41 @@ export function FunnelTab(): JSX.Element {
 
     return (
         <div data-attr="funnel-tab">
+            <InsightTitle
+                actionBar={
+                    clickhouseFeatures ? (
+                        <InsightActionBar
+                            variant="sidebar"
+                            filters={filters}
+                            insight="FUNNELS"
+                            showReset={!isStepsEmpty || !!filters.properties?.length}
+                            onReset={(): void => clearFunnel()}
+                        />
+                    ) : undefined
+                }
+            />
+            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && (
+                <div style={{ paddingBottom: '1rem' }}>
+                    <h4 className="secondary">Graph Type</h4>
+                    <ToggleButtonChartFilter />
+                </div>
+            )}
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
                     loadResults()
                 }}
             >
-                {!actionsLoading && actions.length === 0 && (
-                    <div className="alert alert-warning" style={{ marginTop: '1rem' }}>
-                        You don't have any actions set up. <Link to="/actions">Click here to set up an action</Link>
-                    </div>
-                )}
                 <h4 className="secondary">Steps</h4>
                 <ActionFilter
                     filters={filters}
-                    setFilters={(filters: Record<string, any>): void => setFilters(filters, false)}
+                    setFilters={(newFilters: Record<string, any>): void => setFilters(newFilters, false)}
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
-                    copy="Add funnel step"
+                    buttonCopy="Add funnel step"
+                    showSeriesIndicator={!isStepsEmpty && featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
+                    seriesIndicatorType="numeric"
+                    fullWidth={featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
                     sortable
                 />
                 <hr />
@@ -52,36 +75,41 @@ export function FunnelTab(): JSX.Element {
                 <PropertyFilters
                     pageKey={`EditFunnel-property`}
                     propertyFilters={filters.properties || []}
-                    onChange={(properties: Record<string, any>): void =>
+                    onChange={(anyProperties) => {
                         setFilters({
-                            properties,
+                            properties: anyProperties.filter(isValidPropertyFilter),
                         })
-                    }
+                    }}
                 />
-                <hr />
-                <Row justify="space-between">
-                    <Row justify="start">
-                        <Button
-                            style={{ marginRight: 4 }}
-                            type="primary"
-                            htmlType="submit"
-                            disabled={isStepsEmpty}
-                            data-attr="save-funnel-button"
-                        >
-                            Calculate
-                        </Button>
-                        {!isStepsEmpty && (
-                            <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
-                                Clear
+                <TestAccountFilter filters={filters} onChange={setFilters} />
+                {!clickhouseFeatures && (
+                    <>
+                        <hr />
+                        <Row style={{ justifyContent: 'flex-end' }}>
+                            {!isStepsEmpty && Array.isArray(stepsWithCount) && !!stepsWithCount.length && (
+                                <div style={{ flexGrow: 1 }}>
+                                    <Button type="primary" onClick={showModal} icon={<SaveOutlined />}>
+                                        Save
+                                    </Button>
+                                </div>
+                            )}
+                            {!isStepsEmpty && (
+                                <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
+                                    Clear
+                                </Button>
+                            )}
+                            <Button
+                                style={{ marginLeft: 4 }}
+                                type="primary"
+                                htmlType="submit"
+                                disabled={isStepsEmpty}
+                                data-attr="save-funnel-button"
+                            >
+                                Calculate
                             </Button>
-                        )}
-                    </Row>
-                    {!isStepsEmpty && Array.isArray(stepsWithCount) && !!stepsWithCount.length && (
-                        <Button type="primary" onClick={showModal}>
-                            Save
-                        </Button>
-                    )}
-                </Row>
+                        </Row>
+                    </>
+                )}
             </form>
             <SaveModal
                 title="Save Funnel"

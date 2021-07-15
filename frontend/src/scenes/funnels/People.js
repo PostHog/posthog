@@ -1,9 +1,10 @@
+// DEPRECATED: We now use the PersonModal.tsx to show person information for funnels
 import React from 'react'
 import { useValues } from 'kea'
 import { funnelLogic } from './funnelLogic'
 import { Link } from 'lib/components/Link'
 import { percentage, Loading } from 'lib/utils'
-import { EntityTypes } from 'scenes/trends/trendsLogic'
+import { EntityTypes } from '~/types'
 import './FunnelPeople.scss'
 import { Card } from 'antd'
 
@@ -46,9 +47,11 @@ export function People() {
                         </tr>
                         {peopleSorted &&
                             peopleSorted.map((person) => (
-                                <tr key={person.id}>
+                                <tr key={person.id} data-attr="funnel-person">
                                     <td className="text-overflow">
-                                        <Link to={`/person_by_id/${person.id}`}>{person.name}</Link>
+                                        <Link to={`/person/${encodeURIComponent(person.distinct_ids[0])}`}>
+                                            {person.name}
+                                        </Link>
                                     </td>
                                     {stepsWithCount.map((step, index) => (
                                         <td

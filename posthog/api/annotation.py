@@ -1,4 +1,3 @@
-from distutils.util import strtobool
 from typing import Any, Dict
 
 import posthoganalytics
@@ -10,14 +9,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_hooks.signals import raw_hook_event
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.user import UserSerializer
+from posthog.api.shared import UserBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Annotation, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.utils import str_to_bool
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
-    created_by = UserSerializer(required=False, read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
         model = Annotation
@@ -80,12 +80,10 @@ class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             elif key == "scope":
                 queryset = queryset.filter(scope=request.GET["scope"])
             elif key == "apply_all":
-                queryset_method = (
-                    queryset.exclude if bool(strtobool(str(request.GET["apply_all"]))) else queryset.filter
-                )
+                queryset_method = queryset.exclude if str_to_bool(request.GET["apply_all"]) else queryset.filter
                 queryset = queryset_method(scope="dashboard_item")
             elif key == "deleted":
-                queryset = queryset.filter(deleted=bool(strtobool(str(request.GET["deleted"]))))
+                queryset = queryset.filter(deleted=str_to_bool(request.GET["deleted"]))
 
         return queryset
 

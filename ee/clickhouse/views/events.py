@@ -1,9 +1,10 @@
 import json
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from django.utils.timezone import now
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -23,24 +24,30 @@ from ee.clickhouse.sql.events import (
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
-from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
+from posthog.models.utils import UUIDT
 from posthog.utils import convert_property_value, flatten
 
 
 class ClickhouseEventsViewSet(EventViewSet):
+
+    serializer_class = ClickhouseEventSerializer  # type: ignore
+
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
         distinct_ids = [event[5] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-
         distinct_to_person: Dict[str, Person] = {}
         for person in persons:
             for distinct_id in person.distinct_ids:
                 distinct_to_person[distinct_id] = person
         return distinct_to_person
 
-    def _query_events_list(self, filter: Filter, team: Team, request: Request, long_date_from: bool = False) -> List:
-        limit = "LIMIT 101"
+    def _query_events_list(
+        self, filter: Filter, team: Team, request: Request, long_date_from: bool = False, limit: int = 100
+    ) -> List:
+        limit += 1
+        limit_sql = "LIMIT %(limit)s"
         conditions, condition_params = determine_event_conditions(
             team,
             {
@@ -65,33 +72,42 @@ class ClickhouseEventsViewSet(EventViewSet):
 
         if prop_filters != "":
             return sync_execute(
-                SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit, filters=prop_filters),
-                {"team_id": team.pk, **condition_params, **prop_filter_params},
+                SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit_sql, filters=prop_filters),
+                {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             )
         else:
             return sync_execute(
-                SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit),
-                {"team_id": team.pk, **condition_params},
+                SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit_sql),
+                {"team_id": team.pk, "limit": limit, **condition_params},
             )
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        if is_csv_request:
+            limit = self.CSV_EXPORT_LIMIT
+        elif self.request.GET.get("limit", None):
+            limit = int(self.request.GET.get("limit"))  # type: ignore
+        else:
+            limit = 100
+
         team = self.team
         filter = Filter(request=request)
 
-        query_result = self._query_events_list(filter, team, request)
+        query_result = self._query_events_list(filter, team, request, limit=limit)
 
         # Retry the query without the 1 day optimization
-        if len(query_result) < 100 and not request.GET.get("after"):
-            query_result = self._query_events_list(filter, team, request, long_date_from=True)
+        if len(query_result) < limit and not request.GET.get("after"):
+            query_result = self._query_events_list(filter, team, request, long_date_from=True, limit=limit)
 
         result = ClickhouseEventSerializer(
-            query_result[0:100], many=True, context={"people": self._get_people(query_result, team),},
+            query_result[0:limit], many=True, context={"people": self._get_people(query_result, team),},
         ).data
 
-        if len(query_result) > 100:
+        next_url: Optional[str] = None
+        if not is_csv_request and len(query_result) > 100:
             path = request.get_full_path()
             reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
-            next_url: Optional[str] = request.build_absolute_uri(
+            next_url = request.build_absolute_uri(
                 "{}{}{}={}".format(
                     path,
                     "&" if "?" in path else "?",
@@ -99,16 +115,17 @@ class ClickhouseEventsViewSet(EventViewSet):
                     query_result[99][3].strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                 )
             )
-        else:
-            next_url = None
 
         return Response({"next": next_url, "results": result})
 
-    def retrieve(self, request: Request, pk: Optional[int] = None, *args: Any, **kwargs: Any) -> Response:
-        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk},)
-        result = ClickhouseEventSerializer(query_result[0], many=False).data
-
-        return Response(result)
+    def retrieve(self, request: Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any) -> Response:
+        if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
+            return Response({"detail": "Invalid UUID", "code": "invalid", "type": "validation_error",}, status=400)
+        query_result = sync_execute(SELECT_ONE_EVENT_SQL, {"team_id": self.team.pk, "event_id": pk.replace("-", "")})
+        if len(query_result) == 0:
+            raise NotFound(detail=f"No events exist for event UUID {pk}")
+        res = ClickhouseEventSerializer(query_result[0], many=False).data
+        return Response(res)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request, **kwargs) -> Response:
@@ -136,6 +153,13 @@ class ClickhouseEventsViewSet(EventViewSet):
         sessions, pagination = ClickhouseSessionsList.run(team=self.team, filter=filter)
         return Response({"result": sessions, "pagination": pagination})
 
+    @action(methods=["GET"], detail=False)
+    def session_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        from ee.clickhouse.queries.sessions.events import SessionsListEvents
+
+        filter = SessionEventsFilter(request=request)
+        return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
+
     # ******************************************
     # /event/session_recording
     # params:
@@ -144,6 +168,16 @@ class ClickhouseEventsViewSet(EventViewSet):
     # ******************************************
     @action(methods=["GET"], detail=False)
     def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not request.GET.get("session_recording_id"):
+            return Response(
+                {
+                    "detail": "The query parameter session_recording_id is required for this endpoint.",
+                    "type": "validation_error",
+                    "code": "invalid",
+                },
+                status=400,
+            )
+
         session_recording = SessionRecording().run(
             team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
         )

@@ -4,8 +4,16 @@ module.exports = {
         '@babel/plugin-transform-runtime',
         '@babel/plugin-transform-react-jsx',
         '@babel/plugin-proposal-class-properties',
-        'react-hot-loader/babel',
         ['babel-plugin-kea', { path: './frontend/src' }],
     ],
-    presets: ['@babel/preset-env', '@babel/typescript'],
+    presets: [
+        [
+            '@babel/preset-env',
+            {
+                useBuiltIns: 'usage',
+                corejs: 3,
+            },
+        ],
+        '@babel/typescript',
+    ],
 }

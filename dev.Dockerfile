@@ -1,49 +1,52 @@
 FROM python:3.8-slim
+
 ENV PYTHONUNBUFFERED 1
-RUN mkdir /code
-WORKDIR /code
+ENV DEBUG 1
+
+EXPOSE 8000
+EXPOSE 8234
+
+WORKDIR /code/
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl git build-essential \
+    && apt-get install -y --no-install-recommends 'curl=7.*' 'git=1:2.*' 'build-essential=12.6' 'libpq-dev=11.*' \
     && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+    && curl -sL https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends 'nodejs=14.*' 'postgresql-client-12=12.*' \
+    && rm -rf /var/lib/apt/lists/* \
     && npm install -g yarn@1 \
     && yarn config set network-timeout 300000 \
     && yarn --frozen-lockfile
 
-COPY requirements.txt /code/
-COPY requirements-dev.txt /code/
-# install dependencies but ignore any we don't need for dev environment
-RUN pip install $(grep -ivE "psycopg2" requirements.txt | cut -d'#' -f1) --compile\
-    && pip install psycopg2-binary
+COPY requirements-dev.txt .
+RUN pip install -r requirements-dev.txt --compile --no-cache-dir
 
-# install dev dependencies
-RUN mkdir /code/requirements/
-COPY requirements-dev.txt /code/requirements/
-RUN pip install -r requirements-dev.txt --compile
+COPY requirements.txt .
+RUN pip install -r requirements.txt --no-cache-dir
 
-COPY package.json /code/
-COPY yarn.lock /code/
-COPY webpack.config.js /code/
-COPY postcss.config.js /code/
-COPY babel.config.js /code/
-COPY tsconfig.json /code/
-COPY .kearc /code/
-COPY frontend/ /code/frontend
+COPY package.json .
+COPY yarn.lock .
+COPY webpack.config.js .
+COPY postcss.config.js .
+COPY babel.config.js .
+COPY tsconfig.json .
+COPY .kearc .
+COPY frontend/ frontend/
 
-RUN mkdir /code/plugins
-COPY plugins/package.json /code/plugins/
-COPY plugins/yarn.lock /code/plugins/
+RUN mkdir plugins
+COPY plugins/package.json plugins/
+COPY plugins/yarn.lock plugins/
 
-RUN mkdir /code/frontend/dist
+COPY . .
 
-COPY . /code/
+# generate Django's static files
+RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' mkdir frontend/dist && python manage.py collectstatic --noinput
 
-RUN DEBUG=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+# install frontend dependencies
+RUN yarn install && yarn install --cwd plugins && yarn cache clean
 
-EXPOSE 8000
-EXPOSE 8234
-RUN yarn install
-RUN cd plugins && yarn install
-ENV DEBUG 1
 CMD ["./bin/docker-dev"]

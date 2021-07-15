@@ -1,5 +1,10 @@
-from django.contrib.postgres.fields import JSONField
+import json
+
 from django.db import models
+from django.db.models.signals import post_delete, post_save
+from django.dispatch.dispatcher import receiver
+
+from posthog.redis import get_client
 
 
 class ActionStep(models.Model):
@@ -20,6 +25,21 @@ class ActionStep(models.Model):
     url_matching: models.CharField = models.CharField(
         max_length=400, choices=URL_MATCHING, default=CONTAINS, null=True, blank=True,
     )
-    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     event: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    properties: JSONField = JSONField(default=list, null=True, blank=True)
+    properties: models.JSONField = models.JSONField(default=list, null=True, blank=True)
+    # DEPRECATED, DISUSED
+    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+
+
+@receiver(post_save, sender=ActionStep)
+def action_step_saved(sender, instance: ActionStep, created, **kwargs):
+    get_client().publish(
+        "reload-action", json.dumps({"teamId": instance.action.team_id, "actionId": instance.action.id})
+    )
+
+
+@receiver(post_delete, sender=ActionStep)
+def action_step_deleted(sender, instance: ActionStep, **kwargs):
+    get_client().publish(
+        "reload-action", json.dumps({"teamId": instance.action.team_id, "actionId": instance.action.id})
+    )

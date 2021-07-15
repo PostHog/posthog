@@ -1,13 +1,15 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
-from django.contrib.postgres.fields import JSONField
+from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.db.models.query import QuerySet
+from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
+from posthog.email import is_email_available
 from posthog.utils import mask_email_address
 
 from .utils import UUIDModel, sane_repr
@@ -43,6 +45,28 @@ class OrganizationManager(models.Manager):
 
 
 class Organization(UUIDModel):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["for_internal_metrics"],
+                condition=Q(for_internal_metrics=True),
+                name="single_for_internal_metrics",
+            ),
+        ]
+
+    class PluginsAccessLevel(models.IntegerChoices):
+        # None means the organization can't use plugins at all. They're hidden. Cloud default.
+        NONE = 0, "none"
+        # Config means the organization can only enable/disable/configure globally managed plugins.
+        # This prevents config orgs from running untrusted code, which the next levels can do.
+        CONFIG = 3, "config"
+        # Install means the organization has config capabilities + can install own editor/GitHub/GitLab/npm plugins.
+        # The plugin repository is off limits, as repository installations are managed by root orgs to avoid confusion.
+        INSTALL = 6, "install"
+        # Root means the organization has unrestricted plugins access on the instance. Self-hosted default.
+        # This includes installing plugins from the repository and managing plugin installations for all other orgs.
+        ROOT = 9, "root"
+
     members: models.ManyToManyField = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
@@ -53,9 +77,15 @@ class Organization(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
-    personalization: JSONField = JSONField(default=dict, null=False)
+    personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
+    plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
+        choices=PluginsAccessLevel.choices,
+    )
+    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
+    for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
 
-    objects = OrganizationManager()
+    objects: OrganizationManager = OrganizationManager()
 
     def __str__(self):
         return self.name
@@ -86,14 +116,16 @@ class Organization(UUIDModel):
     def billing_plan(self) -> Optional[str]:
         return self._billing_plan_details[0]
 
-    @property
-    def available_features(self) -> List[str]:
+    def update_available_features(self) -> List[str]:
+        """Updates field `available_features`. Does not `save()`."""
         plan, realm = self._billing_plan_details
         if not plan:
-            return []
-        if realm == "ee":
-            return License.PLANS.get(plan, [])
-        return self.billing.available_features  # type: ignore
+            self.available_features = []
+        elif realm == "ee":
+            self.available_features = License.PLANS.get(plan, [])
+        else:
+            self.available_features = self.billing.available_features  # type: ignore
+        return self.available_features
 
     def is_feature_available(self, feature: str) -> bool:
         return feature in self.available_features
@@ -110,6 +142,26 @@ class Organization(UUIDModel):
         self.setup_section_2_completed = True
         self.save()
         return self
+
+    def get_analytics_metadata(self):
+        return {
+            "member_count": self.members.count(),
+            "project_count": self.teams.count(),
+            "person_count": sum((team.person_set.count() for team in self.teams.all())),
+            "setup_section_2_completed": self.setup_section_2_completed,
+            "personalization": self.personalization,
+        }
+
+
+@receiver(models.signals.pre_save, sender=Organization)
+def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
+    if instance._state.adding:
+        instance.update_available_features()
+
+
+@receiver(models.signals.pre_delete, sender=Organization)
+def organization_about_to_be_deleted(sender, instance, **kwargs):
+    instance.teams.all().delete()
 
 
 class OrganizationMembership(UUIDModel):
@@ -221,6 +273,10 @@ class OrganizationInvite(UUIDModel):
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization)
+        if is_email_available(with_absolute_urls=True):
+            from posthog.tasks.email import send_member_join
+
+            send_member_join.apply_async(kwargs={"invitee_uuid": user.uuid, "organization_id": self.organization.id})
         OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:

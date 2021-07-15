@@ -12,6 +12,7 @@ from typing import (
 
 from django.db import connection
 
+from posthog.helpers.session_recording import decompress_chunked_snapshot_data
 from posthog.models import Person, SessionRecordingEvent, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
@@ -36,7 +37,7 @@ SESSIONS_IN_RANGE_QUERY = """
             MIN(timestamp) as start_time,
             MAX(timestamp) as end_time,
             MAX(timestamp) - MIN(timestamp) as duration,
-            COUNT(*) FILTER(where snapshot_data->>'type' = '2') as full_snapshots
+            COUNT(*) FILTER(where snapshot_data->>'type' = '2' OR (snapshot_data->>'has_full_snapshot')::boolean) as full_snapshots
         FROM posthog_sessionrecordingevent
         WHERE
             team_id = %(team_id)s
@@ -63,6 +64,8 @@ class SessionRecording:
         from posthog.api.person import PersonSerializer
 
         distinct_id, start_time, snapshots = self.query_recording_snapshots(team, session_recording_id)
+        snapshots = list(decompress_chunked_snapshot_data(team.pk, session_recording_id, snapshots))
+
         person = (
             PersonSerializer(Person.objects.get(team=team, persondistinctid__distinct_id=distinct_id)).data
             if distinct_id
@@ -99,7 +102,7 @@ def query_sessions_in_range(
 
 
 # :TRICKY: This mutates sessions list
-def filter_sessions_by_recordings(
+def join_with_session_recordings(
     team: Team, sessions_results: List[Any], filter: SessionsFilter, query: Callable = query_sessions_in_range
 ) -> List[Any]:
     if len(sessions_results) == 0:
@@ -128,7 +131,17 @@ def collect_matching_recordings(
 ) -> Generator[Dict, None, None]:
     for recording in session_recordings:
         if matches(session, recording, filter, viewed):
-            yield {"id": recording["session_id"], "viewed": recording["session_id"] in viewed}
+            if isinstance(recording["duration"], datetime.timedelta):
+                # postgres
+                recording_duration = recording["duration"].total_seconds()
+            else:
+                # clickhouse
+                recording_duration = recording["duration"]
+            yield {
+                "id": recording["session_id"],
+                "recording_duration": recording_duration or 0,
+                "viewed": recording["session_id"] in viewed,
+            }
 
 
 def matches(session: Any, session_recording: Any, filter: SessionsFilter, viewed: Set[str]) -> bool:

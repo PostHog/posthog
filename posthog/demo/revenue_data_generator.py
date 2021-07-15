@@ -6,16 +6,16 @@ from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.demo.data_generator import DataGenerator
-from posthog.models import Action, ActionStep, Dashboard, DashboardItem, Person
+from posthog.models import Action, ActionStep, Dashboard, DashboardItem, EventDefinition, Person, PropertyDefinition
 
 
 class RevenueDataGenerator(DataGenerator):
     def create_missing_events_and_properties(self):
-        self.add_if_not_contained(self.team.event_names, "purchase")
-        self.add_if_not_contained(self.team.event_names, "entered_free_trial")
-        self.add_if_not_contained(self.team.event_properties, "plan")
-        self.add_if_not_contained(self.team.event_properties, "first_visit")
-        self.add_if_not_contained(self.team.event_properties_numerical, "purchase_value")
+        EventDefinition.objects.get_or_create(team=self.team, name="purchase")
+        EventDefinition.objects.get_or_create(team=self.team, name="entered_free_trial")
+        PropertyDefinition.objects.get_or_create(team=self.team, name="plan")
+        PropertyDefinition.objects.get_or_create(team=self.team, name="first_visit")
+        PropertyDefinition.objects.get_or_create(team=self.team, name="purchase_value", is_numerical=True)
 
     def populate_person_events(self, person: Person, distinct_id: str, index: int):
         if random.randint(0, 10) <= 4:
@@ -43,7 +43,7 @@ class RevenueDataGenerator(DataGenerator):
                     self.add_event(
                         event="purchase",
                         distinct_id=distinct_id,
-                        properties={"plan": plan, "purchase_value": value,},
+                        properties={"plan": plan, "purchase_value": value},
                         timestamp=now() - relativedelta(days=j * 29 + base_days),
                     )
 

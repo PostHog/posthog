@@ -24,7 +24,7 @@ from django.db.models.expressions import ExpressionWrapper, F, RawSQL, Subquery
 from django.db.models.fields import DateTimeField
 from django.db.models.functions import Cast
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE, TRENDS_PIE, TRENDS_TABLE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE, TRENDS_LIFECYCLE
 from posthog.models import (
     Action,
     ActionStep,
@@ -95,10 +95,11 @@ def build_dataarray(
             )
         cohort_keys = list(dict.fromkeys(cohort_keys))  # getting unique breakdowns keeping their order
 
-    # following finds top 20 breakdown in given queryset then removes other rows from data array
+    # following finds top 25 breakdown in given queryset then removes other rows from data array
+    # only 20 will be returned in the payload but we find extra keys for paginating purposes
     if len(cohort_keys) > 20:
-        top20keys = [x[0] for x in sorted(cohort_dict.items(), key=lambda x: -x[1])[:20]]
-        cohort_keys = [key for key in top20keys if key in cohort_keys]
+        top25keys = [x[0] for x in sorted(cohort_dict.items(), key=lambda x: -x[1])[:25]]
+        cohort_keys = [key for key in top25keys if key in cohort_keys]
         data_array = list(filter(lambda d: d["breakdown"] in cohort_keys, data_array))
 
     if interval == "week":
@@ -284,10 +285,9 @@ def process_math(query: QuerySet, entity: Entity) -> QuerySet:
 def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
     ret_dict: Dict[str, Optional[Union[str, int]]] = {}
     if not value or not isinstance(value, str) or "cohort_" not in value:
-        ret_dict["label"] = "{} - {}".format(
-            entity.name, value if value and value != "None" and value != "nan" else "Other",
-        )
-        ret_dict["breakdown_value"] = value if value else None
+        label = value if (value or type(value) == bool) and value != "None" and value != "nan" else "Other"
+        ret_dict["label"] = "{} - {}".format(entity.name, label,)
+        ret_dict["breakdown_value"] = label
     else:
         if value == "cohort_all":
             ret_dict["label"] = "{} - all users".format(entity.name)
@@ -307,7 +307,7 @@ class Trends(LifecycleTrend, BaseQuery):
         elif filter.shown_as == TRENDS_LIFECYCLE:
             result = self._serialize_lifecycle(entity, filter, team_id)
         else:
-            result = self._format_normal_query(entity, filter, team_id)
+            result = self._format_total_volume_query(entity, filter, team_id)
 
         serialized_data = self._format_serialized(entity, result)
 
@@ -330,13 +330,14 @@ class Trends(LifecycleTrend, BaseQuery):
             )
         return filter
 
-    def _format_normal_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+    def _format_total_volume_query(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         events = process_entity_for_events(entity=entity, team_id=team_id, order_by="-timestamp",)
+
         items, filtered_events = aggregate_by_interval(events=events, team_id=team_id, entity=entity, filter=filter,)
         formatted_entities: List[Dict[str, Any]] = []
         for _, item in items.items():
             formatted_data = append_data(dates_filled=list(item.items()), interval=filter.interval)
-            if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+            if filter.display in TRENDS_DISPLAY_BY_VALUE:
                 formatted_data.update({"aggregated_value": get_aggregate_total(filtered_events, entity)})
             formatted_entities.append(formatted_data)
         return formatted_entities
@@ -355,7 +356,7 @@ class Trends(LifecycleTrend, BaseQuery):
             new_dict = append_data(dates_filled=list(item.items()), interval=filter.interval)
             if value != "Total":
                 new_dict.update(breakdown_label(entity, value))
-            if filter.display == TRENDS_TABLE or filter.display == TRENDS_PIE:
+            if filter.display in TRENDS_DISPLAY_BY_VALUE:
                 new_dict.update(
                     {
                         "aggregated_value": get_aggregate_breakdown_total(
@@ -392,6 +393,7 @@ class Trends(LifecycleTrend, BaseQuery):
         return entity_metrics
 
     def calculate_trends(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+
         actions = Action.objects.filter(team_id=team.pk).order_by("-id")
         if len(filter.actions) > 0:
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)

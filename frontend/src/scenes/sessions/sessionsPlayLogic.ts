@@ -1,11 +1,11 @@
 import { kea } from 'kea'
-import { eventWithTime } from 'rrweb/typings/types'
+import { eventWithTime } from '@posthog/rrweb/typings/types'
 import api from 'lib/api'
 import { eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
 import { PersonType, SessionType } from '~/types'
-import moment from 'moment'
-import { EventIndex } from 'posthog-react-rrweb-player'
+import dayjs from 'dayjs'
+import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { toast } from 'react-toastify'
 
@@ -17,7 +17,7 @@ interface SessionPlayerData {
     start_time: string
 }
 
-export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, EventIndex, SessionType>>({
+export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, SessionRecordingId>>({
     connect: {
         values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
         actions: [
@@ -97,7 +97,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
     }),
     loaders: ({ values, actions }) => ({
         tags: [
-            ['activating', 'watched', 'deleted'] as string[], // TODO: Temp values for testing
+            ['activating', 'watched', 'deleted'] as string[],
             {
                 createTag: async () => {
                     const newTag = [values.addingTag]
@@ -124,7 +124,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                 if (!sessionPlayerData?.start_time) {
                     return null
                 }
-                return moment(sessionPlayerData.start_time).format('MMM Do')
+                return dayjs(sessionPlayerData.start_time).format('MMM Do')
             },
         ],
         eventIndex: [
@@ -152,7 +152,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         ],
         shouldLoadSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
-            (session, sessionEvents) => session && !session.events && !sessionEvents[session.global_session_id],
+            (session, sessionEvents) => session && !sessionEvents[session.global_session_id],
         ],
         highlightedSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
@@ -160,7 +160,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                 if (!session) {
                     return []
                 }
-                const events = session.events || sessionEvents[session.global_session_id] || []
+                const events = sessionEvents[session.global_session_id] || []
                 return events.filter((e) => (session.matching_events || []).includes(e.id))
             },
         ],
@@ -170,7 +170,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                 if (!sessionPlayerData) {
                     return []
                 }
-                const startTime = +moment(sessionPlayerData.start_time)
+                const startTime = +dayjs(sessionPlayerData.start_time)
 
                 const pageChangeEvents = eventIndex.pageChangeEvents().map(({ playerTime, href }) => ({
                     playerTime,
@@ -178,7 +178,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
                     color: 'blue',
                 }))
                 const highlightedEvents = events.map((event) => ({
-                    playerTime: +moment(event.timestamp) - startTime,
+                    playerTime: +dayjs(event.timestamp) - startTime,
                     text: eventToName(event),
                     color: 'orange',
                 }))
@@ -188,7 +188,12 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Ev
         ],
     },
     urlToAction: ({ actions, values }) => {
-        const urlToAction = (_: any, params: { sessionRecordingId?: SessionRecordingId }): void => {
+        const urlToAction = (
+            _: any,
+            params: {
+                sessionRecordingId?: SessionRecordingId
+            }
+        ): void => {
             const sessionRecordingId = params.sessionRecordingId
             if (values && sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
                 actions.loadRecording(sessionRecordingId)

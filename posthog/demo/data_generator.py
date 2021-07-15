@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from posthog.ee import is_ee_enabled
+from posthog.ee import is_clickhouse_enabled
 from posthog.models import Action, Event, Person, PersonDistinctId, Team
 from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.models.utils import UUIDT
@@ -32,14 +32,22 @@ class DataGenerator:
     def create_people(self):
         self.people = [self.make_person(i) for i in range(self.n_people)]
         self.distinct_ids = [str(UUIDT()) for _ in self.people]
-
         Person.objects.bulk_create(self.people)
-        PersonDistinctId.objects.bulk_create(
-            [
-                PersonDistinctId(team=self.team, person=person, distinct_id=distinct_id)
-                for person, distinct_id in zip(self.people, self.distinct_ids)
-            ]
-        )
+
+        pids = [
+            PersonDistinctId(team=self.team, person=person, distinct_id=distinct_id)
+            for person, distinct_id in zip(self.people, self.distinct_ids)
+        ]
+        PersonDistinctId.objects.bulk_create(pids)
+        if is_clickhouse_enabled():
+            from ee.clickhouse.models.person import create_person, create_person_distinct_id
+
+            for person in self.people:
+                create_person(team_id=person.team.pk, properties=person.properties, is_identified=person.is_identified)
+            for pid in pids:
+                create_person_distinct_id(
+                    0, pid.team.pk, pid.distinct_id, str(pid.person.uuid)
+                )  # use dummy number for id
 
     def make_person(self, index):
         return Person(team=self.team, properties={"is_demo": True})
@@ -57,7 +65,7 @@ class DataGenerator:
         pass
 
     def bulk_import_events(self):
-        if is_ee_enabled():
+        if is_clickhouse_enabled():
             from ee.clickhouse.demo import bulk_create_events, bulk_create_session_recording_events
 
             bulk_create_events(self.events, team=self.team)
@@ -68,12 +76,12 @@ class DataGenerator:
                 [SessionRecordingEvent(**kw, team=self.team) for kw in self.snapshots]
             )
 
-    def add_event(self, **kw):
-        self.events.append(kw)
-
     def add_if_not_contained(self, array, value):
         if value not in array:
             array.append(value)
+
+    def add_event(self, **kw):
+        self.events.append(kw)
 
 
 def _recalculate(team: Team) -> None:

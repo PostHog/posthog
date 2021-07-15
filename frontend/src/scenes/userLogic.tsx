@@ -1,182 +1,130 @@
+import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { posthogEvents } from 'lib/utils'
 import { userLogicType } from './userLogicType'
-import { UserType, UserUpdateType } from '~/types'
+import { UserType } from '~/types'
 import posthog from 'posthog-js'
+import { toast } from 'react-toastify'
+import { getAppContext } from 'lib/utils/getAppContext'
 
-export interface EventProperty {
-    value: string
-    label: string
-}
-
-export const userLogic = kea<userLogicType<UserType, EventProperty, UserUpdateType>>({
+export const userLogic = kea<userLogicType>({
     actions: () => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
-        setUser: (user: UserType | null, updateKey?: string) => ({
-            user: user && ({ ...user } as UserType),
-            updateKey,
-        }), // make and use a copy of user to patch some legacy issues
-        userUpdateRequest: (update: UserUpdateType, updateKey?: string) => ({ update, updateKey }),
-        userUpdateSuccess: (user: UserType, updateKey?: string) => ({ user, updateKey }),
-        userUpdateFailure: (error: string, updateKey?: string) => ({ updateKey, error }),
-        userUpdateLoading: (loading: boolean) => ({ loading }),
-        currentTeamUpdateRequest: (teamId: number) => ({ teamId }),
-        currentOrganizationUpdateRequest: (organizationId: string) => ({ organizationId }),
-        completedOnboarding: true,
+        updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
+        updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
+        updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
     }),
-
-    reducers: {
-        user: [
-            null as UserType | null,
-            {
-                setUser: (_, payload) => payload.user,
-                userUpdateSuccess: (_, payload) => payload.user,
-            },
-        ],
-        userUpdateLoading: [
-            false,
-            {
-                userUpdateRequest: () => true,
-                userUpdateSuccess: () => false,
-                userUpdateFailure: () => false,
-            },
-        ],
-    },
-
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadUser(true)
-        },
-    }),
-
     selectors: ({ selectors }) => ({
-        eventProperties: [
-            () => [selectors.user],
-            (user): EventProperty[] =>
-                user?.team
-                    ? user.team.event_properties.map(
-                          (property: string) => ({ value: property, label: property } as EventProperty)
-                      )
-                    : [],
-        ],
-        eventPropertiesNumerical: [
-            () => [selectors.user],
-            (user): EventProperty[] =>
-                user?.team
-                    ? user.team.event_properties_numerical.map(
-                          (property: string) => ({ value: property, label: property } as EventProperty)
-                      )
-                    : [],
-        ],
-        eventNames: [() => [selectors.user], (user) => user?.team?.event_names ?? []],
-        customEventNames: [
-            () => [selectors.eventNames],
-            (eventNames) => {
-                return eventNames.filter((event: string) => !event.startsWith('!'))
-            },
-        ],
-        eventNamesGrouped: [
-            () => [selectors.user],
-            (user) => {
-                const data = [
-                    { label: 'Custom events', options: [] as EventProperty[] },
-                    { label: 'PostHog events', options: [] as EventProperty[] },
-                ]
-                if (user?.team) {
-                    user.team.event_names.forEach((name: string) => {
-                        const format = { label: name, value: name } as EventProperty
-                        if (posthogEvents.includes(name)) {
-                            return data[1].options.push(format)
-                        }
-                        data[0].options.push(format)
-                    })
-                }
-                return data
-            },
-        ],
         demoOnlyProject: [
             () => [selectors.user],
             (user): boolean =>
                 (user?.team?.is_demo && user?.organization?.teams && user.organization.teams.length == 1) || false,
         ],
     }),
-
-    listeners: ({ actions }) => ({
-        loadUser: async ({ resetOnFailure }) => {
-            try {
-                const user: UserType = await api.get('api/user')
-                actions.setUser(user)
-
-                if (user && user.id) {
-                    const Sentry = (window as any).Sentry
-                    Sentry?.setUser({
-                        email: user.email,
-                        id: user.id,
-                    })
-
-                    if (posthog) {
-                        // If user is not anonymous and the distinct id is different from the current one, reset
-                        if (
-                            posthog.get_property('$device_id') !== posthog.get_distinct_id() &&
-                            posthog.get_distinct_id() !== user.distinct_id
-                        ) {
-                            posthog.reset()
-                        }
-
-                        posthog.identify(user.distinct_id)
-                        posthog.people.set({ email: user.anonymize_data ? null : user.email })
-
-                        posthog.register({
-                            posthog_version: user.posthog_version,
-                            has_slack_webhook: !!user.team?.slack_incoming_webhook,
-                            is_demo_project: user.team?.is_demo,
-                            realm: user.realm,
-                        })
-
-                        if (user.realm === 'cloud') {
-                            // Billing-related properties
-                            // :TODO: Temporary support for legacy `FormattedNumber` type
-                            const current_usage =
-                                typeof user.billing?.current_usage === 'number'
-                                    ? user.billing.current_usage
-                                    : user.billing?.current_usage?.value
-                            const event_allocation =
-                                typeof user.billing?.event_allocation === 'number'
-                                    ? user.billing.event_allocation
-                                    : user.billing?.event_allocation?.value
-
-                            posthog.register({
-                                has_billing_plan: !!user.billing?.plan,
-                                metered_billing: user.billing?.plan?.is_metered_billing,
-                                event_allocation: event_allocation,
-                                allocation_used:
-                                    event_allocation && current_usage !== undefined
-                                        ? current_usage / event_allocation
-                                        : undefined,
-                            })
-                        }
+    loaders: ({ values, actions }) => ({
+        user: [
+            null as UserType | null,
+            {
+                loadUser: async () => {
+                    try {
+                        return await api.get('api/users/@me/')
+                    } catch (error) {
+                        console.error(error)
+                        actions.loadUserFailure(error.message)
                     }
-                }
-            } catch (e) {
-                console.error(e)
-                if (resetOnFailure) {
-                    actions.setUser(null)
-                }
-            }
-        },
-        userUpdateRequest: async ({ update, updateKey }) => {
-            try {
-                const user = await api.update('api/user', update)
-                actions.userUpdateSuccess(user, updateKey)
-            } catch (error) {
-                actions.userUpdateFailure(error, updateKey)
-            }
-        },
+                    return null
+                },
+                updateUser: async ({ user, successCallback }) => {
+                    if (!values.user) {
+                        throw new Error('Current user has not been loaded yet, so it cannot be updated!')
+                    }
+                    try {
+                        const response = await api.update('api/users/@me/', user)
+                        successCallback && successCallback()
+                        return response
+                    } catch (error) {
+                        console.error(error)
+                        actions.updateUserFailure(error.message)
+                    }
+                },
+            },
+        ],
+    }),
+    listeners: ({ values }) => ({
         logout: () => {
             posthog.reset()
             window.location.href = '/logout'
+        },
+        loadUserSuccess: ({ user }) => {
+            if (user && user.uuid) {
+                const Sentry = (window as any).Sentry
+                Sentry?.setUser({
+                    email: user.email,
+                    id: user.uuid,
+                })
+
+                if (posthog) {
+                    // If user is not anonymous and the distinct id is different from the current one, reset
+                    if (
+                        posthog.get_property('$device_id') !== posthog.get_distinct_id() &&
+                        posthog.get_distinct_id() !== user.distinct_id
+                    ) {
+                        posthog.reset()
+                    }
+
+                    posthog.identify(user.distinct_id)
+                    posthog.people.set({
+                        email: user.anonymize_data ? null : user.email,
+                        realm: user.realm,
+                        posthog_version: user.posthog_version,
+                    })
+
+                    posthog.register({
+                        is_demo_project: user.team?.is_demo,
+                    })
+                }
+            }
+        },
+        updateUserSuccess: () => {
+            toast.dismiss('updateUser')
+            toast.success(
+                <div>
+                    <h1>Your preferences have been saved!</h1>
+                    <p>All set. Click here to dismiss.</p>
+                </div>,
+                {
+                    toastId: 'updateUser',
+                }
+            )
+        },
+        updateCurrentTeam: async ({ teamId, destination }, breakpoint) => {
+            if (values.user?.team?.id === teamId) {
+                return
+            }
+            await breakpoint(10)
+            await api.update('api/users/@me/', { set_current_team: teamId })
+            window.location.href = destination || '/'
+        },
+        updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
+            if (values.user?.organization?.id === organizationId) {
+                return
+            }
+            await breakpoint(10)
+            await api.update('api/users/@me/', { set_current_organization: organizationId })
+            window.location.href = destination || '/'
+        },
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            const preloadedUser = getAppContext()?.current_user
+            if (preloadedUser) {
+                actions.loadUserSuccess(preloadedUser)
+            } else if (preloadedUser === null) {
+                actions.loadUserFailure('Logged out')
+            } else {
+                actions.loadUser()
+            }
         },
     }),
 })

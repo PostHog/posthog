@@ -1,32 +1,15 @@
-import {
-    Command,
-    commandPaletteLogic,
-    CommandRegistrations,
-    CommandResult,
-    CommandFlow,
-    RegExpCommandPairs,
-    CommandResultDisplayable,
-} from 'lib/components/CommandPalette/commandPaletteLogic'
-import { commandPaletteLogicType } from './commandPaletteLogicType'
+import { Command, commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { kea } from 'kea'
+import { insightCommandLogicType } from './insightCommandLogicType'
 import { compareFilterLogic } from 'lib/components/CompareFilter/compareFilterLogic'
 import { RiseOutlined } from '@ant-design/icons'
-import { dateFilterLogic } from 'lib/components/DateFilter/dateFilterLogic'
+import { insightDateFilterLogic } from 'scenes/insights/InsightDateFilter/insightDateFilterLogic'
 import { dateMapping } from 'lib/utils'
 
 const INSIGHT_COMMAND_SCOPE = 'insights'
 
-export const insightCommandLogic = kea<
-    commandPaletteLogicType<
-        Command,
-        CommandRegistrations,
-        CommandResult,
-        CommandFlow,
-        RegExpCommandPairs,
-        CommandResultDisplayable
-    >
->({
-    connect: [commandPaletteLogic, compareFilterLogic, dateFilterLogic],
+export const insightCommandLogic = kea<insightCommandLogicType>({
+    connect: [commandPaletteLogic, compareFilterLogic, insightDateFilterLogic],
     events: () => ({
         afterMount: () => {
             const funnelCommands: Command[] = [
@@ -44,7 +27,7 @@ export const insightCommandLogic = kea<
                             icon: RiseOutlined,
                             display: `Set Time Range to ${key}`,
                             executor: () => {
-                                dateFilterLogic.actions.setDates(value[0], value[1])
+                                insightDateFilterLogic.actions.setDates(value[0], value[1])
                             },
                         })),
                     ],

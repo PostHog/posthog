@@ -16,8 +16,8 @@ $brand_yellow: #f9bd2b;
 // Text colors
 $text_default: #2d2d2d;
 $text_light: rgba(255, 255, 255, 0.88);
-$text_muted: #bfbfbf;
-$text_muted_alt: #35416b;
+$text_muted: rgba(0, 0, 0, 0.5);
+$text_muted_alt: #747ea1;
 
 // Background colors
 $bg_navy: #35416b;
@@ -31,6 +31,19 @@ $bg_menu: #2c3035;
 $border_light: #f0f0f0;
 $border: #d9d9d9;
 $border_dark: #bdbdbd;
+
+// Website colors
+$website_orange: #f96b36;
+
+// Lfecycle series
+$lifecycle_new: #99c5ff;
+$lifecycle_returning: #71b96b;
+$lifecycle_resurrecting: #c277cf;
+$lifecycle_dormant: #f86234;
+
+// Funnels
+$funnel_default: $primary;
+$funnel_background: #e7e8ee;
 
 .bg-mid {
     background-color: $bg_mid !important;
@@ -53,29 +66,75 @@ $purple_700: #7c4286;
 $purple_500: #c278cf;
 $purple_300: #dcb1e3;
 
+// High-contrast colors
+$hc_navy: #35416b; // paired with $hc_light_lilac or $hc_yellow
+$hc_light_lilac: #ead1ee; // paired with $hc_navy
+$hc_yellow: #fbd577;
+
 // Gradients
 $sky: linear-gradient(180deg, #373088 0%, #d05783 60.94%, #ffb269 100%);
 $dusk_sky: linear-gradient(180deg, #20305a 0%, #373088 33.85%, #d05783 100%);
 $night_sky: linear-gradient(180deg, #200c39 0%, #373088 75%, #4a3587 100%);
+$space: linear-gradient(180deg, #0a092a 0%, #271955 100%);
 
 // Fonts
 $gosha_sans: 'GoshaSans-Bold', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue';
 
 // Additional style configurations
+.mixin-base-bordered-card {
+    border-radius: 4px;
+    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.04);
+}
+
 .mixin-elevated {
     box-shadow: 0px 80px 80px rgba(0, 0, 0, 0.075), 0px 10px 10px rgba(0, 0, 0, 0.035) !important;
 }
+
+.mixin-gradient-overlay {
+    content: '';
+    width: 100%;
+    height: 3rem;
+    background: linear-gradient(to top, #fff, transparent);
+    position: absolute;
+    pointer-events: none;
+    bottom: 0;
+}
+
+.mixin-gradient-overlay-right {
+    content: '';
+    width: 3rem;
+    height: 100%;
+    background: linear-gradient(to left, #fff, transparent);
+    position: absolute;
+    pointer-events: none;
+    bottom: 0;
+}
+
 $default_spacing: 16px;
 $radius: 2px;
 $top_nav_height: 50px;
 
+.text-ellipsis {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: calc(100% - 8px);
+}
+
 // Z-indexes
-$z_top_navigation: 800;
-$z_mobile_nav_overlay: 931;
-$z_main_nav: 948;
-$z_pinned_dashboards_popup: 962;
-$z_drawer: 1000;
+$z_nps_overlay: 5200;
+$z_bottom_notice: 5100;
 $z_command_palette: 1875;
+$z_drawer: 1000;
+$z_pinned_dashboards_popup: 962;
+$z_graph_tooltip: 951;
+$z_plugin_metrics_drawer: 950;
+$z_main_nav: 948;
+$z_mobile_nav_overlay: 931;
+$z_top_navigation: 800;
+$z_content_overlay: 488;
+$z_graph_annotation_prompt: 99;
+$z_raised: 5;
 $z_city_background_content: 1;
 $z_city_background_image: 0;
 
@@ -83,8 +142,11 @@ $z_city_background_image: 0;
 $sm: 576px;
 $md: 768px;
 $lg: 992px;
+$xl: 1200px;
+$xxl: 1600px;
 
 // Export variables for TS access
 :export {
     zDrawer: $z_drawer;
+    zGraphAnnotationPrompt: $z_graph_annotation_prompt;
 }

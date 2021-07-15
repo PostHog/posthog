@@ -1,6 +1,7 @@
 from ee.kafka_client.topics import KAFKA_EVENTS
 
-from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
+from .person import GET_LATEST_PERSON_DISTINCT_ID_SQL
 
 DROP_EVENTS_TABLE_SQL = """
 DROP TABLE events
@@ -45,7 +46,7 @@ SAMPLE BY uuid
 """
 ).format(
     table_name=EVENTS_TABLE,
-    engine=table_engine(EVENTS_TABLE, "_timestamp"),
+    engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     storage_policy=STORAGE_POLICY,
@@ -189,13 +190,11 @@ NULL_SQL = """
 SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start from numbers({num_intervals})
 """
 
-NULL_BREAKDOWN_SQL = """
-SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start, breakdown_value from numbers({num_intervals})
-"""
-
 EVENT_JOIN_PERSON_SQL = """
-INNER JOIN (SELECT person_id, distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s) as pid ON events.distinct_id = pid.distinct_id
-"""
+INNER JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) as pdi ON events.distinct_id = pdi.distinct_id
+""".format(
+    latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
+)
 
 GET_EVENTS_WITH_PROPERTIES = """
 SELECT * FROM events WHERE 

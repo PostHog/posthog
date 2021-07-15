@@ -109,15 +109,20 @@ class PublicTokenAuthentication(authentication.BaseAuthentication):
             Dashboard = apps.get_model(app_label="posthog", model_name="Dashboard")
             dashboard = Dashboard.objects.filter(
                 share_token=request.GET.get("share_token"), pk=request.parser_context["kwargs"].get("pk"),
-            )
-            if not dashboard.exists():
+            ).first()
+            if dashboard is None:
                 raise AuthenticationFailed(detail="Dashboard doesn't exist")
+            if dashboard.team.organization.for_internal_metrics:
+                return None
             return (AnonymousUser(), None)
         return None
 
 
 def authenticate_secondarily(endpoint):
-    """Proper authentication for function views."""
+    """
+    DEPRECATED: Used for supporting legacy endpoints not on DRF.
+    Authentication for function views.
+    """
 
     @functools.wraps(endpoint)
     def wrapper(request: HttpRequest):

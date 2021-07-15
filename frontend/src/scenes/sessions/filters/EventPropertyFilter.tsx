@@ -1,19 +1,19 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { PropertySelect } from 'lib/components/PropertyFilters/PropertySelect'
-import { userLogic } from 'scenes/userLogic'
-import { EventTypePropertyFilter } from '~/types'
+import { PropertySelect } from 'lib/components/PropertyFilters/components/PropertySelect'
+import { ActionTypePropertyFilter, EventTypePropertyFilter, PropertyOperator } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { OperatorValueSelect } from 'lib/components/PropertyFilters/OperatorValueSelect'
+import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 interface Props {
-    filter: EventTypePropertyFilter
+    filter: EventTypePropertyFilter | ActionTypePropertyFilter
     selector: number
 }
 
 export function EventPropertyFilter({ filter, selector }: Props): JSX.Element {
-    const { eventProperties } = useValues(userLogic)
+    const { transformedPropertyDefinitions } = useValues(propertyDefinitionsModel)
     const { updateFilter } = useActions(sessionsFiltersLogic)
 
     const property = filter.properties && filter.properties.length > 0 ? filter.properties[0] : null
@@ -29,14 +29,16 @@ export function EventPropertyFilter({ filter, selector }: Props): JSX.Element {
                     {
                         type: 'event',
                         label: 'Event properties',
-                        options: eventProperties,
+                        options: transformedPropertyDefinitions,
                     },
                 ]}
                 onChange={(_, key) => {
                     updateFilter(
                         {
                             ...filter,
-                            properties: [{ operator: 'exact', value: null, ...property, type: 'event', key }],
+                            properties: [
+                                { operator: PropertyOperator.Exact, value: null, ...property, type: 'event', key },
+                            ],
                         },
                         selector
                     )
@@ -49,11 +51,11 @@ export function EventPropertyFilter({ filter, selector }: Props): JSX.Element {
                     propkey={property.key}
                     operator={property.operator}
                     value={property.value}
-                    onChange={(operator, value) => {
+                    onChange={(operator, changedValue) => {
                         updateFilter(
                             {
                                 ...filter,
-                                properties: [{ ...property, operator, value }],
+                                properties: [{ ...property, operator, value: changedValue }],
                             },
                             selector
                         )

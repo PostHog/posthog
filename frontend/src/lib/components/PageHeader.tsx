@@ -5,11 +5,12 @@ interface PageHeaderProps {
     title: string | JSX.Element
     caption?: string | JSX.Element
     buttons?: JSX.Element | false
+    style?: React.CSSProperties
 }
 
-export function PageHeader({ title, caption, buttons }: PageHeaderProps): JSX.Element {
+export function PageHeader({ title, caption, buttons, style }: PageHeaderProps): JSX.Element {
     const row = (
-        <Row className="page-title-row" justify={buttons ? 'space-between' : 'start'} align="middle">
+        <Row className="page-title-row" justify={buttons ? 'space-between' : 'start'} align="middle" style={style}>
             <h1 className="page-title">{title}</h1>
             {buttons}
         </Row>
@@ -26,7 +27,7 @@ export function PageHeader({ title, caption, buttons }: PageHeaderProps): JSX.El
 
 interface SubtitleProps {
     subtitle: string | JSX.Element
-    buttons?: JSX.Element | false
+    buttons?: JSX.Element | null | false
 }
 
 export function Subtitle({ subtitle, buttons }: SubtitleProps): JSX.Element {

@@ -1,6 +1,6 @@
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 
-from .clickhouse import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, table_engine, ttl_period
+from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine, ttl_period
 
 SESSION_RECORDING_EVENTS_TABLE = "session_recording_events"
 
@@ -28,7 +28,7 @@ SETTINGS index_granularity=512
 ).format(
     table_name=SESSION_RECORDING_EVENTS_TABLE,
     extra_fields=KAFKA_COLUMNS,
-    engine=table_engine(SESSION_RECORDING_EVENTS_TABLE, "_timestamp"),
+    engine=table_engine(SESSION_RECORDING_EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     ttl_period=ttl_period(),
 )
 

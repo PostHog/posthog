@@ -4,10 +4,24 @@ import { teamLogicType } from './teamLogicType'
 import { TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
+import React from 'react'
+import { identifierToHuman, resolveWebhookService } from 'lib/utils'
 
-export const teamLogic = kea<teamLogicType<TeamType>>({
+export const teamLogic = kea<teamLogicType>({
     actions: {
-        deleteCurrentTeam: true,
+        deleteTeam: (team: TeamType) => ({ team }),
+        deleteTeamSuccess: true,
+        deleteTeamFailure: true,
+    },
+    reducers: {
+        teamBeingDeleted: [
+            null as TeamType | null,
+            {
+                deleteTeam: (_, { team }) => team,
+                deleteTeamSuccess: () => null,
+                deleteTeamFailure: () => null,
+            },
+        ],
     },
     loaders: ({ values }) => ({
         currentTeam: [
@@ -20,39 +34,59 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
                         return null
                     }
                 },
-                patchCurrentTeam: async (patch: Partial<TeamType>) => {
+                updateCurrentTeam: async (payload: Partial<TeamType>) => {
                     if (!values.currentTeam) {
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
-                    const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, patch)) as TeamType
+                    const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, payload)) as TeamType
                     userLogic.actions.loadUser()
-                    return patchedTeam
-                },
-                renameCurrentTeam: async (newName: string) => {
-                    if (!values.currentTeam) {
-                        throw new Error('Current team has not been loaded yet, so it cannot be renamed!')
+
+                    /* Notify user the update was successful  */
+                    const updatedAttribute = Object.keys(payload).length === 1 ? Object.keys(payload)[0] : null
+
+                    let description = "Your project's settings have been successfully updated. Click here to dismiss."
+
+                    if (updatedAttribute === 'slack_incoming_webhook') {
+                        description = payload.slack_incoming_webhook
+                            ? `Webhook integration enabled. You should see a message on ${resolveWebhookService(
+                                  payload.slack_incoming_webhook
+                              )}.`
+                            : 'Webhook integration disabled.'
                     }
-                    const renamedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, {
-                        name: newName,
-                    })) as TeamType
-                    userLogic.actions.loadUser()
-                    return renamedTeam
+
+                    toast.dismiss('updateCurrentTeam')
+                    toast.success(
+                        <div>
+                            <h1>
+                                {updatedAttribute ? identifierToHuman(updatedAttribute) : 'Project'} updated
+                                successfully!
+                            </h1>
+                            <p>{description}</p>
+                        </div>,
+                        {
+                            toastId: 'updateCurrentTeam',
+                        }
+                    )
+
+                    return patchedTeam
                 },
                 createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
                 resetToken: async () => await api.update('api/projects/@current/reset_token', {}),
             },
         ],
     }),
-    listeners: ({ values }) => ({
-        deleteCurrentTeam: async () => {
-            if (values.currentTeam) {
-                toast('Deleting project…')
-                await api.delete(`api/projects/${values.currentTeam.id}`)
+    listeners: ({ actions }) => ({
+        deleteTeam: async ({ team }) => {
+            try {
+                await api.delete(`api/projects/${team.id}`)
                 location.reload()
+                actions.deleteTeamSuccess()
+            } catch {
+                actions.deleteTeamFailure()
             }
         },
-        renameCurrentTeamSuccess: () => {
-            toast.success('Project has been renamed')
+        deleteTeamSuccess: () => {
+            toast.success('Project has been deleted')
         },
         createTeamSuccess: () => {
             window.location.href = '/ingestion'

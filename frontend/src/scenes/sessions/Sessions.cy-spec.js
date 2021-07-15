@@ -6,7 +6,8 @@ describe('<Sessions />', () => {
     const mount = () => helpers.mountPage(<Sessions />)
 
     beforeEach(() => {
-        cy.intercept('/api/user/', { fixture: 'api/user' })
+        cy.intercept('/_preflight/', { fixture: '_preflight' })
+        cy.intercept('/api/users/@me/', { fixture: 'api/users/@me' })
         cy.intercept('/api/dashboard/', { fixture: 'api/dashboard' })
         cy.intercept('/api/personal_api_keys/', { fixture: 'api/personal_api_keys' })
         cy.intercept('/api/projects/@current/', { fixture: 'api/projects/@current' })
@@ -17,7 +18,6 @@ describe('<Sessions />', () => {
         helpers.setLocation('/sessions')
     })
 
-    given('featureFlags', () => ['filter_by_session_props'])
     given('sessions', () => () => ({ fixture: 'api/event/sessions/demo_sessions' }))
 
     const iterateResponses = (responses) => {
@@ -77,15 +77,30 @@ describe('<Sessions />', () => {
         cy.wait('@api_sessions')
 
         cy.get('[data-attr="sessions-filter-open"]').click()
-        cy.focused().type('br').type('{downarrow}').type('{enter}')
-        cy.get('.sessions-filter-row input').last().type('Chrome').type('{enter}')
+        cy.focused().type('br').wait(150).type('{downarrow}').wait(150).type('{enter}').wait(150)
+        cy.get('.sessions-filter-row input')
+            .last()
+            .click()
+            .wait(150)
+            .type('Chrome', { force: true })
+            .wait(150)
+            .type('{enter}', { force: true })
+            .wait(150)
 
         cy.contains('There are unapplied filters').should('be.visible')
         cy.get('[data-attr="sessions-apply-filters"]').click()
         cy.contains('There are unapplied filters').should('not.exist')
 
         cy.wait('@api_sessions').map(helpers.getSearchParameters).should('include', {
-            filters: '[{"type":"person","key":"$browser","value":"Chrome","label":"$browser","operator":"exact"}]',
+            filters: '[{"type":"person","key":"$browser","value":["Chrome"],"label":"$browser","operator":"exact"}]',
+        })
+
+        cy.get('[data-attr="edit-session-filter"]').click()
+        cy.focused().type('unseen').wait(150).type('{downarrow}').wait(150).type('{enter}').wait(150)
+        cy.get('[data-attr="sessions-apply-filters"]').click()
+
+        cy.wait('@api_sessions').map(helpers.getSearchParameters).should('include', {
+            filters: '[{"type":"recording","key":"unseen","value":1,"label":"Unseen recordings"}]',
         })
     })
 

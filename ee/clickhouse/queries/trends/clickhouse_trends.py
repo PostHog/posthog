@@ -9,7 +9,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.trends.breakdown import ClickhouseTrendsBreakdown
 from ee.clickhouse.queries.trends.formula import ClickhouseTrendsFormula
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
-from ee.clickhouse.queries.trends.normal import ClickhouseTrendsNormal
+from ee.clickhouse.queries.trends.total_volume import ClickhouseTrendsTotalVolume
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE, TRENDS_LIFECYCLE
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -22,7 +22,7 @@ from posthog.utils import relative_date_parse
 
 
 class ClickhouseTrends(
-    ClickhouseTrendsNormal, ClickhouseTrendsBreakdown, ClickhouseLifecycle, ClickhouseTrendsFormula, Trends
+    ClickhouseTrendsTotalVolume, ClickhouseTrendsBreakdown, ClickhouseLifecycle, ClickhouseTrendsFormula, Trends
 ):
     def _set_default_dates(self, filter: Filter, team_id: int) -> Filter:
         data = {}
@@ -40,7 +40,7 @@ class ClickhouseTrends(
         elif filter.shown_as == TRENDS_LIFECYCLE:
             sql, params, parse_function = self._format_lifecycle_query(entity, filter, team_id)
         else:
-            sql, params, parse_function = self._normal_query(entity, filter, team_id)
+            sql, params, parse_function = self._total_volume_query(entity, filter, team_id)
 
         return sql, params, parse_function
 
@@ -53,12 +53,12 @@ class ClickhouseTrends(
             if settings.TEST or settings.DEBUG:
                 raise e
             result = []
+
         result = parse_function(result)
         serialized_data = self._format_serialized(entity, result)
 
         if filter.display == TRENDS_CUMULATIVE:
             serialized_data = self._handle_cumulative(serialized_data)
-
         return serialized_data
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:

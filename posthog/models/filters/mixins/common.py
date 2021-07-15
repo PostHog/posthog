@@ -1,7 +1,6 @@
 import datetime
 import json
 import re
-from distutils.util import strtobool
 from typing import Dict, List, Optional, Union
 
 from dateutil.relativedelta import relativedelta
@@ -18,6 +17,8 @@ from posthog.constants import (
     DATE_TO,
     DISPLAY,
     EVENTS,
+    EXCLUSIONS,
+    FILTER_TEST_ACCOUNTS,
     FORMULA,
     INSIGHT,
     INSIGHT_TO_DISPLAY,
@@ -30,10 +31,10 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
-from posthog.models.entity import Entity
+from posthog.models.entity import Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
-from posthog.utils import relative_date_parse
+from posthog.utils import relative_date_parse, str_to_bool
 
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
 
@@ -66,6 +67,19 @@ class ShownAsMixin(BaseParamMixin):
     @include_dict
     def shown_as_to_dict(self):
         return {"shown_as": self.shown_as} if self.shown_as else {}
+
+
+class FilterTestAccountsMixin(BaseParamMixin):
+    @cached_property
+    def filter_test_accounts(self) -> Optional[bool]:
+        setting = self._data.get(FILTER_TEST_ACCOUNTS, None)
+        if setting == True or setting == "true":
+            return True
+        return None
+
+    @include_dict
+    def filter_out_team_members_to_dict(self):
+        return {"filter_test_accounts": self.filter_test_accounts} if self.filter_test_accounts else {}
 
 
 class FormulaMixin(BaseParamMixin):
@@ -123,7 +137,7 @@ class BreakdownValueMixin(BaseParamMixin):
 class InsightMixin(BaseParamMixin):
     @cached_property
     def insight(self) -> str:
-        return self._data.get(INSIGHT, INSIGHT_TRENDS)
+        return self._data.get(INSIGHT, INSIGHT_TRENDS).upper()
 
     @include_dict
     def insight_to_dict(self):
@@ -153,8 +167,12 @@ class SessionMixin(BaseParamMixin):
 class OffsetMixin(BaseParamMixin):
     @cached_property
     def offset(self) -> int:
-        _offset = self._data.get(OFFSET)
-        return int(_offset or "0")
+        offset_raw = self._data.get(OFFSET)
+        return int(offset_raw) if offset_raw else 0
+
+    @include_dict
+    def offset_to_dict(self):
+        return {"offset": self.offset} if self.offset else {}
 
 
 class CompareMixin(BaseParamMixin):
@@ -162,7 +180,7 @@ class CompareMixin(BaseParamMixin):
         if isinstance(compare, bool):
             return compare
         elif isinstance(compare, str):
-            return bool(strtobool(compare))
+            return str_to_bool(compare)
         else:
             return False
 
@@ -277,11 +295,22 @@ class EntitiesMixin(BaseParamMixin):
     def events(self) -> List[Entity]:
         return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_EVENTS]
 
+    @cached_property
+    def exclusions(self) -> List[ExclusionEntity]:
+        _exclusions: List[ExclusionEntity] = []
+        if self._data.get(EXCLUSIONS):
+            exclusion_list = self._data.get(EXCLUSIONS, [])
+            if isinstance(exclusion_list, str):
+                exclusion_list = json.loads(exclusion_list)
+            _exclusions.extend([ExclusionEntity({**entity}) for entity in exclusion_list])
+        return _exclusions
+
     @include_dict
     def entities_to_dict(self):
         return {
             **({"events": [entity.to_dict() for entity in self.events]} if len(self.events) > 0 else {}),
             **({"actions": [entity.to_dict() for entity in self.actions]} if len(self.actions) > 0 else {}),
+            **({"exclusions": [entity.to_dict() for entity in self.exclusions]} if len(self.exclusions) > 0 else {}),
         }
 
 

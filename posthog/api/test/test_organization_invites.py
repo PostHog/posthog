@@ -1,12 +1,12 @@
 import random
+import uuid
 from unittest.mock import patch
 
 from django.core import mail
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationInvite, OrganizationMembership
-
-from .base import APIBaseTest
+from posthog.test.base import APIBaseTest
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
@@ -25,6 +25,21 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             )
 
         return payload
+
+    # Listing invites
+
+    def test_cant_list_invites_for_an_alien_organization(self):
+        org = Organization.objects.create(name="Alien Org")
+        invite = OrganizationInvite.objects.create(target_email="siloed@posthog.com", organization=org)
+
+        response = self.client.get(f"/api/organizations/{org.id}/invites/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
+
+        # Even though there's no retrieve for invites, permissions are validated first
+        response = self.client.get(f"/api/organizations/{org.id}/invites/{invite.id}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json(), self.permission_denied_response())
 
     # Creating invites
 
@@ -65,6 +80,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "first_name": "",
                 "created_by": {
                     "id": self.user.id,
+                    "uuid": str(self.user.uuid),
                     "distinct_id": self.user.distinct_id,
                     "email": self.user.email,
                     "first_name": self.user.first_name,
@@ -85,6 +101,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "email_available": True,
             },
         )
+
+        # Assert invite email is sent
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertListEqual(mail.outbox[0].to, [email])
+        self.assertEqual(mail.outbox[0].reply_to, [self.user.email])  # Reply-To is set to the inviting user
 
     def test_can_create_invites_for_the_same_email_multiple_times(self):
         email = "x@posthog.com"
@@ -215,6 +236,6 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.organization_membership.save()
         invite = OrganizationInvite.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
-        self.assertIsNone(response.data)
+        self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(OrganizationInvite.objects.exists())

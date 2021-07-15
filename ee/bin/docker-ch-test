@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+python manage.py migrate
+python manage.py migrate_clickhouse
+
 mkdir -p frontend/dist
 touch frontend/dist/index.html
 touch frontend/dist/layout.html
