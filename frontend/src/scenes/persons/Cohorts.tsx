@@ -37,7 +37,12 @@ const cohortsUrlLogic = kea<cohortsUrlLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/cohorts(/:cohortId)': async ({ cohortId }) => {
-            if (cohortId && cohortId !== 'new' && Number(cohortId) !== values.openCohort?.id) {
+            if (
+                cohortId &&
+                cohortId !== 'new' &&
+                cohortId !== 'personsModalNew' &&
+                Number(cohortId) !== values.openCohort?.id
+            ) {
                 const cohort = await api.get('api/cohort/' + cohortId)
                 actions.setOpenCohort(cohort)
             }
