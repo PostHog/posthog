@@ -76,7 +76,6 @@ class TestPreflight(APIBaseTest):
     def test_cloud_preflight_request_unauthenticated(self):
 
         self.client.logout()  # make sure it works anonymously
-        User.objects.all().delete()
 
         with self.settings(MULTI_TENANCY=True, PRIMARY_DB=RDBMS.CLICKHOUSE):
             response = self.client.get("/_preflight/")
@@ -90,7 +89,7 @@ class TestPreflight(APIBaseTest):
                     "plugins": True,
                     "celery": True,
                     "db": True,
-                    "initiated": False,
+                    "initiated": True,
                     "cloud": True,
                     "realm": "cloud",
                     "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},

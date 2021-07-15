@@ -45,7 +45,7 @@ export interface EntityFilterProps {
 // - filters
 // - setFilters
 // - typeKey
-export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>({
+export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, LocalFilter>>({
     props: {} as EntityFilterProps,
     key: (props) => props.typeKey,
     connect: {
