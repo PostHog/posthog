@@ -1,15 +1,12 @@
 from typing import Dict, List, Optional
 
-from django.utils import timezone
-
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import EXTRACT_TAG_REGEX, EXTRACT_TEXT_REGEX
 from ee.clickhouse.sql.paths.path import PATHS_QUERY_FINAL
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
+from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
-from posthog.models.filters import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.team import Team
 from posthog.queries.paths import Paths
@@ -74,7 +71,7 @@ class ClickhousePaths(Paths):
             excess_row_filter=excess_row_filter,
             select_elements_chain=", events.elements_chain as elements_chain" if event == AUTOCAPTURE_EVENT else "",
             group_by_elements_chain=", events.elements_chain" if event == AUTOCAPTURE_EVENT else "",
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         )
 
         params: Dict = {
