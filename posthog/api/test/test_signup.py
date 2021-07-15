@@ -361,6 +361,7 @@ class TestSignupAPI(APIBaseTest):
         )  # show the user an error; operation not permitted
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.skip_on_multitenancy
     def test_social_signup_with_whitelisted_domain(self, mock_request):
         new_org = Organization.objects.create(name="Hogflix Movies", domain_whitelist=["hogflix.posthog.com"])
         new_project = Team.objects.create(organization=new_org, name="My First Project")
@@ -377,12 +378,15 @@ class TestSignupAPI(APIBaseTest):
         self.assertRedirects(response, "/")
 
         self.assertEqual(User.objects.count(), user_count + 1)
-        user = User.objects.last()
+        user = cast(User, User.objects.last())
         self.assertEqual(user.email, "jane@hogflix.posthog.com")
         self.assertEqual(user.organization, new_org)
         self.assertEqual(user.team, new_project)
         self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(user.organization_memberships.first().level, OrganizationMembership.Level.MEMBER)
+        self.assertEqual(
+            cast(OrganizationMembership, user.organization_memberships.first()).level,
+            OrganizationMembership.Level.MEMBER,
+        )
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     def test_social_signup_is_disabled_in_cloud(self, mock_request):
@@ -406,6 +410,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(Organization.objects.count(), org_count)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.skip_on_multitenancy
     def test_api_cannot_use_whitelist_for_different_domain(self, mock_request):
         Organization.objects.create(name="Test org", domain_whitelist=["good.com"])
 
