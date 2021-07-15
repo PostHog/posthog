@@ -6,8 +6,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { saveToDashboardModalLogicType } from './saveToDashboardModalLogicType'
 
 export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
-    props: {} as { fromDashboard: boolean },
-
+    props: {} as {
+        fromDashboard: boolean
+    },
     actions: {
         addNewDashboard: true,
         setDashboardId: (id: number) => ({ id }),
@@ -47,7 +48,7 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
 
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
             eventUsageLogic.actions.reportCreatedDashboardFromModal()
-            actions.setDashboardId(dashboard!.id)
+            actions.setDashboardId(dashboard.id)
         },
     }),
 })

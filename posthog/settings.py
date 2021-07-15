@@ -58,8 +58,14 @@ TEST = (
 E2E_TESTING = get_from_env(
     "E2E_TESTING", False, type_cast=str_to_bool,
 )  # whether the app is currently running for E2E tests
+if E2E_TESTING:
+    print_warning(
+        ("️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests.")
+    )
+
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
 SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
+USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 
 SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
@@ -99,6 +105,7 @@ TOOLBAR_COOKIE_SECURE = secure_cookies
 SESSION_COOKIE_SECURE = secure_cookies
 CSRF_COOKIE_SECURE = secure_cookies
 SECURE_SSL_REDIRECT = secure_cookies
+SECURE_REDIRECT_EXEMPT = [r"^_health/?"]
 
 if not TEST:
     if os.getenv("SENTRY_DSN"):
@@ -177,6 +184,7 @@ KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
 _primary_db = os.getenv("PRIMARY_DB", "postgres")
+PRIMARY_DB: RDBMS
 try:
     PRIMARY_DB = RDBMS(_primary_db)
 except ValueError:
@@ -217,7 +225,8 @@ STATSD_SEPARATOR = "_"
 CAPTURE_INTERNAL_METRICS = get_from_env("CAPTURE_INTERNAL_METRICS", False, type_cast=str_to_bool)
 
 # django-axes settings to lockout after too many attempts
-AXES_ENABLED = get_from_env("AXES_ENABLED", True, type_cast=str_to_bool)
+AXES_ENABLED = get_from_env("AXES_ENABLED", not TEST, type_cast=str_to_bool)
+AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
 AXES_FAILURE_LIMIT = int(os.getenv("AXES_FAILURE_LIMIT", 5))
 AXES_COOLOFF_TIME = timedelta(minutes=15)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axess_logout"
@@ -353,6 +362,10 @@ SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
 SOCIAL_AUTH_GITLAB_KEY = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
+
+
+# Support creating multiple organizations in a single instance. Requires a premium license.
+MULTI_ORG_ENABLED = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)
 
 
 # See https://docs.djangoproject.com/en/3.1/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS

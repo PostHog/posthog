@@ -213,7 +213,7 @@ export function Signup(): JSX.Element | false {
                             <h2 className="subtitle" style={{ justifyContent: 'center' }}>
                                 Get started
                             </h2>
-                            {(preflight?.cloud || preflight?.initiated) && ( // For now, if you're not on cloud, you wouldn't see
+                            {(preflight?.cloud || preflight?.initiated) && ( // For now, if you're not on Cloud, you wouldn't see
                                 // this page, but future-proofing this (with `preflight.initiated`) in case this changes.
                                 <div className="text-center" style={{ marginBottom: 32 }}>
                                     Already have an account?{' '}

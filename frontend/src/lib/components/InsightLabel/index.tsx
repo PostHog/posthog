@@ -5,7 +5,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
 import './InsightLabel.scss'
 import { MATHS } from 'lib/constants'
-import { SeriesLetter } from '../SeriesLetter'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 // InsightsLabel pretty prints the action (or event) returned from /insights
 interface InsightsLabelProps {
@@ -81,7 +81,7 @@ export function InsightLabel({
                 <div className="protect-width">
                     {showEventName && <PropertyKeyInfo disableIcon disablePopover value={eventName} />}
 
-                    {hasMultipleSeries && ((action?.math && action.math !== 'total') || showCountedByTag) && (
+                    {((action?.math && action.math !== 'total') || showCountedByTag) && (
                         <MathTag math={action?.math} mathProperty={action?.math_property} />
                     )}
 

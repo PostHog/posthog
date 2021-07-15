@@ -266,6 +266,10 @@ export const keyMapping: KeyMappingInterface = {
                 </>
             ),
         },
+        $$plugin_metrics: {
+            label: 'Plugin Metric',
+            description: 'Performance metrics for a given plugin.',
+        },
 
         // UTM tags
         utm_source: {
@@ -502,6 +506,7 @@ interface PropertyKeyInfoInterface {
     style?: any
     disablePopover?: boolean
     disableIcon?: boolean
+    ellipsis?: boolean
 }
 
 export function PropertyKeyInfo({
@@ -510,6 +515,7 @@ export function PropertyKeyInfo({
     style,
     disablePopover = false,
     disableIcon = false,
+    ellipsis = true,
 }: PropertyKeyInfoInterface): JSX.Element {
     value = `${value}` // convert to string
     let data = null
@@ -523,23 +529,24 @@ export function PropertyKeyInfo({
         }
     } else {
         return (
-            <Typography.Text ellipsis={true} style={{ color: 'inherit', maxWidth: 400, ...style }} title={value}>
-                {value}
+            <Typography.Text ellipsis={ellipsis} style={{ color: 'inherit', maxWidth: 400, ...style }} title={value}>
+                {value !== '' ? value : <i>(empty string)</i>}
             </Typography.Text>
         )
     }
     if (disableIcon) {
         return (
-            <Typography.Text ellipsis={true} style={{ color: 'inherit', maxWidth: 400 }} title={data.label}>
-                {data.label}
+            <Typography.Text ellipsis={ellipsis} style={{ color: 'inherit', maxWidth: 400 }} title={data.label}>
+                {data.label !== '' ? data.label : <i>(empty string)</i>}
             </Typography.Text>
         )
     }
+
     const innerContent = (
-        <div className="property-key-info">
+        <span className="property-key-info">
             <span className="property-key-info-logo" />
             {data.label}
-        </div>
+        </span>
     )
 
     return disablePopover ? (

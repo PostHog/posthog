@@ -2,10 +2,12 @@ from datetime import datetime
 from uuid import uuid4
 
 import pytest
+import sqlparse
+from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.cohort import get_person_ids_by_cohort_id, recalculate_cohortpeople
+from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id, recalculate_cohortpeople
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -607,3 +609,46 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][0], p2.uuid)
+
+    def test_static_cohort_precalculated(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["123"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"])
+        # Team leakage
+        team2 = Team.objects.create(organization=self.organization)
+        Person.objects.create(team=team2, distinct_ids=["1"])
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now(),)
+        cohort.insert_users_by_list(["1", "123"])
+
+        with freeze_time("2020-01-10"):
+            cohort.calculate_people_ch()
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            sql, _ = format_filter_query(cohort)
+            self.assertEqual(
+                sqlparse.format(sql, reindent=True),
+                sqlparse.format(
+                    """
+                SELECT distinct_id
+                FROM
+                (SELECT *
+                FROM person_distinct_id
+                JOIN
+                    (SELECT distinct_id,
+                            max(_offset) as _offset
+                    FROM person_distinct_id
+                    WHERE team_id = %(team_id)s
+                    GROUP BY distinct_id) as person_max ON person_distinct_id.distinct_id = person_max.distinct_id
+                AND person_distinct_id._offset = person_max._offset
+                WHERE team_id = %(team_id)s )
+                where person_id IN
+                    (SELECT person_id
+                    FROM person_static_cohort
+                    WHERE cohort_id = %(cohort_id_0)s
+                    AND team_id = %(team_id)s)
+                AND team_id = %(team_id)s
+                """,
+                    reindent=True,
+                ),
+            )

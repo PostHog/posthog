@@ -8,7 +8,7 @@ import { uniqueBy } from 'lib/utils'
 export const dashboardsLogic = kea<dashboardsLogicType>({
     actions: {
         addNewDashboard: true,
-        setNewDashboardDrawer: (shown: boolean) => ({ shown }), // Whether the drawer to create a new dashboard should be shown
+        setNewDashboardDrawer: (shown: boolean) => ({ shown }),
     },
     reducers: {
         newDashboardDrawer: [
@@ -41,8 +41,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/dashboard': (_: any, { new: newDashboard }: { new: boolean }) => {
-            if (newDashboard !== undefined) {
+        '/dashboard': (_: any, { new: newDashboard }) => {
+            if (typeof newDashboard !== 'undefined') {
                 actions.setNewDashboardDrawer(true)
             }
         },

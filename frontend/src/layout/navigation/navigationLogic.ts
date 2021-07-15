@@ -152,8 +152,8 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             null as string | null,
             {
                 loadLatestVersion: async () => {
-                    const versions = (await api.get('https://update.posthog.com/versions')) || []
-                    return versions[0]?.version || '1.25.0' // HACK: Super quick fix so the frontend doesn't fail terribly
+                    const versions = await api.get('https://update.posthog.com/versions')
+                    return versions[0].version
                 },
             },
         ],

@@ -24,6 +24,7 @@ style files without adding already imported styles. */
     --text-default: #{$text_default};
     --text-light: #{$text_light};
     --muted: #{$text_muted};
+    --border: #{$border};
     // Used for graph series
     --blue: #{$blue_500};
     --purple: #{$purple_500};
@@ -69,6 +70,11 @@ style files without adding already imported styles. */
 .text-extra-small {
     @extend .text-default;
     font-size: 10px;
+}
+
+.text-xxs {
+    @extend .text-default;
+    font-size: 8px;
 }
 
 .page-title-row {
@@ -133,6 +139,10 @@ style files without adding already imported styles. */
 
 .text-muted {
     color: $text_muted;
+}
+
+.text-muted-alt {
+    color: $text_muted_alt;
 }
 
 code.code {
@@ -472,7 +482,7 @@ code.code {
     font-size: 12px;
 }
 
-.graph-series-letter {
+.graph-series-glyph {
     border-radius: 50%;
     border: 2px solid $text_default;
     font-weight: bold;

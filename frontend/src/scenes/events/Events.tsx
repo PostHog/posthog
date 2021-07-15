@@ -1,11 +1,10 @@
 import React from 'react'
 import { kea, useActions, useValues } from 'kea'
-
 import { Tabs } from 'antd'
 import { ActionsTable } from 'scenes/actions/ActionsTable'
 import { EventsTable } from './EventsTable'
-import { EventsVolumeTable } from './definitions/EventsVolumeTable'
-import { PropertiesVolumeTable } from './definitions/PropertiesVolumeTable'
+import { EventsVolumeTable } from './EventsVolumeTable'
+import { PropertiesVolumeTable } from './PropertiesVolumeTable'
 import { eventsLogicType } from './EventsType'
 import { DefinitionDrawer } from './definitions/DefinitionDrawer'
 
@@ -25,7 +24,7 @@ const eventsLogic = kea<eventsLogicType>({
         setTab: () => '/events' + (values.tab === 'live' ? '' : '/' + values.tab),
     }),
     urlToAction: ({ actions, values }) => ({
-        '/events(/:tab)': ({ tab }: Record<string, string>) => {
+        '/events(/:tab)': ({ tab }) => {
             const currentTab = tab || 'live'
             if (currentTab !== values.tab) {
                 actions.setTab(currentTab)

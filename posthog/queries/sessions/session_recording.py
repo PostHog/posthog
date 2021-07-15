@@ -102,7 +102,7 @@ def query_sessions_in_range(
 
 
 # :TRICKY: This mutates sessions list
-def filter_sessions_by_recordings(
+def join_with_session_recordings(
     team: Team, sessions_results: List[Any], filter: SessionsFilter, query: Callable = query_sessions_in_range
 ) -> List[Any]:
     if len(sessions_results) == 0:
@@ -131,7 +131,17 @@ def collect_matching_recordings(
 ) -> Generator[Dict, None, None]:
     for recording in session_recordings:
         if matches(session, recording, filter, viewed):
-            yield {"id": recording["session_id"], "viewed": recording["session_id"] in viewed}
+            if isinstance(recording["duration"], datetime.timedelta):
+                # postgres
+                recording_duration = recording["duration"].total_seconds()
+            else:
+                # clickhouse
+                recording_duration = recording["duration"]
+            yield {
+                "id": recording["session_id"],
+                "recording_duration": recording_duration or 0,
+                "viewed": recording["session_id"] in viewed,
+            }
 
 
 def matches(session: Any, session_recording: Any, filter: SessionsFilter, viewed: Set[str]) -> bool:

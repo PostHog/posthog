@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { FUNNEL_VIZ, FEATURE_FLAGS, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE } from 'lib/constants'
+import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -17,25 +17,31 @@ import { Paths } from 'scenes/paths/Paths'
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
+import { insightLogic, logicFromInsight } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
-import { ReloadOutlined, DownOutlined, UpOutlined } from '@ant-design/icons'
+import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { HotKeys } from '~/types'
+import { HotKeys, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PersonModal } from 'scenes/trends/PersonModal'
+import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
+import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -63,13 +69,18 @@ export function Insights(): JSX.Element {
         controlsCollapsed,
     } = useValues(insightLogic)
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
+    const { showingPeople } = useValues(personsModalLogic)
+    const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
+
+    const { cohortModalVisible } = useValues(personsModalLogic)
+    const { setCohortModalVisible } = useActions(personsModalLogic)
+
+    const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
-
-    const newUI = featureFlags[FEATURE_FLAGS.QUERY_UX_V2]
-    const horizontalUI = newUI && activeView !== ViewType.FUNNELS
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -101,7 +112,24 @@ export function Insights(): JSX.Element {
     })
 
     return (
-        <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>
+        <div className="insights-page">
+            <PersonModal
+                visible={showingPeople && !cohortModalVisible}
+                view={ViewType.FUNNELS}
+                filters={allFilters}
+                onSaveCohort={() => {
+                    refreshCohort()
+                    setCohortModalVisible(true)
+                }}
+            />
+            <SaveCohortModal
+                visible={cohortModalVisible}
+                onOk={(title: string) => {
+                    saveCohortWithFilters(title, allFilters)
+                    setCohortModalVisible(false)
+                }}
+                onCancel={() => setCohortModalVisible(false)}
+            />
             <PageHeader title="Insights" />
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
@@ -175,8 +203,8 @@ export function Insights(): JSX.Element {
                                 placement="bottom"
                                 title={
                                     <>
-                                        Stickiness shows you how many days users performed an action repeteadely within
-                                        a timeframe.
+                                        Stickiness shows you how many days users performed an action repeatedly within a
+                                        timeframe.
                                         <br />
                                         <br />
                                         <i>
@@ -216,38 +244,33 @@ export function Insights(): JSX.Element {
             </Row>
             <Row gutter={16}>
                 {activeView === ViewType.HISTORY ? (
-                    <Col xs={24} xl={24}>
+                    <Col span={24}>
                         <Card className="" style={{ overflow: 'visible' }}>
                             <InsightHistoryPanel />
                         </Card>
                     </Col>
                 ) : (
                     <>
-                        <Col xs={24} xl={horizontalUI ? 24 : 7}>
+                        <Col span={24} lg={verticalLayout ? 7 : undefined}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
                             >
-                                {horizontalUI && (
-                                    <>
-                                        <div
-                                            role="button"
-                                            title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
-                                            className="collapse-control"
-                                            onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
-                                        >
-                                            {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
-                                        </div>
-                                        {controlsCollapsed && (
-                                            <div>
-                                                <h3 className="l3">Query definition</h3>
-                                                <span className="text-small text-muted">
-                                                    Click here to view and change the query events, filters and other
-                                                    settings.
-                                                </span>
-                                            </div>
-                                        )}
-                                    </>
+                                <div
+                                    role="button"
+                                    title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
+                                    className="collapse-control"
+                                    onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
+                                >
+                                    {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
+                                </div>
+                                {controlsCollapsed && (
+                                    <div>
+                                        <h3 className="l3">Query definition</h3>
+                                        <span className="text-small text-muted">
+                                            Click here to view and change the query events, filters and other settings.
+                                        </span>
+                                    </div>
                                 )}
                                 <div className="tabs-inner">
                                     {/* These are insight specific filters. They each have insight specific logics */}
@@ -274,9 +297,7 @@ export function Insights(): JSX.Element {
                                             [`${ViewType.SESSIONS}`]: (
                                                 <SessionTab annotationsToCreate={annotationsToCreate} />
                                             ),
-                                            [`${ViewType.FUNNELS}`]: (
-                                                <FunnelTab annotationsToCreate={annotationsToCreate} newUI={newUI} />
-                                            ),
+                                            [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                             [`${ViewType.RETENTION}`]: (
                                                 <RetentionTab annotationsToCreate={annotationsToCreate} />
                                             ),
@@ -296,7 +317,7 @@ export function Insights(): JSX.Element {
                                 </Card>
                             )}
                         </Col>
-                        <Col xs={24} xl={horizontalUI ? 24 : 17}>
+                        <Col span={24} lg={verticalLayout ? 17 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/* These are filters that are reused between insight features. They
                                 each have generic logic that updates the url
@@ -308,29 +329,37 @@ export function Insights(): JSX.Element {
                                         allFilters={allFilters}
                                         annotationsToCreate={annotationsToCreate}
                                         clearAnnotationsToCreate={clearAnnotationsToCreate}
-                                        horizontalUI={horizontalUI}
                                     />
                                 }
                                 data-attr="insights-graph"
                                 className="insights-graph-container"
                             >
                                 <div>
-                                    {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
-                                        <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
-                                            Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
-                                            <Button
-                                                size="small"
-                                                type="link"
-                                                onClick={() => loadResults(true)}
-                                                style={{ margin: 0 }}
-                                            >
-                                                refresh
-                                                <ReloadOutlined
-                                                    style={{ cursor: 'pointer', marginTop: -3, marginLeft: 3 }}
-                                                />
-                                            </Button>
-                                        </small>
-                                    )}
+                                    <Row
+                                        style={{
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            marginTop: -8,
+                                            marginBottom: 16,
+                                        }}
+                                    >
+                                        <FunnelCanvasLabel />
+                                        <FunnelHistogramHeader />
+                                        {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
+                                            <div className="text-muted-alt">
+                                                Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}{' '}
+                                                &bull;
+                                                <Button
+                                                    size="small"
+                                                    type="link"
+                                                    onClick={() => loadResults(true)}
+                                                    style={{ margin: 0 }}
+                                                >
+                                                    <span style={{ fontSize: 14 }}>Refresh</span>
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </Row>
                                     {showErrorMessage ? (
                                         <ErrorMessage />
                                     ) : (
@@ -359,14 +388,12 @@ export function Insights(): JSX.Element {
                                     </div>
                                 </div>
                             </Card>
-                            {!showErrorMessage &&
+                            {(!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ||
+                                (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && !preflight?.is_clickhouse_enabled)) &&
+                                !showErrorMessage &&
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
-                                allFilters.display === FUNNEL_VIZ && (
-                                    <Card style={{ marginTop: 8 }}>
-                                        <FunnelPeople />
-                                    </Card>
-                                )}
+                                allFilters.display === FUNNEL_VIZ && <FunnelPeople />}
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&
                                     allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
@@ -396,13 +423,26 @@ export function Insights(): JSX.Element {
 }
 
 function FunnelInsight(): JSX.Element {
-    const { stepsWithCount, isValidFunnel, stepsWithCountLoading } = useValues(funnelLogic({}))
+    const {
+        stepsWithCount,
+        isValidFunnel,
+        stepsWithCountLoading,
+        filters: { display },
+        timeConversionBins,
+    } = useValues(funnelLogic({}))
+    const { clickhouseFeatures } = useValues(funnelLogic())
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
-        <div style={{ height: 300, position: 'relative' }}>
+        <div
+            style={
+                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? {} : { height: 300, position: 'relative', marginBottom: 0 }
+            }
+        >
             {stepsWithCountLoading && <Loading />}
             {isValidFunnel ? (
-                <FunnelViz steps={stepsWithCount} />
+                <FunnelViz filters={{ display }} steps={stepsWithCount} timeConversionBins={timeConversionBins} />
             ) : (
                 !stepsWithCountLoading && (
                     <div
@@ -411,7 +451,8 @@ function FunnelInsight(): JSX.Element {
                         }}
                     >
                         <span>
-                            Enter the details to your funnel and click 'calculate' to create a funnel visualization
+                            Enter the details to your funnel {!clickhouseFeatures && `and click 'calculate'`} to create
+                            a funnel visualization
                         </span>
                     </div>
                 )
@@ -421,9 +462,13 @@ function FunnelInsight(): JSX.Element {
 }
 
 function FunnelPeople(): JSX.Element {
-    const { stepsWithCount } = useValues(funnelLogic())
-    if (stepsWithCount && stepsWithCount.length > 0) {
-        return <People />
+    const { stepsWithCount, areFiltersValid } = useValues(funnelLogic())
+    if (areFiltersValid && stepsWithCount && stepsWithCount.length > 0) {
+        return (
+            <Card style={{ marginTop: 8 }}>
+                <People />
+            </Card>
+        )
     }
     return <></>
 }

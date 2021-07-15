@@ -5,26 +5,26 @@ import { ArrowLeftOutlined } from '@ant-design/icons'
 import { kea, useValues } from 'kea'
 import { backToLogicType } from './BackToType'
 
-interface BackTo {
+interface IBackTo {
     display: string
     url: string
 }
 
-const backToLogic = kea<backToLogicType>({
+const backToLogic = kea<backToLogicType<IBackTo>>({
     actions: {
         setBackTo: (payload) => ({ payload }),
     },
 
     reducers: {
         backTo: [
-            null as BackTo | null,
+            null as IBackTo | null,
             {
                 setBackTo: (_, { payload }) => payload,
             },
         ],
     },
     urlToAction: ({ actions }) => ({
-        '*': ({}, {}, { backTo, backToURL }: { backTo: string | null; backToURL: string | null }) => {
+        '*': ({}, {}, { backTo, backToURL }) => {
             if (!backTo || !backToURL) {
                 actions.setBackTo(null)
             } else {

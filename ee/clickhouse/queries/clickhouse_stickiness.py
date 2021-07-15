@@ -4,6 +4,8 @@ from typing import Any, Dict, Optional, Tuple
 from django.conf import settings
 from django.db.models.expressions import F
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 from rest_framework.utils.serializer_helpers import ReturnDict
 from sentry_sdk.api import capture_exception
 
@@ -43,7 +45,7 @@ class ClickhouseStickiness(Stickiness):
         params: Dict = {"team_id": team_id}
         params = {**params, **prop_filter_params, "num_intervals": filter.total_intervals}
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = Action.objects.get(pk=entity.id)
+            action = entity.get_action()
             action_query, action_params = format_action_filter(action)
             if action_query == "":
                 return {}
@@ -72,19 +74,17 @@ class ClickhouseStickiness(Stickiness):
         counts = sync_execute(content_sql, params)
         return self.process_result(counts, filter)
 
-    def _retrieve_people(self, target_entity: Entity, filter: StickinessFilter, team: Team) -> ReturnDict:
+    def _retrieve_people(
+        self, target_entity: Entity, filter: StickinessFilter, team: Team, request: Request
+    ) -> ReturnDict:
         return retrieve_stickiness_people(target_entity, filter, team)
 
 
 def _format_entity_filter(entity: Entity) -> Tuple[str, Dict]:
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        try:
-            action = Action.objects.get(pk=entity.id)
-            action_query, params = format_action_filter(action)
-            entity_filter = "AND {}".format(action_query)
-
-        except Action.DoesNotExist:
-            raise ValueError("This action does not exist")
+        action = entity.get_action()
+        action_query, params = format_action_filter(action)
+        entity_filter = "AND {}".format(action_query)
     else:
         entity_filter = "AND event = %(event)s"
         params = {"event": entity.id}

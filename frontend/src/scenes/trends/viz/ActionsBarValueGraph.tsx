@@ -5,15 +5,16 @@ import { getChartColors } from 'lib/colors'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
-import { ViewType } from 'scenes/insights/insightLogic'
-import { TrendResultWithAggregate } from '~/types'
+import { ViewType } from '~/types'
+import { FilterType, TrendResultWithAggregate } from '~/types'
+import { personsModalLogic } from '../personsModalLogic'
 
 interface Props {
     dashboardItemId?: number | null
     view: ViewType
+    filters: Partial<FilterType>
     color?: string
     inSharedMode?: boolean | null
-    filters?: Record<string, unknown>
     cachedResults?: any
 }
 
@@ -29,7 +30,7 @@ export function ActionsBarValueGraph({
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
-    const { loadPeople } = useActions(logic)
+    const { loadPeople } = useActions(personsModalLogic)
     const { results, resultsLoading } = useValues(logic)
 
     function updateData(): void {
@@ -83,12 +84,12 @@ export function ActionsBarValueGraph({
                               const { dataset } = point
                               const action = dataset.actions[point.index]
                               const label = dataset.labels[point.index]
-                              const date_from = filtersParam?.date_from
-                              const date_to = filtersParam?.date_to
-                              const breakdownValue = dataset.breakdownValues[point.index]
+                              const date_from = filtersParam?.date_from || ''
+                              const date_to = filtersParam?.date_to || ''
+                              const breakdown_value = dataset.breakdownValues[point.index]
                                   ? dataset.breakdownValues[point.index]
                                   : null
-                              loadPeople(action, label, date_from, date_to, breakdownValue)
+                              loadPeople({ action, label, date_from, date_to, filters: filtersParam, breakdown_value })
                           }
                 }
             />

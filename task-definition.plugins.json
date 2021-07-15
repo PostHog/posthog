@@ -71,6 +71,14 @@
                 {
                     "name": "PLUGIN_SERVER_ACTION_MATCHING",
                     "value": "1"
+                },
+                {
+                    "name": "PISCINA_ATOMICS_TIMEOUT",
+                    "value": "3000"
+                },
+                {
+                    "name": "USING_PGBOUNCER",
+                    "value": "True"
                 }
             ],
             "secrets": [

@@ -10,12 +10,12 @@ import { NewActionButton } from './NewActionButton'
 import imgGrouping from 'public/actions-tutorial-grouping.svg'
 import imgStandardized from 'public/actions-tutorial-standardized.svg'
 import imgRetroactive from 'public/actions-tutorial-retroactive.svg'
-import { ActionType } from '~/types'
+import { ActionType, ViewType } from '~/types'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
-import { createdAtColumn, createdByColumn } from 'lib/components/Table'
-import { ViewType } from 'scenes/insights/insightLogic'
+import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { PageHeader } from 'lib/components/PageHeader'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -32,6 +32,7 @@ export function ActionsTable(): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const [filterByMe, setFilterByMe] = useState(false)
     const { user } = useValues(userLogic)
+    const tableScrollBreakpoint = getBreakpoint('lg')
 
     const columns = [
         {
@@ -242,6 +243,7 @@ export function ActionsTable(): JSX.Element {
                 data-attr="actions-table"
                 dataSource={data}
                 locale={{ emptyText: 'The first step to standardized analytics is creating your first action.' }}
+                scroll={{ x: `${tableScrollBreakpoint}px` }}
             />
         </div>
     )

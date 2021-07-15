@@ -61,12 +61,12 @@ INNER JOIN (
         distinct_id
     FROM ({latest_distinct_id_sql})
     WHERE team_id = %(team_id)s
-) as pid
-ON events.distinct_id = pid.distinct_id
+) as pdi
+ON events.distinct_id = pdi.distinct_id
 WHERE team_id = %(team_id)s {date_query} AND {entity_query}
 GROUP BY person_id HAVING count(*) {count_operator} %(count)s
 """
 
 GET_PERSON_ID_BY_COHORT_ID = """
-SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s GROUP BY person_id, cohort_id, team_id HAVING sum(sign) > 0
+SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id_{index})s GROUP BY person_id, cohort_id, team_id HAVING sum(sign) > 0
 """

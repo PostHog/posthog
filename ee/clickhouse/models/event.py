@@ -191,9 +191,9 @@ def determine_event_conditions(
             params.update({"before": timestamp})
         elif k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s)"""
-            distinct_ids = Person.objects.filter(pk=v, team_id=team.pk)[0].distinct_ids
-            distinct_ids = [distinct_id.__str__() for distinct_id in distinct_ids]
-            params.update({"distinct_ids": distinct_ids})
+            person = Person.objects.filter(pk=v, team_id=team.pk).first()
+            distinct_ids = person.distinct_ids if person is not None else []
+            params.update({"distinct_ids": list(map(str, distinct_ids))})
         elif k == "distinct_id":
             result += "AND distinct_id = %(distinct_id)s"
             params.update({"distinct_id": v})
