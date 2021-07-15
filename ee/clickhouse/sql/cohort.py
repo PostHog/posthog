@@ -1,13 +1,13 @@
 from posthog.settings import CLICKHOUSE_CLUSTER
 
-from .clickhouse import COLLAPSING_MERGE_TREE, STORAGE_POLICY, table_engine
+from .clickhouse import COLLAPSING_MERGE_TREE, table_engine
 
 CALCULATE_COHORT_PEOPLE_SQL = """
-SELECT distinct_id FROM ({latest_distinct_id_sql}) where {query} AND team_id = %(team_id)s
+SELECT distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) where {query} AND team_id = %(team_id)s
 """
 
 CREATE_COHORTPEOPLE_TABLE_SQL = """
-CREATE TABLE cohortpeople ON CLUSTER {cluster} 
+CREATE TABLE cohortpeople ON CLUSTER {cluster}
 (
     person_id UUID,
     cohort_id Int64,
@@ -30,7 +30,7 @@ JOIN (
     SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
 ) as person ON (person.id = cohortpeople.person_id)
 WHERE cohort_id = %(cohort_id)s
-AND 
+AND
     (
         person.is_deleted = 1 OR NOT person_id IN ({cohort_filter})
     )
@@ -55,7 +55,7 @@ SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {ent
 """
 
 GET_PERSON_ID_BY_ENTITY_COUNT_SQL = """
-SELECT person_id FROM events 
+SELECT person_id FROM events
 INNER JOIN (
     SELECT person_id,
         distinct_id

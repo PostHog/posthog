@@ -21,6 +21,7 @@ from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_ID_SQL,
     GET_PERSON_IDS_BY_FILTER,
+    GET_TEAM_PERSON_DISTINCT_IDS,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
@@ -194,7 +195,7 @@ def format_filter_query(cohort: Cohort, index: int = 0) -> Tuple[str, Dict[str, 
     )
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
-        query=person_query, latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
+        query=person_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
     )
     return person_id_query, params
 

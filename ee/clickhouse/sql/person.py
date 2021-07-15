@@ -300,7 +300,7 @@ AND person_id IN
 """
 
 GET_TEAM_PERSON_DISTINCT_IDS = """
-SELECT person_id, distinct_id
+SELECT team_id, person_id, distinct_id
 FROM person_distinct_id
 WHERE team_id = %(team_id)s
 GROUP BY person_id, distinct_id, team_id
