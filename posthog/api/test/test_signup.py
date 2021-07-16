@@ -11,8 +11,8 @@ from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models import Dashboard, Organization, Team, User
-from posthog.models.organization import OrganizationInvite
+from posthog.models import Dashboard, Organization, Team, User, organization
+from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
 
@@ -27,6 +27,10 @@ class TestSignupAPI(APIBaseTest):
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     @patch("posthoganalytics.capture")
     def test_api_sign_up(self, mock_capture):
+
+        # Ensure the internal system metrics org doesn't prevent org-creation
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
         response = self.client.post(
             "/api/signup/",
             {
@@ -318,7 +322,7 @@ class TestSignupAPI(APIBaseTest):
         )
 
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
@@ -333,7 +337,7 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     def test_api_social_login_to_create_organization(self, mock_request):
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
@@ -348,11 +352,78 @@ class TestSignupAPI(APIBaseTest):
     def test_api_social_login_cannot_create_second_organization(self, mock_request):
         Organization.objects.create(name="Test org")
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
         mock_request.return_value.json.return_value = {"access_token": "123"}
+
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(
+            response, "/login?error=no_new_organizations"
+        )  # show the user an error; operation not permitted
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.skip_on_multitenancy
+    def test_social_signup_with_whitelisted_domain(self, mock_request):
+        new_org = Organization.objects.create(name="Hogflix Movies", domain_whitelist=["hogflix.posthog.com"])
+        new_project = Team.objects.create(organization=new_org, name="My First Project")
+        user_count = User.objects.count()
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, 302)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {"access_token": "123", "email": "jane@hogflix.posthog.com"}
+
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/")
+
+        self.assertEqual(User.objects.count(), user_count + 1)
+        user = cast(User, User.objects.last())
+        self.assertEqual(user.email, "jane@hogflix.posthog.com")
+        self.assertEqual(user.organization, new_org)
+        self.assertEqual(user.team, new_project)
+        self.assertEqual(user.organization_memberships.count(), 1)
+        self.assertEqual(
+            cast(OrganizationMembership, user.organization_memberships.first()).level,
+            OrganizationMembership.Level.MEMBER,
+        )
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    def test_social_signup_is_disabled_in_cloud(self, mock_request):
+        Organization.objects.create(name="Hogflix Movies", domain_whitelist=["hogflix.posthog.com"])
+        user_count = User.objects.count()
+        org_count = Organization.objects.count()
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, 302)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {"access_token": "123", "email": "jane@hogflix.posthog.com"}
+
+        with self.settings(MULTI_TENANCY=True):
+            response = self.client.get(url, follow=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/signup/finish/")  # page where user will create a new org
+
+        self.assertEqual(User.objects.count(), user_count)
+        self.assertEqual(Organization.objects.count(), org_count)
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.skip_on_multitenancy
+    def test_api_cannot_use_whitelist_for_different_domain(self, mock_request):
+        Organization.objects.create(name="Test org", domain_whitelist=["good.com"])
+
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {"access_token": "123", "email": "alice@evil.com"}
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`

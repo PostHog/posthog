@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Popconfirm, Space, Switch, Tooltip } from 'antd'
+import { Button, Form, Popconfirm, Space, Switch, Tag, Tooltip } from 'antd'
 import { DeleteOutlined, CodeOutlined, LockFilled, GlobalOutlined, RollbackOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
@@ -17,6 +17,7 @@ import { endWithPunctation } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
 import { PluginAboutButton } from '../plugin/PluginCard'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { capabilitiesInfo } from './CapabilitiesInfo'
 
 function EnabledDisabledSwitch({
     value,
@@ -261,6 +262,34 @@ export function PluginDrawer(): JSX.Element {
                                         Edit Source
                                     </Button>
                                 </div>
+                            ) : null}
+
+                            {editingPlugin.capabilities && Object.keys(editingPlugin.capabilities).length > 0 ? (
+                                <>
+                                    <h3 className="l3" style={{ marginTop: 32 }}>
+                                        Capabilities
+                                    </h3>
+
+                                    <div style={{ marginTop: 5 }}>
+                                        {[
+                                            ...editingPlugin.capabilities.methods,
+                                            ...editingPlugin.capabilities.scheduled_tasks,
+                                        ]
+                                            .filter(
+                                                (capability) => !['setupPlugin', 'teardownPlugin'].includes(capability)
+                                            )
+                                            .map((capability) => (
+                                                <Tooltip title={capabilitiesInfo[capability] || ''} key={capability}>
+                                                    <Tag className="plugin-capabilities-tag">{capability}</Tag>
+                                                </Tooltip>
+                                            ))}
+                                        {editingPlugin.capabilities.jobs.map((jobName) => (
+                                            <Tooltip title="Custom job" key={jobName}>
+                                                <Tag className="plugin-capabilities-tag">{jobName}</Tag>
+                                            </Tooltip>
+                                        ))}
+                                    </div>
+                                </>
                             ) : null}
 
                             <h3 className="l3" style={{ marginTop: 32 }}>

@@ -90,11 +90,11 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         refreshCohort: () => {
             cohortLogic({
                 cohort: {
-                    id: 'new',
+                    id: 'personsModalNew',
                     groups: [],
                 },
             }).actions.setCohort({
-                id: 'new',
+                id: 'personsModalNew',
                 groups: [],
             })
         },
