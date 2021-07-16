@@ -122,7 +122,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         # How many steps must have been done to count for the denominator of a funnel trends data point
         from_step = self._filter.funnel_from_step or 1
         # How many steps must have been done to count for the numerator of a funnel trends data point
-        to_step = self._filter.funnel_to_step or len(self._filter.entities)
+        to_step = self._filter.funnel_to_step or len(self._filter.entities) - 1
 
         # Those who converted OR dropped off
         reached_from_step_count_condition = f"steps_completed >= {from_step}"
