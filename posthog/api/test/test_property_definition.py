@@ -41,19 +41,10 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_PROPERTY_DEFINITIONS))
 
-        volume_usage_cursor = 9999999999
-
         for item in self.EXPECTED_PROPERTY_DEFINITIONS:
             response_item: Dict = next((_i for _i in response.json()["results"] if _i["name"] == item["name"]), {})
             self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"])
             self.assertEqual(response_item["is_numerical"], item["is_numerical"])
-
-        for response_item in response.json()["results"]:
-            # We test that queries are ordered too based on highest usage
-            # Normally we return objects with higher query usage first, then with higher event volume
-            # As all test objects have query_usage_30_day=0, we test with volume_usage_cursor
-            self.assertGreaterEqual(volume_usage_cursor, response_item["volume_30_day"])
-            volume_usage_cursor = response_item["volume_30_day"]
 
     def test_pagination_of_property_definitions(self):
         PropertyDefinition.objects.bulk_create(
@@ -99,19 +90,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
 
-    def test_search_property_definitions(self):
+    def test_query_property_definitions(self):
 
         # Regular search
         response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(response_data["count"], 2)
-        # We test ordering too (best matches go first, regardless of other attributes)
-        # note that is_first_movie has more events, yet first_visit is returned first because it has a higher match
-        self.assertEqual(response_data["results"][0]["name"], "first_visit")  # this has similarity 0.31
-        self.assertEqual(response_data["results"][1]["name"], "is_first_movie")  # this has similarity 0.25
+        self.assertEqual(response_data["count"], 2)  # first_visit, is_first_movie
 
-        # Fuzzy search 1
+        # Fuzzy search
         response = self.client.get("/api/projects/@current/property_definitions/?search=rting")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
@@ -132,17 +119,3 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 2)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["purchase", "purchase_value"])
-
-    def test_filter_numerical_property_definitions(self):
-
-        response = self.client.get("/api/projects/@current/property_definitions/?is_numerical=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
-        for item in response.json()["results"]:
-            self.assertIn(item["name"], ["purchase", "purchase_value", "app_rating"])
-
-        response = self.client.get("/api/projects/@current/property_definitions/?is_numerical=0")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 4)
-        for item in response.json()["results"]:
-            self.assertIn(item["name"], ["$current_url", "is_first_movie", "plan", "first_visit"])
