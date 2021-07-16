@@ -298,17 +298,16 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
                 )
             },
         ],
-        clickhouseFeatures: [
+        clickhouseFeaturesEnabled: [
             () => [featureFlagLogic.selectors.featureFlags, selectors.preflight],
-            (featureFlags, preflight) => {
-                // Controls auto-calculation of results and ability to break down values
-                return !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled)
-            },
+            // Controls auto-calculation of results and ability to break down values
+            (featureFlags, preflight): boolean =>
+                !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled),
         ],
         funnelPersonsEnabled: [
             () => [featureFlagLogic.selectors.featureFlags, selectors.preflight],
-            (featureFlags, preflight) =>
-                featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL] && preflight?.is_clickhouse_enabled,
+            (featureFlags, preflight): boolean =>
+                !!(featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL] && preflight?.is_clickhouse_enabled),
         ],
         histogramGraphData: [
             () => [selectors.timeConversionBins],
@@ -404,10 +403,10 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
             }
         },
         setFilters: ({ refresh }) => {
-            // FUNNEL_BAR_VIZ removes the Calculate button
+            // FUNNEL_BAR_VIZ removes the calculate button on Clickhouse
             // Query performance is suboptimal on psql
-            const { clickhouseFeatures } = values
-            if (refresh || clickhouseFeatures) {
+            const { clickhouseFeaturesEnabled } = values
+            if (refresh || clickhouseFeaturesEnabled) {
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)

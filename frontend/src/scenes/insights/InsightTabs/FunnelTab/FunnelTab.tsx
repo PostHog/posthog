@@ -22,7 +22,7 @@ import { BreakdownType } from '~/types'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, stepsWithCount, clickhouseFeatures } = useValues(funnelLogic())
+    const { isStepsEmpty, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(funnelLogic())
     const { featureFlags } = useValues(featureFlagLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
     const [savingModal, setSavingModal] = useState<boolean>(false)
@@ -38,7 +38,7 @@ export function FunnelTab(): JSX.Element {
         <div data-attr="funnel-tab">
             <InsightTitle
                 actionBar={
-                    clickhouseFeatures ? (
+                    clickhouseFeaturesEnabled ? (
                         <InsightActionBar
                             variant="sidebar"
                             filters={filters}
@@ -85,7 +85,7 @@ export function FunnelTab(): JSX.Element {
                     }}
                 />
                 <TestAccountFilter filters={filters} onChange={setFilters} />
-                {clickhouseFeatures && (
+                {clickhouseFeaturesEnabled && (
                     <>
                         <hr />
                         <h4 className="secondary">
@@ -113,7 +113,7 @@ export function FunnelTab(): JSX.Element {
                         </Row>
                     </>
                 )}
-                {!clickhouseFeatures && (
+                {!clickhouseFeaturesEnabled && (
                     <>
                         <hr />
                         <Row style={{ justifyContent: 'flex-end' }}>

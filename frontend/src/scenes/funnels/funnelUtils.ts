@@ -30,7 +30,6 @@ export function getSeriesColor(index?: number): string | undefined {
     if (typeof index === 'number' && index >= 0) {
         return getChartColors('white')[index]
     }
-    return
 }
 
 export function getBreakdownMaxIndex(breakdown?: FunnelStep[]): number | undefined {
