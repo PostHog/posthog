@@ -21,7 +21,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
     return (
         <div className="funnel__header__steps">
             <span className="funnel__header__steps__label">Steps</span>
-            {histogramStepsDropdown.length > 0 && (
+            {histogramStepsDropdown.length > 0 && stepsWithCount.length > 0 && (
                 <Select
                     defaultValue={histogramStepsDropdown[0]?.value}
                     onChange={changeHistogramStep}

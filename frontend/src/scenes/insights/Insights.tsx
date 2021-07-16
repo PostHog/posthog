@@ -425,7 +425,7 @@ export function Insights(): JSX.Element {
 function FunnelInsight(): JSX.Element {
     const {
         isValidFunnel,
-        stepsWithCountLoading,
+        isLoading,
         filters: { display },
     } = useValues(funnelLogic({}))
     const { clickhouseFeatures } = useValues(funnelLogic())
@@ -438,11 +438,11 @@ function FunnelInsight(): JSX.Element {
                 featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? {} : { height: 300, position: 'relative', marginBottom: 0 }
             }
         >
-            {stepsWithCountLoading && <Loading />}
+            {isLoading && <Loading />}
             {isValidFunnel ? (
                 <FunnelViz filters={{ display }} />
             ) : (
-                !stepsWithCountLoading && (
+                !isLoading && (
                     <div
                         style={{
                             textAlign: 'center',

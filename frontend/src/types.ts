@@ -708,9 +708,9 @@ export interface FunnelStep {
     breakdown_value?: string
 }
 
-export interface FunnelStepWithNestedBreakdown extends Omit<FunnelStep, 'breakdown'> {
+export interface FunnelStepWithNestedBreakdown extends FunnelStep {
     // A more useful type which reflects the hierarchy of a breakdown.
-    breakdown?: FunnelStep[]
+    nested_breakdown?: FunnelStep[]
 }
 
 export interface FunnelResult<ResultType = FunnelStep[]> {

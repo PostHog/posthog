@@ -30,7 +30,7 @@ export function FunnelViz({
         results: stepsResult,
         steps,
         timeConversionBins,
-        resultsLoading: funnelLoading,
+        isLoading: funnelLoading,
         filters,
         conversionWindowInDays,
         areFiltersValid,
