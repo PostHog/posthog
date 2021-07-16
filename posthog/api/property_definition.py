@@ -78,7 +78,7 @@ class PropertyDefinitionViewSet(
                     name_filter = (
                         ""
                         if search is None
-                        else f"ngramSearchCaseInsensitiveUTF8(name, {search}) > {self.search_threshold}"
+                        else f"AND ngramSearchCaseInsensitiveUTF8(name, {search}) > {self.search_threshold}"
                     )
                 ee_property_definitions = EnterprisePropertyDefinition.objects.raw(
                     f"""
@@ -91,6 +91,7 @@ class PropertyDefinitionViewSet(
                     params={"team_id": self.request.user.team.id, "names": names},  # type: ignore
                 )
                 return ee_property_definitions
+
         return self.filter_queryset_by_parents_lookups(PropertyDefinition.objects.all())
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
