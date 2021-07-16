@@ -8,6 +8,13 @@ from posthog.models.person import Person
 
 
 class ClickhouseFunnelTrendsPersons(ClickhouseFunnelTrends):
+    def run(self, *args, **kwargs):
+        if len(self._filter.entities) == 0:
+            return []
+
+        results = self._exec_query()
+        return self._format_results(results), len(results) > 99
+
     def get_query(self) -> str:
         drop_off = self._filter.drop_off
         if drop_off is None:
