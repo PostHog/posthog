@@ -30,32 +30,6 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
         raise EnterpriseFeatureException()
 
 
-def is_pg_trgm_installed():
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM pg_extension WHERE extname = 'pg_trgm'")
-            row = cursor.fetchone()
-            has_extension = bool(row) and bool(row[0])
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                    i.relname as index_name
-                FROM
-                    pg_class i,
-                    pg_index ix
-                WHERE
-                    i.oid = ix.indexrelid
-                    and i.relname = 'index_property_definition_name';
-            """
-            )
-            row = cursor.fetchone()
-            has_index = bool(row) and bool(row[0])
-        return has_extension and has_index
-    except BaseException:
-        return False
-
-
 class NumericalFilter(filters.BaseFilterBackend):
     def filter_queryset(self, request: Request, queryset: QuerySet[_MT], view: APIView,) -> QuerySet[_MT]:
         param: Optional[str] = request.query_params.get("is_numerical", None)
@@ -112,12 +86,7 @@ class PropertyDefinitionViewSet(
                     params={"team_id": self.request.user.team.id, "names": names},  # type: ignore
                 )
                 return ee_property_definitions
-        objects = PropertyDefinition.objects
-        if self.pg_trgm_installed and "search" in self.request.query_params:
-            objects = objects.filter(name__trigram_similar=self.request.query_params["search"])
-        else:
-            objects = objects.all()
-        return self.filter_queryset_by_parents_lookups(objects)
+        return self.filter_queryset_by_parents_lookups(PropertyDefinition.objects.all())
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
