@@ -74,6 +74,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "plugins_access_level",
             "teams",
             "available_features",
+            "domain_whitelist",
         ]
         read_only_fields = [
             "id",
@@ -149,9 +150,9 @@ class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             organization = cast(User, self.request.user).organization
             if organization is None:
                 raise exceptions.NotFound("Current organization not found.")
-            return organization
-        filter_kwargs = {self.lookup_field: lookup_value}
-        organization = get_object_or_404(queryset, **filter_kwargs)
+        else:
+            filter_kwargs = {self.lookup_field: lookup_value}
+            organization = get_object_or_404(queryset, **filter_kwargs)
         self.check_object_permissions(self.request, organization)
         return organization
 

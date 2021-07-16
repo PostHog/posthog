@@ -8,7 +8,6 @@ from rest_framework_extensions.settings import extensions_api_settings
 from posthog.api.utils import get_token
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.utils import load_data_from_request
 
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
@@ -67,6 +66,7 @@ class StructuredViewSetMixin(NestedViewSetMixin):
 
     def filter_queryset_by_parents_lookups(self, queryset):
         parents_query_dict = self.get_parents_query_dict()
+
         for source, destination in self.filter_rewrite_rules.items():
             parents_query_dict[destination] = parents_query_dict[source]
             del parents_query_dict[source]
@@ -81,10 +81,14 @@ class StructuredViewSetMixin(NestedViewSetMixin):
     def get_parents_query_dict(self) -> Dict[str, Any]:
         if getattr(self, "_parents_query_dict", None) is not None:
             return cast(Dict[str, Any], self._parents_query_dict)
+
+        # used to override the last visited project if there's a token in the request
+        team_from_request = self._get_team_from_request()
+
         if self.legacy_team_compatibility:
             if not self.request.user.is_authenticated:
                 raise AuthenticationFailed()
-            project = self.request.user.team
+            project = team_from_request or self.request.user.team
             if project is None:
                 raise ValidationError("This endpoint requires a project.")
             return {"team_id": project.id}
@@ -112,7 +116,7 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                         query_value = organization.id
                 elif query_lookup == "team_id":
                     try:
-                        query_value = int(query_value)
+                        query_value = team_from_request.id if team_from_request else int(query_value)
                     except ValueError:
                         raise NotFound()
                 result[query_lookup] = query_value

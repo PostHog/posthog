@@ -37,7 +37,12 @@ const cohortsUrlLogic = kea<cohortsUrlLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/cohorts(/:cohortId)': async ({ cohortId }) => {
-            if (cohortId && cohortId !== 'new' && Number(cohortId) !== values.openCohort?.id) {
+            if (
+                cohortId &&
+                cohortId !== 'new' &&
+                cohortId !== 'personsModalNew' &&
+                Number(cohortId) !== values.openCohort?.id
+            ) {
                 const cohort = await api.get('api/cohort/' + cohortId)
                 actions.setOpenCohort(cohort)
             }
@@ -122,7 +127,7 @@ export function Cohorts(): JSX.Element {
                                 <ExportOutlined />
                             </Tooltip>
                         </a>
-                        {cohort.id !== 'new' && (
+                        {cohort.id !== 'new' && cohort.id !== 'personsModalNew' && (
                             <DeleteWithUndo
                                 endpoint="cohort"
                                 object={{ name: cohort.name, id: cohort.id }}

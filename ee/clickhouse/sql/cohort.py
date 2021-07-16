@@ -1,3 +1,5 @@
+from posthog.settings import CLICKHOUSE_CLUSTER
+
 from .clickhouse import COLLAPSING_MERGE_TREE, STORAGE_POLICY, table_engine
 
 CALCULATE_COHORT_PEOPLE_SQL = """
@@ -5,7 +7,7 @@ SELECT distinct_id FROM ({latest_distinct_id_sql}) where {query} AND team_id = %
 """
 
 CREATE_COHORTPEOPLE_TABLE_SQL = """
-CREATE TABLE cohortpeople
+CREATE TABLE cohortpeople ON CLUSTER {cluster} 
 (
     person_id UUID,
     cohort_id Int64,
@@ -15,12 +17,10 @@ CREATE TABLE cohortpeople
 Order By (team_id, cohort_id, person_id)
 {storage_policy}
 """.format(
-    engine=table_engine("cohortpeople", "sign", COLLAPSING_MERGE_TREE), storage_policy=""
+    cluster=CLICKHOUSE_CLUSTER, engine=table_engine("cohortpeople", "sign", COLLAPSING_MERGE_TREE), storage_policy=""
 )
 
-DROP_COHORTPEOPLE_TABLE_SQL = """
-DROP TABLE cohortpeople
-"""
+DROP_COHORTPEOPLE_TABLE_SQL = f"DROP TABLE cohortpeople ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL = """
 INSERT INTO cohortpeople

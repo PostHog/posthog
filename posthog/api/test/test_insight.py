@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.constants import RDBMS
 from posthog.ee import is_clickhouse_enabled
+from posthog.models import User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
@@ -285,6 +286,40 @@ def insight_test_factory(event_factory, person_factory):
             response = self.client.get("/api/insight/retention/",).json()
 
             self.assertEqual(len(response["result"]), 11)
+
+        def test_insight_with_specified_token(self):
+            _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
+            assert user.team is not None
+            assert self.team is not None
+            assert self.user.team is not None
+
+            self.assertNotEqual(user.team.id, self.team.id)
+            self.client.force_login(self.user)
+
+            person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=6),
+            )
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=5),
+            )
+
+            events_filter = json.dumps([{"id": "$pageview"}])
+            response_team1 = self.client.get(f"/api/insight/trend/?events={events_filter}")
+            response_team1_token = self.client.get(
+                f"/api/insight/trend/?events={events_filter}&token={self.user.team.api_token}"
+            )
+            response_team2 = self.client.get(
+                f"/api/insight/trend/?events={events_filter}", data={"token": user.team.api_token}
+            )
+
+            self.assertEqual(response_team1.json()["result"], response_team1_token.json()["result"])
+            self.assertNotEqual(len(response_team1.json()["result"]), len(response_team2.json()["result"]))
+
+            response_invalid_token = self.client.get(f"/api/insight/trend?token=invalid")
+            self.assertEqual(response_invalid_token.status_code, 401)
 
     return TestInsight
 
