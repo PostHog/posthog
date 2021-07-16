@@ -27,6 +27,10 @@ class TestSignupAPI(APIBaseTest):
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
     @patch("posthoganalytics.capture")
     def test_api_sign_up(self, mock_capture):
+
+        # Ensure the internal system metrics org doesn't prevent org-creation
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
         response = self.client.post(
             "/api/signup/",
             {
