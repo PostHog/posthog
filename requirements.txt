@@ -109,7 +109,7 @@ idna==2.8
     #   requests
 importlib-metadata==1.6.0
     # via -r requirements.in
-git+git://github.com/PostHog/infi.clickhouse_orm@develop
+git+git://github.com/PostHog/infi.clickhouse_orm@369320b390d132799804728844673215540a04b2
     # via -r requirements.in
 iso8601==0.1.12
     # via infi.clickhouse-orm
