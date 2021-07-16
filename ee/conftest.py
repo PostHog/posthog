@@ -40,7 +40,6 @@ def django_db_setup(django_db_setup, django_db_keepdb):
 
     if not django_db_keepdb:
         try:
-            sync_execute(f"SYSTEM DROP REPLICA 'ch1-01' FROM DATABASE {CLICKHOUSE_DATABASE}")
             database.drop_database()
         except:
             pass
