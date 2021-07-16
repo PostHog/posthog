@@ -127,7 +127,7 @@ However, PostHog can be deployed anywhere you want! Here are step-by-step tutori
 
 ## Contributing
 
-We <3 contributions big or small. [See our Docs for a guide on how to get started.](https://posthog.com/docs/contributing).
+We <3 contributions big or small. [See our Docs for a guide on how to get started](https://posthog.com/docs/contributing).
 
 Not sure where to start? [Book a free, no-pressure pairing session](mailto:tim@posthog.com?subject=Pairing%20session&body=I'd%20like%20to%20do%20a%20pairing%20session!) with one of our core contributors.
 
