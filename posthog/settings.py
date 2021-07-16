@@ -152,6 +152,7 @@ CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
+CLICKHOUSE_CLUSTER = os.getenv("CLICKHOUSE_CLUSTER", CLICKHOUSE_DATABASE)
 CLICKHOUSE_CA = os.getenv("CLICKHOUSE_CA", None)
 CLICKHOUSE_SECURE = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=str_to_bool)
 CLICKHOUSE_VERIFY = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=str_to_bool)
@@ -169,11 +170,6 @@ if CLICKHOUSE_SECURE:
     _clickhouse_http_port = "8443"
 
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
-
-_clickhouse_hosts = get_from_env("CLICKHOUSE_MIGRATION_HOSTS", CLICKHOUSE_HOST).split(",")
-CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS = [
-    f"{_clickhouse_http_protocol}{host}:{_clickhouse_http_port}/" for host in _clickhouse_hosts
-]
 
 IS_HEROKU = get_from_env("IS_HEROKU", False, type_cast=str_to_bool)
 
