@@ -434,7 +434,7 @@ function FunnelInsight(): JSX.Element {
         isLoading,
         filters: { display },
     } = useValues(funnelLogic({}))
-    const { clickhouseFeatures } = useValues(funnelLogic())
+    const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -457,7 +457,7 @@ function FunnelInsight(): JSX.Element {
                         }}
                     >
                         <span>
-                            Enter the details to your funnel {!clickhouseFeatures && `and click 'calculate'`} to create
+                            Enter your funnel details {!clickhouseFeaturesEnabled && `and click 'calculate'`} to create
                             a funnel visualization
                         </span>
                     </div>
