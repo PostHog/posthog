@@ -23,6 +23,35 @@ const SI_PREFIXES: { value: number; symbol: string }[] = [
 ]
 const TRAILING_ZERO_REGEX = /\.0+$|(\.[0-9]*[1-9])0+$/
 
+export const ANTD_TOOLTIP_PLACEMENTS = {
+    // `@yiminghe/dom-align` objects
+    // https://github.com/react-component/select/blob/dade915d81069b8d3b3b5679bb9daee7e992faba/src/SelectTrigger.jsx#L11-L28
+    bottomLeft: {
+        points: ['tl', 'bl'],
+        offset: [0, 4],
+        overflow: {
+            adjustX: 0,
+            adjustY: 0,
+        },
+    },
+    topLeft: {
+        points: ['bl', 'tl'],
+        offset: [0, -4],
+        overflow: {
+            adjustX: 0,
+            adjustY: 0,
+        },
+    },
+    horizontalPreferRight: {
+        points: ['cl', 'cr'],
+        offset: [4, 0],
+        overflow: {
+            adjustX: true,
+            adjustY: false,
+        },
+    },
+}
+
 export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
         (parseInt(c) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (parseInt(c) / 4)))).toString(16)

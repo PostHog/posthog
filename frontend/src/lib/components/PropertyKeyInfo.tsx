@@ -1,6 +1,7 @@
 import React from 'react'
 import { Popover, Typography } from 'antd'
 import { KeyMapping } from '~/types'
+import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -552,9 +553,14 @@ export function PropertyKeyInfo({
         innerContent
     ) : (
         <Popover
-            overlayStyle={{ maxWidth: 500 }}
-            placement="right"
-            title={innerContent}
+            overlayStyle={{ zIndex: 99999 }}
+            align={ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight}
+            title={
+                <span>
+                    <span className="property-key-info-logo" />
+                    {data.label}
+                </span>
+            }
             content={
                 <span>
                     {data.examples ? (

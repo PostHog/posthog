@@ -6,7 +6,13 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
+import {
+    FUNNEL_VIZ,
+    ACTIONS_TABLE,
+    ACTIONS_BAR_CHART_VALUE,
+    FEATURE_FLAGS,
+    ACTIONS_LINE_GRAPH_LINEAR,
+} from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -393,7 +399,7 @@ export function Insights(): JSX.Element {
                                 !showErrorMessage &&
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
-                                allFilters.display === FUNNEL_VIZ && <FunnelPeople />}
+                                allFilters.display === FUNNEL_VIZ && <People />}
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&
                                     allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
@@ -435,7 +441,9 @@ function FunnelInsight(): JSX.Element {
     return (
         <div
             style={
-                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? {} : { height: 300, position: 'relative', marginBottom: 0 }
+                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display !== ACTIONS_LINE_GRAPH_LINEAR
+                    ? {}
+                    : { height: 300, position: 'relative', marginBottom: 0 }
             }
         >
             {isLoading && <Loading />}
@@ -457,16 +465,4 @@ function FunnelInsight(): JSX.Element {
             )}
         </div>
     )
-}
-
-function FunnelPeople(): JSX.Element {
-    const { stepsWithCount, areFiltersValid } = useValues(funnelLogic())
-    if (areFiltersValid && stepsWithCount && stepsWithCount.length > 0) {
-        return (
-            <Card style={{ marginTop: 8 }}>
-                <People />
-            </Card>
-        )
-    }
-    return <></>
 }

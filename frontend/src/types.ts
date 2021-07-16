@@ -84,6 +84,7 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeatures[]
+    domain_whitelist: string[]
 }
 
 export interface OrganizationMemberType {
@@ -338,7 +339,7 @@ export interface CohortType {
     created_by?: UserBasicType | null
     created_at?: string
     deleted?: boolean
-    id: number | 'new'
+    id: number | 'new' | 'personsModalNew'
     is_calculating?: boolean
     last_calculation?: string
     is_static?: boolean
