@@ -715,7 +715,7 @@ export interface FunnelResult {
 }
 
 export interface FunnelsTimeConversionBins {
-    bins: [number, number][]
+    bins: [number, number][] | []
     average_conversion_time: number
 }
 

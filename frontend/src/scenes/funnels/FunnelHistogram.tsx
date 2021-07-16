@@ -2,7 +2,7 @@ import React, { useRef } from 'react'
 import { Col, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import useSize from '@react-hook/size'
-import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
+import { ANTD_TOOLTIP_PLACEMENTS, humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { calcPercentage, getReferenceStep } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/Histogram'
@@ -30,6 +30,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
                         changeHistogramStep(from_step, from_step + 1)
                     }}
                     dropdownMatchSelectWidth={false}
+                    dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomLeft}
                     data-attr="funnel-bar-layout-selector"
                     optionLabelProp="label"
                 >

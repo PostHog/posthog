@@ -247,7 +247,10 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         timeConversionBins: [
-            [],
+            {
+                bins: [] as [number, number][],
+                average_conversion_time: 0,
+            },
             {
                 setTimeConversionBins: (_, { timeConversionBins }) => timeConversionBins,
             },
@@ -329,8 +332,8 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         histogramStepsDropdown: [
-            () => [selectors.stepsWithCount],
-            (stepsWithCount) => {
+            () => [selectors.stepsWithCount, selectors.conversionMetrics],
+            (stepsWithCount, conversionMetrics) => {
                 const stepsDropdown: FunnelTimeConversionStep[] = []
 
                 if (stepsWithCount.length > 1) {
@@ -338,8 +341,8 @@ export const funnelLogic = kea<funnelLogicType>({
                         label: `All steps`,
                         from_step: -1,
                         to_step: -1,
-                        count: 0,
-                        average_conversion_time: 0,
+                        count: stepsWithCount[stepsWithCount.length - 1].count,
+                        average_conversion_time: conversionMetrics.averageTime,
                     })
                 }
 
@@ -383,17 +386,17 @@ export const funnelLogic = kea<funnelLogicType>({
 
                 // total sum from first step
                 // note: if last step has 0 count, it makes sense to say that total time to convert is 0
-                const totalTime =
-                    toStep.count === 0
-                        ? 0
-                        : stepsWithCount
-                              .slice(0, toStep.order + 1)
-                              .map((s: FunnelStep) => s.average_conversion_time * s.count) // calculate total times per step
-                              .reduce((a: number, b: number) => a + b, 0) // add it up
+                // const totalTime =
+                //     toStep.count === 0
+                //         ? 0
+                //         : stepsWithCount
+                //               .slice(0, toStep.order + 1)
+                //               .map((s: FunnelStep) => s.average_conversion_time * s.count) // calculate total times per step
+                //               .reduce((a: number, b: number) => a + b, 0) // add it up
 
                 return {
                     averageTime: toStep?.average_conversion_time || 0,
-                    totalTime,
+                    // totalTime,
                     stepRate: calcPercentage(toStep.count, fromStep.count),
                     totalRate: calcPercentage(stepsWithCount[stepsWithCount.length - 1].count, stepsWithCount[0].count),
                 }
