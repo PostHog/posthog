@@ -30,7 +30,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
             {allFilters.display === ChartDisplayType.FunnelsTimeToConvert && (
                 <>
                     <span className="text-muted-alt">Total time to convert: </span>
-                    <span>{humanFriendlyDuration(conversionMetrics.sum)}</span>
+                    <span>{humanFriendlyDuration(conversionMetrics.totalTime)}</span>
                     <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                 </>
             )}
@@ -40,7 +40,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                 disabled={allFilters.display === ChartDisplayType.FunnelsTimeToConvert}
                 onClick={() => setChartFilter(ChartDisplayType.FunnelsTimeToConvert)}
             >
-                {humanFriendlyDuration(conversionMetrics.average)}
+                {humanFriendlyDuration(conversionMetrics.averageTime)}
             </Button>
         </div>
     )

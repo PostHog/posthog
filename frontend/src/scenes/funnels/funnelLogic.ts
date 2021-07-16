@@ -382,7 +382,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
                 // total sum from first step
                 // note: if last step has 0 count, it makes sense to say that total time to convert is 0
-                const sum =
+                const totalTime =
                     toStep.count === 0
                         ? 0
                         : stepsWithCount
@@ -391,8 +391,8 @@ export const funnelLogic = kea<funnelLogicType>({
                               .reduce((a: number, b: number) => a + b, 0) // add it up
 
                 return {
-                    average: toStep?.average_conversion_time || 0,
-                    sum,
+                    averageTime: toStep?.average_conversion_time || 0,
+                    totalTime,
                     stepRate: calcPercentage(toStep.count, fromStep.count),
                     totalRate: calcPercentage(stepsWithCount[stepsWithCount.length - 1].count, stepsWithCount[0].count),
                 }

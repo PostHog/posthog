@@ -6,8 +6,9 @@ import { calcPercentage, getReferenceStep } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/Histogram'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import './FunnelHistogram.scss'
 import { ChartDisplayType } from '~/types'
+
+import './FunnelHistogram.scss'
 
 export function FunnelHistogramHeader(): JSX.Element | null {
     const { stepsWithCount, stepReference, histogramStepsDropdown } = useValues(funnelLogic)
@@ -48,10 +49,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
                                     </Row>
                                     <Row className="text-muted-alt">
                                         Total conversion rate:{' '}
-                                        {option.count !== undefined
-                                            ? humanizeNumber(calcPercentage(option.count, basisStep.count))
-                                            : '-'}
-                                        %
+                                        {humanizeNumber(calcPercentage(option.count || 0, basisStep.count))}
                                     </Row>
                                 </Col>
                             </Select.Option>
@@ -66,8 +64,8 @@ export function FunnelHistogramHeader(): JSX.Element | null {
 export function FunnelHistogram(): JSX.Element {
     const { histogramGraphData, barGraphLayout } = useValues(funnelLogic)
     return (
-        <>
+        <div className="funnel__histogram-wrapper">
             <Histogram data={histogramGraphData} layout={barGraphLayout} />
-        </>
+        </div>
     )
 }
