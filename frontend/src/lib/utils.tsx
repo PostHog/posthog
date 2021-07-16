@@ -413,9 +413,12 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-export function humanFriendlyDuration(d: string | number, maxUnits?: number): string {
+export function humanFriendlyDuration(d: string | number | null, maxUnits?: number): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
+    if (d === '' || d === null) {
+        return ''
+    }
     d = Number(d)
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)

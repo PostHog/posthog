@@ -28,14 +28,18 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                     <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                 </>
             )}
-            <span className="text-muted-alt">Average time to convert: </span>
-            <Button
-                type="link"
-                disabled={allFilters.display === FUNNELS_TIME_TO_CONVERT}
-                onClick={() => setChartFilter(ChartDisplayType.FunnelsTimeToConvert)}
-            >
-                {humanFriendlyDuration(stepsWithCount[histogramStep]?.average_conversion_time)}
-            </Button>
+            {stepsWithCount[histogramStep]?.average_conversion_time !== null ? (
+                <>
+                    <span className="text-muted-alt">Average time to convert: </span>
+                    <Button
+                        type="link"
+                        disabled={allFilters.display === FUNNELS_TIME_TO_CONVERT}
+                        onClick={() => setChartFilter(ChartDisplayType.FunnelsTimeToConvert)}
+                    >
+                        {humanFriendlyDuration(stepsWithCount[histogramStep]?.average_conversion_time)}
+                    </Button>
+                </>
+            ) : null}
         </div>
     )
 }
