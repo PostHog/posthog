@@ -387,7 +387,7 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
                     ? stepsWithNestedBreakdown
                     : ([...results] as FunnelStep[]).sort((a, b) => a.order - b.order),
         ],
-        stepsWithCount: [() => [selectors.steps], (steps) => steps.filter((step) => step.count)],
+        stepsWithCount: [() => [selectors.steps], (steps) => steps.filter((step) => typeof step.count === 'number')],
     }),
 
     listeners: ({ actions, values, props }) => ({

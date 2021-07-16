@@ -709,7 +709,6 @@ export interface FunnelStep {
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
-    // A more useful type which reflects the hierarchy of a breakdown.
     nested_breakdown?: FunnelStep[]
 }
 
