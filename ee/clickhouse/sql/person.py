@@ -230,7 +230,7 @@ AND team_id = %(team_id)s
 """
 
 DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
-INSERT INTO person_distinct_id (id, distinct_id, person_id, team_id, _timestamp, _offset, sign) SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, %(_timestamp)s, 0, 1
+INSERT INTO person_distinct_id (id, distinct_id, person_id, team_id, _timestamp, _offset, sign) SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, now(), 0, 1
 """
 
 PERSON_TREND_SQL = """
