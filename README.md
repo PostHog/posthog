@@ -1,4 +1,4 @@
-<p align="center"><img src="https://posthog-public.s3.amazonaws.com/PostHog+Header.svg" width="400px" /></p>
+<p align="center"><img src="https://user-images.githubusercontent.com/65415371/124739522-d8393d00-df11-11eb-9741-820955887d21.png" width="1000px" /></p>
 <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
 <a href='https://posthog.com/contributors'><img src='https://img.shields.io/badge/all_contributors-147-orange.svg?style=flat-square' /></a>
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
@@ -9,7 +9,7 @@ PostHog provides open-source product analytics, built for developers. Automate t
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/Quick+start.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124739629-f43cde80-df11-11eb-9033-c5d1d7194f03.png" width="50px" />
 
 ## Quick Start
 
@@ -19,7 +19,7 @@ PostHog provides open-source product analytics, built for developers. Automate t
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/Make+the+most+of+PH.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124739746-10d91680-df12-11eb-86cd-9aa9494e01bd.png" width="50px" />
 
 ## Make the Most of PostHog
 
@@ -31,7 +31,7 @@ Join [our PostHog Users Slack community](https://posthog.com/slack) if you need 
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/Features.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124739888-2cdcb800-df12-11eb-8952-5be64764a7aa.png" width="50px" />
 
 ## Features
 
@@ -48,7 +48,7 @@ Join [our PostHog Users Slack community](https://posthog.com/slack) if you need 
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/Event+autocapture.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124740181-74634400-df12-11eb-929c-9aa1bf060806.png" width="50px" />
 
 ## Event Autocapture
 
@@ -56,7 +56,7 @@ Join [our PostHog Users Slack community](https://posthog.com/slack) if you need 
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/Philosophy.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124740290-8e048b80-df12-11eb-9c29-654c9cb4561b.png" width="50px" />
 
 ## Philosophy
 
@@ -70,7 +70,7 @@ This means you can know who is using your app, how they're using it, and where y
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/What's+cool.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124740340-9eb50180-df12-11eb-9295-e33ac2752c57.png" width="50px" />
 
 ## What's Cool About This?
 
@@ -80,7 +80,7 @@ There are a few session-based open-source libraries that are nice alternatives t
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/PostHog+CLoud.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124740386-ab395a00-df12-11eb-8519-3cd1b26f9509.png" width="50px" />
 
 ## PostHog Cloud
 
@@ -88,7 +88,7 @@ You can [sign up for a free account](https://app.posthog.com/signup) on our host
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/Deployment.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124740447-b7bdb280-df12-11eb-80c3-b2aa85be0f86.png" width="50px" />
 
 ## Deployment Options
 
@@ -107,7 +107,7 @@ However, PostHog can be deployed anywhere you want! Here are step-by-step tutori
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/Production+Development.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124740742-f94e5d80-df12-11eb-8ca9-7d2ad4f56e3d.png" width="50px" />
 
 ## Production Deployment
 
@@ -115,7 +115,7 @@ However, PostHog can be deployed anywhere you want! Here are step-by-step tutori
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/Developing+Locally.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124740780-04a18900-df13-11eb-8a53-ad66e031b55f.png" width="50px" />
 
 ## Developing Locally
 
@@ -123,7 +123,7 @@ However, PostHog can be deployed anywhere you want! Here are step-by-step tutori
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/Contributing.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124740842-108d4b00-df13-11eb-99f7-c36edc39b2a0.png" width="50px" />
 
 ## Contributing
 
@@ -133,7 +133,7 @@ Not sure where to start? [Book a free, no-pressure pairing session](mailto:tim@p
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/Hiring.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124740898-1b47e000-df13-11eb-9518-037652dceeb8.png" width="50px" />
 
 ## We're hiring!
 
@@ -141,7 +141,7 @@ Come help us make PostHog even better. We're growing fast, [and would love for y
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/Open+Source+vs+Paid.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124740961-2b5fbf80-df13-11eb-8075-72c6860b3a0f.png" width="50px" />
 
 ## Open-Source vs. Paid
 
@@ -151,7 +151,7 @@ Premium features (contained in the `ee` directory) require a PostHog license. Co
 
 <br /><br />
 
-<img align="left" src="https://posthog-public.s3.amazonaws.com/Contributors.svg" width="50px" />
+<img align="left" src="https://user-images.githubusercontent.com/65415371/124741011-3581be00-df13-11eb-8d9a-b44e6fe248a8.png" width="50px" />
 
 ## Contributors 🦸
 
