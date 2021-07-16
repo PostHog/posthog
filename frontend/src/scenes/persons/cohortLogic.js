@@ -47,6 +47,13 @@ export const cohortLogic = kea({
         ],
     }),
 
+    selectors: () => ({
+        isNewCohort: [
+            (selectors) => [selectors.cohort],
+            (cohort) => cohort.id === 'new' || cohort.id === 'personsModalNew',
+        ],
+    }),
+
     listeners: ({ sharedListeners, actions, values }) => ({
         saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
             let cohort = { ...values.cohort, ...cohortParams }
