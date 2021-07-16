@@ -3,6 +3,7 @@ from uuid import uuid4
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedPersons
+from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
@@ -20,6 +21,107 @@ def _create_person(**kwargs):
 def _create_event(**kwargs):
     kwargs.update({"event_uuid": uuid4()})
     create_event(**kwargs)
+
+
+class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedPersons, _create_event, _create_person)):  # type: ignore
+    maxDiff = None
+
+    def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
+        # overriden from factory
+
+        filters = {
+            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnelUnordered(filter, self.team)
+
+        # event
+        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Chrome"},
+            timestamp="2020-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T13:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="play movie",
+            distinct_id="person1",
+            properties={"key": "val", "$browser": "Safari"},
+            timestamp="2020-01-02T14:00:00Z",
+        )
+
+        result = funnel.run()
+        self.assertEqual(
+            result[0],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": "Chrome",
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "order": 1,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": "Chrome",
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [])
+
+        self.assertEqual(
+            result[1],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "breakdown": "Safari",
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "order": 1,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": 3600,
+                    "breakdown": "Safari",
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person1.uuid])
+        self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person1.uuid])
 
 
 class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):

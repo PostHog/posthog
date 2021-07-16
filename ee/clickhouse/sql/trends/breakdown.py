@@ -94,7 +94,7 @@ INNER JOIN (
             SELECT
                 id,
                 arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
-                arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
+                arrayMap(k -> trim(BOTH '\"' FROM (k.2)), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
             FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s
         )
         ARRAY JOIN array_property_keys, array_property_values
@@ -116,7 +116,7 @@ ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {filters} {par
 BREAKDOWN_PROP_JOIN_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
   AND JSONHas(properties, %(key)s)
-  AND JSONExtractRaw(properties, %(key)s) in (%(values)s) 
+  AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) in (%(values)s) 
   {actions_query}
 """
 

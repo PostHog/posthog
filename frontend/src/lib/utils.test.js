@@ -12,6 +12,7 @@ import {
     hexToRGBA,
     average,
     median,
+    humanFriendlyDuration,
 } from './utils'
 
 describe('capitalizeFirstLetter()', () => {
@@ -185,5 +186,31 @@ describe('median()', () => {
     })
     it('returns avg of middle numbers if array length is even', () => {
         expect(median([9, 4, 0, 5, 7, 3, 6, 14])).toEqual(5.5)
+    })
+})
+
+describe('humanFriendlyDuration()', () => {
+    it('returns correct value for <= 60', () => {
+        expect(humanFriendlyDuration(60)).toEqual('1min')
+        expect(humanFriendlyDuration(45)).toEqual('45s')
+    })
+    it('returns correct value for 60 < t < 120', () => {
+        expect(humanFriendlyDuration(90)).toEqual('1min 30s')
+    })
+    it('returns correct value for t > 120', () => {
+        expect(humanFriendlyDuration(360)).toEqual('6mins')
+    })
+    it('returns correct value for t >= 3600', () => {
+        expect(humanFriendlyDuration(3600)).toEqual('1hr')
+        expect(humanFriendlyDuration(3601)).toEqual('1hr 1s')
+        expect(humanFriendlyDuration(3961)).toEqual('1hr 6mins 1s')
+    })
+    it('returns correct value for t >= 86400', () => {
+        expect(humanFriendlyDuration(86400)).toEqual('1d')
+    })
+    it('truncates to specified # of units', () => {
+        expect(humanFriendlyDuration(3961, 2)).toEqual('1hr 6mins')
+        expect(humanFriendlyDuration(30, 2)).toEqual('30s') // no change
+        expect(humanFriendlyDuration(30, 0)).toEqual('') // returns no units (useless)
     })
 })

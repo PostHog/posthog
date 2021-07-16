@@ -27,14 +27,14 @@ async function getJSONOrThrow(response) {
 }
 
 class Api {
-    async get(url) {
+    async get(url, signal = undefined) {
         // TODO: how to put behind a feature flag
         url = maybeAddEnvironmentProperty(url)
 
         let response
         const startTime = new Date().getTime()
         try {
-            response = await fetch(url)
+            response = await fetch(url, { signal })
         } catch (e) {
             throw { status: 0, message: e }
         }

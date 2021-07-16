@@ -1,6 +1,7 @@
 import React from 'react'
 import { Popover, Typography } from 'antd'
 import { KeyMapping } from '~/types'
+import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -264,6 +265,10 @@ export const keyMapping: KeyMappingInterface = {
                     <code>onEvent</code>).
                 </>
             ),
+        },
+        $$plugin_metrics: {
+            label: 'Plugin Metric',
+            description: 'Performance metrics for a given plugin.',
         },
 
         // UTM tags
@@ -536,19 +541,20 @@ export function PropertyKeyInfo({
             </Typography.Text>
         )
     }
+
     const innerContent = (
-        <div className="property-key-info">
+        <span className="property-key-info">
             <span className="property-key-info-logo" />
             {data.label}
-        </div>
+        </span>
     )
 
     return disablePopover ? (
         innerContent
     ) : (
         <Popover
-            overlayStyle={{ maxWidth: 500 }}
-            placement="right"
+            overlayStyle={{ zIndex: 99999 }}
+            align={ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight}
             title={
                 <span>
                     <span className="property-key-info-logo" />

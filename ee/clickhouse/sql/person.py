@@ -1,20 +1,16 @@
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
 
-DROP_PERSON_TABLE_SQL = """
-DROP TABLE person
-"""
+DROP_PERSON_TABLE_SQL = f"DROP TABLE person ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
-DROP_PERSON_DISTINCT_ID_TABLE_SQL = """
-DROP TABLE person_distinct_id
-"""
-
+DROP_PERSON_DISTINCT_ID_TABLE_SQL = f"DROP TABLE person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 PERSONS_TABLE = "person"
 
 PERSONS_TABLE_BASE_SQL = """
-CREATE TABLE {table_name}
+CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
     id UUID,
     created_at DateTime64,
@@ -33,17 +29,20 @@ PERSONS_TABLE_SQL = (
 """
 ).format(
     table_name=PERSONS_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSONS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
 
 KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_TABLE, engine=kafka_engine(KAFKA_PERSON), extra_fields="",
+    table_name="kafka_" + PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_PERSON), extra_fields="",
 )
 
+# You must include the database here because of a bug in clickhouse
+# related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv
+CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
 TO {table_name}
 AS SELECT
 id,
@@ -54,9 +53,9 @@ is_identified,
 is_deleted,
 _timestamp,
 _offset
-FROM kafka_{table_name}
+FROM {database}.kafka_{table_name}
 """.format(
-    table_name=PERSONS_TABLE
+    table_name=PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
 )
 
 GET_LATEST_PERSON_SQL = """
@@ -89,7 +88,7 @@ GET_LATEST_PERSON_ID_SQL = """
 PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
-CREATE TABLE {table_name}
+CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
     id Int64,
     distinct_id VARCHAR,
@@ -106,17 +105,23 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
 """
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
 
 KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE, engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID), extra_fields="",
+    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
+    extra_fields="",
 )
 
+# You must include the database here because of a bug in clickhouse
+# related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv
+CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
 TO {table_name}
 AS SELECT
 id,
@@ -125,9 +130,9 @@ person_id,
 team_id,
 _timestamp,
 _offset
-FROM kafka_{table_name}
+FROM {database}.kafka_{table_name}
 """.format(
-    table_name=PERSONS_DISTINCT_ID_TABLE
+    table_name=PERSONS_DISTINCT_ID_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
 )
 
 #
@@ -136,7 +141,7 @@ FROM kafka_{table_name}
 
 PERSON_STATIC_COHORT_TABLE = "person_static_cohort"
 PERSON_STATIC_COHORT_BASE_SQL = """
-CREATE TABLE {table_name}
+CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
     id UUID,
     person_id UUID,
@@ -153,21 +158,16 @@ PERSON_STATIC_COHORT_TABLE_SQL = (
 """
 ).format(
     table_name=PERSON_STATIC_COHORT_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(PERSON_STATIC_COHORT_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     storage_policy=STORAGE_POLICY,
     extra_fields=KAFKA_COLUMNS,
 )
 
-DROP_PERSON_STATIC_COHORT_TABLE_SQL = """
-DROP TABLE {}
-""".format(
-    PERSON_STATIC_COHORT_TABLE
-)
+DROP_PERSON_STATIC_COHORT_TABLE_SQL = f"DROP TABLE {PERSON_STATIC_COHORT_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
-INSERT_PERSON_STATIC_COHORT = """
-INSERT INTO {} (id, person_id, cohort_id, team_id, _timestamp) VALUES
-""".format(
-    PERSON_STATIC_COHORT_TABLE
+INSERT_PERSON_STATIC_COHORT = (
+    f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp) VALUES"
 )
 
 #

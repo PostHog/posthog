@@ -7,7 +7,6 @@ import { sessionsTableLogicType } from './sessionsTableLogicType'
 import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
-import fromEntries from 'object.fromentries'
 
 type SessionRecordingId = string
 
@@ -151,44 +150,26 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
             (selectors) => [selectors.filters, selectors.lastAppliedFilters],
             (filters, lastFilters): boolean => !equal(filters, lastFilters),
         ],
-        filteredSessions: [
-            (selectors) => [selectors.sessions, selectors.showOnlyMatches],
-            (sessions: SessionType[], showOnlyMatches: boolean): SessionType[] =>
-                sessions
-                    // only get sessions with matched events
-                    // !s?.events = clickhouse returns all events, postgres loads events on demand and doesn't populate `events`
-                    .filter((s) => !s?.events || !showOnlyMatches || s.matching_events.length > 0)
-                    // filter events
-                    .map((s) => {
-                        const setOfMatchedEventIds = new Set(s.matching_events)
-                        return {
-                            ...s,
-                            ...(s?.events
-                                ? {
-                                      events:
-                                          s?.events?.filter(
-                                              (e) => !showOnlyMatches || setOfMatchedEventIds.has(e.id)
-                                          ) || [],
-                                  }
-                                : {}),
-                        }
-                    }),
-        ],
+        // :NOTE: This recalculates whenever opening a new session or loading new sessions. Memoize per-session instead.
         filteredSessionEvents: [
             (selectors) => [selectors.loadedSessionEvents, selectors.sessions, selectors.showOnlyMatches],
             (
                 loadedSessionEvents: Record<string, EventType[] | undefined>,
                 sessions: SessionType[],
                 showOnlyMatches: boolean
-            ): Record<string, EventType[] | undefined> =>
-                fromEntries(
-                    Object.entries(loadedSessionEvents).map(([id, events]) => {
-                        const setOfMatchedEventIds = new Set(
-                            sessions.find((s) => s.global_session_id === id)?.matching_events || []
-                        )
-                        return [id, events?.filter((e) => !showOnlyMatches || setOfMatchedEventIds.has(e.id)) || []]
+            ): Record<string, EventType[] | undefined> => {
+                if (!showOnlyMatches) {
+                    return loadedSessionEvents
+                }
+
+                return Object.fromEntries(
+                    sessions.map((session) => {
+                        const events = loadedSessionEvents[session.global_session_id]
+                        const matchingEvents = new Set(session.matching_events)
+                        return [session.global_session_id, events?.filter((e) => matchingEvents.has(e.id))]
                     })
-                ),
+                )
+            },
         ],
         expandedRowKeysProps: [
             (selectors) => [selectors.sessions, selectors.rowExpandState, selectors.manualRowExpansion],
@@ -265,7 +246,14 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         const buildURL = (
             overrides: Partial<Params> = {},
             replace = false
-        ): [string, Params, Record<string, any>, { replace: boolean }] => {
+        ): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            }
+        ] => {
             const today = dayjs().startOf('day').format('YYYY-MM-DD')
 
             const { properties } = router.values.searchParams

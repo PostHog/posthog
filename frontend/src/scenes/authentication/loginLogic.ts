@@ -36,4 +36,11 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
             }
         },
     },
+    urlToAction: ({ actions }) => ({
+        '/login': ({}, { error, errorDetail }) => {
+            if (error) {
+                actions.authenticateSuccess({ success: false, errorCode: error, errorDetail })
+            }
+        },
+    }),
 })

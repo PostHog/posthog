@@ -2,7 +2,7 @@ import React, { ReactElement, RefObject, useEffect, useRef, useState } from 'rea
 import { Select, Tag, Tooltip } from 'antd'
 import { RefSelectProps, SelectProps } from 'antd/lib/select'
 import { CloseButton } from './CloseButton'
-import { toString } from 'lib/utils'
+import { ANTD_TOOLTIP_PLACEMENTS, toString } from 'lib/utils'
 import './SelectGradientOverflow.scss'
 
 interface DropdownGradientRendererProps {
@@ -41,26 +41,6 @@ function CustomTag({ label, onClose, value }: CustomTagProps): JSX.Element {
 /**
  * Ant Design Select extended with a gradient overlay to indicate a scrollable list.
  */
-
-const BUILT_IN_PLACEMENTS = {
-    // https://github.com/react-component/select/blob/dade915d81069b8d3b3b5679bb9daee7e992faba/src/SelectTrigger.jsx#L11-L28
-    bottomLeft: {
-        points: ['tl', 'bl'],
-        offset: [0, 4],
-        overflow: {
-            adjustX: 0,
-            adjustY: 0,
-        },
-    },
-    topLeft: {
-        points: ['bl', 'tl'],
-        offset: [0, -4],
-        overflow: {
-            adjustX: 0,
-            adjustY: 0,
-        },
-    },
-}
 
 export type SelectGradientOverflowProps = SelectProps<any> & {
     delayBeforeAutoOpen?: number
@@ -128,7 +108,7 @@ export function SelectGradientOverflow({
         <div ref={containerRef} style={{ width: '100%' }}>
             <Select
                 {...props}
-                dropdownAlign={placement ? BUILT_IN_PLACEMENTS[placement] : undefined}
+                dropdownAlign={placement ? ANTD_TOOLTIP_PLACEMENTS[placement] : undefined}
                 ref={selectRef}
                 open={isOpen}
                 onFocus={onFocus}
