@@ -424,7 +424,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             },
         ],
         sectionsOpen: [
-            [PluginSection.Enabled, PluginSection.Disabled],
+            [PluginSection.Enabled, PluginSection.Disabled] as PluginSection[],
             {
                 toggleSectionOpen: (currentOpenSections, { section }) => {
                     if (currentOpenSections.includes(section)) {
