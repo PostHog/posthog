@@ -73,8 +73,13 @@ class PropertyDefinitionViewSet(
                     names = tuple(properties_to_filter.split(","))
                     name_filter = f"AND name IN %(names)s"
                 else:
-                    name_filter = ""
+                    search = self.request.GET.get("search", None)
                     names = ()
+                    name_filter = (
+                        ""
+                        if search is None
+                        else f"ngramSearchCaseInsensitiveUTF8(name, {search}) > {self.search_threshold}"
+                    )
                 ee_property_definitions = EnterprisePropertyDefinition.objects.raw(
                     f"""
                     SELECT *
