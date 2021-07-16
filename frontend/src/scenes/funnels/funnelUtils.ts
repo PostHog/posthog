@@ -3,7 +3,8 @@ import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/Funne
 import { FunnelStep } from '~/types'
 
 export function calcPercentage(numerator: number, denominator: number): number {
-    return (numerator / denominator) * 100 || 0
+    // Rounds to two decimal places
+    return Math.round(((numerator / denominator) * 100 || 0) * 100) / 100
 }
 
 export function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepReference, index?: number): FunnelStep {
