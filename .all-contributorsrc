@@ -1392,6 +1392,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "jacobherrington",
+      "name": "Jacob Herrington",
+      "avatar_url": "https://avatars.githubusercontent.com/u/11466782?v=4",
+      "profile": "https://dev.to/jacobherrington",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
