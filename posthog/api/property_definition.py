@@ -1,12 +1,19 @@
-from typing import Type
+from distutils.util import strtobool
+from typing import Optional, Type, TypeVar
 
-from django.db import connection
+from django.db import connection, models
+from django.db.models.query import QuerySet
 from rest_framework import filters, mixins, permissions, serializers, viewsets
+from rest_framework.request import Request
+from rest_framework.views import APIView
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.exceptions import EnterpriseFeatureException
+from posthog.filters import FuzzySearchFilterBackend
 from posthog.models import PropertyDefinition
 from posthog.permissions import OrganizationMemberPermissions
+
+_MT = TypeVar("_MT", bound=models.Model)
 
 
 class PropertyDefinitionSerializer(serializers.ModelSerializer):
@@ -49,6 +56,17 @@ def is_pg_trgm_installed():
         return False
 
 
+class NumericalFilter(filters.BaseFilterBackend):
+    def filter_queryset(self, request: Request, queryset: QuerySet[_MT], view: APIView,) -> QuerySet[_MT]:
+        param: Optional[str] = request.query_params.get("is_numerical", None)
+
+        if not param:
+            return queryset
+
+        parsed_param: bool = strtobool(param)
+        return queryset.filter(is_numerical=parsed_param)
+
+
 class PropertyDefinitionViewSet(
     StructuredViewSetMixin,
     mixins.ListModelMixin,
@@ -60,9 +78,14 @@ class PropertyDefinitionViewSet(
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
     ordering = "name"
-    pg_trgm_installed = is_pg_trgm_installed()
-    filter_backends = [] if pg_trgm_installed else [filters.SearchFilter]
-    search_fields = [] if pg_trgm_installed else ["name"]
+    filter_backends = [NumericalFilter, filters.OrderingFilter, FuzzySearchFilterBackend]
+    search_fields = ["name"]
+    search_threshold = 0.15
+    ordering_fields = ["name", "volume_30_day", "query_usage_30_day"]  # User can filter by any of these attributes
+    # Ordering below ensures more relevant results are returned first, particularly relevant for initial fetch
+    # When a ?search= filter is applied, the `similarity` will take precedence (i.e. we'll
+    # return items first that best match the query)
+    ordering = ["-query_usage_30_day", "-volume_30_day", "name"]
 
     def get_queryset(self):
         if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
@@ -94,7 +117,7 @@ class PropertyDefinitionViewSet(
             objects = objects.filter(name__trigram_similar=self.request.query_params["search"])
         else:
             objects = objects.all()
-        return self.filter_queryset_by_parents_lookups(objects).order_by(self.ordering)
+        return self.filter_queryset_by_parents_lookups(objects)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class

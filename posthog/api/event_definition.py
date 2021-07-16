@@ -4,6 +4,7 @@ from rest_framework import filters, mixins, permissions, serializers, status, vi
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.exceptions import EnterpriseFeatureException
+from posthog.filters import FuzzySearchFilterBackend
 from posthog.models import EventDefinition
 from posthog.permissions import OrganizationMemberPermissions
 
@@ -33,8 +34,14 @@ class EventDefinitionViewSet(
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
     ordering = "name"
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [filters.OrderingFilter, FuzzySearchFilterBackend]
     search_fields = ["name"]
+    search_threshold = 0.15
+    ordering_fields = ["name", "volume_30_day", "query_usage_30_day"]  # User can filter by any of these attributes
+    # Ordering below ensures more relevant results are returned first, particularly relevant for initial fetch
+    # When a ?search= filter is applied, the `similarity` will take precedence (i.e. we'll
+    # return items first that best match the query)
+    ordering = ["-query_usage_30_day", "-volume_30_day", "name"]
 
     def get_queryset(self):
         if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
@@ -54,7 +61,7 @@ class EventDefinitionViewSet(
                     params=[self.request.user.team.id],  # type: ignore
                 )
                 return ee_event_definitions
-        return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)
+        return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all())
 
     def get_object(self):
         id = self.kwargs["id"]

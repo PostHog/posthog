@@ -38,6 +38,8 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], len(self.EXPECTED_EVENT_DEFINITIONS))
         self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_EVENT_DEFINITIONS))
 
+        volume_usage_cursor = 9999999999
+
         for item in self.EXPECTED_EVENT_DEFINITIONS:
             response_item: Dict = next((_i for _i in response.json()["results"] if _i["name"] == item["name"]), {})
             self.assertEqual(response_item["volume_30_day"], item["volume_30_day"], item)
@@ -45,6 +47,13 @@ class TestEventDefinitionAPI(APIBaseTest):
             self.assertEqual(
                 response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day, item,
             )
+
+        for response_item in response.json()["results"]:
+            # We test that queries are ordered too based on highest usage
+            # Normally we return objects with higher query usage first, then with higher event volume
+            # As all test objects have query_usage_30_day=0, we test with volume_usage_cursor
+            self.assertGreaterEqual(volume_usage_cursor, response_item["volume_30_day"])
+            volume_usage_cursor = response_item["volume_30_day"]
 
     def test_pagination_of_event_definitions(self):
         EventDefinition.objects.bulk_create(
@@ -91,10 +100,34 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
 
-    def test_query_event_definitions(self):
+    def test_search_event_definitions(self):
+
+        # Regular search
         response = self.client.get("/api/projects/@current/event_definitions/?search=app")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["count"], 2)
+        # We test ordering too (best matches go first, regardless of other attributes)
+        self.assertEqual(response_data["results"][0]["name"], "rated_app")  # this has similarity 0.4
+        self.assertEqual(response_data["results"][1]["name"], "installed_app")  # this has similarity 0.29
 
-        self.assertEqual(response.json()["count"], 2)
+        # Fuzzy search 1
+        response = self.client.get("/api/projects/@current/event_definitions/?search=free trl")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
         for item in response.json()["results"]:
-            self.assertIn(item["name"], ["installed_app", "rated_app"])
+            self.assertIn(item["name"], ["entered_free_trial"])
+
+        # Handles URL encoding properly
+        response = self.client.get("/api/projects/@current/event_definitions/?search=free%20trl%20")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["entered_free_trial"])
+
+        # Fuzzy search 2
+        response = self.client.get("/api/projects/@current/event_definitions/?search=ed mov")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["watched_movie"])
