@@ -16,7 +16,7 @@ interface InfiniteListProps {
 
 export function InfiniteList({ pageKey, filterIndex, type, onComplete }: InfiniteListProps): JSX.Element {
     const filterLogic = taxonomicPropertyFilterLogic({ pageKey, filterIndex })
-    const { filter, mouseInteractionsEnabled } = useValues(filterLogic)
+    const { filter, mouseInteractionsEnabled, activeTab } = useValues(filterLogic)
     const { selectItem } = useActions(filterLogic)
 
     const listLogic = infiniteListLogic({ pageKey, filterIndex, type })
@@ -65,7 +65,7 @@ export function InfiniteList({ pageKey, filterIndex, type, onComplete }: Infinit
             >
                 <PropertyKeyInfo
                     value={item.name}
-                    disablePopover={listTooltip === ListTooltip.None || rowIndex !== index}
+                    disablePopover={listTooltip === ListTooltip.None || rowIndex !== index || type !== activeTab}
                     tooltipPlacement={listTooltip === ListTooltip.Left ? 'left' : 'right'}
                 />
             </div>
