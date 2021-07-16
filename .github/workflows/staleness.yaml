@@ -1,7 +1,7 @@
 name: 'Handle stale issues and PRs'
 on:
     schedule:
-        - cron: '30 21 * * *'
+        - cron: '30 7 * * 1-5'
 
 jobs:
     stale:
@@ -9,8 +9,8 @@ jobs:
         steps:
             - uses: actions/stale@v4
               with:
-                  stale-issue-message: "This issue hasn't seen activity in a year! Is it worth being kept open?"
-                  stale-pr-message: "This PR hasn't seen activity in a week! Should it be merged, closed, or further worked on? If you want to keep it open, post a comment or remove the `stale` label – otherwise it will be closed in a week."
+                  stale-issue-message: "This issue hasn't seen activity in a year! Is it still relevant?"
+                  stale-pr-message: "This PR hasn't seen activity in a week! Should it be merged, closed, or further worked on? If you want to keep it open, post a comment or remove the `stale` label – otherwise it will be closed in another week."
                   close-issue-message: 'This issue was closed due to 2 years of inactivity. Feel free to reopen it if still relevant.'
                   close-pr-message: 'This PR was closed due to 2 weeks of inactivity. Feel free to reopen it if still relevant.'
                   days-before-issue-stale: 365
@@ -19,4 +19,5 @@ jobs:
                   days-before-pr-close: 14
                   stale-issue-label: stale
                   stale-pr-label: stale
+                  operations-per-run: 50
                   repo-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
