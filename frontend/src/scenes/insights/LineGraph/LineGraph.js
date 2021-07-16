@@ -177,9 +177,9 @@ export function LineGraph({
             datasets = [
                 ...datasets.map((dataset, index) => {
                     let datasetCopy = Object.assign({}, dataset)
-                    let data = [...dataset.data]
-                    let _labels = [...dataset.labels]
-                    let days = [...dataset.days]
+                    let data = [...(dataset.data || [])]
+                    let _labels = [...(dataset.labels || [])]
+                    let days = [...(dataset.days || [])]
                     data.pop()
                     _labels.pop()
                     days.pop()
@@ -190,7 +190,7 @@ export function LineGraph({
                 }),
                 ...datasets.map((dataset, index) => {
                     let datasetCopy = Object.assign({}, dataset)
-                    let datasetLength = datasetCopy.data.length
+                    let datasetLength = datasetCopy.data?.length ?? 0
                     datasetCopy.dotted = true
 
                     // if last date is still active show dotted line

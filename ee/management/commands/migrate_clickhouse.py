@@ -8,8 +8,9 @@ from infi.clickhouse_orm.utils import import_submodules  # type: ignore
 
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
-    CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS,
+    CLICKHOUSE_HTTP_URL,
     CLICKHOUSE_PASSWORD,
+    CLICKHOUSE_REPLICATION,
     CLICKHOUSE_USER,
 )
 
@@ -34,9 +35,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        for index, host in enumerate(CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS):
-            print(f"Updating host {host} ({index + 1}/{len(CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS)})")
-            self.migrate(host, options)
+        self.migrate(CLICKHOUSE_HTTP_URL, options)
 
     def migrate(self, host, options):
         database = Database(
@@ -72,11 +71,13 @@ class Command(BaseCommand):
                 )
             print("Migrations done")
         else:
-            database.migrate(MIGRATIONS_PACKAGE_NAME, options["upto"])
+            database.migrate(MIGRATIONS_PACKAGE_NAME, options["upto"], replicated=CLICKHOUSE_REPLICATION)
             print("Migration successful")
 
     def get_migrations(self, database, upto):
-        applied_migrations = database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME)
+        applied_migrations = database._get_applied_migrations(
+            MIGRATIONS_PACKAGE_NAME, replicated=CLICKHOUSE_REPLICATION
+        )
         modules = import_submodules(MIGRATIONS_PACKAGE_NAME)
         unapplied_migrations = set(modules.keys()) - applied_migrations
 

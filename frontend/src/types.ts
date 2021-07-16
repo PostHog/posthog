@@ -339,7 +339,7 @@ export interface CohortType {
     created_by?: UserBasicType | null
     created_at?: string
     deleted?: boolean
-    id: number | 'new'
+    id: number | 'new' | 'personsModalNew'
     is_calculating?: boolean
     last_calculation?: string
     is_static?: boolean
@@ -472,7 +472,6 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
 }
-
 export interface PluginType {
     id: number
     plugin_type: PluginInstallationType
@@ -488,6 +487,7 @@ export interface PluginType {
     organization_id: string
     organization_name: string
     metrics?: Record<string, StoredMetricMathOperations>
+    capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
 }
 
 export interface PluginConfigType {
