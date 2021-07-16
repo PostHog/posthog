@@ -250,7 +250,10 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                         <b>{humanizeStepCount(step.count)}</b>
                                     </ValueInspectorButton>
                                     <span className="text-muted-alt">
-                                        ({step.order > 0 ? calcPercentage(step.count, steps[i - 1].count) : '100'}
+                                        (
+                                        {step.order > 0
+                                            ? Math.round(calcPercentage(step.count, steps[i - 1].count))
+                                            : '100'}
                                         %)
                                     </span>
                                 </div>
@@ -278,7 +281,10 @@ export function FunnelBarGraph({ steps: stepsParam }: FunnelBarGraphProps): JSX.
                                         <b>{humanizeStepCount(step.order > 0 ? steps[i - 1].count - step.count : 0)}</b>
                                     </ValueInspectorButton>
                                     <span className="text-muted-alt">
-                                        ({step.order > 0 ? 100 - calcPercentage(step.count, steps[i - 1].count) : 0}
+                                        (
+                                        {step.order > 0
+                                            ? Math.round(100 - calcPercentage(step.count, steps[i - 1].count))
+                                            : 0}
                                         %)
                                     </span>
                                 </div>
