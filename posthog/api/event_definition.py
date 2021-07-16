@@ -33,7 +33,6 @@ class EventDefinitionViewSet(
     serializer_class = EventDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
-    ordering = "name"
     filter_backends = [filters.OrderingFilter, FuzzySearchFilterBackend]
     search_fields = ["name"]
     search_threshold = 0.15

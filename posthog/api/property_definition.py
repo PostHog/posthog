@@ -51,7 +51,6 @@ class PropertyDefinitionViewSet(
     serializer_class = PropertyDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
-    ordering = "name"
     filter_backends = [NumericalFilter, filters.OrderingFilter, FuzzySearchFilterBackend]
     search_fields = ["name"]
     search_threshold = 0.15
