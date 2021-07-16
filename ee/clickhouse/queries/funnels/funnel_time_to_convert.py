@@ -16,8 +16,11 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
         super().__init__(filter, team)
         self.funnel_order = funnel_order_class(filter, team)
 
-    def _format_results(self, results: list) -> list:
-        return results
+    def _format_results(self, results: list) -> dict:
+        return {
+            "bins": [(bin_from_seconds, person_count) for bin_from_seconds, person_count, _ in results],
+            "average_conversion_time": results[0][2],
+        }
 
     def get_query(self) -> str:
         steps_per_person_query = self.funnel_order.get_step_counts_query()
@@ -68,6 +71,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
                     SELECT
                         floor(min({steps_average_conversion_time_expression_sum})) AS from_seconds,
                         ceil(max({steps_average_conversion_time_expression_sum})) AS to_seconds,
+                        round(avg({steps_average_conversion_time_expression_sum}), 2) AS average_conversion_time,
                         {bin_count_expression or ""}
                         ceil((to_seconds - from_seconds) / {bin_count_identifier}) AS bin_width_seconds_raw,
                         -- Use 60 seconds as fallback bin width in case of only one sample
@@ -82,27 +86,29 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
                     if bin_count_expression else ""
                 }
                 ( SELECT from_seconds FROM histogram_params ) AS histogram_from_seconds,
-                ( SELECT to_seconds FROM histogram_params ) AS histogram_to_seconds
+                ( SELECT to_seconds FROM histogram_params ) AS histogram_to_seconds,
+                ( SELECT average_conversion_time FROM histogram_params ) AS histogram_average_conversion_time
             SELECT
-                bin_to_seconds,
-                person_count
+                bin_from_seconds,
+                person_count,
+                histogram_average_conversion_time AS average_conversion_time
             FROM (
                 -- Calculating bins from step runs
                 SELECT
-                    histogram_from_seconds + floor(({steps_average_conversion_time_expression_sum} - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_to_seconds,
+                    histogram_from_seconds + floor(({steps_average_conversion_time_expression_sum} - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_from_seconds,
                     count() AS person_count
                 FROM step_runs
                 -- We only need to check step to_step here, because it depends on all the other ones being NOT NULL too
                 WHERE step_{to_step}_average_conversion_time IS NOT NULL
-                GROUP BY bin_to_seconds
+                GROUP BY bin_from_seconds
             ) results
             FULL OUTER JOIN (
                 -- Making sure bin_count bins are returned
                 -- Those not present in the results query due to lack of data simply get person_count 0
-                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_to_seconds FROM system.numbers LIMIT {bin_count_identifier} + 1
+                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds FROM system.numbers LIMIT {bin_count_identifier} + 1
             ) fill
-            USING (bin_to_seconds)
-            ORDER BY bin_to_seconds
+            USING (bin_from_seconds)
+            ORDER BY bin_from_seconds
             SETTINGS allow_experimental_window_functions = 1"""
 
         return query
