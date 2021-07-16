@@ -8,7 +8,7 @@ export interface PropertyFilterInternalProps {
     pageKey?: string
     index: number
     selectProps: Partial<SelectGradientOverflowProps>
-    onComplete: CallableFunction
+    onComplete: () => void
     disablePopover: boolean
 }
 

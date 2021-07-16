@@ -79,13 +79,15 @@ export function TaxonomicPropertyFilter({
                 }
                 if (e.key === 'Enter') {
                     e.preventDefault()
-                    selectSelected()
+                    selectSelected(onComplete)
                 }
             }}
         />
     )
 
-    const searchResults = <InfiniteSelectResults pageKey={pageKey} filterIndex={index} focusInput={focusInput} />
+    const searchResults = (
+        <InfiniteSelectResults pageKey={pageKey} filterIndex={index} focusInput={focusInput} onComplete={onComplete} />
+    )
 
     useEffect(() => {
         if (dropdownOpen || showInitialSearchInline) {

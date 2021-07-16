@@ -11,9 +11,10 @@ interface InfiniteListProps {
     pageKey: string
     filterIndex: number
     type: string
+    onComplete: () => void
 }
 
-export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps): JSX.Element {
+export function InfiniteList({ pageKey, filterIndex, type, onComplete }: InfiniteListProps): JSX.Element {
     const filterLogic = taxonomicPropertyFilterLogic({ pageKey, filterIndex })
     const { filter, mouseInteractionsEnabled } = useValues(filterLogic)
     const { selectItem } = useActions(filterLogic)
@@ -48,7 +49,12 @@ export function InfiniteList({ pageKey, filterIndex, type }: InfiniteListProps):
             <div
                 key={item.id}
                 className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
-                onClick={() => selectItem(type, item.id, item.name)}
+                onClick={() => {
+                    selectItem(type, item.id, item.name)
+                    if (type === 'cohort') {
+                        onComplete?.()
+                    }
+                }}
                 onMouseOver={() => {
                     if (mouseInteractionsEnabled) {
                         setIndex(rowIndex)

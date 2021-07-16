@@ -65,7 +65,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
     }),
 
     actions: {
-        selectSelected: true,
+        selectSelected: (onComplete?: () => void) => ({ onComplete }),
         moveUp: true,
         moveDown: true,
         setIndex: (index: number) => ({ index }),
@@ -177,10 +177,11 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
             const { index, totalCount } = values
             actions.setIndex((index + 1) % totalCount)
         },
-        selectSelected: () => {
+        selectSelected: ({ onComplete }) => {
             const item = values.selectedItem
             if (item) {
                 actions.selectFilterItem(props.type, item.id, item.name)
+                onComplete?.()
             }
         },
     }),

@@ -10,9 +10,15 @@ export interface InfiniteSelectResultsProps {
     pageKey: string
     filterIndex: number
     focusInput: () => void
+    onComplete: () => void
 }
 
-export function InfiniteSelectResults({ pageKey, filterIndex, focusInput }: InfiniteSelectResultsProps): JSX.Element {
+export function InfiniteSelectResults({
+    pageKey,
+    filterIndex,
+    focusInput,
+    onComplete,
+}: InfiniteSelectResultsProps): JSX.Element {
     const filterLogic = taxonomicPropertyFilterLogic({ pageKey, filterIndex })
     const { activeTab } = useValues(filterLogic)
     const { setActiveTab } = useActions(filterLogic)
@@ -43,7 +49,7 @@ export function InfiniteSelectResults({ pageKey, filterIndex, focusInput }: Infi
                 )
                 return (
                     <Tabs.TabPane tab={tabTitle} key={type}>
-                        <InfiniteList pageKey={pageKey} filterIndex={filterIndex} type={type} />
+                        <InfiniteList pageKey={pageKey} filterIndex={filterIndex} type={type} onComplete={onComplete} />
                     </Tabs.TabPane>
                 )
             })}
