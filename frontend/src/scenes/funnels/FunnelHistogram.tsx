@@ -1,14 +1,13 @@
 import React, { useRef } from 'react'
 import { Col, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
+import useSize from '@react-hook/size'
 import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { calcPercentage, getReferenceStep } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/Histogram'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ChartDisplayType } from '~/types'
-import { useResponsiveWidth } from 'lib/hooks/useResponsiveWidth'
-import { HISTOGRAM_WIDTH_BREAKPOINTS } from 'scenes/insights/Histogram/histogramUtils'
 
 import './FunnelHistogram.scss'
 
@@ -66,15 +65,11 @@ export function FunnelHistogramHeader(): JSX.Element | null {
 export function FunnelHistogram(): JSX.Element {
     const { histogramGraphData, barGraphLayout } = useValues(funnelLogic)
     const ref = useRef(null)
-
-    // Funnel histogram specific sizing
-    const widthToHeightRatio = useResponsiveWidth(ref, HISTOGRAM_WIDTH_BREAKPOINTS)
-
-    console.log('WIDTH TO HEIGHT RATIO', widthToHeightRatio)
+    const [width] = useSize(ref)
 
     return (
         <div className="funnel__histogram-wrapper" ref={ref}>
-            <Histogram data={histogramGraphData} layout={barGraphLayout} widthToHeightRatio={widthToHeightRatio} />
+            <Histogram data={histogramGraphData} layout={barGraphLayout} width={width} />
         </div>
     )
 }

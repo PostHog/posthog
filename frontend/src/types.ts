@@ -714,8 +714,13 @@ export interface FunnelResult {
     type: 'Funnel'
 }
 
+export interface FunnelsTimeConversionBins {
+    bins: [number, number][]
+    average_conversion_time: number
+}
+
 export interface FunnelsTimeConversionResult {
-    result: number[]
+    result: FunnelsTimeConversionBins
     last_refresh: string | null
     is_cached: boolean
     type: 'Funnel'

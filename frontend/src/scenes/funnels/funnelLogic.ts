@@ -14,6 +14,7 @@ import {
     FunnelResult,
     FunnelStep,
     FunnelsTimeConversionResult,
+    FunnelsTimeConversionBins,
     FunnelTimeConversionStep,
     PathType,
     PersonType,
@@ -92,7 +93,7 @@ export const funnelLogic = kea<funnelLogicType>({
         openPersonsModal: (step: FunnelStep, stepNumber: number) => ({ step, stepNumber }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         setBarGraphLayout: (barGraphLayout: FunnelLayout) => ({ barGraphLayout }),
-        setTimeConversionBins: (timeConversionBins: number[]) => ({ timeConversionBins }),
+        setTimeConversionBins: (timeConversionBins: FunnelsTimeConversionBins) => ({ timeConversionBins }),
         changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
     }),
@@ -178,7 +179,7 @@ export const funnelLogic = kea<funnelLogicType>({
                             return []
                         }
                         breakpoint()
-                        actions.setTimeConversionBins(binsResult.result as number[])
+                        actions.setTimeConversionBins(binsResult.result as FunnelsTimeConversionBins)
                     }
                     insightLogic.actions.endQuery(
                         queryId,
@@ -290,10 +291,10 @@ export const funnelLogic = kea<funnelLogicType>({
         propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
         isValidFunnel: [
             () => [selectors.stepsWithCount, selectors.timeConversionBins],
-            (stepsWithCount: FunnelStep[], timeConversionBins: number[]) => {
+            (stepsWithCount: FunnelStep[], timeConversionBins: FunnelsTimeConversionBins) => {
                 return (
                     (stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1) ||
-                    timeConversionBins?.length > 0
+                    timeConversionBins?.bins?.length > 0
                 )
             },
         ],
@@ -311,12 +312,12 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         histogramGraphData: [
             () => [selectors.timeConversionBins],
-            (timeConversionBins) => {
-                if (timeConversionBins.length < 2) {
+            (timeConversionBins: FunnelsTimeConversionBins) => {
+                if (timeConversionBins?.bins.length < 2) {
                     return []
                 }
-                const binSize = timeConversionBins[1][0] - timeConversionBins[0][0]
-                return timeConversionBins.map(([id, count]: [id: number, count: number]) => {
+                const binSize = timeConversionBins.bins[1][0] - timeConversionBins.bins[0][0]
+                return timeConversionBins.bins.map(([id, count]: [id: number, count: number]) => {
                     const value = Math.max(0, id)
                     return {
                         id: value,

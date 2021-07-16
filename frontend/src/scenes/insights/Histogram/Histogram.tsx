@@ -22,15 +22,15 @@ interface HistogramProps {
     layout?: FunnelLayout
     color?: string
     isAnimated?: boolean
-    widthToHeightRatio?: number // width = ratio * maxHeight
-    maxHeight?: number // max height of svg element
+    width?: number
+    height?: number
 }
 
 export function Histogram({
     data,
     layout = FunnelLayout.vertical,
-    widthToHeightRatio = INITIAL_CONFIG.width / INITIAL_CONFIG.height,
-    maxHeight = INITIAL_CONFIG.height,
+    width = INITIAL_CONFIG.width,
+    height = INITIAL_CONFIG.height,
     color = 'white',
     isAnimated = false,
 }: HistogramProps): JSX.Element {
@@ -74,8 +74,8 @@ export function Histogram({
 
     // Update config to new values if dimensions change
     useEffect(() => {
-        setConfig(getConfig(layout, maxHeight * widthToHeightRatio, maxHeight))
-    }, [maxHeight, widthToHeightRatio])
+        setConfig(getConfig(layout, width, height))
+    }, [width, height])
 
     const ref = useD3(
         (container) => {
@@ -95,7 +95,7 @@ export function Histogram({
                         .classed(layout, true)
                 )
                 // update dimensions
-                parentNode.select('svg').attr('viewBox', `0 0 ${maxHeight * widthToHeightRatio} ${maxHeight}`)
+                parentNode.select('svg').attr('viewBox', `0 0 ${config.width} ${config.height}`)
 
                 // if class doesn't exist on svg>g, layout has changed. after we learn this, reset
                 // the layout
