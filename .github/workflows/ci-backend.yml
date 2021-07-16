@@ -106,7 +106,6 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_CLUSTER: 'posthog'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
               run: |
@@ -205,7 +204,6 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_CLUSTER: 'posthog'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
               run: |
@@ -217,7 +215,6 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
                   CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_CLUSTER: 'posthog'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
               run: |
