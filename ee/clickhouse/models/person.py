@@ -44,7 +44,7 @@ if settings.EE_AVAILABLE and is_clickhouse_enabled():
         delete_person(instance.uuid, instance.properties, instance.is_identified, team_id=instance.team_id)
 
     @receiver(post_delete, sender=PersonDistinctId)
-    def person_distinct_id_created(sender, instance: PersonDistinctId, **kwargs):
+    def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
         delete_person_distinct_id(instance)
 
 
@@ -77,7 +77,7 @@ def create_person(
 
 
 def create_person_distinct_id(id: int, team_id: int, distinct_id: str, person_id: str) -> None:
-    data = {"id": id, "distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "sign": 1}
+    data = {"id": id, "distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON_UNIQUE_ID, sql=INSERT_PERSON_DISTINCT_ID, data=data)
 
