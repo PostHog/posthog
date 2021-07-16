@@ -42,7 +42,8 @@ $lifecycle_resurrecting: #c277cf;
 $lifecycle_dormant: #f86234;
 
 // Funnels
-$funnel_default: #3b4b87;
+$funnel_default: $primary;
+$funnel_background: #e7e8ee;
 
 .bg-mid {
     background-color: $bg_mid !important;

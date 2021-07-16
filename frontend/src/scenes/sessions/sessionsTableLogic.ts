@@ -246,7 +246,14 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         const buildURL = (
             overrides: Partial<Params> = {},
             replace = false
-        ): [string, Params, Record<string, any>, { replace: boolean }] => {
+        ): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            }
+        ] => {
             const today = dayjs().startOf('day').format('YYYY-MM-DD')
 
             const { properties } = router.values.searchParams

@@ -4,12 +4,27 @@ $label_position_offset: 8px;
 $series_container_width: 3rem;
 $glyph_margin_top: 10px;
 $glyph_height: 22px;
+$funnel_canvas_background: #fafafa;
 
 .funnel-bar-graph {
-    // Layout: horizontal bars (default)
+    background-color: $funnel_canvas_background;
+    margin-left: -24px; // negative margins to account for padding of .ant-card
+    margin-right: -24px;
+    margin-bottom: -24px;
+    padding: 12px 24px;
+    border-top: 1px solid $border_light;
+
+    // Layout: horizontal bars
     .funnel-step {
         position: relative;
         padding-left: $series_container_width;
+
+        .graph-series-glyph {
+            border-color: $border;
+            background-color: white;
+            z-index: 2;
+            color: $primary_alt;
+        }
 
         .funnel-series-container {
             position: absolute;
@@ -31,7 +46,7 @@ $glyph_height: 22px;
                 left: 0;
                 width: calc(#{$series_container_width} / 2 + 1px);
                 box-sizing: border-box;
-                border-right: 2px solid $border;
+                border-right: 2px solid $bg_mid;
 
                 &.before {
                     top: 0;
@@ -47,10 +62,7 @@ $glyph_height: 22px;
         }
 
         .funnel-step-metadata {
-            display: flex;
-            flex-grow: 1;
-            flex-wrap: wrap;
-
+            // .funnel-step-metadata reusable class for components that contain metadata for the funnel (e.g. time to convert or conversion steps)
             .ant-btn.funnel-inspect-button {
                 color: $primary;
 
@@ -86,6 +98,11 @@ $glyph_height: 22px;
             }
         }
 
+        .center-flex {
+            display: flex;
+            align-items: center;
+        }
+
         header,
         footer {
             min-height: 32px;
@@ -98,10 +115,13 @@ $glyph_height: 22px;
             position: relative;
 
             .funnel-step-title {
-                font-weight: 700;
+                font-weight: bold;
             }
 
-            .funnel-step-metadata {
+            .funnel-time-metadata {
+                display: flex;
+                flex-grow: 1;
+                flex-wrap: wrap;
                 position: absolute;
                 bottom: 0;
 
@@ -117,35 +137,18 @@ $glyph_height: 22px;
                 flex-wrap: wrap;
             }
         }
-
-        footer {
-            .funnel-step-metadata {
-                justify-content: space-between;
-
-                .ant-btn.funnel-inspect-button {
-                    padding-left: 0;
-                    padding-right: 0.5em;
-                }
-
-                & > span {
-                    display: flex;
-                    flex-wrap: wrap;
-                    line-height: 16px;
-                }
-            }
-        }
     }
 
     .funnel-bar-wrapper {
         height: 32px;
         margin: 4px 0;
-        background-color: #e7e8ee;
+        background-color: $funnel_background;
         border-radius: 4px;
 
         .funnel-bar {
             position: relative;
             height: 100%;
-            background: #3b4b87;
+            background: $funnel_default;
             border-radius: 4px;
             transition: width 0.2s ease, height 0.2s ease;
 
@@ -176,6 +179,12 @@ $glyph_height: 22px;
         .funnel-step {
             width: 30%;
 
+            .funnel-inner-viz {
+                // Moves the series metadata (numbers) on top of the bars
+                display: flex;
+                flex-direction: column-reverse;
+            }
+
             .funnel-series-container {
                 position: absolute;
                 left: 0;
@@ -188,6 +197,27 @@ $glyph_height: 22px;
 
                 .funnel-series-linebox.after {
                     height: calc(100% - #{$glyph_margin_top} - #{$glyph_height} / 2);
+                }
+            }
+
+            .funnel-conversion-metadata {
+                font-size: 1rem;
+                height: 98px;
+                display: block;
+
+                .funnel-inspect-button {
+                    font-size: 1.1rem;
+                    margin-left: -2em;
+
+                    .value-inspector-button-icon {
+                        background-color: $funnel_canvas_background; // Ensures the series line gets cut off
+                        padding: 4px 0;
+                        margin-right: 12px;
+                    }
+                }
+
+                .conversion-metadata-caption {
+                    font-size: 0.75em;
                 }
             }
 
@@ -210,7 +240,7 @@ $glyph_height: 22px;
             header {
                 flex-wrap: wrap;
                 margin: 0.4em 0;
-                height: 5em;
+                height: 3.4em;
                 align-items: flex-start;
 
                 .property-key-info {
@@ -220,7 +250,7 @@ $glyph_height: 22px;
         }
 
         .funnel-bar-wrapper {
-            width: 56px;
+            width: 164px;
             height: 300px;
             position: relative;
 
@@ -244,6 +274,25 @@ $glyph_height: 22px;
                         left: unset;
                         bottom: calc(100% + #{$label_position_offset});
                     }
+                }
+            }
+        }
+    }
+
+    &.horizontal {
+        .funnel-step {
+            .funnel-conversion-metadata {
+                display: flex;
+                align-items: center;
+
+                .funnel-inspect-button {
+                    padding: 0;
+                    .value-inspector-button-icon {
+                        padding-right: 8px;
+                    }
+                }
+                .conversion-metadata-caption {
+                    padding-left: 4px;
                 }
             }
         }

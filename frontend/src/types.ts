@@ -84,6 +84,7 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeatures[]
+    domain_whitelist: string[]
 }
 
 export interface OrganizationMemberType {
@@ -338,7 +339,7 @@ export interface CohortType {
     created_by?: UserBasicType | null
     created_at?: string
     deleted?: boolean
-    id: number | 'new'
+    id: number | 'new' | 'personsModalNew'
     is_calculating?: boolean
     last_calculation?: string
     is_static?: boolean
@@ -724,6 +725,7 @@ export interface ChartParams {
     color?: string
     filters: Partial<FilterType>
     inSharedMode?: boolean
+    showPersonsModal?: boolean
     cachedResults?: TrendResult
     view: ViewType
 }
@@ -767,10 +769,16 @@ export interface PreflightStatus {
     plugins: boolean
     redis: boolean
     db: boolean
+    /** An initiated instance is one that already has any organization(s). */
     initiated: boolean
+    /** Org creation is allowed on Cloud OR initiated self-hosted organizations with a license and MULTI_ORG_ENABLED. */
+    can_create_org: boolean
+    /** Whether this is PostHog Cloud. */
     cloud: boolean
     celery: boolean
+    /** Whether EE code is available (but not necessarily a license). */
     ee_available?: boolean
+    /** Is ClickHouse used as the analytics database instead of Postgres. */
     is_clickhouse_enabled?: boolean
     realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
     db_backend?: 'postgres' | 'clickhouse'
@@ -779,6 +787,7 @@ export interface PreflightStatus {
     opt_out_capture?: boolean
     posthog_version?: string
     email_service_available?: boolean
+    /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
