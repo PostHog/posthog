@@ -159,7 +159,10 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
 
                     async function loadFunnelResults(): Promise<FunnelResult<FunnelStep[] | FunnelStep[][]>> {
                         try {
-                            const result = await pollFunnel<FunnelStep[] | FunnelStep[][]>(apiParams)
+                            const result = await pollFunnel<FunnelStep[] | FunnelStep[][]>({
+                                ...apiParams,
+                                ...(refresh ? { refresh } : {}),
+                            })
                             eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
                             return result
                         } catch (e) {
@@ -180,6 +183,7 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
                             try {
                                 const binsResult = await pollFunnel<[number, number][]>({
                                     ...apiParams,
+                                    ...(refresh ? { refresh } : {}),
                                     funnel_viz_type: 'time_to_convert',
                                     funnel_to_step: histogramStep,
                                 })
