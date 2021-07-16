@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
