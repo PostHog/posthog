@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -15,6 +16,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
+from posthog.settings import SHELL_PLUS_PRINT_SQL
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
@@ -97,6 +99,8 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             ],
             "insight": INSIGHT_FUNNELS,
             "funnel_window_days": 14,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
         }
 
         filter = Filter(data=filters)
@@ -104,14 +108,24 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
 
         # event
         person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="stopped_after_signup1", timestamp="2020-01-02T14:00:00"
+        )
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="stopped_after_signup1", timestamp="2020-01-03T14:00:00"
+        )
 
         person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
-        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup2")
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="stopped_after_signup2", timestamp="2020-01-02T14:00:00"
+        )
 
+        with self.settings(DEBUG=True):
+            event_query, params = FunnelEventQuery(filter=filter, team_id=self.team.pk).get_query()
+            print(sync_execute(event_query, params))
+            print(sync_execute(funnel.get_step_counts_query(), funnel.params))
         result = funnel.run()
-
+        print(result)
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 2)
         self.assertEqual(len(result[0]["people"]), 2)
