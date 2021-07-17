@@ -46,7 +46,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
                                     <Row style={{ justifyContent: 'space-between', padding: '8px 0px' }}>
                                         <span className="l4">{option?.label}</span>
                                         <span className="text-muted-alt">
-                                            Mean time: {humanFriendlyDuration(option.average_conversion_time)}
+                                            Average time: {humanFriendlyDuration(option.average_conversion_time)}
                                         </span>
                                     </Row>
                                     <Row className="text-muted-alt">

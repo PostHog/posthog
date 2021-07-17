@@ -617,9 +617,9 @@ export interface FilterType {
     filter_test_accounts?: boolean
     from_dashboard?: boolean
     funnel_step?: number
-    funnel_viz_type?: string // parameter sent to funnels api for time conversion code path
-    funnel_from_step?: number // time conversion starting step
-    funnel_to_step?: number // time conversion ending step + 1
+    funnel_viz_type?: string // parameter sent to funnels API for time conversion code path
+    funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
+    funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
     compare?: boolean
 }
 
