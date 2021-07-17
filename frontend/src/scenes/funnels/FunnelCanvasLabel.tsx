@@ -24,20 +24,20 @@ export function FunnelCanvasLabel(): JSX.Element | null {
             {allFilters.display === ChartDisplayType.FunnelViz && (
                 <>
                     <span className="text-muted-alt">
-                        <Tooltip title="This is calculated by taking the sum of durations users spent in the defined funnel.">
+                        <Tooltip title="Overall conversion rate for all users on the entire funnel.">
                             <InfoCircleOutlined style={{ marginRight: 3 }} />
-                            Total conversion rate:{' '}
                         </Tooltip>
+                        Total conversion rate:{' '}
                     </span>
                     <span>{conversionMetrics.totalRate}%</span>
                     <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                 </>
             )}
             <span className="text-muted-alt">
-                <Tooltip title="This is calculated by taking the mean of durations users spent in the defined funnel.">
+                <Tooltip title="Average (arithmetic mean) of the total time each user spent in the enitre funnel.">
                     <InfoCircleOutlined style={{ marginRight: 3 }} />
-                    Average time to convert:{' '}
                 </Tooltip>
+                Average time to convert:{' '}
             </span>
             <Button
                 type="link"
