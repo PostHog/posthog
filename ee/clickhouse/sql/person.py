@@ -43,7 +43,7 @@ KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
-TO {table_name}
+TO {database}.{table_name}
 AS SELECT
 id,
 created_at,
@@ -124,7 +124,7 @@ KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
-TO {table_name}
+TO {database}.{table_name}
 AS SELECT
 id,
 distinct_id,

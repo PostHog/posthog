@@ -59,7 +59,7 @@ KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 EVENTS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
-TO {table_name} 
+TO {database}.{table_name} 
 AS SELECT
 uuid,
 event,
