@@ -1,25 +1,23 @@
-import { useEffect, MutableRefObject } from 'react'
+import { useEffect } from 'react'
 
 export function useOutsideClickHandler(
-    refOrRefs: MutableRefObject<Element | null> | MutableRefObject<Element | null>[],
-    handleClickOutside: () => void,
-    deps: any[] = [refOrRefs]
+    refOrRefs: Element | null | (Element | null)[],
+    handleClickOutside?: () => void,
+    extraDeps: any[] = []
 ): void {
+    const allRefs = Array.isArray(refOrRefs) ? refOrRefs : [refOrRefs]
+
     useEffect(() => {
         function handleClick(event: Event): void {
-            if (refOrRefs) {
-                const handleCondition = Array.isArray(refOrRefs)
-                    ? !refOrRefs.some((ref) => ref.current?.contains(event.target as Node))
-                    : !refOrRefs.current?.contains(event.target as Node)
-                if (handleCondition) {
-                    handleClickOutside()
-                }
+            if (!allRefs.some((ref) => ref?.contains(event.target as Node))) {
+                handleClickOutside?.()
             }
         }
 
-        document.addEventListener('mousedown', handleClick)
-        return () => {
-            document.removeEventListener('mousedown', handleClick)
+        if (allRefs.length > 0) {
+            // only attach event listeners if there's something to track
+            document.addEventListener('mousedown', handleClick)
+            return () => document.removeEventListener('mousedown', handleClick)
         }
-    }, deps)
+    }, [...allRefs, ...extraDeps])
 }
