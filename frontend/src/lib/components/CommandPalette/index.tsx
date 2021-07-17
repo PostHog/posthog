@@ -53,7 +53,7 @@ export function CommandPalette(): JSX.Element | null {
                 hidePalette()
             }
         },
-        [boxRef.current, isPaletteShown]
+        [isPaletteShown]
     )
 
     return !user || !isPaletteShown ? null : (
