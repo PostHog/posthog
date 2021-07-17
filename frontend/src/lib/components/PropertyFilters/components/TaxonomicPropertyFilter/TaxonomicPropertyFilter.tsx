@@ -30,7 +30,7 @@ export function TaxonomicPropertyFilter({
     const { setFilter } = useActions(propertyFilterLogic)
 
     const logic = taxonomicPropertyFilterLogic({ pageKey, filterIndex: index })
-    const { searchQuery, filter, dropdownOpen, selectedCohortName, activeTab } = useValues(logic)
+    const { searchQuery, filter, dropdownOpen, selectedCohortName } = useValues(logic)
     const {
         setSearchQuery,
         openDropdown,
@@ -45,18 +45,9 @@ export function TaxonomicPropertyFilter({
     const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
 
-    const searchTarget =
-        activeTab === 'cohort'
-            ? 'cohorts'
-            : activeTab === 'event'
-            ? 'event properties'
-            : activeTab === 'person'
-            ? 'person properties'
-            : 'properties'
-
     const searchInput = (
         <Input
-            placeholder={`Search ${searchTarget}`}
+            placeholder="Search cohorts, event or person properties"
             value={searchQuery}
             ref={(ref) => (searchInputRef.current = ref)}
             onChange={(e) => setSearchQuery(e.target.value)}
