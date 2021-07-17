@@ -77,7 +77,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
 
     reducers: {
         index: [
-            -1 as number,
+            0 as number,
             {
                 setIndex: (_, { index }) => index,
                 loadRemoteItemsSuccess: (state, { remoteItems }) => (remoteItems.queryChanged ? 0 : state),
