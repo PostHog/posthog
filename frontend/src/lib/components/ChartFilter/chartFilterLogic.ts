@@ -2,24 +2,27 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
 import { chartFilterLogicType } from './chartFilterLogicType'
-import { ChartDisplayType, ViewType } from '~/types'
+import { ChartDisplayType, FunnelVizType, ViewType } from '~/types'
 
 export const chartFilterLogic = kea<chartFilterLogicType>({
     actions: () => ({
-        setChartFilter: (filter: ChartDisplayType) => ({ filter }),
+        setChartFilter: (filter: ChartDisplayType | FunnelVizType) => ({ filter }),
     }),
     reducers: {
         chartFilter: [
-            null as null | ChartDisplayType,
+            null as null | ChartDisplayType | FunnelVizType,
             {
                 setChartFilter: (_, { filter }) => filter,
             },
         ],
     },
     listeners: ({ values }) => ({
-        setChartFilter: () => {
+        setChartFilter: ({ filter }) => {
             const { display, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
+            if (filter === 'steps' || filter === 'time_to_convert' || filter === 'trends') {
+                searchParams.funnel_viz_type = filter
+            }
             searchParams.display = values.chartFilter
 
             if (!objectsEqual(display, values.chartFilter)) {
@@ -28,17 +31,13 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, { display, insight }) => {
-            if (display) {
+        '/insights': (_, { display, insight, funnel_viz_type }) => {
+            if (display && !funnel_viz_type) {
                 actions.setChartFilter(display)
             } else if (insight === ViewType.RETENTION) {
                 actions.setChartFilter(ChartDisplayType.ActionsTable)
             } else if (insight === ViewType.FUNNELS) {
-                if (display === ChartDisplayType.FunnelsTimeToConvert) {
-                    actions.setChartFilter(ChartDisplayType.FunnelsTimeToConvert)
-                } else {
-                    actions.setChartFilter(ChartDisplayType.FunnelViz)
-                }
+                actions.setChartFilter(funnel_viz_type)
             }
         },
     }),

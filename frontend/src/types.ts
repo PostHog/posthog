@@ -556,7 +556,6 @@ export enum ChartDisplayType {
     ActionsBarChartValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
-    FunnelsTimeToConvert = 'FunnelsTimeToConvert',
 }
 
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
@@ -582,6 +581,12 @@ export enum PathType {
     AutoCapture = '$autocapture',
     Screen = '$screen',
     CustomEvent = 'custom_event',
+}
+
+export enum FunnelVizType {
+    Steps = 'steps',
+    TimeToConvert = 'time_to_convert',
+    Trends = 'trends',
 }
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
@@ -617,7 +622,7 @@ export interface FilterType {
     filter_test_accounts?: boolean
     from_dashboard?: boolean
     funnel_step?: number
-    funnel_viz_type?: string // this and funnel_to_step is used for funnels time to convert
+    funnel_viz_type?: FunnelVizType // this and funnel_to_step is used for funnels time to convert
     funnel_to_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean

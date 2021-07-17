@@ -6,13 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import {
-    FUNNEL_VIZ,
-    ACTIONS_TABLE,
-    ACTIONS_BAR_CHART_VALUE,
-    FEATURE_FLAGS,
-    ACTIONS_LINE_GRAPH_LINEAR,
-} from 'lib/constants'
+import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -35,7 +29,7 @@ import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { HotKeys, ViewType } from '~/types'
+import { FunnelVizType, HotKeys, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
@@ -433,7 +427,7 @@ function FunnelInsight(): JSX.Element {
         stepsWithCount,
         isValidFunnel,
         stepsWithCountLoading,
-        filters: { display },
+        filters: { display, funnel_viz_type },
         timeConversionBins,
     } = useValues(funnelLogic({}))
     const { clickhouseFeatures } = useValues(funnelLogic())
@@ -443,7 +437,7 @@ function FunnelInsight(): JSX.Element {
     return (
         <div
             style={
-                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display !== ACTIONS_LINE_GRAPH_LINEAR
+                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && funnel_viz_type !== FunnelVizType.Trends
                     ? {}
                     : { height: 300, position: 'relative', marginBottom: 0 }
             }

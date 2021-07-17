@@ -22,5 +22,5 @@ export function getReferenceStep(steps: FunnelStep[], stepReference: FunnelStepR
 }
 
 export function humanizeStepCount(count: number): string {
-    return count > 9999 ? humanizeNumber(count, 2) : count.toLocaleString()
+    return count > 9999 ? humanizeNumber(count, 2) : count?.toLocaleString()
 }

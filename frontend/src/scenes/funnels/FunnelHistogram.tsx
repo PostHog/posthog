@@ -7,14 +7,14 @@ import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/Histogram'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import './FunnelHistogram.scss'
-import { FUNNELS_TIME_TO_CONVERT } from 'lib/constants'
+import { FunnelVizType } from '~/types'
 
 export function FunnelHistogramHeader(): JSX.Element | null {
     const { stepsWithCount, stepReference, histogramStepsDropdown } = useValues(funnelLogic)
     const { changeHistogramStep } = useActions(funnelLogic)
     const { allFilters } = useValues(insightLogic)
 
-    if (allFilters.display !== FUNNELS_TIME_TO_CONVERT) {
+    if (allFilters.funnel_viz_type !== FunnelVizType.TimeToConvert) {
         return null
     }
 

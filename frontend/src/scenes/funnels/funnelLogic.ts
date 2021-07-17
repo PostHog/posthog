@@ -8,12 +8,12 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import {
-    ChartDisplayType,
     EntityTypes,
     FilterType,
     FunnelResult,
     FunnelStep,
     FunnelsTimeConversionResult,
+    FunnelVizType,
     PathType,
     PersonType,
     ViewType,
@@ -160,9 +160,8 @@ export const funnelLogic = kea<funnelLogicType<TimeStepOption>>({
 
                     // We make another api call to api/funnels for time conversion data
                     let binsResult: FunnelsTimeConversionResult | null = null
-                    if (params.display === ChartDisplayType.FunnelsTimeToConvert && values.stepsWithCount.length > 1) {
+                    if (params.funnel_viz_type === FunnelVizType.TimeToConvert && values.stepsWithCount.length > 1) {
                         try {
-                            params.funnel_viz_type = 'time_to_convert'
                             params.funnel_to_step = values.histogramStep
                             binsResult = await pollFunnel(params)
                         } catch (e) {

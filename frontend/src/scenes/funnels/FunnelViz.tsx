@@ -4,13 +4,13 @@ import FunnelGraph from 'funnel-graph-js'
 import { Loading, humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues, BindLogic } from 'kea'
 import { funnelLogic } from './funnelLogic'
-import { ACTIONS_LINE_GRAPH_LINEAR, FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
 import { FunnelBarGraph } from './FunnelBarGraph'
 import { router } from 'kea-router'
 import { InputNumber, Row } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { ChartDisplayType, ChartParams, FunnelStep } from '~/types'
+import { ChartParams, FunnelStep, FunnelVizType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelHistogram } from './FunnelHistogram'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -55,7 +55,7 @@ export function FunnelViz({
             !steps ||
             steps.length === 0 ||
             featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ||
-            filters.display === ACTIONS_LINE_GRAPH_LINEAR
+            filters.funnel_viz_type === FunnelVizType.Trends
         ) {
             return
         }
@@ -124,7 +124,7 @@ export function FunnelViz({
         )
     }
 
-    if (filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
+    if (filters.funnel_viz_type === FunnelVizType.Trends) {
         return steps && steps.length > 0 && steps[0].labels ? (
             <>
                 <Row style={{ marginTop: -16, justifyContent: 'center' }}>
@@ -159,7 +159,7 @@ export function FunnelViz({
                             : (point) => {
                                   loadPeople({
                                       action: { id: point.index, name: point.label, properties: [], type: 'actions' },
-                                      label: point.label,
+                                      label: `Persons converted on ${point.label}`,
                                       date_from: point.day,
                                       date_to: point.day,
                                       filters: filters,
@@ -171,7 +171,7 @@ export function FunnelViz({
             </>
         ) : null
     }
-    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && filters.display == ChartDisplayType.FunnelsTimeToConvert) {
+    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && filters.funnel_viz_type == FunnelVizType.TimeToConvert) {
         return timeConversionBins && timeConversionBins.length > 0 ? <FunnelHistogram /> : null
     }
 
