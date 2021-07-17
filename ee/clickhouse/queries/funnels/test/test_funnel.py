@@ -2,7 +2,6 @@ from uuid import uuid4
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
@@ -11,7 +10,6 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory

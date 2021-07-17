@@ -112,7 +112,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         basic_conditions: List[str] = []
         for i in range(1, max_steps):
             basic_conditions.append(
-                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY, 1, 0)"
+                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days_or_default} DAY, 1, 0)"
             )
 
         if basic_conditions:
