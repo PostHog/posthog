@@ -7,8 +7,9 @@ import { kea } from 'kea'
 import { featureFlagLogicType } from './featureFlagLogicType'
 import posthog from 'posthog-js'
 
-type FeatureFlagsSet = { [flag: string]: boolean }
-
+type FeatureFlagsSet = {
+    [flag: string]: boolean
+}
 const eventsNotified: Record<string, boolean> = {}
 function notifyFlagIfNeeded(flag: string, flagState: boolean): void {
     if (!eventsNotified[flag]) {
