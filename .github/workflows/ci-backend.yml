@@ -115,7 +115,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -n auto ee/
+                  pytest --nomigrations -n auto ee/
 
     cloud:
         name: Django tests – Cloud
