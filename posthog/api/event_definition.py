@@ -37,6 +37,7 @@ class EventDefinitionViewSet(
     search_fields = ["name"]
     search_threshold = 0.15
     ordering_fields = ["name", "volume_30_day", "query_usage_30_day"]
+    ordering = ["name", "-query_usage_30_day", "-volume_30_day"]
 
     def get_queryset(self):
         if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
