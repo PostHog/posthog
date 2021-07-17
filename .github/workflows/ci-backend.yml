@@ -95,6 +95,7 @@ jobs:
             - name: Run posthog tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  TEST: 1
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -108,6 +109,7 @@ jobs:
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
+                  TEST: 1
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
