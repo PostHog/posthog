@@ -4,7 +4,8 @@ import { getChartColors } from 'lib/colors'
 import { FunnelStep } from '~/types'
 
 export function calcPercentage(numerator: number, denominator: number): number {
-    return (numerator / denominator) * 100 || 0
+    // Rounds to two decimal places
+    return Math.round(((numerator / denominator) * 100 || 0) * 100) / 100
 }
 
 export function getReferenceStep<T>(steps: T[], stepReference: FunnelStepReference, index?: number): T {

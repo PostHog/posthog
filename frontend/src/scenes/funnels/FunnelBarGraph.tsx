@@ -487,7 +487,11 @@ export function FunnelBarGraph(): JSX.Element {
                                         <b>{humanizeStepCount(step.order > 0 ? steps[i - 1].count - step.count : 0)}</b>
                                     </ValueInspectorButton>
                                     <span className="text-muted-alt">
-                                        ({step.order > 0 ? 100 - calcPercentage(step.count, steps[i - 1].count) : 0}
+                                        (
+                                        {step.order > 0
+                                            ? Math.round((100 - calcPercentage(step.count, steps[i - 1].count)) * 100) /
+                                              100
+                                            : 0}
                                         %)
                                     </span>
                                 </div>

@@ -42,7 +42,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
                                     </Row>
                                     <Row className="text-muted-alt">
                                         Total conversion rate:{' '}
-                                        {humanizeNumber(calcPercentage(option.count, basisStep.count))}%
+                                        {humanizeNumber(Math.round(calcPercentage(option.count, basisStep.count)))}%
                                     </Row>
                                 </Col>
                             </Select.Option>
