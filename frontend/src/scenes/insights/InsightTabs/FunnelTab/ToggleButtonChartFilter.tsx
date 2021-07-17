@@ -16,7 +16,7 @@ export function ToggleButtonChartFilter({
     onChange = noop,
     disabled = false,
 }: ToggleButtonChartFilterProps): JSX.Element {
-    const { clickhouseFeatures } = useValues(funnelLogic())
+    const { clickhouseFeaturesEnabled } = useValues(funnelLogic())
     const { chartFilter } = useValues(chartFilterLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
     const defaultDisplay = ChartDisplayType.FunnelViz
@@ -30,7 +30,7 @@ export function ToggleButtonChartFilter({
         {
             value: ChartDisplayType.FunnelsTimeToConvert,
             label: <Tooltip title="Track how long it takes for users to convert">Time to convert</Tooltip>,
-            visible: clickhouseFeatures,
+            visible: clickhouseFeaturesEnabled,
         },
         {
             value: ChartDisplayType.ActionsLineGraphLinear,

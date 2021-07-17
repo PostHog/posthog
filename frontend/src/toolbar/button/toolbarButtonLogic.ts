@@ -49,7 +49,10 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             },
         ],
         lastDragPosition: [
-            null as null | { x: number; y: number },
+            null as null | {
+                x: number
+                y: number
+            },
             { persist: true },
             {
                 setDragPosition: (_, { x, y }) => ({ x, y }),
@@ -62,7 +65,10 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             },
         ],
         actionsPosition: [
-            { x: 120, y: 100 } as { x: number; y: number },
+            { x: 120, y: 100 } as {
+                x: number
+                y: number
+            },
             {
                 saveActionsPosition: (_, { x, y }) => ({ x, y }),
             },

@@ -595,8 +595,8 @@ export interface FilterType {
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
-    breakdown_type?: BreakdownType
-    breakdown?: string
+    breakdown_type?: BreakdownType | null
+    breakdown?: string | null
     breakdown_value?: string
     shown_as?: ShownAsType
     session?: string
@@ -696,27 +696,27 @@ export interface TrendResultWithAggregate extends TrendResult {
 }
 
 export interface FunnelStep {
+    // The type returned from the API.
     action_id: string
-    average_conversion_time: number
+    average_conversion_time: number | null
     count: number
     name: string
     order: number
     people: string[]
     type: EntityType
     labels?: string[]
+    breakdown?: string
+    breakdown_value?: string
 }
 
-export interface FunnelResult {
-    is_cached: boolean
-    last_refresh: string | null
-    result: FunnelStep[]
-    type: 'Funnel'
+export interface FunnelStepWithNestedBreakdown extends FunnelStep {
+    nested_breakdown?: FunnelStep[]
 }
 
-export interface FunnelsTimeConversionResult {
-    result: number[]
-    last_refresh: string | null
+export interface FunnelResult<ResultType = FunnelStep[]> {
     is_cached: boolean
+    last_refresh: string | null
+    result: ResultType
     type: 'Funnel'
 }
 

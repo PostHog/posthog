@@ -430,13 +430,11 @@ export function Insights(): JSX.Element {
 
 function FunnelInsight(): JSX.Element {
     const {
-        stepsWithCount,
         isValidFunnel,
-        stepsWithCountLoading,
+        isLoading,
         filters: { display },
-        timeConversionBins,
     } = useValues(funnelLogic({}))
-    const { clickhouseFeatures } = useValues(funnelLogic())
+    const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -448,18 +446,18 @@ function FunnelInsight(): JSX.Element {
                     : { height: 300, position: 'relative', marginBottom: 0 }
             }
         >
-            {stepsWithCountLoading && <Loading />}
+            {isLoading && <Loading />}
             {isValidFunnel ? (
-                <FunnelViz filters={{ display }} steps={stepsWithCount} timeConversionBins={timeConversionBins} />
+                <FunnelViz filters={{ display }} />
             ) : (
-                !stepsWithCountLoading && (
+                !isLoading && (
                     <div
                         style={{
                             textAlign: 'center',
                         }}
                     >
                         <span>
-                            Enter the details to your funnel {!clickhouseFeatures && `and click 'calculate'`} to create
+                            Enter your funnel details {!clickhouseFeaturesEnabled && `and click 'calculate'`} to create
                             a funnel visualization
                         </span>
                     </div>
