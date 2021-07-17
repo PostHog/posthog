@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, cast
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -356,7 +356,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             first_entity = next(x for x in self._filter.entities if x.order == 0)
             if not first_entity:
                 ValidationError("An entity with order 0 was not provided")
-            query, params = "/* missing breakdown_values query! */", {}
+            query, params = "/* missing breakdown_values query! */", cast(Dict[str, Any], {})
             if self._filter.breakdown_type == "person":
                 query, params = get_breakdown_person_prop_query(
                     self._filter, first_entity, "count(*)", self._team.pk, limit

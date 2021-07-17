@@ -173,7 +173,7 @@ class ClickhouseTrendsBreakdown:
     def _breakdown_cohort_params(self, team_id: int, filter: Filter, entity: Entity):
         cohort_queries, cohort_ids, cohort_params = format_breakdown_cohort_join_query(team_id, filter, entity=entity)
         params = {"breakdown_values": cohort_ids, **cohort_params}
-        self.ctes.append(
+        self.ctes.append(  # type: ignore
             CTE(
                 query="SELECT arrayJoin( %(breakdown_values)s ) AS breakdown_value",
                 alias="breakdown_values",
@@ -189,7 +189,7 @@ class ClickhouseTrendsBreakdown:
         breakdown_filter_params = {
             "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
         }
-        self.ctes.append(CTE(query=query, alias="breakdown_values", is_scalar=False))
+        self.ctes.append(CTE(query=query, alias="breakdown_values", is_scalar=False))  # type: ignore
         return (
             params,
             BREAKDOWN_PERSON_PROP_JOIN_SQL,
@@ -200,7 +200,7 @@ class ClickhouseTrendsBreakdown:
 
     def _breakdown_prop_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
         query, params = get_breakdown_event_prop_query(filter, entity, aggregate_operation, team_id, include_none=True)
-        self.ctes.append(CTE(query=query, alias="breakdown_values", is_scalar=False))
+        self.ctes.append(CTE(query=query, alias="breakdown_values", is_scalar=False))  # type: ignore
         return (
             params,
             BREAKDOWN_PROP_JOIN_SQL,
