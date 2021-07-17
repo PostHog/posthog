@@ -101,7 +101,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -n auto posthog/
+                  pytest --nomigrations -n auto posthog/
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -109,13 +109,12 @@ jobs:
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
-                  TEST: 1
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -n auto ee/
+                  pytest ee/
 
     cloud:
         name: Django tests – Cloud
