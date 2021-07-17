@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
 
+const exceptions = ['.ant-select-dropdown *']
+
 export function useOutsideClickHandler(
     refOrRefs: Element | null | (Element | null)[],
     handleClickOutside?: () => void,
@@ -9,9 +11,13 @@ export function useOutsideClickHandler(
 
     useEffect(() => {
         function handleClick(event: Event): void {
-            if (!allRefs.some((ref) => ref?.contains(event.target as Node))) {
-                handleClickOutside?.()
+            if (exceptions.some((exception) => (event.target as Element).matches(exception))) {
+                return
             }
+            if (allRefs.some((ref) => ref?.contains(event.target as Element))) {
+                return
+            }
+            handleClickOutside?.()
         }
 
         if (allRefs.length > 0) {
