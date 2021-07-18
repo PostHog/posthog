@@ -34,6 +34,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             '',
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
+                selectItem: () => '',
             },
         ],
         activeTab: [
