@@ -20,17 +20,14 @@ interface InfiniteListProps {
     onComplete: () => void
 }
 
-export function tooltipDesiredState(element: Element): ListTooltip {
+export function tooltipDesiredState(element?: Element | null): ListTooltip {
     let desiredState: ListTooltip = ListTooltip.None
-    if (element) {
-        const rect = element.getBoundingClientRect()
-        if (rect) {
-            if (window.innerWidth - rect.right > 300) {
-                desiredState = ListTooltip.Right
-            } else if (rect.left > 300) {
-                desiredState = ListTooltip.Left
-            }
-            console.log({ desiredState, innerWidth: window.innerWidth, rect })
+    const rect = element?.getBoundingClientRect()
+    if (rect) {
+        if (window.innerWidth - rect.right > 300) {
+            desiredState = ListTooltip.Right
+        } else if (rect.left > 300) {
+            desiredState = ListTooltip.Left
         }
     }
     return desiredState
@@ -49,20 +46,22 @@ export function InfiniteList({ pageKey, filterIndex, type, onComplete }: Infinit
     const [listTooltip, setListTooltip] = useState<ListTooltip>(ListTooltip.None)
     const listRef = useRef<HTMLDivElement>(null)
     useEffect(() => {
-        if (listRef?.current) {
-            const desiredState = tooltipDesiredState(listRef.current)
+        function adjustListTooltip(): void {
+            const desiredState = tooltipDesiredState(listRef?.current)
             if (listTooltip !== desiredState) {
                 setListTooltip(desiredState)
             }
-            const resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
-                for (const entry of entries) {
-                    const entryState = tooltipDesiredState(entry.target)
-                    if (listTooltip !== entryState) {
-                        setListTooltip(entryState)
-                    }
-                }
-            })
+        }
+        if (listRef?.current) {
+            const resizeObserver = new ResizeObserver(adjustListTooltip)
             resizeObserver.observe(listRef.current)
+            window.addEventListener('resize', adjustListTooltip)
+            window.addEventListener('scroll', adjustListTooltip)
+            return () => {
+                resizeObserver.disconnect()
+                window.removeEventListener('scroll', adjustListTooltip)
+                window.removeEventListener('resize', adjustListTooltip)
+            }
         }
     }, [listRef.current, index])
 
