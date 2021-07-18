@@ -143,6 +143,7 @@ export function TaxonomicPropertyFilter({
                                 propkey={filter?.key}
                                 operator={filter?.operator}
                                 value={filter?.value}
+                                placeholder="Enter value..."
                                 onChange={(newOperator, newValue) => {
                                     if (filter?.key && filter?.type) {
                                         setFilter(index, filter?.key, newValue || null, newOperator, filter?.type)
