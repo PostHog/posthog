@@ -303,12 +303,12 @@ export const keyMapping: KeyMappingInterface = {
             examples: ['feature launch', 'discount'],
         },
         utm_content: {
-            label: 'UTM content',
+            label: 'UTM Content',
             description: 'The last UTM content tag that this user saw (last-touch).',
             examples: ['bottom link', 'second button'],
         },
         $initial_utm_content: {
-            label: 'Initial UTM content',
+            label: 'Initial UTM Content',
             description: 'The initial UTM content tag that this user saw (first-touch).',
             examples: ['bottom link', 'second button'],
         },

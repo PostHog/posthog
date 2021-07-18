@@ -21,7 +21,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
     return (
         <div className="funnel__header__steps">
             <span className="funnel__header__steps__label">Steps</span>
-            {histogramStepsDropdown.length > 0 && (
+            {histogramStepsDropdown.length > 0 && stepsWithCount.length > 0 && (
                 <Select
                     defaultValue={histogramStepsDropdown[0]?.value}
                     onChange={changeHistogramStep}
@@ -42,7 +42,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
                                     </Row>
                                     <Row className="text-muted-alt">
                                         Total conversion rate:{' '}
-                                        {humanizeNumber(calcPercentage(option.count, basisStep.count))}%
+                                        {humanizeNumber(Math.round(calcPercentage(option.count, basisStep.count)))}%
                                     </Row>
                                 </Col>
                             </Select.Option>
