@@ -3,7 +3,7 @@ Contains the property filter component w/ properties and cohorts separated in ta
 */
 import './TaxonomicPropertyFilter.scss'
 import React, { useEffect, useMemo, useRef } from 'react'
-import { Button, Card, Col, Dropdown, Input } from 'antd'
+import { Button, Col, Input } from 'antd'
 import { useValues, useActions, BindLogic } from 'kea'
 import { PropertyFilterInternalProps } from '../PropertyFilter'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
@@ -13,6 +13,7 @@ import { SelectDownIcon } from 'lib/components/SelectDownIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
+import { Popup } from 'lib/components/Popup/Popup'
 
 let uniqueMemoizedIndex = 0
 
@@ -90,7 +91,7 @@ export function TaxonomicPropertyFilter({
         <div className={`taxonomic-property-filter${!disablePopover ? ' in-dropdown' : ' row-on-page'}`}>
             <BindLogic logic={taxonomicPropertyFilterLogic} props={{ pageKey, filterIndex: index }}>
                 {showInitialSearchInline ? (
-                    <div className="taxonomic-filter-standalone">
+                    <div className="taxonomic-filter-dropdown">
                         {searchInput}
                         {searchResults}
                     </div>
@@ -108,24 +109,22 @@ export function TaxonomicPropertyFilter({
                                 </span>
                             )}
                         </Col>
-                        <Dropdown
+
+                        <Popup
                             overlay={
-                                <Card className="taxonomic-filter-dropdown">
-                                    {searchInput}
-                                    {dropdownOpen ? searchResults : null}
-                                </Card>
+                                dropdownOpen ? (
+                                    <div className="taxonomic-filter-dropdown">
+                                        {searchInput}
+                                        {searchResults}
+                                    </div>
+                                ) : null
                             }
                             visible={dropdownOpen}
-                            trigger={['click']}
-                            onVisibleChange={(visible) => {
-                                if (!visible) {
-                                    closeDropdown()
-                                }
-                            }}
+                            onClickOutside={closeDropdown}
                         >
                             <Button
                                 className={`taxonomic-button${!filter?.type && !filter?.key ? ' add-filter' : ''}`}
-                                onClick={() => openDropdown()}
+                                onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                             >
                                 {filter?.type === 'cohort' ? (
                                     <div>{selectedCohortName || `Cohort #${filter?.value}`}</div>
@@ -136,7 +135,7 @@ export function TaxonomicPropertyFilter({
                                 )}
                                 <SelectDownIcon />
                             </Button>
-                        </Dropdown>
+                        </Popup>
 
                         {showOperatorValueSelect && (
                             <OperatorValueSelect

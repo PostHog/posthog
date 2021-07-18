@@ -9,13 +9,14 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 export interface Props {
     item: AnyPropertyFilter
     onClick?: () => void
+    ref?: React.Ref<HTMLElement>
 }
 
-const PropertyFilterButton: React.FunctionComponent<Props> = ({ item, onClick }: Props) => {
+export function PropertyFilterButton({ item, onClick, ref }: Props): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
 
     return (
-        <Button type="primary" shape="round" style={{ maxWidth: '75%' }} onClick={onClick}>
+        <Button type="primary" shape="round" style={{ maxWidth: '75%' }} onClick={onClick} ref={ref}>
             <span
                 className="ph-no-capture property-filter-button-label"
                 style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}

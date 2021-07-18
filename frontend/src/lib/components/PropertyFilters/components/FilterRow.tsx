@@ -12,6 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Popup } from 'lib/components/Popup/Popup'
 
 interface FilterRowProps {
     item: AnyPropertyFilter
@@ -84,6 +85,45 @@ export const FilterRow = React.memo(function FilterRow({
                         <CloseButton
                             onClick={() => remove(index)}
                             style={{ cursor: 'pointer', float: 'none', paddingLeft: 8 }}
+                        />
+                    )}
+                </>
+            ) : filterVariant === 'taxonomic' ? (
+                <>
+                    <Popup
+                        visible={open}
+                        placement="bottom-end"
+                        onClickOutside={() => handleVisibleChange(false)}
+                        overlay={
+                            <PropertyFilter
+                                {...propertyFilterCommonProps}
+                                disablePopover={disablePopover}
+                                variant={filterVariant}
+                                selectProps={{
+                                    delayBeforeAutoOpen: 150,
+                                    placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
+                                }}
+                            />
+                        }
+                    >
+                        {isValidPropertyFilter(item) ? (
+                            <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
+                        ) : (
+                            <Button
+                                onClick={() => setOpen(!open)}
+                                type="default"
+                                shape="round"
+                                data-attr={'new-prop-filter-' + pageKey}
+                            >
+                                Add filter
+                            </Button>
+                        )}
+                    </Popup>
+                    {!!Object.keys(filters[index]).length && (
+                        <CloseButton
+                            className="ml-1"
+                            onClick={() => remove(index)}
+                            style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
                         />
                     )}
                 </>
