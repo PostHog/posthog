@@ -23,12 +23,6 @@ interface LoaderOptions {
     limit: number
 }
 
-export enum ListTooltip {
-    None = 0,
-    Left = 1,
-    Right = 2,
-}
-
 type ListFuse = Fuse<EventDefinition> // local alias for typegen
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
@@ -54,7 +48,7 @@ const API_CACHE_TIMEOUT = 60000
 const apiCache: Record<string, EventDefinitionStorage> = {}
 const apiCacheTimers: Record<string, number> = {}
 
-export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage, ListTooltip, LoaderOptions>>({
+export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage, LoaderOptions>>({
     props: {} as TaxonomicPropertyFilterListLogicProps,
 
     key: (props) => `${props.pageKey}-${props.filterIndex}-${props.type}`,
@@ -70,7 +64,6 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
         moveDown: true,
         setIndex: (index: number) => ({ index }),
         setLimit: (limit: number) => ({ limit }),
-        setListTooltip: (listTooltip: ListTooltip) => ({ listTooltip }),
         onRowsRendered: (rowInfo: RenderedRows) => ({ rowInfo }),
         loadRemoteItems: (options: LoaderOptions) => options,
     },
@@ -87,12 +80,6 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
             100,
             {
                 setLimit: (_, { limit }) => limit,
-            },
-        ],
-        listTooltip: [
-            ListTooltip.None as ListTooltip,
-            {
-                setListTooltip: (_, { listTooltip }) => listTooltip,
             },
         ],
     },

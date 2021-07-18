@@ -1,11 +1,17 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Empty, Skeleton } from 'antd'
 import { AutoSizer, List, ListRowProps, ListRowRenderer } from 'react-virtualized'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useActions, useValues } from 'kea'
-import { infiniteListLogic, ListTooltip } from './infiniteListLogic'
+import { infiniteListLogic } from './infiniteListLogic'
 import { taxonomicPropertyFilterLogic } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/taxonomicPropertyFilterLogic'
 import { filterMatchesItem } from 'lib/components/PropertyFilters/utils'
+
+enum ListTooltip {
+    None = 0,
+    Left = 1,
+    Right = 2,
+}
 
 interface InfiniteListProps {
     pageKey: string
@@ -14,31 +20,51 @@ interface InfiniteListProps {
     onComplete: () => void
 }
 
-export function InfiniteList({ pageKey, filterIndex, type, onComplete }: InfiniteListProps): JSX.Element {
-    const filterLogic = taxonomicPropertyFilterLogic({ pageKey, filterIndex })
-    const { filter, mouseInteractionsEnabled, activeTab, searchQuery } = useValues(filterLogic)
-    const { selectItem } = useActions(filterLogic)
-
-    const listLogic = infiniteListLogic({ pageKey, filterIndex, type })
-    const { isLoading, results, totalCount, index, listTooltip } = useValues(listLogic)
-    const { onRowsRendered, setIndex, setListTooltip } = useActions(listLogic)
-
-    // after rendering measure if there's space for a tooltip
-    const listRef = useRef<HTMLDivElement>(null)
-    useEffect(() => {
-        const rect = listRef.current?.getBoundingClientRect()
-        let desiredState: ListTooltip = ListTooltip.None
+export function tooltipDesiredState(element: Element): ListTooltip {
+    let desiredState: ListTooltip = ListTooltip.None
+    if (element) {
+        const rect = element.getBoundingClientRect()
         if (rect) {
             if (window.innerWidth - rect.right > 300) {
                 desiredState = ListTooltip.Right
             } else if (rect.left > 300) {
                 desiredState = ListTooltip.Left
             }
+            console.log({ desiredState, innerWidth: window.innerWidth, rect })
         }
-        if (listTooltip !== desiredState) {
-            setListTooltip(desiredState)
+    }
+    return desiredState
+}
+
+export function InfiniteList({ pageKey, filterIndex, type, onComplete }: InfiniteListProps): JSX.Element {
+    const filterLogic = taxonomicPropertyFilterLogic({ pageKey, filterIndex })
+    const { filter, mouseInteractionsEnabled, activeTab, searchQuery } = useValues(filterLogic)
+    const { selectItem } = useActions(filterLogic)
+
+    const listLogic = infiniteListLogic({ pageKey, filterIndex, type })
+    const { isLoading, results, totalCount, index } = useValues(listLogic)
+    const { onRowsRendered, setIndex } = useActions(listLogic)
+
+    // after rendering measure if there's space for a tooltip
+    const [listTooltip, setListTooltip] = useState<ListTooltip>(ListTooltip.None)
+    const listRef = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        if (listRef?.current) {
+            const desiredState = tooltipDesiredState(listRef.current)
+            if (listTooltip !== desiredState) {
+                setListTooltip(desiredState)
+            }
+            const resizeObserver = new ResizeObserver((entries: ResizeObserverEntry[]) => {
+                for (const entry of entries) {
+                    const entryState = tooltipDesiredState(entry.target)
+                    if (listTooltip !== entryState) {
+                        setListTooltip(entryState)
+                    }
+                }
+            })
+            resizeObserver.observe(listRef.current)
         }
-    }, [index])
+    }, [listRef.current, index])
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         const item = results[rowIndex]
