@@ -187,6 +187,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
     }),
 
     selectors: {
+        isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
         group: [() => [(_, props) => props.type], (type) => groups.find((g) => g.type === type)],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],

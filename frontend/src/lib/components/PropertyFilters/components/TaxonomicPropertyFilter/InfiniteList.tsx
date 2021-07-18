@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react'
-import { Skeleton } from 'antd'
+import { Empty, Skeleton } from 'antd'
 import { AutoSizer, List, ListRowProps, ListRowRenderer } from 'react-virtualized'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useActions, useValues } from 'kea'
@@ -16,11 +16,11 @@ interface InfiniteListProps {
 
 export function InfiniteList({ pageKey, filterIndex, type, onComplete }: InfiniteListProps): JSX.Element {
     const filterLogic = taxonomicPropertyFilterLogic({ pageKey, filterIndex })
-    const { filter, mouseInteractionsEnabled, activeTab } = useValues(filterLogic)
+    const { filter, mouseInteractionsEnabled, activeTab, searchQuery } = useValues(filterLogic)
     const { selectItem } = useActions(filterLogic)
 
     const listLogic = infiniteListLogic({ pageKey, filterIndex, type })
-    const { results, totalCount, index, listTooltip } = useValues(listLogic)
+    const { isLoading, results, totalCount, index, listTooltip } = useValues(listLogic)
     const { onRowsRendered, setIndex, setListTooltip } = useActions(listLogic)
 
     // after rendering measure if there's space for a tooltip
@@ -82,22 +82,36 @@ export function InfiniteList({ pageKey, filterIndex, type, onComplete }: Infinit
         )
     }
 
+    const showEmptyState = totalCount === 0 && !isLoading
+
     return (
-        <div className="taxonomic-infinite-list" ref={listRef}>
-            <AutoSizer>
-                {({ height, width }) => (
-                    <List
-                        width={width}
-                        height={height}
-                        rowCount={totalCount}
-                        overscanRowCount={100}
-                        rowHeight={32}
-                        rowRenderer={renderItem}
-                        onRowsRendered={onRowsRendered}
-                        scrollToIndex={index}
+        <div className={`taxonomic-infinite-list${showEmptyState ? ' empty-infinite-list' : ''}`} ref={listRef}>
+            {showEmptyState ? (
+                <div className="no-infinite-results">
+                    <Empty
+                        description={
+                            <>
+                                No results for "<strong>{searchQuery}</strong>"
+                            </>
+                        }
                     />
-                )}
-            </AutoSizer>
+                </div>
+            ) : (
+                <AutoSizer>
+                    {({ height, width }) => (
+                        <List
+                            width={width}
+                            height={height}
+                            rowCount={isLoading && totalCount === 0 ? 7 : totalCount}
+                            overscanRowCount={100}
+                            rowHeight={32}
+                            rowRenderer={renderItem}
+                            onRowsRendered={onRowsRendered}
+                            scrollToIndex={index}
+                        />
+                    )}
+                </AutoSizer>
+            )}
         </div>
     )
 }

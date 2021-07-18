@@ -8,6 +8,16 @@
 .taxonomic-infinite-list {
     min-height: 200px;
 
+    &.empty-infinite-list {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        .no-infinite-results {
+            color: #666;
+        }
+    }
+
     .taxonomic-list-row {
         display: flex;
         align-items: center;
