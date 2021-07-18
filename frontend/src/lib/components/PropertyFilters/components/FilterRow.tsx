@@ -92,7 +92,8 @@ export const FilterRow = React.memo(function FilterRow({
                 <>
                     <Popup
                         visible={open}
-                        placement="bottom-end"
+                        placement={'bottom-end'}
+                        fallbackPlacements={['bottom-start']}
                         onClickOutside={() => handleVisibleChange(false)}
                         overlay={
                             <PropertyFilter

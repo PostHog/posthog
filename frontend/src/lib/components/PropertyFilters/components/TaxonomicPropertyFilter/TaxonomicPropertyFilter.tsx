@@ -119,6 +119,8 @@ export function TaxonomicPropertyFilter({
                                     </div>
                                 ) : null
                             }
+                            placement={'bottom-start'}
+                            fallbackPlacements={['bottom-end']}
                             visible={dropdownOpen}
                             onClickOutside={closeDropdown}
                         >
