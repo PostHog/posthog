@@ -18,14 +18,19 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
     },
     listeners: ({ values }) => ({
         setChartFilter: ({ filter }) => {
-            const { display, ...searchParams } = router.values.searchParams // eslint-disable-line
+            const { display, funnel_viz_type, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
-            if (filter === 'steps' || filter === 'time_to_convert' || filter === 'trends') {
+            const isFunnelVizType = filter === 'steps' || filter === 'time_to_convert' || filter === 'trends'
+            if (isFunnelVizType) {
                 searchParams.funnel_viz_type = filter
+                searchParams.display = ChartDisplayType.FunnelViz
+            } else {
+                searchParams.display = values.chartFilter
             }
-            searchParams.display = values.chartFilter
-
-            if (!objectsEqual(display, values.chartFilter)) {
+            if (
+                (!isFunnelVizType && !objectsEqual(display, values.chartFilter)) ||
+                (isFunnelVizType && !objectsEqual(funnel_viz_type, values.chartFilter))
+            ) {
                 router.actions.replace(pathname, searchParams)
             }
         },
