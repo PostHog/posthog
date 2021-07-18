@@ -106,18 +106,21 @@ export const FilterRow = React.memo(function FilterRow({
                             />
                         }
                     >
-                        {isValidPropertyFilter(item) ? (
-                            <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
-                        ) : (
-                            <Button
-                                onClick={() => setOpen(!open)}
-                                type="default"
-                                shape="round"
-                                data-attr={'new-prop-filter-' + pageKey}
-                            >
-                                Add filter
-                            </Button>
-                        )}
+                        {({ setRef }) =>
+                            isValidPropertyFilter(item) ? (
+                                <PropertyFilterButton onClick={() => setOpen(!open)} item={item} setRef={setRef} />
+                            ) : (
+                                <Button
+                                    ref={setRef}
+                                    onClick={() => setOpen(!open)}
+                                    type="default"
+                                    shape="round"
+                                    data-attr={'new-prop-filter-' + pageKey}
+                                >
+                                    Add filter
+                                </Button>
+                            )
+                        }
                     </Popup>
                     {!!Object.keys(filters[index]).length && (
                         <CloseButton
