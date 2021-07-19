@@ -57,10 +57,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
             serialized_result = self._serialize_step(step, total_people, [])
             if step.order > 0:
                 serialized_result.update(
-                    {"average_conversion_time": results[step.order + len(self._filter.entities) - 1]}
+                    {
+                        "average_conversion_time": results[step.order + len(self._filter.entities) - 1],
+                        "median_conversion_time": results[step.order + len(self._filter.entities) * 2 - 2],
+                    }
                 )
             else:
-                serialized_result.update({"average_conversion_time": None})
+                serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
             if with_breakdown:
                 serialized_result.update({"breakdown": results[-1]})
