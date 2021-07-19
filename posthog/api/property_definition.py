@@ -30,17 +30,6 @@ class PropertyDefinitionSerializer(serializers.ModelSerializer):
         raise EnterpriseFeatureException()
 
 
-class NumericalFilter(filters.BaseFilterBackend):
-    def filter_queryset(self, request: Request, queryset: QuerySet[_MT], view: APIView,) -> QuerySet[_MT]:
-        param: Optional[str] = request.query_params.get("is_numerical", None)
-
-        if not param:
-            return queryset
-
-        parsed_param: bool = strtobool(param)
-        return queryset.filter(is_numerical=parsed_param)
-
-
 class PropertyDefinitionViewSet(
     StructuredViewSetMixin,
     mixins.ListModelMixin,
@@ -65,14 +54,14 @@ class PropertyDefinitionViewSet(
                 properties_to_filter = self.request.GET.get("properties", None)
                 if properties_to_filter:
                     names = tuple(properties_to_filter.split(","))
-                    name_filter = f"AND name IN %(names)s"
+                    name_filter = "AND name IN %(names)s"
                 else:
                     names = ()
                     name_filter = ""
 
                 search = self.request.GET.get("search", None)
-                select_criteria = f"*, similarity(name, '{search}')" if bool(search) else "*"
-                search_threshold_filter = f"AND name % {search}" if bool(search) else ""
+                select_criteria = "*, similarity(name, %(search)s)" if bool(search) else "*"
+                search_threshold_filter = "AND name %% %(search)s" if bool(search) else ""
                 ee_property_definitions = EnterprisePropertyDefinition.objects.raw(
                     f"""
                     SELECT {select_criteria}
@@ -81,11 +70,11 @@ class PropertyDefinitionViewSet(
                     WHERE team_id = %(team_id)s {name_filter} {search_threshold_filter}
                     ORDER BY name
                     """,
-                    params={"team_id": self.request.user.team.id, "names": names},  # type: ignore
+                    params={"names": names, "team_id": self.request.user.team.id, "search": search},
                 )
                 return ee_property_definitions
 
-        return self.filter_queryset_by_parents_lookups(PropertyDefinition.objects.all())
+        return self.filter_queryset_by_parents_lookups(PropertyDefinition.objects.all()).order_by(self.ordering)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class

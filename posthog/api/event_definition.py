@@ -45,21 +45,21 @@ class EventDefinitionViewSet(
                 pass
             else:
                 search = self.request.GET.get("search", None)
-                select_criteria = f"*, similarity(name, '{search}')" if bool(search) else "*"
-                search_threshold_filter = f"AND name % {search}" if bool(search) else ""
+                select_criteria = "*, similarity(name, %(search)s)" if bool(search) else "*"
+                search_threshold_filter = "AND name %% %(search)s" if bool(search) else ""
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(
                     f"""
                     SELECT {select_criteria}
                     FROM ee_enterpriseeventdefinition
                     FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-                    WHERE team_id = %s {search_threshold_filter}
+                    WHERE team_id = %(team_id)s {search_threshold_filter}
                     ORDER BY name
                     """,
-                    params=[self.request.user.team.id],  # type: ignore
+                    params={"team_id": self.request.user.team.id, "search": search},
                 )
                 return ee_event_definitions
 
-        return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all())
+        return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)
 
     def get_object(self):
         id = self.kwargs["id"]
