@@ -1,3 +1,4 @@
+import importlib
 from unittest.mock import patch
 
 import pytest
@@ -36,6 +37,15 @@ def django_db_setup(django_db_setup, django_db_keepdb, worker_id):
         database.create_database()
 
     with patch.object(settings, "CLICKHOUSE_DATABASE", CLICKHOUSE_TEST_DB):
+        for path in [
+            "ee.clickhouse.sql.person",
+            "ee.clickhouse.sql.events",
+            "ee.clickhouse.sql.plugin_log_entries",
+            "ee.clickhouse.sql.session_recording_events",
+        ]:
+            module = importlib.import_module(path)
+            importlib.reload(module)
+
         from ee.clickhouse.client import sync_execute
 
         database.migrate("ee.clickhouse.migrations")
@@ -56,6 +66,16 @@ def db(db, worker_id):
     CLICKHOUSE_TEST_DB = f"{CLICKHOUSE_DATABASE}_{worker_id}"
 
     with patch.object(settings, "CLICKHOUSE_DATABASE", CLICKHOUSE_TEST_DB):
+
+        for path in [
+            "ee.clickhouse.sql.person",
+            "ee.clickhouse.sql.events",
+            "ee.clickhouse.sql.plugin_log_entries",
+            "ee.clickhouse.sql.session_recording_events",
+        ]:
+            module = importlib.import_module(path)
+            importlib.reload(module)
+
         from ee.clickhouse.client import sync_execute
         from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
         from ee.clickhouse.sql.person import (
