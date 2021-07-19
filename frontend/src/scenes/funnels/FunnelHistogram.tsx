@@ -8,6 +8,7 @@ import { Histogram } from 'scenes/insights/Histogram'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import './FunnelHistogram.scss'
 import { FUNNELS_TIME_TO_CONVERT } from 'lib/constants'
+import { ChartParams } from '~/types'
 
 export function FunnelHistogramHeader(): JSX.Element | null {
     const { stepsWithCount, stepReference, histogramStepsDropdown } = useValues(funnelLogic)
@@ -54,8 +55,9 @@ export function FunnelHistogramHeader(): JSX.Element | null {
     )
 }
 
-export function FunnelHistogram(): JSX.Element {
-    const { histogramGraphData, barGraphLayout } = useValues(funnelLogic)
+export function FunnelHistogram({ filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element {
+    const logic = funnelLogic({ dashboardItemId, filters })
+    const { histogramGraphData, barGraphLayout } = useValues(logic)
     return (
         <>
             <Histogram data={histogramGraphData} layout={barGraphLayout} />

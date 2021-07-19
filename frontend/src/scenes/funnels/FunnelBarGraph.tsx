@@ -9,7 +9,7 @@ import { ArrowBottomRightOutlined } from 'lib/components/icons'
 import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip'
 import { FunnelLayout } from 'lib/constants'
@@ -22,7 +22,7 @@ import {
     getSeriesPositionName,
     humanizeStepCount,
 } from './funnelUtils'
-import { FunnelStepWithNestedBreakdown } from '~/types'
+import { ChartParams, FunnelStepWithNestedBreakdown } from '~/types'
 
 interface BarProps {
     percentage: number
@@ -273,7 +273,8 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
     )
 }
 
-export function FunnelBarGraph({ logic }: { logic: BuiltLogic }): JSX.Element {
+export function FunnelBarGraph({ filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element {
+    const logic = funnelLogic({ dashboardItemId, filters })
     const { steps, stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(logic)
     const { openPersonsModal } = useActions(funnelLogic)
     const firstStep = getReferenceStep(steps, FunnelStepReference.total)
