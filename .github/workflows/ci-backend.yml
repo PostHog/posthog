@@ -114,7 +114,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest --durations=10 ee/
+                  pytest --durations=10 -n auto ee/
 
     cloud:
         name: Django tests – Cloud

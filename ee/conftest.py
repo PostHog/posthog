@@ -1,4 +1,7 @@
+from unittest.mock import patch
+
 import pytest
+from django.conf import settings
 from infi.clickhouse_orm import Database
 
 from ee.clickhouse.client import sync_execute
@@ -14,9 +17,11 @@ from posthog.test.base import TestMixin
 
 
 @pytest.fixture(scope="package")
-def django_db_setup(django_db_setup, django_db_keepdb):
+def django_db_setup(django_db_setup, django_db_keepdb, worker_id):
+    CLICKHOUSE_TEST_DB = f"{CLICKHOUSE_DATABASE}_{worker_id}"
+
     database = Database(
-        CLICKHOUSE_DATABASE,
+        CLICKHOUSE_TEST_DB,
         db_url=CLICKHOUSE_HTTP_URL,
         username=CLICKHOUSE_USER,
         password=CLICKHOUSE_PASSWORD,
@@ -36,7 +41,8 @@ def django_db_setup(django_db_setup, django_db_keepdb):
     # Make DELETE / UPDATE synchronous to avoid flaky tests
     sync_execute("SET mutations_sync = 1")
 
-    yield
+    with patch.object(settings, "CLICKHOUSE_DATABASE", CLICKHOUSE_TEST_DB):
+        yield
 
     if not django_db_keepdb:
         try:
