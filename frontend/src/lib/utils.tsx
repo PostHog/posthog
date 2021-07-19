@@ -11,6 +11,7 @@ import { open } from '@papercups-io/chat-widget'
 import posthog from 'posthog-js'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
+import { AlignType } from 'rc-trigger/lib/interface'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -23,7 +24,7 @@ const SI_PREFIXES: { value: number; symbol: string }[] = [
 ]
 const TRAILING_ZERO_REGEX = /\.0+$|(\.[0-9]*[1-9])0+$/
 
-export const ANTD_TOOLTIP_PLACEMENTS = {
+export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
     // https://github.com/react-component/select/blob/dade915d81069b8d3b3b5679bb9daee7e992faba/src/SelectTrigger.jsx#L11-L28
     bottomLeft: {

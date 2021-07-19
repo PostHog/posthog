@@ -79,7 +79,6 @@ class PersonFilter(filters.FilterSet):
 
 class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -87,7 +86,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.DjangoFilterBackend]
     filterset_class = PersonFilter
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
-
     lifecycle_class = LifecycleTrend
     retention_class = Retention
     stickiness_class = Stickiness

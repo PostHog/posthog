@@ -236,6 +236,7 @@ export const FEATURE_FLAGS: Record<string, string> = {
     PLUGIN_METRICS: '4871-plugin-metrics',
     FUNNEL_BAR_VIZ: '4535-funnel-bar-viz', // Nail Funnels #4785
     SESSIONS_TABLE: '4964-sessions-table', // Expand/collapse all in sessions table (performance consideration)
+    TAXONOMIC_PROPERTY_FILTER: '4267-taxonomic-property-filter',
     PERSONS_MODAL_SEARCH: 'persons-modal-search',
 }
 
