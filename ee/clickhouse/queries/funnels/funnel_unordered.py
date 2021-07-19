@@ -84,7 +84,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     def _get_step_time_names(self, max_steps: int):
         names = []
         for i in range(1, max_steps):
-            names.append(f"step_{i}_average_conversion_time")
+            names.append(f"step_{i}_conversion_time")
 
         formatted = ",".join(names)
         return f", {formatted}" if formatted else ""
@@ -100,7 +100,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
         for i in range(1, max_steps):
             conditions.append(
-                f"if(isNotNull(conversion_times[{i+1}]), dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_average_conversion_time"
+                f"if(isNotNull(conversion_times[{i+1}]), dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
             )
             # array indices in ClickHouse are 1-based :shrug:
 
