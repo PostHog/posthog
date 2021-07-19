@@ -491,6 +491,7 @@ export interface ClickHousePersonDistinctId {
     team_id: number
     person_id: string
     distinct_id: string
+    is_deleted: 0 | 1
 }
 
 /** Usable Cohort model. */

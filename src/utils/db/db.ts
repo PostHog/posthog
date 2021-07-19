@@ -493,36 +493,29 @@ export class DB {
 
     public async deletePerson(person: Person): Promise<void> {
         await this.postgresTransaction(async (client) => {
-            await client.query('DELETE FROM posthog_persondistinctid WHERE person_id = $1', [person.id])
-            await client.query('DELETE FROM posthog_person WHERE id = $1', [person.id])
+            await client.query('DELETE FROM posthog_person WHERE team_id = $1 AND id = $2', [person.team_id, person.id])
         })
-        if (this.clickhouse) {
-            if (this.kafkaProducer) {
-                await this.kafkaProducer.queueMessage({
-                    topic: KAFKA_PERSON,
-                    messages: [
-                        {
-                            value: Buffer.from(
-                                JSON.stringify({
-                                    created_at: castTimestampOrNow(
-                                        person.created_at,
-                                        TimestampFormat.ClickHouseSecondPrecision
-                                    ),
-                                    properties: JSON.stringify(person.properties),
-                                    team_id: person.team_id,
-                                    is_identified: person.is_identified,
-                                    id: person.uuid,
-                                    is_deleted: 1,
-                                })
-                            ),
-                        },
-                    ],
-                })
-            }
-
-            await this.clickhouseQuery(
-                `ALTER TABLE person_distinct_id DELETE WHERE person_id = '${escapeClickHouseString(person.uuid)}'`
-            )
+        if (this.kafkaProducer) {
+            await this.kafkaProducer.queueMessage({
+                topic: KAFKA_PERSON,
+                messages: [
+                    {
+                        value: Buffer.from(
+                            JSON.stringify({
+                                created_at: castTimestampOrNow(
+                                    person.created_at,
+                                    TimestampFormat.ClickHouseSecondPrecision
+                                ),
+                                properties: JSON.stringify(person.properties),
+                                team_id: person.team_id,
+                                is_identified: person.is_identified,
+                                id: person.uuid,
+                                is_deleted: 1,
+                            })
+                        ),
+                    },
+                ],
+            })
         }
     }
 
@@ -537,14 +530,19 @@ export class DB {
         if (database === Database.ClickHouse) {
             return (
                 await this.clickhouseQuery(
-                    `SELECT * FROM person_distinct_id WHERE person_id='${escapeClickHouseString(
-                        person.uuid
-                    )}' and team_id='${person.team_id}' ORDER BY id`
+                    `
+                        SELECT *
+                        FROM person_distinct_id
+                        FINAL
+                        WHERE person_id='${escapeClickHouseString(person.uuid)}'
+                          AND team_id='${person.team_id}'
+                          AND is_deleted=0
+                        ORDER BY id`
                 )
             ).data as ClickHousePersonDistinctId[]
         } else if (database === Database.Postgres) {
             const result = await this.postgresQuery(
-                'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 and team_id=$2 ORDER BY id',
+                'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
                 [person.id, person.team_id],
                 'fetchDistinctIds'
             )
@@ -581,24 +579,44 @@ export class DB {
             return {
                 topic: KAFKA_PERSON_UNIQUE_ID,
                 messages: [
-                    { value: Buffer.from(JSON.stringify({ ...personDistinctIdCreated, person_id: person.uuid })) },
+                    {
+                        value: Buffer.from(
+                            JSON.stringify({ ...personDistinctIdCreated, person_id: person.uuid, is_deleted: 0 })
+                        ),
+                    },
                 ],
             }
         }
     }
 
-    public async moveDistinctId(personDistinctId: PersonDistinctId, moveToPerson: Person): Promise<void> {
-        await this.postgresQuery(
-            `UPDATE posthog_persondistinctid SET person_id = $1 WHERE id = $2`,
-            [moveToPerson.id, personDistinctId.id],
+    public async moveDistinctIds(source: Person, target: Person): Promise<void> {
+        const movedDistinctIdResult = await this.postgresQuery(
+            `
+                UPDATE posthog_persondistinctid
+                SET person_id = $1
+                WHERE person_id = $2
+                  AND team_id = $3
+                RETURNING *
+            `,
+            [target.id, source.id, target.team_id],
             'updateDistinctIdPerson'
         )
+
         if (this.kafkaProducer) {
-            const clickhouseModel: ClickHousePersonDistinctId = { ...personDistinctId, person_id: moveToPerson.uuid }
-            await this.kafkaProducer.queueMessage({
-                topic: KAFKA_PERSON_UNIQUE_ID,
-                messages: [{ value: Buffer.from(JSON.stringify(clickhouseModel)) }],
-            })
+            for (const row of movedDistinctIdResult.rows) {
+                await this.kafkaProducer.queueMessage({
+                    topic: KAFKA_PERSON_UNIQUE_ID,
+                    messages: [
+                        { value: Buffer.from(JSON.stringify({ ...row, person_id: target.uuid, is_deleted: 0 })) },
+                    ],
+                })
+                await this.kafkaProducer.queueMessage({
+                    topic: KAFKA_PERSON_UNIQUE_ID,
+                    messages: [
+                        { value: Buffer.from(JSON.stringify({ ...row, person_id: source.uuid, is_deleted: 1 })) },
+                    ],
+                })
+            }
         }
     }
 
