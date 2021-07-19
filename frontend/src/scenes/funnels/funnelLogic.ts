@@ -30,7 +30,6 @@ import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/Funne
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { calcPercentage, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
-
 function aggregateBreakdownResult(breakdownList: FunnelStep[][]): FunnelStepWithNestedBreakdown[] {
     if (breakdownList.length) {
         return breakdownList[0].map((step, i) => ({
@@ -104,7 +103,7 @@ export const cleanFunnelParams = (filters: Partial<FilterType>): FilterType => {
 const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
-export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults>>({
+export const funnelLogic = kea<funnelLogicType>({
     key: (props) => {
         return props.dashboardItemId || 'some_funnel'
     },
