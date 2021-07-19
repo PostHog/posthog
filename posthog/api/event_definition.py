@@ -34,6 +34,7 @@ class EventDefinitionViewSet(
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
     filter_backends = [FuzzySearchFilterBackend]
+    ordering = "name"
     search_fields = ["name"]
     search_threshold = 0.15
 
