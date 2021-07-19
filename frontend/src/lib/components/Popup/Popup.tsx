@@ -1,18 +1,25 @@
 import './Popup.scss'
-import React, { ReactElement, useState } from 'react'
+import React, { ReactElement, useContext, useEffect, useMemo, useState } from 'react'
+import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { Placement } from '@popperjs/core'
 
 interface PopupProps {
     visible?: boolean
-    onClickOutside?: () => void
+    onClickOutside?: (event: Event) => void
     children: React.ReactChild | ((props: { setRef?: (ref: HTMLElement) => void }) => JSX.Element)
     overlay: React.ReactNode
     placement?: Placement
     fallbackPlacements?: Placement[]
 }
 
+// if we're inside a popup inside a popup, prevent the parent's onClickOutside from working
+const PopupContext = React.createContext<number>(0)
+const disabledPopups = new Map<number, number>()
+let uniqueMemoizedIndex = 0
+
+/** This is a custom popup control that uses `react-popper` to position DOM nodes */
 export function Popup({
     children,
     overlay,
@@ -21,15 +28,32 @@ export function Popup({
     placement = 'bottom-start',
     fallbackPlacements = ['bottom-end', 'top-start', 'top-end'],
 }: PopupProps): JSX.Element {
+    const popupId = useMemo(() => ++uniqueMemoizedIndex, [])
+
     const [referenceElement, setReferenceElement] = useState<HTMLDivElement | null>(null)
     const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
-    const [arrowElement, setArrowElement] = useState<HTMLDivElement | null>(null)
-    useOutsideClickHandler([popperElement, referenceElement, arrowElement] as HTMLElement[], onClickOutside)
+
+    const parentPopupId = useContext(PopupContext)
+    const localRefs = [popperElement, referenceElement] as (HTMLElement | null)[]
+
+    useEffect(() => {
+        if (visible) {
+            disabledPopups.set(parentPopupId, (disabledPopups.get(parentPopupId) || 0) + 1)
+            return () => {
+                disabledPopups.set(parentPopupId, (disabledPopups.get(parentPopupId) || 0) - 1)
+            }
+        }
+    }, [visible, parentPopupId])
+
+    useOutsideClickHandler(localRefs, (event) => {
+        if (visible && !disabledPopups.get(popupId)) {
+            onClickOutside?.(event)
+        }
+    })
 
     const { styles, attributes } = usePopper(referenceElement, popperElement, {
         placement: placement,
         modifiers: [
-            { name: 'arrow', options: { element: arrowElement } },
             fallbackPlacements
                 ? {
                       name: 'flip',
@@ -55,12 +79,19 @@ export function Popup({
     return (
         <>
             {clonedChildren}
-            {visible && (
-                <div className="popper-tooltip" ref={setPopperElement} style={styles.popper} {...attributes.popper}>
-                    {overlay}
-                    <div ref={setArrowElement} style={styles.arrow} />
-                </div>
-            )}
+            {visible
+                ? ReactDOM.createPortal(
+                      <div
+                          className="popper-tooltip"
+                          ref={setPopperElement}
+                          style={styles.popper}
+                          {...attributes.popper}
+                      >
+                          <PopupContext.Provider value={popupId}>{overlay}</PopupContext.Provider>
+                      </div>,
+                      document.querySelector('body') as HTMLElement
+                  )
+                : null}
         </>
     )
 }
