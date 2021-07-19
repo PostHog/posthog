@@ -2,7 +2,7 @@ from typing import List, Optional, TypeVar
 
 from django.contrib.postgres.search import TrigramSimilarity
 from django.db import models
-from django.db.models.query import QuerySet
+from django.db.models.query import QuerySet, RawQuerySet
 from rest_framework import filters, settings
 from rest_framework.request import Request
 from rest_framework.views import APIView
@@ -45,7 +45,7 @@ class FuzzySearchFilterBackend(filters.BaseFilterBackend):
         search_terms = self.get_search_terms(request)
         search_threshold = self.get_fuzzy_search_threshold(view)
 
-        if not search_fields or not search_terms:
+        if not search_fields or not search_terms or isinstance(queryset, RawQuerySet):
             return queryset
 
         for idx, search_field in enumerate(search_fields):
