@@ -37,11 +37,11 @@ def django_db_setup(django_db_setup, django_db_keepdb, worker_id):
     if not django_db_keepdb or not database.db_exists:
         database.create_database()
 
-    database.migrate("ee.clickhouse.migrations")
-    # Make DELETE / UPDATE synchronous to avoid flaky tests
-    sync_execute("SET mutations_sync = 1")
-
     with patch.object(settings, "CLICKHOUSE_DATABASE", CLICKHOUSE_TEST_DB):
+        database.migrate("ee.clickhouse.migrations")
+        # Make DELETE / UPDATE synchronous to avoid flaky tests
+        sync_execute("SET mutations_sync = 1")
+
         yield
 
     if not django_db_keepdb:
