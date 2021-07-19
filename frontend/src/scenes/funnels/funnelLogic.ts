@@ -58,9 +58,12 @@ function wait(ms = 1000): Promise<any> {
 
 const SECONDS_TO_POLL = 3 * 60
 
-const EMPTY_TIME_CONVERSION_BINS = {
-    bins: [],
-    average_conversion_time: 0,
+const EMPTY_FUNNEL_RESULTS = {
+    results: [],
+    timeConversionResults: {
+        bins: [],
+        average_conversion_time: 0,
+    },
 }
 
 async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParams): Promise<FunnelResult<T>> {
@@ -141,10 +144,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
     loaders: ({ props, values }) => ({
         rawResults: [
-            {
-                results: [],
-                timeConversionResults: EMPTY_TIME_CONVERSION_BINS,
-            } as LoadedRawFunnelResults,
+            EMPTY_FUNNEL_RESULTS as LoadedRawFunnelResults,
             {
                 loadResults: async (refresh = false, breakpoint): Promise<LoadedRawFunnelResults> => {
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
@@ -200,7 +200,7 @@ export const funnelLogic = kea<funnelLogicType>({
                                 throw new Error('Could not load funnel time conversion bins')
                             }
                         }
-                        return EMPTY_TIME_CONVERSION_BINS
+                        return EMPTY_FUNNEL_RESULTS.timeConversionResults
                     }
 
                     const queryId = uuid()
@@ -215,7 +215,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         if (!isBreakpoint(e)) {
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                         }
-                        return { results: [], timeConversionResults: EMPTY_TIME_CONVERSION_BINS }
+                        return EMPTY_FUNNEL_RESULTS
                     }
                 },
             },
