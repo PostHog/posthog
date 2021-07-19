@@ -735,6 +735,12 @@ export interface FunnelTimeConversionStep {
     count?: number
 }
 
+export interface FunnelTimeConversionMetrics {
+    averageTime: number
+    stepRate: number
+    totalRate: number
+}
+
 export interface ChartParams {
     dashboardItemId?: number
     color?: string

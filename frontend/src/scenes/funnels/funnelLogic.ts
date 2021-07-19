@@ -19,6 +19,7 @@ import {
     PathType,
     PersonType,
     ViewType,
+    FunnelTimeConversionMetrics,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
@@ -368,11 +369,10 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         conversionMetrics: [
             () => [selectors.stepsWithCount, selectors.histogramStep],
-            (stepsWithCount, timeStep) => {
+            (stepsWithCount, timeStep): FunnelTimeConversionMetrics => {
                 if (stepsWithCount.length <= 1) {
                     return {
-                        average: 0,
-                        sum: 0,
+                        averageTime: 0,
                         stepRate: 0,
                         totalRate: 0,
                     }
@@ -384,19 +384,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     : stepsWithCount[timeStep.from_step]
                 const toStep = isAllSteps ? getLastFilledStep(stepsWithCount) : stepsWithCount[timeStep.to_step]
 
-                // total sum from first step
-                // note: if last step has 0 count, it makes sense to say that total time to convert is 0
-                // const totalTime =
-                //     toStep.count === 0
-                //         ? 0
-                //         : stepsWithCount
-                //               .slice(0, toStep.order + 1)
-                //               .map((s: FunnelStep) => s.average_conversion_time * s.count) // calculate total times per step
-                //               .reduce((a: number, b: number) => a + b, 0) // add it up
-
                 return {
                     averageTime: toStep?.average_conversion_time || 0,
-                    // totalTime,
                     stepRate: calcPercentage(toStep.count, fromStep.count),
                     totalRate: calcPercentage(stepsWithCount[stepsWithCount.length - 1].count, stepsWithCount[0].count),
                 }

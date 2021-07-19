@@ -21,8 +21,8 @@ export function FunnelHistogramHeader(): JSX.Element | null {
     }
 
     return (
-        <div className="funnel__header__steps">
-            <span className="funnel__header__steps__label">Steps</span>
+        <div className="funnel-header-steps">
+            <span className="funnel-header-steps-label">Steps</span>
             {histogramStepsDropdown.length > 0 && (
                 <Select
                     defaultValue={histogramStepsDropdown[0]?.from_step}
@@ -37,11 +37,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
                     {histogramStepsDropdown.map((option, i) => {
                         const basisStep = getReferenceStep(stepsWithCount, stepReference, i)
                         return (
-                            <Select.Option
-                                key={option?.from_step}
-                                value={option?.from_step}
-                                label={<>{option?.label}</>}
-                            >
+                            <Select.Option key={option.from_step} value={option.from_step} label={<>{option?.label}</>}>
                                 <Col style={{ minWidth: 300 }}>
                                     <Row style={{ justifyContent: 'space-between', padding: '8px 0px' }}>
                                         <span className="l4">{option?.label}</span>
@@ -51,7 +47,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
                                     </Row>
                                     <Row className="text-muted-alt">
                                         Total conversion rate:{' '}
-                                        {humanizeNumber(calcPercentage(option.count || 0, basisStep.count))}
+                                        {humanizeNumber(calcPercentage(option.count ?? 0, basisStep.count))}%
                                     </Row>
                                 </Col>
                             </Select.Option>
@@ -69,7 +65,7 @@ export function FunnelHistogram(): JSX.Element {
     const [width] = useSize(ref)
 
     return (
-        <div className="funnel__histogram-wrapper" ref={ref}>
+        <div ref={ref}>
             <Histogram data={histogramGraphData} layout={barGraphLayout} width={width} />
         </div>
     )
