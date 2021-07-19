@@ -307,7 +307,7 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
         funnelPersonsEnabled: [
             () => [featureFlagLogic.selectors.featureFlags, selectors.preflight],
             (featureFlags, preflight): boolean =>
-                !!(featureFlags[FEATURE_FLAGS.FUNNEL_PERSONS_MODAL] && preflight?.is_clickhouse_enabled),
+                !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled),
         ],
         histogramGraphData: [
             () => [selectors.timeConversionBins],
