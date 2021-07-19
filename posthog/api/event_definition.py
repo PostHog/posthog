@@ -56,7 +56,7 @@ class EventDefinitionViewSet(
                     WHERE team_id = %(team_id)s {search_threshold_filter}
                     ORDER BY name
                     """,
-                    params={"team_id": self.request.user.team.id, "search": search},
+                    params={"team_id": self.request.user.team.id, "search": search},  # type: ignore
                 )
                 return ee_event_definitions
 

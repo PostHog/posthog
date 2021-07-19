@@ -45,7 +45,7 @@ class FuzzySearchFilterBackend(filters.BaseFilterBackend):
         search_terms = self.get_search_terms(request)
         search_threshold = self.get_fuzzy_search_threshold(view)
 
-        if not search_fields or not search_terms or isinstance(queryset, RawQuerySet):
+        if not search_fields or not search_terms:
             return queryset
 
         for idx, search_field in enumerate(search_fields):
