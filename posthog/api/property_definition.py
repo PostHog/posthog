@@ -56,7 +56,7 @@ class PropertyDefinitionViewSet(
     search_threshold = 0.15
 
     def get_queryset(self):
-        if True:  # self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
+        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
             try:
                 from ee.models.property_definition import EnterprisePropertyDefinition
             except ImportError:

@@ -38,7 +38,7 @@ class EventDefinitionViewSet(
     search_threshold = 0.15
 
     def get_queryset(self):
-        if True:  # self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
+        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
             try:
                 from ee.models.event_definition import EnterpriseEventDefinition
             except ImportError:
