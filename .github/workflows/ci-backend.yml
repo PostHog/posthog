@@ -109,6 +109,7 @@ jobs:
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
+                  TEST: 1
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
