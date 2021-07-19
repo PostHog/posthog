@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { autocorrectInterval, objectsEqual, uuid } from 'lib/utils'
@@ -211,7 +211,9 @@ export const funnelLogic = kea<funnelLogicType>({
 
                         return { results: result.result, timeConversionResults }
                     } catch (e) {
-                        insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
+                        if (!isBreakpoint(e)) {
+                            insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
+                        }
                         return EMPTY_FUNNEL_RESULTS
                     }
                 },
