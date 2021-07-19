@@ -1,4 +1,4 @@
-import { kea, isBreakpoint } from 'kea'
+import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { autocorrectInterval, objectsEqual, uuid } from 'lib/utils'
@@ -132,7 +132,6 @@ export const funnelLogic = kea<funnelLogicType>({
         }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         setBarGraphLayout: (barGraphLayout: FunnelLayout) => ({ barGraphLayout }),
-        setTimeConversionBins: (timeConversionBins: FunnelsTimeConversionBins) => ({ timeConversionBins }),
         changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
     }),
@@ -148,13 +147,10 @@ export const funnelLogic = kea<funnelLogicType>({
             {
                 loadResults: async (refresh = false, breakpoint): Promise<LoadedRawFunnelResults> => {
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
-                        // TODO: cache timeConversionBins? how does this cachedResults work?
+                        // TODO: cache timeConversionResults? how does this cachedResults work?
                         return {
                             results: props.cachedResults as FunnelStep[] | FunnelStep[][],
-                            timeConversionResults: {
-                                bins: [],
-                                average_conversion_time: 0,
-                            },
+                            timeConversionResults: EMPTY_FUNNEL_RESULTS.timeConversionResults,
                         }
                     }
 
@@ -263,15 +259,6 @@ export const funnelLogic = kea<funnelLogicType>({
             FunnelLayout.vertical as FunnelLayout,
             {
                 setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
-            },
-        ],
-        timeConversionBins: [
-            {
-                bins: [] as [number, number][],
-                average_conversion_time: 0,
-            },
-            {
-                setTimeConversionBins: (_, { timeConversionBins }) => timeConversionBins,
             },
         ],
         histogramStep: [
