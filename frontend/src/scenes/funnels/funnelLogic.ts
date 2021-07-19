@@ -28,7 +28,7 @@ import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { calcPercentage, getLastFilledStep, getReferenceStep } from './funnelUtils'
+import { calcPercentage, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 function aggregateBreakdownResult(breakdownList: FunnelStep[][]): FunnelStepWithNestedBreakdown[] {
     if (breakdownList.length) {
@@ -195,7 +195,7 @@ export const funnelLogic = kea<funnelLogicType>({
                                     ...(!isAllSteps ? { funnel_from_step: histogramStep.from_step } : {}),
                                     ...(!isAllSteps ? { funnel_to_step: histogramStep.to_step } : {}),
                                 })
-                                return binsResult.result
+                                return cleanBinResult(binsResult.result)
                             } catch (e) {
                                 throw new Error('Could not load funnel time conversion bins')
                             }
@@ -206,11 +206,14 @@ export const funnelLogic = kea<funnelLogicType>({
                     const queryId = uuid()
                     insightLogic.actions.startQuery(queryId)
                     try {
-                        const [result, timeConversionBins] = await Promise.all([loadFunnelResults(), loadBinsResults()])
+                        const [result, timeConversionResults] = await Promise.all([
+                            loadFunnelResults(),
+                            loadBinsResults(),
+                        ])
                         breakpoint()
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
 
-                        return { results: result.result, timeConversionResults: timeConversionBins }
+                        return { results: result.result, timeConversionResults }
                     } catch (e) {
                         if (!isBreakpoint(e)) {
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)

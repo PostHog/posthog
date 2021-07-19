@@ -1,7 +1,7 @@
 import { humanizeNumber } from 'lib/utils'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { getChartColors } from 'lib/colors'
-import { FunnelStep } from '~/types'
+import { FunnelStep, FunnelsTimeConversionBins } from '~/types'
 
 export function calcPercentage(numerator: number, denominator: number): number {
     // Rounds to two decimal places
@@ -72,4 +72,12 @@ export function getSeriesPositionName(
 
 export function humanizeStepCount(count: number): string {
     return count > 9999 ? humanizeNumber(count, 2) : count.toLocaleString()
+}
+
+export function cleanBinResult(binsResult: FunnelsTimeConversionBins): FunnelsTimeConversionBins {
+    return {
+        ...binsResult,
+        bins: binsResult.bins.map(([time, count]) => [time ?? 0, count ?? 0]),
+        average_conversion_time: binsResult.average_conversion_time ?? 0,
+    }
 }
