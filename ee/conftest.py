@@ -1,9 +1,9 @@
 from unittest.mock import patch
 
 import pytest
-from django.conf import settings
 from infi.clickhouse_orm import Database
 
+from posthog import settings
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
