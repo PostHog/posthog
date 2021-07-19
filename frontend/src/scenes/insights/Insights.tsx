@@ -443,7 +443,7 @@ function FunnelInsight(): JSX.Element {
             style={
                 featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display !== ACTIONS_LINE_GRAPH_LINEAR
                     ? {}
-                    : { height: 300, position: 'relative', marginBottom: 0 }
+                    : { position: 'relative', marginBottom: 0 }
             }
         >
             {isLoading && <Loading />}
