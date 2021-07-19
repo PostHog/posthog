@@ -120,6 +120,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             }
         },
         loadPeople: async ({ peopleParams }, breakpoint) => {
+            actions.setPeopleLoading(true)
             let people = []
             const {
                 label,
@@ -156,6 +157,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)
             }
             breakpoint()
+            actions.setPeopleLoading(false)
             const peopleResult = {
                 people: people.results[0]?.people,
                 count: people.results[0]?.count || 0,
