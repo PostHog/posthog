@@ -128,6 +128,7 @@ $z_command_palette: 1875;
 $z_drawer: 1000;
 $z_pinned_dashboards_popup: 962;
 $z_graph_tooltip: 951;
+$z_popup: 951;
 $z_plugin_metrics_drawer: 950;
 $z_main_nav: 948;
 $z_mobile_nav_overlay: 931;
@@ -148,5 +149,6 @@ $xxl: 1600px;
 // Export variables for TS access
 :export {
     zDrawer: $z_drawer;
+    zPopup: $z_popup;
     zGraphAnnotationPrompt: $z_graph_annotation_prompt;
 }

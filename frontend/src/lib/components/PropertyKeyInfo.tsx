@@ -1,7 +1,9 @@
+import './PropertyKeyInfo.scss'
 import React from 'react'
 import { Popover, Typography } from 'antd'
 import { KeyMapping } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { TooltipPlacement } from 'antd/es/tooltip'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -504,6 +506,7 @@ interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
     style?: any
+    tooltipPlacement?: TooltipPlacement
     disablePopover?: boolean
     disableIcon?: boolean
     ellipsis?: boolean
@@ -513,6 +516,7 @@ export function PropertyKeyInfo({
     value,
     type = 'event',
     style,
+    tooltipPlacement = undefined,
     disablePopover = false,
     disableIcon = false,
     ellipsis = true,
@@ -549,37 +553,53 @@ export function PropertyKeyInfo({
         </span>
     )
 
+    const popoverTitle = (
+        <span>
+            <span className="property-key-info-logo" />
+            {data.label}
+        </span>
+    )
+
+    const popoverContent = (
+        <span>
+            {data.examples ? (
+                <>
+                    <span>{data.description}</span>
+                    <br />
+                    <br />
+                    <span>
+                        <i>Example: </i>
+                        {data.examples.join(', ')}
+                    </span>
+                </>
+            ) : (
+                data.description
+            )}
+            <hr />
+            Sent as <pre style={{ display: 'inline', padding: '2px 3px' }}>{value}</pre>
+        </span>
+    )
+
     return disablePopover ? (
         innerContent
+    ) : tooltipPlacement ? (
+        <Popover
+            visible
+            overlayStyle={{ zIndex: 99999 }}
+            overlayClassName="property-key-info-tooltip"
+            placement={tooltipPlacement}
+            title={popoverTitle}
+            content={popoverContent}
+        >
+            {innerContent}
+        </Popover>
     ) : (
         <Popover
             overlayStyle={{ zIndex: 99999 }}
+            overlayClassName="property-key-info-tooltip"
             align={ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight}
-            title={
-                <span>
-                    <span className="property-key-info-logo" />
-                    {data.label}
-                </span>
-            }
-            content={
-                <span>
-                    {data.examples ? (
-                        <>
-                            <span>{data.description}</span>
-                            <br />
-                            <br />
-                            <span>
-                                <i>Example: </i>
-                                {data.examples.join(', ')}
-                            </span>
-                        </>
-                    ) : (
-                        data.description
-                    )}
-                    <hr />
-                    Sent as <pre style={{ display: 'inline', padding: '2px 3px' }}>{value}</pre>
-                </span>
-            }
+            title={popoverTitle}
+            content={popoverContent}
         >
             {innerContent}
         </Popover>
