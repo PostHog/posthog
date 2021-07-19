@@ -9,7 +9,7 @@ import { ArrowBottomRightOutlined } from 'lib/components/icons'
 import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip'
 import { FunnelLayout } from 'lib/constants'
@@ -273,8 +273,8 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
     )
 }
 
-export function FunnelBarGraph(): JSX.Element {
-    const { steps, stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(funnelLogic)
+export function FunnelBarGraph({ logic }: { logic: BuiltLogic }): JSX.Element {
+    const { steps, stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(logic)
     const { openPersonsModal } = useActions(funnelLogic)
     const firstStep = getReferenceStep(steps, FunnelStepReference.total)
 

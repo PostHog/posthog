@@ -84,7 +84,7 @@ export function FunnelViz({
     }
 
     useEffect(() => {
-        if (steps) {
+        if (steps && steps.length) {
             buildChart()
         } else {
             loadFunnel()
@@ -151,7 +151,7 @@ export function FunnelViz({
     }
 
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
-        return steps && steps.length > 0 ? <FunnelBarGraph /> : null
+        return steps && steps.length > 0 ? <FunnelBarGraph logic={logic} /> : null
     }
 
     return !funnelLoading ? (

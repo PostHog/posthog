@@ -201,12 +201,12 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
                         const [result, timeConversionBins] = await Promise.all([loadFunnelResults(), loadBinsResults()])
                         breakpoint()
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
-
                         return { results: result.result, timeConversionBins }
                     } catch (e) {
                         if (!isBreakpoint(e)) {
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                         }
+                        console.error(e)
                         return { results: [], timeConversionBins: [] }
                     }
                 },
