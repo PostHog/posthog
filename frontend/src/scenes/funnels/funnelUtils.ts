@@ -1,7 +1,7 @@
 import { humanizeNumber } from 'lib/utils'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { getChartColors } from 'lib/colors'
-import { FunnelStep } from '~/types'
+import { FunnelStep, FunnelsTimeConversionBins } from '~/types'
 
 export function calcPercentage(numerator: number, denominator: number): number {
     // Rounds to two decimal places
@@ -21,6 +21,18 @@ export function getReferenceStep<T>(steps: T[], stepReference: FunnelStepReferen
         default:
             return steps[0]
     }
+}
+
+// Gets last filled step if steps[index] is empty.
+// Useful in calculating total and average times for total conversions where the last step has 0 count
+export function getLastFilledStep(steps: FunnelStep[], index?: number): FunnelStep {
+    const firstIndex = Math.min(steps.length, Math.max(0, index || steps.length - 1)) + 1
+    return (
+        steps
+            .slice(0, firstIndex)
+            .reverse()
+            .find((s) => s.count > 0) || steps[0]
+    )
 }
 
 export function humanizeOrder(order: number): number {
@@ -60,4 +72,12 @@ export function getSeriesPositionName(
 
 export function humanizeStepCount(count: number): string {
     return count > 9999 ? humanizeNumber(count, 2) : count.toLocaleString()
+}
+
+export function cleanBinResult(binsResult: FunnelsTimeConversionBins): FunnelsTimeConversionBins {
+    return {
+        ...binsResult,
+        bins: binsResult.bins.map(([time, count]) => [time ?? 0, count ?? 0]),
+        average_conversion_time: binsResult.average_conversion_time ?? 0,
+    }
 }

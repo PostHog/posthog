@@ -1,16 +1,11 @@
 .histogram-container {
-    display: inline-block;
-    position: relative;
-    height: 100%;
+    display: flex;
+    min-height: 600px;
     width: 100%;
-    padding-bottom: 100%;
-    vertical-align: top;
-    overflow: hidden;
 
     svg {
-        height: 100%;
-        display: inline-block;
-        position: absolute;
+        width: 100%;
+        position: relative;
         top: 0;
         left: 0;
         margin-left: 0;

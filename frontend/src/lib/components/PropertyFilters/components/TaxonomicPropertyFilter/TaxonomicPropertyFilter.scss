@@ -1,0 +1,185 @@
+.taxonomic-filter-dropdown {
+    background: white;
+    min-width: 300px;
+    width: 100%;
+    max-width: calc(100vw - 20px);
+}
+
+.taxonomic-infinite-list {
+    min-height: 200px;
+
+    &.empty-infinite-list {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        .no-infinite-results {
+            color: #666;
+        }
+    }
+
+    .taxonomic-list-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: #2d2d2d;
+        padding: 4px 12px;
+        cursor: pointer;
+        border: none;
+
+        &.hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        &.selected {
+            font-weight: bold;
+        }
+
+        &.skeleton-row {
+            // center-align this antd skeleton
+            .ant-skeleton-paragraph {
+                margin-bottom: 0;
+            }
+        }
+    }
+}
+
+.taxonomic-property-filter {
+    width: 100%;
+
+    .taxonomic-filter-row {
+        display: grid;
+        grid-column-gap: 0.5rem;
+        grid-row-gap: 0.25rem;
+    }
+
+    &.in-dropdown {
+        min-width: 300px;
+        width: 550px;
+        max-width: calc(100vw - 40px);
+        .taxonomic-filter-row {
+            grid-template-columns: auto 160px;
+            .taxonomic-where {
+                display: none;
+            }
+            .taxonomic-button {
+                grid-column: 1;
+                grid-row: 1;
+            }
+            .taxonomic-operator {
+                grid-column: 2;
+                grid-row: 1;
+            }
+            .taxonomic-value-select {
+                grid-column: 1 / 3;
+                grid-row: 2;
+            }
+            @media (max-width: 400px) {
+                grid-template-columns: auto 100px;
+            }
+        }
+    }
+
+    &.row-on-page {
+        .taxonomic-filter-row {
+            grid-template-columns: 70px minmax(180px, 1fr) minmax(100px, auto);
+
+            // only setting grid properties here, the rest are below
+            .taxonomic-where {
+                grid-column: 1;
+                grid-row: 1;
+            }
+
+            .taxonomic-button {
+                grid-column: 2;
+                grid-row: 1;
+            }
+
+            .taxonomic-operator {
+                grid-column: 3;
+                grid-row: 1;
+            }
+
+            .taxonomic-value-select {
+                grid-column: 2 / 4;
+                grid-row: 2;
+            }
+
+            // small screens
+            @media (max-width: 512px) {
+                grid-template-columns: 35px auto 70px;
+                .taxonomic-where {
+                    .arrow {
+                        display: none;
+                    }
+                }
+            }
+
+            // bigger screens
+            @media (min-width: 1080px) {
+                grid-template-columns: 70px minmax(140px, 160px) minmax(100px, 120px) minmax(100px, 400px);
+                .taxonomic-where {
+                    grid-column: 1;
+                    grid-row: 1;
+                }
+                .taxonomic-button {
+                    grid-column: 2;
+                    grid-row: 1;
+                }
+                .taxonomic-operator {
+                    grid-column: 3;
+                    grid-row: 1;
+                }
+                .taxonomic-value-select {
+                    grid-column: 4;
+                    grid-row: 1;
+                }
+            }
+            // even more space for huge screens
+            @media (min-width: 1280px) {
+                grid-template-columns: 70px minmax(140px, 220px) minmax(80px, 160px) minmax(100px, 500px);
+            }
+        }
+    }
+
+    .taxonomic-where {
+        height: 32px; // matches antd Select height
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+
+        .arrow {
+            color: #c4c4c4;
+            font-size: 18px;
+            font-weight: bold;
+            padding-left: 6px;
+            padding-right: 8px;
+            position: relative;
+            top: -4px;
+            user-select: none;
+        }
+    }
+
+    .taxonomic-button {
+        display: flex;
+        justify-content: space-between;
+        overflow: hidden;
+        .property-key-info {
+            width: auto;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        &.add-filter {
+            width: max-content;
+        }
+    }
+
+    .taxonomic-operator {
+        overflow: hidden;
+    }
+
+    .taxonomic-value-select {
+        overflow: hidden;
+    }
+}

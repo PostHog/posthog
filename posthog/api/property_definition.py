@@ -2,10 +2,7 @@ from distutils.util import strtobool
 from typing import Optional, Type, TypeVar
 
 from django.db import connection, models
-from django.db.models.query import QuerySet
-from rest_framework import filters, mixins, permissions, serializers, viewsets
-from rest_framework.request import Request
-from rest_framework.views import APIView
+from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.exceptions import EnterpriseFeatureException
@@ -46,6 +43,7 @@ class PropertyDefinitionViewSet(
     search_threshold = 0.15
 
     def get_queryset(self):
+
         if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
             try:
                 from ee.models.property_definition import EnterprisePropertyDefinition
