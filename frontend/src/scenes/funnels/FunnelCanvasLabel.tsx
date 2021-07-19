@@ -9,14 +9,11 @@ import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { ChartDisplayType } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { stepsWithCount, histogramStep, conversionMetrics } = useValues(funnelLogic)
+    const { stepsWithCount, histogramStep, conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { allFilters } = useValues(insightLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (allFilters.insight !== 'FUNNELS') {
         return null
@@ -47,8 +44,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                     <Button
                         type="link"
                         disabled={
-                            !featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ||
-                            allFilters.display === ChartDisplayType.FunnelsTimeToConvert
+                            !clickhouseFeaturesEnabled || allFilters.display === ChartDisplayType.FunnelsTimeToConvert
                         }
                         onClick={() => setChartFilter(ChartDisplayType.FunnelsTimeToConvert)}
                     >
