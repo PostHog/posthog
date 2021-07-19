@@ -1,7 +1,7 @@
 import './PropertyKeyInfo.scss'
 import React from 'react'
 import { Popover, Typography } from 'antd'
-import { KeyMapping } from '~/types'
+import { KeyMapping, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { TooltipPlacement } from 'antd/es/tooltip'
 
@@ -512,6 +512,53 @@ interface PropertyKeyInfoInterface {
     ellipsis?: boolean
 }
 
+export function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
+    return (
+        <span>
+            <span className="property-key-info-logo" />
+            {data.label}
+        </span>
+    )
+}
+
+export function PropertyKeyDescription({ data, value }: { data: KeyMapping; value: string }): JSX.Element {
+    return (
+        <span>
+            {data.examples ? (
+                <>
+                    <span>{data.description}</span>
+                    <br />
+                    <br />
+                    <span>
+                        <i>Example: </i>
+                        {data.examples.join(', ')}
+                    </span>
+                </>
+            ) : (
+                data.description
+            )}
+            <hr />
+            Sent as <pre style={{ display: 'inline', padding: '2px 3px' }}>{value}</pre>
+        </span>
+    )
+}
+
+export function getKeyMapping(value: string | PropertyFilterValue, type: 'event' | 'element'): KeyMapping | null {
+    value = `${value}` // convert to string
+    let data = null
+    if (value in keyMapping[type]) {
+        return { ...keyMapping[type][value] }
+    } else if (value.startsWith('$initial_') && value.replace(/^\$initial_/, '$') in keyMapping[type]) {
+        data = { ...keyMapping[type][value.replace(/^\$initial_/, '$')] }
+        if (data.description) {
+            data.label = `Initial ${data.label}`
+            data.description = `${data.description} Data from the first time this user was seen.`
+        }
+        return data
+    }
+    return null
+}
+
 export function PropertyKeyInfo({
     value,
     type = 'event',
@@ -522,16 +569,8 @@ export function PropertyKeyInfo({
     ellipsis = true,
 }: PropertyKeyInfoInterface): JSX.Element {
     value = `${value}` // convert to string
-    let data = null
-    if (value in keyMapping[type]) {
-        data = { ...keyMapping[type][value] }
-    } else if (value.startsWith('$initial_') && value.replace(/^\$initial_/, '$') in keyMapping[type]) {
-        data = { ...keyMapping[type][value.replace(/^\$initial_/, '$')] }
-        if (data.description) {
-            data.label = `Initial ${data.label}`
-            data.description = `${data.description} Data from the first time this user was seen.`
-        }
-    } else {
+    const data = getKeyMapping(value, type)
+    if (!data) {
         return (
             <Typography.Text ellipsis={ellipsis} style={{ color: 'inherit', maxWidth: 400, ...style }} title={value}>
                 {value !== '' ? value : <i>(empty string)</i>}
@@ -553,32 +592,8 @@ export function PropertyKeyInfo({
         </span>
     )
 
-    const popoverTitle = (
-        <span>
-            <span className="property-key-info-logo" />
-            {data.label}
-        </span>
-    )
-
-    const popoverContent = (
-        <span>
-            {data.examples ? (
-                <>
-                    <span>{data.description}</span>
-                    <br />
-                    <br />
-                    <span>
-                        <i>Example: </i>
-                        {data.examples.join(', ')}
-                    </span>
-                </>
-            ) : (
-                data.description
-            )}
-            <hr />
-            Sent as <pre style={{ display: 'inline', padding: '2px 3px' }}>{value}</pre>
-        </span>
-    )
+    const popoverTitle = <PropertyKeyTitle data={data} />
+    const popoverContent = <PropertyKeyDescription data={data} value={value} />
 
     return disablePopover ? (
         innerContent
