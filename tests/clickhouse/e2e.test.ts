@@ -14,6 +14,7 @@ import { delayUntilEventIngested } from '../shared/process-event'
 
 const { console: testConsole } = writeToFile
 
+jest.mock('../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
