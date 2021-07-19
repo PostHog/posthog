@@ -23,7 +23,7 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
 
         return f"""
-            SELECT person_id, max(steps) AS steps {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
+            SELECT person_id, max(steps) AS steps {self._get_step_time_avgs(max_steps, inner_query=True)} {breakdown_clause} FROM (
                 {formatted_query}
             ) GROUP BY person_id {breakdown_clause}
         """

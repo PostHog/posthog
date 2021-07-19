@@ -43,7 +43,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
 
         return f"""
-            SELECT person_id, steps {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
+            SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {breakdown_clause} FROM (
                 SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} FROM (
                         {union_query}
                 )
