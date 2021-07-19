@@ -11,6 +11,7 @@ import {
     TableOutlined,
 } from '@ant-design/icons'
 import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -21,6 +22,7 @@ interface ChartFilterProps {
 export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
     const { chartFilter } = useValues(chartFilterLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
+    const { preflight } = useValues(preflightLogic)
 
     const linearDisabled = !!filters.session && filters.session === 'dist'
     const cumulativeDisabled =
@@ -55,21 +57,28 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
 
     const options =
         filters.insight === ViewType.FUNNELS
-            ? [
-                  {
-                      value: FunnelVizType.Steps,
-                      label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
-                  },
-                  {
-                      value: FunnelVizType.Trends,
-                      label: (
-                          <Label icon={<LineChartOutlined />}>
-                              Trends
-                              <WarningTag>BETA</WarningTag>
-                          </Label>
-                      ),
-                  },
-              ]
+            ? preflight?.is_clickhouse_enabled
+                ? [
+                      {
+                          value: FunnelVizType.Steps,
+                          label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
+                      },
+                      {
+                          value: FunnelVizType.Trends,
+                          label: (
+                              <Label icon={<LineChartOutlined />}>
+                                  Trends
+                                  <WarningTag>BETA</WarningTag>
+                              </Label>
+                          ),
+                      },
+                  ]
+                : [
+                      {
+                          value: FunnelVizType.Steps,
+                          label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
+                      },
+                  ]
             : [
                   {
                       label: 'Line Chart',
