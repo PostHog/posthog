@@ -10,11 +10,11 @@ import {
     PieChartOutlined,
     TableOutlined,
 } from '@ant-design/icons'
-import { ChartDisplayType, FilterType, ViewType } from '~/types'
+import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
 
 interface ChartFilterProps {
     filters: FilterType
-    onChange: (chartFilter: ChartDisplayType) => void
+    onChange: (chartFilter: ChartDisplayType | FunnelVizType) => void
     disabled: boolean
 }
 
@@ -57,11 +57,11 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
         filters.insight === ViewType.FUNNELS
             ? [
                   {
-                      value: ChartDisplayType.FunnelViz,
+                      value: FunnelVizType.Steps,
                       label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
                   },
                   {
-                      value: ChartDisplayType.ActionsLineGraphLinear,
+                      value: FunnelVizType.Trends,
                       label: (
                           <Label icon={<LineChartOutlined />}>
                               Trends
@@ -117,7 +117,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             key="2"
             defaultValue={filters.display || defaultDisplay}
             value={chartFilter || defaultDisplay}
-            onChange={(value: ChartDisplayType) => {
+            onChange={(value: ChartDisplayType | FunnelVizType) => {
                 setChartFilter(value)
                 onChange(value)
             }}

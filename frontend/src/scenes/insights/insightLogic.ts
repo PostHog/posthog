@@ -27,6 +27,7 @@ interface UrlParams {
     properties: PropertyFilter[] | undefined
     filter_test_accounts: boolean
     funnel_viz_type?: string
+    display?: string
 }
 
 export const logicFromInsight = (insight: string, logicProps: Record<string, any>): Logic & BuiltLogic => {
@@ -243,6 +244,7 @@ export const insightLogic = kea<insightLogicType>({
 
             if (type === ViewType.FUNNELS) {
                 urlParams.funnel_viz_type = FunnelVizType.Steps
+                urlParams.display = 'FunnelViz'
             }
             return ['/insights', urlParams]
         },

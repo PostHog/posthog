@@ -11,7 +11,7 @@ import {
     FUNNEL_VIZ,
 } from 'lib/constants'
 import React from 'react'
-import { ChartDisplayType, FilterType, ViewType } from '~/types'
+import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
@@ -103,7 +103,7 @@ export function InsightDisplayConfig({
             <div style={{ width: '100%', textAlign: 'right' }}>
                 {showChartFilter(activeView) && (
                     <ChartFilter
-                        onChange={(display: ChartDisplayType) => {
+                        onChange={(display: ChartDisplayType | FunnelVizType) => {
                             if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
                                 clearAnnotationsToCreate()
                             }
