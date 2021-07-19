@@ -184,3 +184,11 @@
         }
     }
 }
+
+.funnel-insights-container {
+    &.non-empty-state {
+        height: 300px;
+        position: relative;
+        margin-bottom: 0;
+    }
+}
