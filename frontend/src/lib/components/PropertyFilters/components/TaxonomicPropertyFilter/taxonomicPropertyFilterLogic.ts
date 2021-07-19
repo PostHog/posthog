@@ -60,8 +60,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             {
                 moveUp: () => false,
                 moveDown: () => false,
-                setActiveTab: () => true,
-                enableMouseInteractions: () => true,
+                setActiveTab: () => true, // reset immediately if clicked on a tab
+                enableMouseInteractions: () => true, // called 100ms after up/down
             },
         ],
     }),
