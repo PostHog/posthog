@@ -40,23 +40,27 @@ class EventDefinitionViewSet(
     ordering = ["name", "-query_usage_30_day", "-volume_30_day"]
 
     def get_queryset(self):
-        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
+        if True:  # self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
             try:
                 from ee.models.event_definition import EnterpriseEventDefinition
             except ImportError:
                 pass
             else:
+                search = self.request.GET.get("search", None)
+                select_criteria = f"*, similarity(name, '{search}')" if bool(search) else "*"
+                search_threshold_filter = f"AND name % {search}" if bool(search) else ""
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(
-                    """
-                    SELECT *
+                    f"""
+                    SELECT {select_criteria}
                     FROM ee_enterpriseeventdefinition
                     FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-                    WHERE team_id = %s
+                    WHERE team_id = %s {search_threshold_filter}
                     ORDER BY name
                     """,
                     params=[self.request.user.team.id],  # type: ignore
                 )
                 return ee_event_definitions
+
         return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all())
 
     def get_object(self):

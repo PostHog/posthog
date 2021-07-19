@@ -58,7 +58,7 @@ class PropertyDefinitionViewSet(
     ordering = ["name", "-query_usage_30_day"]
 
     def get_queryset(self):
-        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
+        if True:  # self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
             try:
                 from ee.models.property_definition import EnterprisePropertyDefinition
             except ImportError:
@@ -69,19 +69,17 @@ class PropertyDefinitionViewSet(
                     names = tuple(properties_to_filter.split(","))
                     name_filter = f"AND name IN %(names)s"
                 else:
-                    search = self.request.GET.get("search", None)
                     names = ()
-                    name_filter = (
-                        ""
-                        if search is None
-                        else f"AND ngramSearchCaseInsensitiveUTF8(name, {search}) > {self.search_threshold}"
-                    )
+                    name_filter = ""
+                search = self.request.GET.get("search", None)
+                select_criteria = f"*, similarity(name, '{search}')" if bool(search) else "*"
+                search_threshold_filter = f"AND name % {search}" if bool(search) else ""
                 ee_property_definitions = EnterprisePropertyDefinition.objects.raw(
                     f"""
-                    SELECT *
+                    SELECT {select_criteria}
                     FROM ee_enterprisepropertydefinition
                     FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
-                    WHERE team_id = %(team_id)s {name_filter}
+                    WHERE team_id = %(team_id)s {name_filter} {search_threshold_filter}
                     ORDER BY name
                     """,
                     params={"team_id": self.request.user.team.id, "names": names},  # type: ignore
