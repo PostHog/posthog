@@ -289,6 +289,7 @@ $funnel_canvas_background: #fafafa;
 
         .funnel-bar-wrapper {
             width: 164px;
+            max-width: 100%;
             height: 300px;
             position: relative;
             flex-direction: column-reverse;
@@ -341,5 +342,13 @@ $funnel_canvas_background: #fafafa;
                 }
             }
         }
+    }
+}
+
+// Overrides for dashboard styles
+
+.dashboard-item-content {
+    .funnel-bar-graph {
+        background-color: unset;
     }
 }
