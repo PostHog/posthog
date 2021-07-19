@@ -33,11 +33,9 @@ class EventDefinitionViewSet(
     serializer_class = EventDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
-    filter_backends = [filters.OrderingFilter, FuzzySearchFilterBackend]
+    filter_backends = [FuzzySearchFilterBackend]
     search_fields = ["name"]
     search_threshold = 0.15
-    ordering_fields = ["name", "volume_30_day", "query_usage_30_day"]
-    ordering = ["name", "-query_usage_30_day", "-volume_30_day"]
 
     def get_queryset(self):
         if True:  # self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore

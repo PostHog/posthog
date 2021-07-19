@@ -51,11 +51,9 @@ class PropertyDefinitionViewSet(
     serializer_class = PropertyDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
-    filter_backends = [NumericalFilter, filters.OrderingFilter, FuzzySearchFilterBackend]
+    filter_backends = [FuzzySearchFilterBackend]
     search_fields = ["name"]
     search_threshold = 0.15
-    ordering_fields = ["name", "query_usage_30_day"]
-    ordering = ["name", "-query_usage_30_day"]
 
     def get_queryset(self):
         if True:  # self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
@@ -71,6 +69,7 @@ class PropertyDefinitionViewSet(
                 else:
                     names = ()
                     name_filter = ""
+
                 search = self.request.GET.get("search", None)
                 select_criteria = f"*, similarity(name, '{search}')" if bool(search) else "*"
                 search_threshold_filter = f"AND name % {search}" if bool(search) else ""
