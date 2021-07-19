@@ -147,7 +147,7 @@ export function FunnelViz({
         ) : null
     }
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && filters.display == ChartDisplayType.FunnelsTimeToConvert) {
-        return timeConversionBins && timeConversionBins.length > 0 ? <FunnelHistogram /> : null
+        return timeConversionBins?.bins?.length > 0 ? <FunnelHistogram /> : null
     }
 
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {

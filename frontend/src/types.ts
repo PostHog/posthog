@@ -617,8 +617,9 @@ export interface FilterType {
     filter_test_accounts?: boolean
     from_dashboard?: boolean
     funnel_step?: number
-    funnel_viz_type?: string // this and the below param is used for funnels time to convert, it'll be updated soon
-    funnel_to_step?: number
+    funnel_viz_type?: string // parameter sent to funnels API for time conversion code path
+    funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
+    funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
     compare?: boolean
 }
 
@@ -718,6 +719,44 @@ export interface FunnelResult<ResultType = FunnelStep[]> {
     last_refresh: string | null
     result: ResultType
     type: 'Funnel'
+}
+
+export interface FunnelsTimeConversionBins {
+    bins: [number, number][] | []
+    average_conversion_time: number
+}
+
+export interface FunnelsTimeConversionResult {
+    result: FunnelsTimeConversionBins
+    last_refresh: string | null
+    is_cached: boolean
+    type: 'Funnel'
+}
+
+// Indexing boundaries = [from_step, to_step)
+export interface FunnelTimeConversionStep {
+    from_step: number // set this to -1 if querying for all steps
+    to_step: number
+    label?: string
+    average_conversion_time?: number
+    count?: number
+}
+
+export interface FunnelTimeConversionMetrics {
+    averageTime: number
+    stepRate: number
+    totalRate: number
+}
+
+export interface FunnelRequestParams extends FilterType {
+    refresh?: boolean
+    from_dashboard?: boolean
+    funnel_window_days?: number
+}
+
+export interface LoadedRawFunnelResults {
+    results: FunnelStep[] | FunnelStep[][]
+    timeConversionResults: FunnelsTimeConversionBins
 }
 
 export interface ChartParams {

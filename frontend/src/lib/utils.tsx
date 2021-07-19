@@ -414,10 +414,10 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-export function humanFriendlyDuration(d: string | number | null, maxUnits?: number): string {
+export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
-    if (d === '' || d === null) {
+    if (d === '' || d === null || d === undefined) {
         return ''
     }
     d = Number(d)

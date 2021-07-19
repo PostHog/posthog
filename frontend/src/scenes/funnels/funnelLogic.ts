@@ -1,4 +1,4 @@
-import { isBreakpoint, kea } from 'kea'
+import { kea, isBreakpoint } from 'kea'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { autocorrectInterval, objectsEqual, uuid } from 'lib/utils'
@@ -10,22 +10,26 @@ import { funnelLogicType } from './funnelLogicType'
 import {
     EntityTypes,
     FilterType,
-    FunnelStep,
     ChartDisplayType,
     FunnelResult,
+    FunnelStep,
+    FunnelsTimeConversionBins,
+    FunnelTimeConversionStep,
     PathType,
     PersonType,
     ViewType,
     FunnelStepWithNestedBreakdown,
+    FunnelTimeConversionMetrics,
+    FunnelRequestParams,
+    LoadedRawFunnelResults,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { calcPercentage } from './funnelUtils'
+import { calcPercentage, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
-
 function aggregateBreakdownResult(breakdownList: FunnelStep[][]): FunnelStepWithNestedBreakdown[] {
     if (breakdownList.length) {
         return breakdownList[0].map((step, i) => ({
@@ -53,21 +57,13 @@ function wait(ms = 1000): Promise<any> {
 }
 
 const SECONDS_TO_POLL = 3 * 60
-interface FunnelRequestParams extends FilterType {
-    refresh?: boolean
-    from_dashboard?: boolean
-    funnel_window_days?: number
-}
-interface TimeStepOption {
-    label: string
-    value: number
-    average_conversion_time: number
-    count: number
-}
 
-interface LoadedRawFunnelResults {
-    results: FunnelStep[] | FunnelStep[][]
-    timeConversionBins: [number, number][]
+const EMPTY_FUNNEL_RESULTS = {
+    results: [],
+    timeConversionResults: {
+        bins: [],
+        average_conversion_time: 0,
+    },
 }
 
 async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParams): Promise<FunnelResult<T>> {
@@ -110,7 +106,7 @@ export const cleanFunnelParams = (filters: Partial<FilterType>): FilterType => {
 const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
-export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepOption>>({
+export const funnelLogic = kea<funnelLogicType>({
     key: (props) => {
         return props.dashboardItemId || 'some_funnel'
     },
@@ -136,7 +132,8 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
         }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         setBarGraphLayout: (barGraphLayout: FunnelLayout) => ({ barGraphLayout }),
-        changeHistogramStep: (histogramStep: number) => ({ histogramStep }),
+        setTimeConversionBins: (timeConversionBins: FunnelsTimeConversionBins) => ({ timeConversionBins }),
+        changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
     }),
 
@@ -147,12 +144,18 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
 
     loaders: ({ props, values }) => ({
         rawResults: [
-            { results: [], timeConversionBins: [] } as LoadedRawFunnelResults,
+            EMPTY_FUNNEL_RESULTS as LoadedRawFunnelResults,
             {
                 loadResults: async (refresh = false, breakpoint): Promise<LoadedRawFunnelResults> => {
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
                         // TODO: cache timeConversionBins? how does this cachedResults work?
-                        return { results: props.cachedResults as FunnelStep[] | FunnelStep[][], timeConversionBins: [] }
+                        return {
+                            results: props.cachedResults as FunnelStep[] | FunnelStep[][],
+                            timeConversionResults: {
+                                bins: [],
+                                average_conversion_time: 0,
+                            },
+                        }
                     }
 
                     const { apiParams, eventCount, actionCount, interval, histogramStep, filters } = values
@@ -178,36 +181,44 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
                         }
                     }
 
-                    async function loadBinsResults(): Promise<[number, number][]> {
+                    async function loadBinsResults(): Promise<FunnelsTimeConversionBins> {
                         if (filters.display === ChartDisplayType.FunnelsTimeToConvert) {
                             try {
-                                const binsResult = await pollFunnel<[number, number][]>({
+                                // API specs (#5110) require neither funnel_{from|to}_step to be provided if querying
+                                // for all steps
+                                const isAllSteps = values.histogramStep.from_step === -1
+
+                                const binsResult = await pollFunnel<FunnelsTimeConversionBins>({
                                     ...apiParams,
                                     ...(refresh ? { refresh } : {}),
                                     funnel_viz_type: 'time_to_convert',
-                                    funnel_to_step: histogramStep,
+                                    ...(!isAllSteps ? { funnel_from_step: histogramStep.from_step } : {}),
+                                    ...(!isAllSteps ? { funnel_to_step: histogramStep.to_step } : {}),
                                 })
-                                return binsResult.result
+                                return cleanBinResult(binsResult.result)
                             } catch (e) {
                                 throw new Error('Could not load funnel time conversion bins')
                             }
                         }
-                        return []
+                        return EMPTY_FUNNEL_RESULTS.timeConversionResults
                     }
 
                     const queryId = uuid()
                     insightLogic.actions.startQuery(queryId)
                     try {
-                        const [result, timeConversionBins] = await Promise.all([loadFunnelResults(), loadBinsResults()])
+                        const [result, timeConversionResults] = await Promise.all([
+                            loadFunnelResults(),
+                            loadBinsResults(),
+                        ])
                         breakpoint()
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
 
-                        return { results: result.result, timeConversionBins }
+                        return { results: result.result, timeConversionResults }
                     } catch (e) {
                         if (!isBreakpoint(e)) {
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                         }
-                        return { results: [], timeConversionBins: [] }
+                        return EMPTY_FUNNEL_RESULTS
                     }
                 },
             },
@@ -254,10 +265,19 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
                 setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
             },
         ],
-        histogramStep: [
-            1,
+        timeConversionBins: [
             {
-                changeHistogramStep: (_, { histogramStep }) => histogramStep,
+                bins: [] as [number, number][],
+                average_conversion_time: 0,
+            },
+            {
+                setTimeConversionBins: (_, { timeConversionBins }) => timeConversionBins,
+            },
+        ],
+        histogramStep: [
+            { from_step: -1, to_step: -1 } as FunnelTimeConversionStep,
+            {
+                changeHistogramStep: (_, { from_step, to_step }) => ({ from_step, to_step }),
             },
         ],
         isGroupingOutliers: [
@@ -271,7 +291,7 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
     selectors: ({ props, selectors }) => ({
         isLoading: [(s) => [s.rawResultsLoading], (rawResultsLoading) => rawResultsLoading],
         results: [(s) => [s.rawResults], (rawResults) => rawResults.results],
-        timeConversionBins: [(s) => [s.rawResults], (rawResults) => rawResults.timeConversionBins],
+        timeConversionBins: [(s) => [s.rawResults], (rawResults) => rawResults.timeConversionResults],
         peopleSorted: [
             () => [selectors.stepsWithCount, selectors.people],
             (steps, people) => {
@@ -291,10 +311,10 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
         propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
         isValidFunnel: [
             () => [selectors.stepsWithCount, selectors.timeConversionBins],
-            (stepsWithCount: FunnelStep[], timeConversionBins: [number, number][]) => {
+            (stepsWithCount: FunnelStep[], timeConversionBins: FunnelsTimeConversionBins) => {
                 return (
                     (stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1) ||
-                    timeConversionBins?.length > 0
+                    timeConversionBins?.bins?.length > 0
                 )
             },
         ],
@@ -311,12 +331,12 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
         ],
         histogramGraphData: [
             () => [selectors.timeConversionBins],
-            (timeConversionBins) => {
-                if (timeConversionBins.length < 2) {
+            (timeConversionBins: FunnelsTimeConversionBins) => {
+                if (timeConversionBins?.bins.length < 2) {
                     return []
                 }
-                const binSize = timeConversionBins[1][0] - timeConversionBins[0][0]
-                return timeConversionBins.map(([id, count]: [id: number, count: number]) => {
+                const binSize = timeConversionBins.bins[1][0] - timeConversionBins.bins[0][0]
+                return timeConversionBins.bins.map(([id, count]: [id: number, count: number]) => {
                     const value = Math.max(0, id)
                     return {
                         id: value,
@@ -328,14 +348,26 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
             },
         ],
         histogramStepsDropdown: [
-            () => [selectors.stepsWithCount],
-            (stepsWithCount) => {
-                const stepsDropdown: TimeStepOption[] = []
+            () => [selectors.stepsWithCount, selectors.conversionMetrics],
+            (stepsWithCount, conversionMetrics) => {
+                const stepsDropdown: FunnelTimeConversionStep[] = []
+
+                if (stepsWithCount.length > 1) {
+                    stepsDropdown.push({
+                        label: `All steps`,
+                        from_step: -1,
+                        to_step: -1,
+                        count: stepsWithCount[stepsWithCount.length - 1].count,
+                        average_conversion_time: conversionMetrics.averageTime,
+                    })
+                }
+
                 stepsWithCount.forEach((_, idx) => {
                     if (stepsWithCount[idx + 1]) {
                         stepsDropdown.push({
                             label: `Steps ${idx + 1} and ${idx + 2}`,
-                            value: idx + 1,
+                            from_step: idx,
+                            to_step: idx + 1,
                             count: stepsWithCount[idx + 1].count,
                             average_conversion_time: stepsWithCount[idx + 1].average_conversion_time ?? 0,
                         })
@@ -344,17 +376,34 @@ export const funnelLogic = kea<funnelLogicType<LoadedRawFunnelResults, TimeStepO
                 return stepsDropdown
             },
         ],
-        totalConversionRate: [
-            () => [selectors.stepsWithCount],
-            (stepsWithCount) =>
-                stepsWithCount.length > 1
-                    ? calcPercentage(stepsWithCount[stepsWithCount.length - 1].count, stepsWithCount[0].count)
-                    : 0,
-        ],
         areFiltersValid: [
             () => [selectors.filters],
             (filters) => {
                 return (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
+            },
+        ],
+        conversionMetrics: [
+            () => [selectors.stepsWithCount, selectors.histogramStep],
+            (stepsWithCount, timeStep): FunnelTimeConversionMetrics => {
+                if (stepsWithCount.length <= 1) {
+                    return {
+                        averageTime: 0,
+                        stepRate: 0,
+                        totalRate: 0,
+                    }
+                }
+
+                const isAllSteps = timeStep.from_step === -1
+                const fromStep = isAllSteps
+                    ? getReferenceStep(stepsWithCount, FunnelStepReference.total)
+                    : stepsWithCount[timeStep.from_step]
+                const toStep = isAllSteps ? getLastFilledStep(stepsWithCount) : stepsWithCount[timeStep.to_step]
+
+                return {
+                    averageTime: toStep?.average_conversion_time || 0,
+                    stepRate: calcPercentage(toStep.count, fromStep.count),
+                    totalRate: calcPercentage(stepsWithCount[stepsWithCount.length - 1].count, stepsWithCount[0].count),
+                }
             },
         ],
         apiParams: [
