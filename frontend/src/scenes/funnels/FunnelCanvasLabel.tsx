@@ -11,7 +11,7 @@ import { ChartDisplayType } from '~/types'
 import { InfoCircleOutlined } from '@ant-design/icons'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { conversionMetrics } = useValues(funnelLogic)
+    const { stepsWithCount, histogramStep, conversionMetrics } = useValues(funnelLogic)
     const { allFilters } = useValues(insightLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
 
@@ -33,19 +33,23 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                     <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                 </>
             )}
-            <span className="text-muted-alt">
-                <Tooltip title="Average (arithmetic mean) of the total time each user spent in the enitre funnel.">
-                    <InfoCircleOutlined style={{ marginRight: 3 }} />
-                </Tooltip>
-                Average time to convert:{' '}
-            </span>
-            <Button
-                type="link"
-                disabled={allFilters.display === ChartDisplayType.FunnelsTimeToConvert}
-                onClick={() => setChartFilter(ChartDisplayType.FunnelsTimeToConvert)}
-            >
-                {humanFriendlyDuration(conversionMetrics.averageTime)}
-            </Button>
+            {stepsWithCount[histogramStep.from_step]?.average_conversion_time !== null && (
+                <>
+                    <span className="text-muted-alt">
+                        <Tooltip title="Average (arithmetic mean) of the total time each user spent in the enitre funnel.">
+                            <InfoCircleOutlined style={{ marginRight: 3 }} />
+                        </Tooltip>
+                        Average time to convert:{' '}
+                    </span>
+                    <Button
+                        type="link"
+                        disabled={allFilters.display === ChartDisplayType.FunnelsTimeToConvert}
+                        onClick={() => setChartFilter(ChartDisplayType.FunnelsTimeToConvert)}
+                    >
+                        {humanFriendlyDuration(conversionMetrics.averageTime)}
+                    </Button>
+                </>
+            )}
         </div>
     )
 }

@@ -7,6 +7,27 @@ $glyph_height: 22px;
 $funnel_canvas_background: #fafafa;
 
 .funnel-bar-graph {
+    .ant-popover {
+        .ant-popover-content {
+            background: #fafafa;
+            border-radius: $radius;
+            border: 1px solid $border;
+        }
+
+        .ant-popover-inner {
+            background: #fafafa;
+        }
+
+        .ant-popover-inner-content {
+            padding: 8px 0;
+            min-width: 300px;
+        }
+
+        .ant-popover-arrow {
+            background: #fafafa;
+        }
+    }
+
     background-color: $funnel_canvas_background;
     margin-left: -24px; // negative margins to account for padding of .ant-card
     margin-right: -24px;
@@ -63,6 +84,10 @@ $funnel_canvas_background: #fafafa;
 
         .funnel-step-metadata {
             // .funnel-step-metadata reusable class for components that contain metadata for the funnel (e.g. time to convert or conversion steps)
+            display: flex;
+            flex-grow: 1;
+            flex-wrap: wrap;
+
             .ant-btn.funnel-inspect-button {
                 color: $primary;
 
@@ -144,13 +169,26 @@ $funnel_canvas_background: #fafafa;
         margin: 4px 0;
         background-color: $funnel_background;
         border-radius: 4px;
+        display: flex;
+        flex-direction: row;
 
         .funnel-bar {
             position: relative;
             height: 100%;
             background: $funnel_default;
-            border-radius: 4px;
             transition: width 0.2s ease, height 0.2s ease;
+
+            &.first {
+                border-radius: 4px 0 0 4px;
+            }
+
+            &.last {
+                border-radius: 0 4px 4px 0;
+            }
+
+            &.only {
+                border-radius: 4px;
+            }
 
             .funnel-bar-percentage {
                 position: absolute;
@@ -253,12 +291,19 @@ $funnel_canvas_background: #fafafa;
             width: 164px;
             height: 300px;
             position: relative;
+            flex-direction: column-reverse;
 
             .funnel-bar {
-                position: absolute;
                 height: unset;
                 width: 100%;
-                bottom: 0;
+
+                &.first {
+                    border-radius: 0 0 4px 4px;
+                }
+
+                &.last {
+                    border-radius: 4px 4px 0 0;
+                }
 
                 .funnel-bar-percentage {
                     top: unset;
