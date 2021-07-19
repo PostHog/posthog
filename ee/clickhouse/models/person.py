@@ -43,6 +43,10 @@ if settings.EE_AVAILABLE and is_clickhouse_enabled():
     def person_deleted(sender, instance: Person, **kwargs):
         delete_person(instance.uuid, instance.properties, instance.is_identified, team_id=instance.team_id)
 
+    @receiver(post_delete, sender=PersonDistinctId)
+    def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
+        delete_person_distinct_id(instance)
+
 
 def create_person(
     team_id: int,
@@ -109,7 +113,18 @@ def delete_person(
         pass  # cannot delete if the table is distributed
 
     sync_execute(DELETE_PERSON_BY_ID, data)
-    sync_execute(DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID, {"id": person_id,})
+
+
+def delete_person_distinct_id(person_distinct_id: PersonDistinctId):
+    sync_execute(
+        DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
+        {
+            "id": person_distinct_id.id,
+            "distinct_id": person_distinct_id.distinct_id,
+            "person_id": person_distinct_id.person.uuid,
+            "team_id": person_distinct_id.team_id,
+        },
+    )
 
 
 class ClickhousePersonSerializer(serializers.Serializer):
