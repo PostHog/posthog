@@ -45,7 +45,7 @@ KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
 
 PLUGIN_LOG_ENTRIES_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
-TO {database}.{table_name}
+TO {table_name}
 AS SELECT
 id,
 team_id,

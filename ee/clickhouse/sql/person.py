@@ -43,7 +43,7 @@ KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
-TO {database}.{table_name}
+TO {table_name}
 AS SELECT
 id,
 created_at,
@@ -70,12 +70,11 @@ WHERE team_id = %(team_id)s
   {query}
 """
 
-GET_TEAM_PERSON_DISTINCT_IDS = """
-SELECT person_id, distinct_id
-FROM person_distinct_id
+GET_LATEST_PERSON_DISTINCT_ID_SQL = """
+SELECT * FROM person_distinct_id JOIN (
+    SELECT distinct_id, max(_offset) as _offset FROM person_distinct_id WHERE team_id = %(team_id)s GROUP BY distinct_id
+) as person_max ON person_distinct_id.distinct_id = person_max.distinct_id AND person_distinct_id._offset = person_max._offset
 WHERE team_id = %(team_id)s
-GROUP BY person_id, distinct_id, team_id
-HAVING max(is_deleted) = 0
 """
 
 GET_LATEST_PERSON_ID_SQL = """
@@ -94,8 +93,7 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     id Int64,
     distinct_id VARCHAR,
     person_id UUID,
-    team_id Int64,
-    is_deleted Int8 DEFAULT 0
+    team_id Int64
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -124,13 +122,12 @@ KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
-TO {database}.{table_name}
+TO {table_name}
 AS SELECT
 id,
 distinct_id,
 person_id,
 team_id,
-is_deleted,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
@@ -180,26 +177,34 @@ INSERT_PERSON_STATIC_COHORT = (
 GET_PERSON_IDS_BY_FILTER = """
 SELECT DISTINCT p.id
 FROM ({latest_person_sql}) AS p
-INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON p.id = pdi.person_id
+INNER JOIN (
+    SELECT person_id, distinct_id
+    FROM ({latest_distinct_id_sql})
+    WHERE team_id = %(team_id)s
+) AS pdi ON p.id = pdi.person_id
 WHERE team_id = %(team_id)s
   {distinct_query}
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL,
     distinct_query="{distinct_query}",
-    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+    latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
 )
 
 GET_PERSON_BY_DISTINCT_ID = """
 SELECT p.id
 FROM ({latest_person_sql}) AS p
-INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON p.id = pdi.person_id
+INNER JOIN (
+    SELECT person_id, distinct_id
+    FROM ({latest_distinct_id_sql})
+    WHERE team_id = %(team_id)s
+) AS pdi ON p.id = pdi.person_id
 WHERE team_id = %(team_id)s
   AND pdi.distinct_id = %(distinct_id)s
   {distinct_query}
 """.format(
     latest_person_sql=GET_LATEST_PERSON_SQL,
     distinct_query="{distinct_query}",
-    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+    latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
 )
 
 INSERT_PERSON_SQL = """
@@ -207,7 +212,7 @@ INSERT INTO person (id, created_at, team_id, properties, is_identified, _timesta
 """
 
 INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, 0, now(), 0 VALUES
+INSERT INTO person_distinct_id SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, now(), 0 VALUES
 """
 
 DELETE_PERSON_BY_ID = """
@@ -216,14 +221,14 @@ INSERT INTO person (id, created_at, team_id, properties, is_identified, _timesta
 
 DELETE_PERSON_EVENTS_BY_ID = """
 ALTER TABLE events DELETE
-WHERE distinct_id IN (
+where distinct_id IN (
     SELECT distinct_id FROM person_distinct_id WHERE person_id=%(id)s AND team_id = %(team_id)s
 )
 AND team_id = %(team_id)s
 """
 
 DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
-INSERT INTO person_distinct_id (id, distinct_id, person_id, team_id, is_deleted, _timestamp, _offset) SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, 0, now(), 0
+ALTER TABLE person_distinct_id DELETE where person_id = %(id)s
 """
 
 PERSON_TREND_SQL = """
@@ -234,7 +239,7 @@ PEOPLE_THROUGH_DISTINCT_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
     {latest_person_sql}
 ) as person INNER JOIN (
-    SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE distinct_id IN ({content_sql})
+    SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE distinct_id IN ({content_sql}) AND team_id = %(team_id)s
 ) as pdi ON person.id = pdi.person_id
 WHERE team_id = %(team_id)s
 GROUP BY id, created_at, team_id, properties, is_identified
@@ -246,7 +251,7 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id
     SELECT id FROM (
         {latest_person_sql}
     ) as person INNER JOIN (
-        SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE distinct_id IN ({content_sql})
+        SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE distinct_id IN ({content_sql}) AND team_id = %(team_id)s
     ) as pdi ON person.id = pdi.person_id
     WHERE team_id = %(team_id)s
     GROUP BY id
@@ -257,7 +262,7 @@ PEOPLE_SQL = """
 SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
     {latest_person_sql}
 ) as person INNER JOIN (
-    SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE person_id IN ({content_sql})
+    SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE person_id IN ({content_sql}) AND team_id = %(team_id)s
 ) as pdi ON person.id = pdi.person_id
 GROUP BY id, created_at, team_id, properties, is_identified
 LIMIT 100 OFFSET %(offset)s
@@ -268,7 +273,7 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id
     SELECT id FROM (
         {latest_person_sql}
     ) as person INNER JOIN (
-        SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE person_id IN ({content_sql})
+        SELECT DISTINCT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE person_id IN ({content_sql}) AND team_id = %(team_id)s
     ) as pdi ON person.id = pdi.person_id
     WHERE team_id = %(team_id)s
     GROUP BY id
@@ -276,11 +281,11 @@ INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id
 """
 
 GET_DISTINCT_IDS_BY_PROPERTY_SQL = """
-SELECT distinct_id
-FROM (
-    {GET_TEAM_PERSON_DISTINCT_IDS}
-)
-WHERE person_id IN
+SELECT distinct_id FROM person_distinct_id JOIN (
+    SELECT distinct_id, max(_offset) as _offset FROM person_distinct_id WHERE team_id = %(team_id)s GROUP BY distinct_id
+) as person_max ON person_distinct_id.distinct_id = person_max.distinct_id AND person_distinct_id._offset = person_max._offset
+WHERE team_id = %(team_id)s
+AND person_id IN
 (
     SELECT id
     FROM (
@@ -292,9 +297,7 @@ WHERE person_id IN
     )
     WHERE 1 = 1 {filters}
 )
-""".format(
-    filters="{filters}", GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-)
+"""
 
 GET_PERSON_PROPERTIES_COUNT = """
 SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
