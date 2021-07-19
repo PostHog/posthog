@@ -3,17 +3,20 @@ import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration } from 'lib/utils'
 import React from 'react'
 import { Button, Tooltip } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { ChartDisplayType } from '~/types'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { stepsWithCount, histogramStep, conversionMetrics } = useValues(funnelLogic)
     const { allFilters } = useValues(insightLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (allFilters.insight !== 'FUNNELS') {
         return null
@@ -43,7 +46,10 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                     </span>
                     <Button
                         type="link"
-                        disabled={allFilters.display === ChartDisplayType.FunnelsTimeToConvert}
+                        disabled={
+                            !featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ||
+                            allFilters.display === ChartDisplayType.FunnelsTimeToConvert
+                        }
                         onClick={() => setChartFilter(ChartDisplayType.FunnelsTimeToConvert)}
                     >
                         {humanFriendlyDuration(conversionMetrics.averageTime)}
