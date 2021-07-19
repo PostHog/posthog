@@ -26,6 +26,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def __init__(self, filter: Filter, team: Team) -> None:
         self._filter = filter
+        self._team = team
+        self.params = {
+            "team_id": self._team.pk,
+            "events": [],  # purely a speed optimization, don't need this for filtering
+        }
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days:
@@ -35,12 +40,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
             new_limit = {LIMIT: 100}
             self._filter = self._filter.with_data(new_limit)
             self.params.update(new_limit)
-
-        self._team = team
-        self.params = {
-            "team_id": self._team.pk,
-            "events": [],  # purely a speed optimization, don't need this for filtering
-        }
 
     def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
