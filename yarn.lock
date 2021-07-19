@@ -1259,6 +1259,11 @@
     "@types/yargs" "^15.0.0"
     chalk "^4.0.0"
 
+"@juggle/resize-observer@^3.3.1":
+  version "3.3.1"
+  resolved "https://registry.yarnpkg.com/@juggle/resize-observer/-/resize-observer-3.3.1.tgz#b50a781709c81e10701004214340f25475a171a0"
+  integrity sha512-zMM9Ds+SawiUkakS7y94Ymqx+S0ORzpG3frZirN3l+UlXUmSUR7hF4wxCVqW+ei94JzV5kt0uXBcoOEAuiydrw==
+
 "@mdx-js/react@^1.0.0":
   version "1.6.22"
   resolved "https://registry.yarnpkg.com/@mdx-js/react/-/react-1.6.22.tgz#ae09b4744fddc74714ee9f9d6f17a66e77c43573"
@@ -1346,6 +1351,35 @@
     lodash.take "^4.1.1"
     lodash.takeright "^4.1.1"
     query-selector-shadow-dom "0.8.0"
+
+"@react-hook/latest@^1.0.2":
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/@react-hook/latest/-/latest-1.0.3.tgz#c2d1d0b0af8b69ec6e2b3a2412ba0768ac82db80"
+  integrity sha512-dy6duzl+JnAZcDbNTfmaP3xHiKtbXYOaz3G51MGVljh548Y8MWzTr+PHLOfvpypEVW9zwvl+VyKjbWKEVbV1Rg==
+
+"@react-hook/passive-layout-effect@^1.2.0":
+  version "1.2.1"
+  resolved "https://registry.yarnpkg.com/@react-hook/passive-layout-effect/-/passive-layout-effect-1.2.1.tgz#c06dac2d011f36d61259aa1c6df4f0d5e28bc55e"
+  integrity sha512-IwEphTD75liO8g+6taS+4oqz+nnroocNfWVHWz7j+N+ZO2vYrc6PV1q7GQhuahL0IOR7JccFTsFKQ/mb6iZWAg==
+
+"@react-hook/resize-observer@^1.2.1":
+  version "1.2.2"
+  resolved "https://registry.yarnpkg.com/@react-hook/resize-observer/-/resize-observer-1.2.2.tgz#7eaf3151557a68f94fdcfd4666ada9948a45e743"
+  integrity sha512-F7ciucmLrF4vZM78sUpRquvMCSVJwu3ayxapsHKKzTOvixZtcwJZocDBOasQQIbd7DtXzD/sVEJCKJUC0X1MDA==
+  dependencies:
+    "@juggle/resize-observer" "^3.3.1"
+    "@react-hook/latest" "^1.0.2"
+    "@react-hook/passive-layout-effect" "^1.2.0"
+    "@types/raf-schd" "^4.0.0"
+    raf-schd "^4.0.2"
+
+"@react-hook/size@^2.1.2":
+  version "2.1.2"
+  resolved "https://registry.yarnpkg.com/@react-hook/size/-/size-2.1.2.tgz#87ed634ffb200f65d3e823501e5559aa3d584451"
+  integrity sha512-BmE5asyRDxSuQ9p14FUKJ0iBRgV9cROjqNG9jT/EjCM+xHha1HVqbPoT+14FQg1K7xIydabClCibUY4+1tw/iw==
+  dependencies:
+    "@react-hook/passive-layout-effect" "^1.2.0"
+    "@react-hook/resize-observer" "^1.2.1"
 
 "@sentry/browser@^6.0.4":
   version "6.0.4"
@@ -1957,6 +1991,11 @@
   version "1.5.4"
   resolved "https://registry.yarnpkg.com/@types/q/-/q-1.5.4.tgz#15925414e0ad2cd765bfef58842f7e26a7accb24"
   integrity sha512-1HcDas8SEj4z1Wc696tH56G8OlRaH/sqZOynNNB+HF0WOeXPaxTtbYzJY2oEfiUxjSKjhCKr+MvR7dCHcEelug==
+
+"@types/raf-schd@^4.0.0":
+  version "4.0.1"
+  resolved "https://registry.yarnpkg.com/@types/raf-schd/-/raf-schd-4.0.1.tgz#1f9e03736f277fe9c7b82102bf18570a6ee19f82"
+  integrity sha512-Ha+EnKHFIh9EKW0/XZJPUd3EGDFisEvauaBd4VVCRPKeOqUxNEc9TodiY2Zhk33XCgzJucoFEcaoNcBAPHTQ2A==
 
 "@types/react-dom@^16.9.8":
   version "16.9.9"
@@ -7179,9 +7218,9 @@ kea-window-values@^0.0.1:
   integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
 
 kea@^2.4.5:
-  version "2.4.5"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.4.5.tgz#5a43a5aedf306bc7ae0a271ee5bc1ae5fedb4959"
-  integrity sha512-eo9o0AlnPVKyX2/qFAMxFksPjgHfc//NgzET7X3QbddKPDqCVgNfR8DGdrhnbrKlHF9lJtMQ4ERbVr9WaEEheg==
+  version "2.4.6"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.4.6.tgz#07782a79c5f036e6514d6300281416e736ed98e3"
+  integrity sha512-NuH1GOck4Dmr18Kjrto8ZsL6n7OgL2CagQeqPnFjdjyxBgNS7JDusex6G9sasW5Cp1D0Cb4izJvFVocj0fS8Jg==
 
 killable@^1.0.1:
   version "1.0.1"
@@ -9012,6 +9051,11 @@ querystringify@^2.1.1:
   version "2.2.0"
   resolved "https://registry.yarnpkg.com/querystringify/-/querystringify-2.2.0.tgz#3345941b4153cb9d082d8eee4cda2016a9aef7f6"
   integrity sha512-FIqgj2EUvTa7R50u0rGsyTftzjYmv/a3hO345bZNrqabNqjtgiDMgmo4mkUjd+nzU5oF3dClKqFIPUKybUyqoQ==
+
+raf-schd@^4.0.2:
+  version "4.0.3"
+  resolved "https://registry.yarnpkg.com/raf-schd/-/raf-schd-4.0.3.tgz#5d6c34ef46f8b2a0e880a8fcdb743efc5bfdbc1a"
+  integrity sha512-tQkJl2GRWh83ui2DiPTJz9wEiMN20syf+5oKfB03yYP7ioZcJwsIK8FjrtLwH1m7C7e+Tt2yYBlrOpdT+dyeIQ==
 
 ramda@^0.27.1:
   version "0.27.1"
