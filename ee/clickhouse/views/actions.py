@@ -19,8 +19,8 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import get_active_user_params
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import (
+    GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_SQL,
-    GET_TEAM_PERSON_DISTINCT_IDS,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL,
     PEOPLE_SQL,
     PEOPLE_THROUGH_DISTINCT_SQL,
@@ -167,7 +167,6 @@ def _process_content_sql(team: Team, entity: Entity, filter: Filter):
             filters=prop_filters,
             breakdown_filter="",
             person_filter=person_filter,
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             **active_user_params,
         )
     else:
@@ -189,7 +188,7 @@ def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
         (PEOPLE_SQL if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] else PEOPLE_THROUGH_DISTINCT_SQL).format(
             content_sql=content_sql,
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         ),
         params,
     )
@@ -205,7 +204,7 @@ def insert_entity_people_into_cohort(cohort: Cohort, entity: Entity, filter: Fil
             cohort_table=PERSON_STATIC_COHORT_TABLE,
             content_sql=content_sql,
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
         ),
         {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
     )
