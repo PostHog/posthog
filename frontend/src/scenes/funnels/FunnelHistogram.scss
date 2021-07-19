@@ -1,12 +1,8 @@
-.funnel__header__info {
-    margin-right: 1rem;
-}
-
-.funnel__header__steps {
+.funnel-header-steps {
     display: flex;
     align-items: center;
 
-    .funnel__header__steps__label {
+    .funnel-header-steps-label {
         margin-right: 0.5rem;
     }
 }

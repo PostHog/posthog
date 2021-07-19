@@ -1,6 +1,7 @@
 import * as d3 from 'd3'
+import { FunnelLayout } from 'lib/constants'
 
-interface HistogramConfig {
+export interface HistogramConfig {
     height: number
     width: number
     inner: { height: number; width: number }
@@ -26,41 +27,45 @@ export const INITIAL_CONFIG = {
     },
 }
 
-export const getConfig = (isVertical: boolean): HistogramConfig => ({
-    ...INITIAL_CONFIG,
-    inner: {
-        height: INITIAL_CONFIG.height - INITIAL_CONFIG.margin.bottom - INITIAL_CONFIG.margin.top,
-        width: INITIAL_CONFIG.width - INITIAL_CONFIG.margin.left - INITIAL_CONFIG.margin.right,
-    },
-    ranges: {
-        x: isVertical
-            ? [INITIAL_CONFIG.margin.left, INITIAL_CONFIG.width - INITIAL_CONFIG.margin.right]
-            : [INITIAL_CONFIG.margin.top, INITIAL_CONFIG.height - INITIAL_CONFIG.margin.bottom],
-        y: isVertical
-            ? [INITIAL_CONFIG.height - INITIAL_CONFIG.margin.bottom, INITIAL_CONFIG.margin.top]
-            : [INITIAL_CONFIG.margin.left, INITIAL_CONFIG.width - INITIAL_CONFIG.margin.right],
-    },
-    gridlineTickSize: isVertical
-        ? INITIAL_CONFIG.width -
-          INITIAL_CONFIG.margin.left +
-          INITIAL_CONFIG.spacing.yLabel * 2.5 -
-          INITIAL_CONFIG.margin.right
-        : INITIAL_CONFIG.height - INITIAL_CONFIG.margin.bottom - INITIAL_CONFIG.margin.top,
-    transforms: {
-        x: isVertical
-            ? `translate(0,${INITIAL_CONFIG.height - INITIAL_CONFIG.margin.bottom})`
-            : `translate(${INITIAL_CONFIG.margin.left},0)`,
-        y: isVertical ? `translate(${INITIAL_CONFIG.margin.left},0)` : `translate(0,${INITIAL_CONFIG.margin.top})`,
-        yGrid: isVertical
-            ? `translate(${INITIAL_CONFIG.margin.left - INITIAL_CONFIG.spacing.yLabel * 2.5},0)`
-            : `translate(0,${INITIAL_CONFIG.margin.top})`,
-    },
-    axisFn: {
-        x: isVertical ? d3.axisBottom : d3.axisLeft,
-        y: isVertical ? d3.axisLeft : d3.axisTop,
-    },
-})
+export const getConfig = (layout: FunnelLayout, width?: number, height?: number): HistogramConfig => {
+    const _width = width || INITIAL_CONFIG.width,
+        _height = height || INITIAL_CONFIG.height
+    const isVertical = layout === FunnelLayout.vertical
 
+    return {
+        ...INITIAL_CONFIG,
+        height: _height,
+        width: _width,
+        inner: {
+            height: _height - INITIAL_CONFIG.margin.bottom - INITIAL_CONFIG.margin.top,
+            width: _width - INITIAL_CONFIG.margin.left - INITIAL_CONFIG.margin.right,
+        },
+        ranges: {
+            x: isVertical
+                ? [INITIAL_CONFIG.margin.left, _width - INITIAL_CONFIG.margin.right]
+                : [INITIAL_CONFIG.margin.top, _height - INITIAL_CONFIG.margin.bottom],
+            y: isVertical
+                ? [_height - INITIAL_CONFIG.margin.bottom, INITIAL_CONFIG.margin.top]
+                : [INITIAL_CONFIG.margin.left, _width - INITIAL_CONFIG.margin.right],
+        },
+        gridlineTickSize: isVertical
+            ? _width - INITIAL_CONFIG.margin.left + INITIAL_CONFIG.spacing.yLabel * 2.5 - INITIAL_CONFIG.margin.right
+            : _height - INITIAL_CONFIG.margin.bottom - INITIAL_CONFIG.margin.top,
+        transforms: {
+            x: isVertical
+                ? `translate(0,${_height - INITIAL_CONFIG.margin.bottom})`
+                : `translate(${INITIAL_CONFIG.margin.left},0)`,
+            y: isVertical ? `translate(${INITIAL_CONFIG.margin.left},0)` : `translate(0,${INITIAL_CONFIG.margin.top})`,
+            yGrid: isVertical
+                ? `translate(${INITIAL_CONFIG.margin.left - INITIAL_CONFIG.spacing.yLabel * 2.5},0)`
+                : `translate(0,${INITIAL_CONFIG.margin.top})`,
+        },
+        axisFn: {
+            x: isVertical ? d3.axisBottom : d3.axisLeft,
+            y: isVertical ? d3.axisLeft : d3.axisTop,
+        },
+    }
+}
 // Shamelessly inspired by https://gist.github.com/skokenes/6fa266f4f50c86f77ceabcd6dfca9e42
 export const createRoundedRectPath = (
     x: number,
@@ -137,3 +142,12 @@ export const createRoundedRectPath = (
         'z'
     )
 }
+
+export const HISTOGRAM_WIDTH_BREAKPOINTS = [
+    { width: 400, value: 1 },
+    {
+        width: 700,
+        value: 4 / 3,
+    },
+    { width: 1000, value: 5 / 3 },
+]
