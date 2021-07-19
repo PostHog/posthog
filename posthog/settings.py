@@ -222,6 +222,7 @@ CAPTURE_INTERNAL_METRICS = get_from_env("CAPTURE_INTERNAL_METRICS", False, type_
 
 # django-axes settings to lockout after too many attempts
 AXES_ENABLED = get_from_env("AXES_ENABLED", not TEST, type_cast=str_to_bool)
+AXES_CACHE = "default"
 AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
 AXES_FAILURE_LIMIT = int(os.getenv("AXES_FAILURE_LIMIT", 5))
 AXES_COOLOFF_TIME = timedelta(minutes=15)
