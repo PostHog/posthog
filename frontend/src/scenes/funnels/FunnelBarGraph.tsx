@@ -274,15 +274,7 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
 }
 
 export function FunnelBarGraph(): JSX.Element {
-    const {
-        steps: simpleSteps,
-        stepsWithNestedBreakdown,
-        stepReference,
-        barGraphLayout: layout,
-        funnelPersonsEnabled,
-        filters,
-    } = useValues(funnelLogic)
-    const steps = filters.breakdown ? stepsWithNestedBreakdown : simpleSteps
+    const { steps, stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(funnelLogic)
     const { openPersonsModal } = useActions(funnelLogic)
     const firstStep = getReferenceStep(steps, FunnelStepReference.total)
 
