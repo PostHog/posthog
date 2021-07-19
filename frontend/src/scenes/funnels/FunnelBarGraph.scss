@@ -140,6 +140,7 @@ $funnel_canvas_background: #fafafa;
             position: relative;
 
             .funnel-step-title {
+                @extend .text-ellipsis;
                 font-weight: bold;
             }
 

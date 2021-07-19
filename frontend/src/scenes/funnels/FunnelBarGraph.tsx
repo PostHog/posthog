@@ -304,7 +304,7 @@ export function FunnelBarGraph({ filters, dashboardItemId }: Omit<ChartParams, '
                         </div>
                         <header>
                             <div className="funnel-step-title">
-                                <PropertyKeyInfo value={step.name} />
+                                <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${layout}`}>
                                 {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (
