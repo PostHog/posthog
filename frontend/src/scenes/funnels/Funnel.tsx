@@ -15,7 +15,7 @@ export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
     }, [])
 
     if (props.filters.display == ChartDisplayType.FunnelsTimeToConvert) {
-        return timeConversionBins && timeConversionBins.length > 0 ? <FunnelHistogram {...props} /> : null
+        return timeConversionBins?.bins?.length ? <FunnelHistogram {...props} /> : null
     }
 
     return <FunnelBarGraph {...props} />
