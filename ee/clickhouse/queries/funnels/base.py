@@ -14,7 +14,7 @@ from ee.clickhouse.queries.breakdown_props import (
 )
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
-from posthog.constants import FUNNEL_WINDOW_DAYS, TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import FUNNEL_WINDOW_DAYS, LIMIT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity, Filter, Team
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
@@ -30,6 +30,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
         # handle default if window isn't provided
         if not self._filter.funnel_window_days:
             self._filter = self._filter.with_data({FUNNEL_WINDOW_DAYS: 14})
+
+        if not self._filter.limit:
+            new_limit = {LIMIT: 100}
+            self._filter = self._filter.with_data(new_limit)
+            self.params.update(new_limit)
 
         self._team = team
         self.params = {

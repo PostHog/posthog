@@ -13,7 +13,7 @@ class ClickhouseFunnelTrendsPersons(ClickhouseFunnelTrends):
             return []
 
         results = self._exec_query()
-        return self._format_results(results), len(results) > 99
+        return self._format_results(results), len(results) > self._filter.limit - 1
 
     def get_query(self) -> str:
         drop_off = self._filter.drop_off
