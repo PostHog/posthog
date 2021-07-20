@@ -280,7 +280,7 @@ export function FunnelBarGraph({ filters, dashboardItemId }: Omit<ChartParams, '
     const firstStep = getReferenceStep(steps, FunnelStepReference.total)
 
     return (
-        <div className={`funnel-bar-graph ${layout}`}>
+        <div className={`funnel-bar-graph ${layout}`} style={dashboardItemId ? {} : { minHeight: 450 }}>
             {steps.map((step, i) => {
                 const basisStep = getReferenceStep(steps, stepReference, i)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, i)
