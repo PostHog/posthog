@@ -47,7 +47,8 @@ class ClickhousePersonViewSet(PersonViewSet):
             funnel_class = ClickhouseFunnelTrendsPersons
 
         results, should_paginate = funnel_class(filter, team).run()
-        next_url = format_next_absolute_url(request, filter.offset, 100) if should_paginate else None
+        limit = filter.limit if filter.limit else 100
+        next_url = format_next_absolute_url(request, filter.offset, limit) if should_paginate else None
 
         # cached_function expects a dict with the key result
         return {"result": (results, next_url)}
