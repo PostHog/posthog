@@ -61,15 +61,8 @@ export function Insights(): JSX.Element {
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const {
-        lastRefresh,
-        isLoading,
-        activeView,
-        allFilters,
-        showTimeoutMessage,
-        showErrorMessage,
-        controlsCollapsed,
-    } = useValues(insightLogic)
+    const { lastRefresh, isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage, controlsCollapsed } =
+        useValues(insightLogic)
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
@@ -442,7 +435,7 @@ function FunnelInsight(): JSX.Element {
                 'non-empty-state':
                     isValidFunnel &&
                     areFiltersValid &&
-                    (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || funnel_viz_type === FunnelVizType.TimeToConvert),
+                    (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || funnel_viz_type === FunnelVizType.Trends),
             })}
         >
             {isLoading && <Loading />}

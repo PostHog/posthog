@@ -2,13 +2,7 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import {
-    ACTIONS_BAR_CHART_VALUE,
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_PIE_CHART,
-    ACTIONS_TABLE,
-    FEATURE_FLAGS,
-} from 'lib/constants'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
 import React from 'react'
 import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
@@ -30,7 +24,7 @@ interface InsightDisplayConfigProps {
 const showIntervalFilter = function (activeView: ViewType, filter: FilterType): boolean {
     switch (activeView) {
         case ViewType.FUNNELS:
-            return filter.display === ACTIONS_LINE_GRAPH_LINEAR
+            return filter.funnel_viz_type === FunnelVizType.Trends
         case ViewType.RETENTION:
         case ViewType.PATHS:
             return false

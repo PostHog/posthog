@@ -427,10 +427,14 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         steps: [
             () => [selectors.results, selectors.stepsWithNestedBreakdown, selectors.filters],
-            (results, stepsWithNestedBreakdown, filters): FunnelStepWithNestedBreakdown[] =>
-                !!filters.breakdown
+            (results, stepsWithNestedBreakdown, filters): FunnelStepWithNestedBreakdown[] => {
+                if (!Array.isArray(results)) {
+                    return []
+                }
+                return !!filters.breakdown
                     ? stepsWithNestedBreakdown
-                    : ([...results] as FunnelStep[]).sort((a, b) => a.order - b.order),
+                    : ([...results] as FunnelStep[]).sort((a, b) => a.order - b.order)
+            },
         ],
         stepsWithCount: [() => [selectors.steps], (steps) => steps.filter((step) => typeof step.count === 'number')],
     }),
