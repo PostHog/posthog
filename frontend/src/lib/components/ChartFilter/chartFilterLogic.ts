@@ -4,6 +4,10 @@ import { objectsEqual } from 'lib/utils'
 import { chartFilterLogicType } from './chartFilterLogicType'
 import { ChartDisplayType, FunnelVizType, ViewType } from '~/types'
 
+function isFunnelVizType(filter: FunnelVizType | ChartDisplayType): filter is FunnelVizType {
+    return Object.values(FunnelVizType).includes(filter as FunnelVizType)
+}
+
 export const chartFilterLogic = kea<chartFilterLogicType>({
     actions: () => ({
         setChartFilter: (filter: ChartDisplayType | FunnelVizType) => ({ filter }),
@@ -20,16 +24,15 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
         setChartFilter: ({ filter }) => {
             const { display, funnel_viz_type, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
-            const isFunnelVizType = filter === 'steps' || filter === 'time_to_convert' || filter === 'trends'
-            if (isFunnelVizType) {
+            if (isFunnelVizType(filter)) {
                 searchParams.funnel_viz_type = filter
                 searchParams.display = ChartDisplayType.FunnelViz
             } else {
                 searchParams.display = values.chartFilter
             }
             if (
-                (!isFunnelVizType && !objectsEqual(display, values.chartFilter)) ||
-                (isFunnelVizType && !objectsEqual(funnel_viz_type, values.chartFilter))
+                (!isFunnelVizType(filter) && !objectsEqual(display, values.chartFilter)) ||
+                (isFunnelVizType(filter) && !objectsEqual(funnel_viz_type, values.chartFilter))
             ) {
                 router.actions.replace(pathname, searchParams)
             }
