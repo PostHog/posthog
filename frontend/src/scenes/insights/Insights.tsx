@@ -436,6 +436,7 @@ function FunnelInsight(): JSX.Element {
         isLoading,
         areFiltersValid,
         filters: { display },
+        showBarGraph,
     } = useValues(funnelLogic({}))
     const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
 
@@ -452,7 +453,7 @@ function FunnelInsight(): JSX.Element {
         >
             {isLoading && <Loading />}
             {isValidFunnel ? (
-                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? (
+                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && showBarGraph ? (
                     <FunnelBarGraph filters={{ display }} />
                 ) : (
                     <FunnelViz filters={{ display }} />

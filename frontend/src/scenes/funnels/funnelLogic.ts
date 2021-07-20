@@ -305,6 +305,11 @@ export const funnelLogic = kea<funnelLogicType>({
                 )
             },
         ],
+        showBarGraph: [
+            () => [selectors.filters],
+            ({ display }: { display: ChartDisplayType }) =>
+                display === ChartDisplayType.FunnelViz || display === ChartDisplayType.FunnelsTimeToConvert,
+        ],
         clickhouseFeaturesEnabled: [
             () => [featureFlagLogic.selectors.featureFlags, selectors.preflight],
             // Controls auto-calculation of results and ability to break down values
