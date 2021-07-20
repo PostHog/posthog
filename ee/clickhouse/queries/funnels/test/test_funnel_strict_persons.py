@@ -55,7 +55,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelStrictPersons(filter, self.team).run()
+        results, _ = ClickhouseFunnelStrictPersons(filter, self.team).run()
         self.assertEqual(35, len(results))
 
     def test_second_step(self):
@@ -74,7 +74,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelStrictPersons(filter, self.team).run()
+        results, _ = ClickhouseFunnelStrictPersons(filter, self.team).run()
         self.assertEqual(10, len(results))
 
     def test_second_step_dropoff(self):
@@ -93,7 +93,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelStrictPersons(filter, self.team).run()
+        results, _ = ClickhouseFunnelStrictPersons(filter, self.team).run()
         self.assertEqual(25, len(results))
 
     def test_third_step(self):
@@ -112,5 +112,5 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelStrictPersons(filter, self.team).run()
+        results, _ = ClickhouseFunnelStrictPersons(filter, self.team).run()
         self.assertEqual(0, len(results))
