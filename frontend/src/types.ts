@@ -6,6 +6,7 @@ import {
     ShownAsValue,
     RETENTION_RECURRING,
     RETENTION_FIRST_TIME,
+    FunnelLayout,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
@@ -616,6 +617,7 @@ export interface FilterType {
     formula?: any
     filter_test_accounts?: boolean
     from_dashboard?: boolean
+    layout?: FunnelLayout // used only for funnels
     funnel_step?: number
     funnel_viz_type?: string // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert

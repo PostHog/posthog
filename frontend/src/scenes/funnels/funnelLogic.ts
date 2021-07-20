@@ -90,6 +90,7 @@ export const cleanFunnelParams = (filters: Partial<FilterType>): FilterType => {
         ...(filters.actions ? { actions: filters.actions } : {}),
         ...(filters.events ? { events: filters.events } : {}),
         ...(filters.display ? { display: filters.display } : {}),
+        ...(filters.layout ? { layout: filters.layout } : {}),
         ...(filters.interval ? { interval: filters.interval } : {}),
         ...(filters.properties ? { properties: filters.properties } : {}),
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
@@ -131,7 +132,6 @@ export const funnelLogic = kea<funnelLogicType>({
             breakdown_value,
         }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
-        setBarGraphLayout: (barGraphLayout: FunnelLayout) => ({ barGraphLayout }),
         changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
     }),
@@ -255,12 +255,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 setStepReference: (_, { stepReference }) => stepReference,
             },
         ],
-        barGraphLayout: [
-            FunnelLayout.vertical as FunnelLayout,
-            {
-                setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
-            },
-        ],
         histogramStep: [
             { from_step: -1, to_step: -1 } as FunnelTimeConversionStep,
             {
@@ -305,9 +299,10 @@ export const funnelLogic = kea<funnelLogicType>({
                 )
             },
         ],
+        barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
         showBarGraph: [
             () => [selectors.filters],
-            ({ display }: { display: ChartDisplayType }) =>
+            ({ display }) =>
                 display === ChartDisplayType.FunnelViz || display === ChartDisplayType.FunnelsTimeToConvert,
         ],
         clickhouseFeaturesEnabled: [
