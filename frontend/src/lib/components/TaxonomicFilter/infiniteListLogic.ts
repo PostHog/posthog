@@ -217,7 +217,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         selectedItem: [(s) => [s.index, s.items], (index, items) => (index >= 0 ? items.results[index] : undefined)],
         selectedItemValue: [
             (s) => [s.selectedItem, s.group],
-            (selectedItem, group) => group?.getValue?.(selectedItem) || null,
+            (selectedItem, group) => (selectedItem ? group?.getValue?.(selectedItem) || null : null),
         ],
         selectedItemInView: [
             (s) => [s.index, s.startIndex, s.stopIndex],
