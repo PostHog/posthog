@@ -326,6 +326,7 @@ export interface PersonType {
     properties: Record<string, any>
     is_identified: boolean
     created_at?: string
+    session_recording?: string
 }
 
 export interface CohortGroupType {

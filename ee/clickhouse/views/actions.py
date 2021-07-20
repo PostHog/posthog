@@ -1,5 +1,7 @@
 # NOTE: bad django practice but /ee specifically depends on /posthog so it should be fine
 from datetime import datetime, timedelta
+from ee.clickhouse.queries.sessions.list import ClickhouseSessionsList
+from posthog.models.filters.sessions_filter import SessionsFilter
 from typing import Any, Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
@@ -66,7 +68,10 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
         current_url = request.get_full_path()
         serialized_people = calculate_entity_people(team, entity, filter)
-
+        sessions_filter = SessionsFilter(request=request)
+        # to filter for sessions with session recordings, you pass in this param: filters=[{"type":"recording","key":"duration","value":0,"operator":"gt","label":"Recording duration"}]
+        # but it is a very slow query, like 40 seconds+ on production
+        sessions, pagination = ClickhouseSessionsList.run(team=self.team, filter=sessions_filter)
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()
         offset = filter.offset
@@ -97,7 +102,9 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
         return Response(
             {
-                "results": [{"people": serialized_people[0:100], "count": len(serialized_people[0:99])}],
+                "results": [
+                    {"people": serialized_people[0:100], "count": len(serialized_people[0:99]), "sessions": sessions}
+                ],
                 "next": next_url,
                 "previous": current_url[1:],
             }

@@ -1,4 +1,6 @@
 import json
+from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.queries.sessions.session_recording import SessionRecording
 from typing import Any, Dict, List, Optional, Union, cast
 
 import posthoganalytics
@@ -278,6 +280,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.get_people(request)
+
         return Response(result)
 
     def get_people(self, request: request.Request) -> Union[Dict[str, Any], List]:
@@ -291,6 +294,10 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         current_url = request.get_full_path()
         next_url = paginated_result(serialized_people, request, filter.offset)
+        from posthog.queries.sessions.sessions_list import SessionsList
+
+        filter = SessionsFilter(request=request)
+        sessions, pagination = SessionsList.run(filter=filter, team=self.team)
 
         if request.accepted_renderer.format == "csv":
             csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
@@ -307,7 +314,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return content
 
         return {
-            "results": [{"people": serialized_people, "count": len(serialized_people)}],
+            "results": [{"people": serialized_people, "count": len(serialized_people), "sessions": sessions}],
             "next": next_url,
             "previous": current_url[1:],
         }
