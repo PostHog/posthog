@@ -70,7 +70,10 @@ export function getSeriesPositionName(
     return
 }
 
-export function humanizeStepCount(count: number): string {
+export function humanizeStepCount(count?: number): string {
+    if (typeof count === 'undefined') {
+        return ''
+    }
     return count > 9999 ? humanizeNumber(count, 2) : count.toLocaleString()
 }
 
