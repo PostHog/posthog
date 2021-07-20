@@ -9,7 +9,6 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.settings import SHELL_PLUS_PRINT_SQL
 from posthog.test.base import APIBaseTest
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
@@ -117,20 +116,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        funnel = ClickhouseFunnel(filter, self.team)
-        results = defaultdict(list)
-        for i in range(100):
-            result = sync_execute(funnel.get_step_counts_query(), funnel.params)
-            for item in result:
-                uuid = item[0]
-                results[uuid].append(item[2])
-
-        print(results)
-
-        # TODO: get to the bottom here!
-
-        # print(sync_execute(funnel.get_step_counts_without_aggregation_query(), funnel.params))
-        print(sync_execute(funnel.get_step_counts_query(), funnel.params))
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnel)
         results = funnel_trends.run()
 
