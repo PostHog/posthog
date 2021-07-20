@@ -44,6 +44,7 @@ import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 import clsx from 'clsx'
 import { Funnel } from 'scenes/funnels/Funnel'
+import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -396,6 +397,10 @@ export function Insights(): JSX.Element {
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && <People />}
+                            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] &&
+                                preflight?.is_clickhouse_enabled &&
+                                activeView === ViewType.FUNNELS &&
+                                allFilters.display === FUNNEL_VIZ && <FunnelStepTable />}
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&
                                     allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&

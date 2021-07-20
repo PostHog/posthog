@@ -299,7 +299,7 @@ export function FunnelBarGraph({ filters, dashboardItemId }: Omit<ChartParams, '
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
                             <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
-                            <SeriesGlyph>{humanizeOrder(step.order)}</SeriesGlyph>
+                            <SeriesGlyph variant="funnel-step-glyph">{humanizeOrder(step.order)}</SeriesGlyph>
                             <div className={`funnel-series-linebox ${showLineAfter ? 'after' : ''}`} />
                         </div>
                         <header>

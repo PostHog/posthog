@@ -15,6 +15,7 @@ import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -46,17 +47,6 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
     const isSingleEntity = indexedResults.length === 1
     const colorList = getChartColors('white')
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
-
-    function SeriesToggleWrapper({ children, id }: { children: JSX.Element | string; id: number }): JSX.Element {
-        return (
-            <div
-                style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
-                onClick={() => !isSingleEntity && toggleVisibility(id)}
-            >
-                {children}
-            </div>
-        )
-    }
 
     const calcColumnMenu = (
         <Menu>
@@ -101,7 +91,7 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
             title: <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown || 'Breakdown Value'} />,
             render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
                 return (
-                    <SeriesToggleWrapper id={item.id}>
+                    <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
                         {formatBreakdownLabel(item.breakdown_value, cohorts)}
                     </SeriesToggleWrapper>
                 )
@@ -115,7 +105,7 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
         title: 'Event or Action',
         render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
             return (
-                <SeriesToggleWrapper id={item.id}>
+                <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
                     <InsightLabel
                         seriesColor={colorList[index]}
                         action={item.action}
@@ -201,7 +191,7 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
     )
 }
 
-function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {
+export function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {
     if (breakdown_value && typeof breakdown_value == 'number') {
         return cohorts.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
     } else if (typeof breakdown_value == 'string') {

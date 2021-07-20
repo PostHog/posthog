@@ -493,6 +493,13 @@ code.code {
     align-items: center;
     justify-content: center;
     pointer-events: none;
+
+    // variants
+    &.funnel-step-glyph {
+        border-color: $border;
+        background-color: white;
+        color: $primary_alt;
+    }
 }
 
 // Overlays styles
