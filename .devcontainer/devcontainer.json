@@ -23,7 +23,7 @@
     "extensions": [],
 
     // Use 'forwardPorts' to make a list of ports inside the container available locally.
-    // "forwardPorts": [],
+    "forwardPorts": [8000, 5432, 6379, 8123, 8234, 9000, 9092, 9440, 9009],
 
     // Uncomment the next line if you want start specific services in your Docker Compose config.
     // "runServices": [],

@@ -63,7 +63,6 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
                         OrganizationInviteType,
                         'target_email' | 'first_name'
                     >[] = values.invites.filter((invite) => invite.target_email)
-
                     eventUsageLogic.actions.reportBulkInviteAttempted(
                         payload.length,
                         payload.filter((invite) => !!invite.first_name).length

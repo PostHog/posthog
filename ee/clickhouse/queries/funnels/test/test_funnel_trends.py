@@ -661,7 +661,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-02 23:59:59",
                 "funnel_window_days": 3,
-                "funnel_from_step": 2,
+                "funnel_from_step": 1,
                 "events": [
                     {"id": "step one", "order": 0},
                     {"id": "step two", "order": 1},
@@ -715,7 +715,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-02 23:59:59",
                 "funnel_window_days": 3,
-                "funnel_to_step": 2,
+                "funnel_to_step": 1,
                 "events": [
                     {"id": "step one", "order": 0},
                     {"id": "step two", "order": 1},

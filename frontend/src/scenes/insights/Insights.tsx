@@ -48,6 +48,8 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
+import clsx from 'clsx'
+import { Funnel } from 'scenes/funnels/Funnel'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -430,36 +432,41 @@ export function Insights(): JSX.Element {
 
 function FunnelInsight(): JSX.Element {
     const {
-        stepsWithCount,
         isValidFunnel,
-        stepsWithCountLoading,
+        isLoading,
+        areFiltersValid,
         filters: { display },
-        timeConversionBins,
+        showBarGraph,
     } = useValues(funnelLogic({}))
-    const { clickhouseFeatures } = useValues(funnelLogic())
+    const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
-            style={
-                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display !== ACTIONS_LINE_GRAPH_LINEAR
-                    ? {}
-                    : { height: 300, position: 'relative', marginBottom: 0 }
-            }
+            className={clsx('funnel-insights-container', {
+                'non-empty-state':
+                    isValidFunnel &&
+                    areFiltersValid &&
+                    (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || display === ACTIONS_LINE_GRAPH_LINEAR),
+            })}
         >
-            {stepsWithCountLoading && <Loading />}
+            {isLoading && <Loading />}
             {isValidFunnel ? (
-                <FunnelViz filters={{ display }} steps={stepsWithCount} timeConversionBins={timeConversionBins} />
+                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && showBarGraph ? (
+                    <Funnel filters={{ display }} />
+                ) : (
+                    <FunnelViz filters={{ display }} />
+                )
             ) : (
-                !stepsWithCountLoading && (
+                !isLoading && (
                     <div
                         style={{
                             textAlign: 'center',
                         }}
                     >
                         <span>
-                            Enter the details to your funnel {!clickhouseFeatures && `and click 'calculate'`} to create
+                            Enter your funnel details {!clickhouseFeaturesEnabled && `and click 'calculate'`} to create
                             a funnel visualization
                         </span>
                     </div>

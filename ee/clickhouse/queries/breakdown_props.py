@@ -6,7 +6,7 @@ from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import populate_entity_params
 from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL, GET_LATEST_PERSON_SQL
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
@@ -40,7 +40,7 @@ def get_breakdown_person_prop_query(
         SELECT breakdown_value FROM (
             SELECT breakdown_value, {aggregate_operation} AS count
             FROM events e 
-            INNER JOIN (SELECT person_id, distinct_id FROM ({GET_LATEST_PERSON_DISTINCT_ID_SQL}) WHERE team_id = %(team_id)s) AS pdi ON e.distinct_id = pdi.distinct_id
+            INNER JOIN (SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE team_id = %(team_id)s) AS pdi ON e.distinct_id = pdi.distinct_id
             INNER JOIN
                 (
                     SELECT * FROM (
