@@ -55,10 +55,10 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
 
 
 def term_search_filter_sql(search_fields: [str], search_terms: str = "") -> (str, dict):
-    terms = list(filter(None, search_terms.replace("\x00", "").split(" ")))
-
-    if not search_fields or not terms:
+    if not search_fields or not search_terms:
         return "", {}
+
+    terms = list(filter(None, search_terms.replace("\x00", "").split(" ")))
 
     kwargs = {}
     term_filter = []
