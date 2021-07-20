@@ -273,14 +273,17 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
     )
 }
 
-export function FunnelBarGraph({ filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element {
+export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Omit<ChartParams, 'view'>): JSX.Element {
     const logic = funnelLogic({ dashboardItemId, filters })
     const { steps, stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(logic)
     const { openPersonsModal } = useActions(funnelLogic)
     const firstStep = getReferenceStep(steps, FunnelStepReference.total)
 
     return (
-        <div className={`funnel-bar-graph ${layout}`} style={dashboardItemId ? {} : { minHeight: 450 }}>
+        <div
+            className={`funnel-bar-graph ${layout}${color && color !== 'white' ? ' colored' : ''} ${color}`}
+            style={dashboardItemId ? {} : { minHeight: 450 }}
+        >
             {steps.map((step, i) => {
                 const basisStep = getReferenceStep(steps, stepReference, i)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, i)

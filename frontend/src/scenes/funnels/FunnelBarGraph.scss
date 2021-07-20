@@ -368,5 +368,53 @@ $funnel_canvas_background: #fafafa;
                 background-color: white !important;
             }
         }
+
+        &.colored {
+            // Dashboard item is non-white, adjust stylings
+            color: white;
+            .text-muted-alt {
+                color: rgba(white, 0.85);
+            }
+            .funnel-inspect-button {
+                .value-inspector-button-icon {
+                    background-color: var(--item-background) !important;
+                }
+                &:disabled {
+                    color: white !important;
+                }
+
+                .value-inspector-button-icon {
+                    .anticon {
+                        color: white !important;
+                    }
+                }
+            }
+
+            .funnel-series-container {
+                .funnel-series-linebox {
+                    border-right-color: rgba(white, 0.35);
+                }
+                .graph-series-glyph {
+                    background-color: var(--item-background);
+                    color: white;
+                    border-color: rgba(white, 0.35);
+                }
+            }
+
+            .funnel-bar-wrapper {
+                background-color: var(--item-darkest);
+                .funnel-bar {
+                    background: white;
+                    .funnel-bar-percentage {
+                        &.inside {
+                            color: $text_default !important;
+                        }
+                        &.outside {
+                            color: white !important;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
