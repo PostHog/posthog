@@ -7,7 +7,6 @@ import { router } from 'kea-router'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE, FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
 import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
-import { ActionFilter, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes, PathType } from '~/types'
 import {
     ActionFilter,
     ChartDisplayType,
