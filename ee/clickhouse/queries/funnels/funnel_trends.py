@@ -5,6 +5,7 @@ from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
 from posthog.constants import BREAKDOWN
+from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
@@ -49,9 +50,6 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     def __init__(
         self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
     ) -> None:
-        # TODO: allow breakdown
-        if BREAKDOWN in filter._data:
-            del filter._data[BREAKDOWN]
 
         super().__init__(filter, team)
 
@@ -70,16 +68,18 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         if specific_entrance_period_start:
             self.params["entrance_period_start"] = specific_entrance_period_start.strftime(TIMESTAMP_FORMAT)
 
+        breakdown_clause = self._get_breakdown_prop()
         return f"""
             SELECT
                 person_id,
                 {interval_method}(timestamp) AS entrance_period_start,
                 max(steps) AS steps_completed
+                {breakdown_clause}
             FROM (
                 {steps_per_person_query}
             )
             {"WHERE entrance_period_start = %(entrance_period_start)s" if specific_entrance_period_start else ""}
-            GROUP BY person_id, entrance_period_start"""
+            GROUP BY person_id, entrance_period_start {breakdown_clause}"""
 
     def get_query(self) -> str:
         step_counts = self.get_step_counts_without_aggregation_query()
@@ -92,20 +92,24 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             self._filter.interval or "day", self._filter.date_from, self._filter.date_to, team_id=self._team.pk
         )
 
+        breakdown_clause = self._get_breakdown_prop()
+
         query = f"""
             SELECT
                 entrance_period_start,
                 reached_from_step_count,
                 reached_to_step_count,
                 if(reached_from_step_count > 0, round(reached_to_step_count / reached_from_step_count * 100, 2), 0) AS conversion_rate
+                {breakdown_clause}
             FROM (
                 SELECT
                     entrance_period_start,
                     countIf({reached_from_step_count_condition}) AS reached_from_step_count,
                     countIf({reached_to_step_count_condition}) AS reached_to_step_count
+                    {breakdown_clause}
                 FROM (
                     {step_counts}
-                ) GROUP BY entrance_period_start
+                ) GROUP BY entrance_period_start {breakdown_clause}
             ) data
             FULL OUTER JOIN (
                 SELECT
@@ -133,16 +137,29 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return reached_from_step_count_condition, reached_to_step_count_condition, did_not_reach_to_step_count_condition
 
     def _summarize_data(self, results):
-        summary = [
-            {
+
+        breakdown_clause = self._get_breakdown_prop()
+
+        summary = []
+        for period_row in results:
+            serialized_result = {
                 "timestamp": period_row[0],
                 "reached_from_step_count": period_row[1],
                 "reached_to_step_count": period_row[2],
                 "conversion_rate": period_row[3],
                 "is_period_final": self._is_period_final(period_row[0]),
             }
-            for period_row in results
-        ]
+
+            if breakdown_clause:
+                serialized_result.update(
+                    {
+                        "breakdown": period_row[-1]
+                        if isinstance(period_row[-1], str)
+                        else Cohort.objects.get(pk=period_row[-1]).name
+                    }
+                )
+
+            summary.append(serialized_result)
         return summary
 
     def _format_results(self, summary):

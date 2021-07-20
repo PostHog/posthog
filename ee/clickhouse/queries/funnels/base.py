@@ -113,7 +113,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
         self._filter = self._filter.with_data(data)
 
         query = self.get_query()
-
         return sync_execute(query, self.params)
 
     def _get_step_times(self, max_steps: int):
