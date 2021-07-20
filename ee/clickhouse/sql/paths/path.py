@@ -8,7 +8,7 @@
 # - marked_session_start = this is the same as "new_session" if no start point given, otherwise it's 1 if
 #                          the current event is the start point (e.g. path_start=/about) or 0 otherwise
 paths_query_step_1 = """
-    SELECT 
+    SELECT
         person_id,
         timestamp,
         event_id,
@@ -16,28 +16,28 @@ paths_query_step_1 = """
         neighbor(person_id, -1) != person_id OR dateDiff('minute', toDateTime(neighbor(timestamp, -1)), toDateTime(timestamp)) > 30 AS new_session,
         {marked_session_start} as marked_session_start
     FROM (
-        SELECT 
+        SELECT
             timestamp,
             person_id,
             events.uuid AS event_id,
             {path_type} AS path_type
             {select_elements_chain}
         FROM events AS events
-        JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) as person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
-        WHERE 
-            events.team_id = %(team_id)s 
+        JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as person_distinct_id ON person_distinct_id.distinct_id = events.distinct_id
+        WHERE
+            events.team_id = %(team_id)s
             AND {event_query}
             {filters}
             {parsed_date_from}
             {parsed_date_to}
-        GROUP BY 
-            person_id, 
-            timestamp, 
-            event_id, 
+        GROUP BY
+            person_id,
+            timestamp,
+            event_id,
             path_type
             {group_by_elements_chain}
-        ORDER BY 
-            person_id, 
+        ORDER BY
+            person_id,
             timestamp
     )
     WHERE {excess_row_filter}

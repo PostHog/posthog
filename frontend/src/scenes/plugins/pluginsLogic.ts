@@ -17,6 +17,13 @@ import { canGloballyManagePlugins, canInstallPlugins } from './access'
 
 type PluginForm = FormInstance
 
+export enum PluginSection {
+    Upgrade = 'upgrade',
+    Installed = 'installed',
+    Enabled = 'enabled',
+    Disabled = 'disabled',
+}
+
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
         plugin_name: plugin.name,
@@ -26,7 +33,7 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
     })
 }
 
-export const pluginsLogic = kea<pluginsLogicType<PluginForm>>({
+export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
     actions: {
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
@@ -63,6 +70,10 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm>>({
         hidePluginLogs: true,
         showPluginMetrics: (id: number) => ({ id }),
         hidePluginMetrics: true,
+        processSearchInput: (term: string) => ({ term }),
+        setSearchTerm: (term: string | null) => ({ term }),
+        setPluginConfigPollTimeout: (timeout: number | null) => ({ timeout }),
+        toggleSectionOpen: (section: PluginSection) => ({ section }),
     },
 
     loaders: ({ actions, values }) => ({
@@ -133,6 +144,17 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm>>({
             {} as Record<string, PluginConfigType>,
             {
                 loadPluginConfigs: async () => {
+                    if (!!values.pluginConfigPollTimeout) {
+                        clearTimeout(values.pluginConfigPollTimeout)
+                    }
+                    // poll for plugin configs every 5s
+                    // needed for "live" erroring without web sockets
+                    actions.setPluginConfigPollTimeout(
+                        window.setTimeout(() => {
+                            actions.loadPluginConfigs()
+                        }, 5000)
+                    )
+
                     const pluginConfigs: Record<string, PluginConfigType> = {}
                     const { results } = await api.get('api/plugin_config')
 
@@ -389,6 +411,29 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm>>({
                 hidePluginMetrics: () => null,
             },
         ],
+        searchTerm: [
+            null as string | null,
+            {
+                setSearchTerm: (_, { term }) => term,
+            },
+        ],
+        pluginConfigPollTimeout: [
+            null as NodeJS.Timeout | null,
+            {
+                setPluginConfigPollTimeout: (_, { timeout }) => timeout,
+            },
+        ],
+        sectionsOpen: [
+            [PluginSection.Enabled, PluginSection.Disabled] as PluginSection[],
+            {
+                toggleSectionOpen: (currentOpenSections, { section }) => {
+                    if (currentOpenSections.includes(section)) {
+                        return currentOpenSections.filter((s) => section !== s)
+                    }
+                    return [...currentOpenSections, section]
+                },
+            },
+        ],
     },
 
     selectors: {
@@ -528,6 +573,58 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm>>({
             (showingMetricsPluginId, installedPlugins) =>
                 showingMetricsPluginId ? installedPlugins.find((plugin) => plugin.id === showingMetricsPluginId) : null,
         ],
+        filteredUninstalledPlugins: [
+            (s) => [s.searchTerm, s.uninstalledPlugins],
+            (searchTerm, uninstalledPlugins) =>
+                searchTerm
+                    ? uninstalledPlugins.filter((plugin) =>
+                          plugin.name.toLowerCase().includes(searchTerm.toLowerCase())
+                      )
+                    : uninstalledPlugins,
+        ],
+        filteredDisabledPlugins: [
+            (s) => [s.searchTerm, s.disabledPlugins],
+            (searchTerm, disabledPlugins) =>
+                searchTerm
+                    ? disabledPlugins.filter((plugin) => plugin.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                    : disabledPlugins,
+        ],
+        filteredEnabledPlugins: [
+            (s) => [s.searchTerm, s.enabledPlugins],
+            (searchTerm, enabledPlugins) =>
+                searchTerm
+                    ? enabledPlugins.filter((plugin) => plugin.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                    : enabledPlugins,
+        ],
+        filteredPluginsNeedingUpdates: [
+            (s) => [s.searchTerm, s.pluginsNeedingUpdates],
+            (searchTerm, pluginsNeedingUpdates) =>
+                searchTerm
+                    ? pluginsNeedingUpdates.filter((plugin) =>
+                          plugin.name.toLowerCase().includes(searchTerm.toLowerCase())
+                      )
+                    : pluginsNeedingUpdates,
+        ],
+        sortableEnabledPlugins: [
+            (s) => [s.filteredEnabledPlugins],
+            (filteredEnabledPlugins) => {
+                return filteredEnabledPlugins.filter(
+                    (plugin) =>
+                        !plugin.capabilities ||
+                        (plugin.capabilities.methods &&
+                            (plugin.capabilities.methods.includes('processEvent') ||
+                                plugin.capabilities.methods.includes('processEventBatch')))
+                )
+            },
+        ],
+        unsortableEnabledPlugins: [
+            (s) => [s.filteredEnabledPlugins, s.sortableEnabledPlugins],
+            (filteredEnabledPlugins, sortableEnabledPlugins) => {
+                return filteredEnabledPlugins.filter(
+                    (enabledPlugin) => !sortableEnabledPlugins.map((plugin) => plugin.name).includes(enabledPlugin.name)
+                )
+            },
+        ],
     },
 
     listeners: ({ actions, values }) => ({
@@ -596,13 +693,17 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm>>({
             }
         },
     }),
-    events: ({ actions }) => ({
+    events: ({ actions, values }) => ({
         afterMount: () => {
             actions.loadPlugins()
             actions.loadPluginConfigs()
-
             if (canGloballyManagePlugins(userLogic.values.user?.organization)) {
                 actions.loadRepository()
+            }
+        },
+        beforeUnmount: () => {
+            if (!!values.pluginConfigPollTimeout) {
+                clearTimeout(values.pluginConfigPollTimeout)
             }
         },
     }),

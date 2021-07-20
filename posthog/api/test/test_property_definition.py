@@ -91,9 +91,31 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json(), self.permission_denied_response())
 
     def test_query_property_definitions(self):
+
+        # Regular search
         response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["count"], 2)  # first_visit, is_first_movie
+
+        # Fuzzy search
+        response = self.client.get("/api/projects/@current/property_definitions/?search=p ting")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["app_rating"])
+
+        # Handles URL encoding properly
+        response = self.client.get("/api/projects/@current/property_definitions/?search=%24cur")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        for item in response.json()["results"]:
+            self.assertIn(item["name"], ["$current_url"])
+
+        # Fuzzy search 2
+        response = self.client.get("/api/projects/@current/property_definitions/?search=hase%20")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(response.json()["count"], 2)
         for item in response.json()["results"]:
-            self.assertIn(item["name"], ["is_first_movie", "first_visit"])
+            self.assertIn(item["name"], ["purchase", "purchase_value"])

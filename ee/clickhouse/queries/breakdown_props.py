@@ -7,7 +7,7 @@ from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import populate_entity_params
 from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL, GET_LATEST_PERSON_SQL
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from ee.clickhouse.sql.trends.top_person_props import TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL
 from posthog.models.cohort import Cohort
@@ -58,7 +58,7 @@ def get_breakdown_person_prop_values(
         prop_filters=prop_filters,
         person_prop_filters=person_prop_filters,
         aggregate_operation=aggregate_operation,
-        latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+        GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         **entity_format_params,
     )
     top_elements_array = _get_top_elements(

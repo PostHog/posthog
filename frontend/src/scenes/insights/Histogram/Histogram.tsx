@@ -1,12 +1,14 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import * as d3 from 'd3'
 import { D3Selector, useD3, getOrCreateEl, animate, D3Transition } from 'lib/hooks/useD3'
 import { FunnelLayout } from 'lib/constants'
 import { getChartColors } from 'lib/colors'
-import { getConfig, createRoundedRectPath } from './histogramUtils'
+import { createRoundedRectPath, getConfig, INITIAL_CONFIG } from './histogramUtils'
 
 import './Histogram.scss'
 import { humanFriendlyDuration } from 'lib/utils'
+import { useActions, useValues } from 'kea'
+import { histogramLogic } from 'scenes/insights/Histogram/histogramLogic'
 
 export interface HistogramDatum {
     id: string | number
@@ -20,21 +22,24 @@ interface HistogramProps {
     layout?: FunnelLayout
     color?: string
     isAnimated?: boolean
+    width?: number
+    height?: number
 }
 
 export function Histogram({
     data,
     layout = FunnelLayout.vertical,
+    width = INITIAL_CONFIG.width,
+    height = INITIAL_CONFIG.height,
     color = 'white',
     isAnimated = false,
 }: HistogramProps): JSX.Element {
+    const { config } = useValues(histogramLogic)
+    const { setConfig } = useActions(histogramLogic)
     const colorList = getChartColors(color)
     const isEmpty = data.length === 0 || d3.sum(data.map((d) => d.count)) === 0
 
     // TODO: All D3 state outside of useD3 hook will be moved into separate kea histogramLogic
-
-    const isVertical = layout === FunnelLayout.vertical
-    const config = getConfig(isVertical)
 
     // Initialize x-axis and y-axis scales
     const xMin = data?.[0]?.bin0 || 0
@@ -67,17 +72,30 @@ export function Histogram({
     // y-axis gridline scale
     const yAxisGrid = config.axisFn.y(y).tickSize(-config.gridlineTickSize).tickFormat('').ticks(y.ticks().length)
 
+    // Update config to new values if dimensions change
+    useEffect(() => {
+        setConfig(getConfig(layout, width, height))
+    }, [width, height])
+
     const ref = useD3(
         (container) => {
             const renderCanvas = (parentNode: D3Selector): D3Selector => {
+                // Update config to reflect dimension changes
+                x.range(config.ranges.x)
+                y.range(config.ranges.y)
+                yAxisGrid.tickSize(-config.gridlineTickSize)
+
                 // Get or create svg > g
                 const _svg = getOrCreateEl(parentNode, 'svg > g', () =>
                     parentNode
                         .append('svg:svg')
-                        .attr('viewBox', `0 0 ${config.width} ${config.height}`)
+                        .attr('viewBox', `0 0 ${config.inner.width} ${config.inner.height}`)
+                        .attr('width', '100%')
                         .append('svg:g')
                         .classed(layout, true)
                 )
+                // update dimensions
+                parentNode.select('svg').attr('viewBox', `0 0 ${config.width} ${config.height}`)
 
                 // if class doesn't exist on svg>g, layout has changed. after we learn this, reset
                 // the layout
@@ -96,7 +114,7 @@ export function Histogram({
                     .join('path')
                     .call(animate, config.transitionDuration, isAnimated, (it: D3Transition) => {
                         return it.attr('d', (d: HistogramDatum) => {
-                            if (isVertical) {
+                            if (layout === FunnelLayout.vertical) {
                                 return createRoundedRectPath(
                                     x(d.bin0) + config.spacing.btwnBins / 2,
                                     y(d.count),
@@ -169,7 +187,7 @@ export function Histogram({
 
             renderCanvas(container)
         },
-        [data, layout]
+        [data, layout, config]
     )
 
     return <div className="histogram-container" ref={ref} />

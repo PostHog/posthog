@@ -213,4 +213,8 @@ describe('humanFriendlyDuration()', () => {
         expect(humanFriendlyDuration(30, 2)).toEqual('30s') // no change
         expect(humanFriendlyDuration(30, 0)).toEqual('') // returns no units (useless)
     })
+    it('returns an empty string for nullish inputs', () => {
+        expect(humanFriendlyDuration('', 2)).toEqual('')
+        expect(humanFriendlyDuration(null, 2)).toEqual('')
+    })
 })
