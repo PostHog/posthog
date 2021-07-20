@@ -1,7 +1,5 @@
-from collections import defaultdict
 from uuid import uuid4
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels import ClickhouseFunnel, ClickhouseFunnelStrict, ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
@@ -98,10 +96,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
         # Converted from 0 to 1 in 82_800 s
 
-        from django.core.cache import cache
-
-        cache.clear()
-
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
@@ -125,12 +119,15 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
         self.assertEqual(
             results,
-            [
-                (2220.0, 2),  # Reached step 1 from step 0 in at least 2200 s but less than 29_080 s - users A and B
-                (29080.0, 0),  # Analogous to above, just an interval (in this case 26_880 s) up - no users
-                (55940.0, 0),  # Same as above
-                (82800.0, 1),  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
-            ],
+            {
+                "bins": [
+                    (2220.0, 2),  # Reached step 1 from step 0 in at least 2200 s but less than 29_080 s - users A and B
+                    (29080.0, 0),  # Analogous to above, just an interval (in this case 26_880 s) up - no users
+                    (55940.0, 0),  # Same as above
+                    (82800.0, 1),  # Reached step 1 from step 0 in at least 82_800 s but less than 109_680 s - user C
+                ],
+                "average_conversion_time": 29_540,
+            },
         )
 
     def test_custom_bin_count_single_step(self):
