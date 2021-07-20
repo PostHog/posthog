@@ -1,5 +1,4 @@
 import inspect
-import uuid
 from typing import Any, Dict, Optional, Union
 
 from rest_framework.exceptions import ValidationError
@@ -8,7 +7,6 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models.action import Action
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
-from posthog.models.filters.mixins.utils import cached_property
 
 
 class Entity(PropertyMixin):
