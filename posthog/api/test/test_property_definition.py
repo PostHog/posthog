@@ -99,7 +99,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response_data["count"], 2)  # first_visit, is_first_movie
 
         # Fuzzy search
-        response = self.client.get("/api/projects/@current/property_definitions/?search=rting")
+        response = self.client.get("/api/projects/@current/property_definitions/?search=p ting")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         for item in response.json()["results"]:

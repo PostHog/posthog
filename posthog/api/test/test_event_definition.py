@@ -99,14 +99,14 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 2)  # rated app, installed app
 
         # Fuzzy search 1
-        response = self.client.get("/api/projects/@current/event_definitions/?search=free trl")
+        response = self.client.get("/api/projects/@current/event_definitions/?search=free tri")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["entered_free_trial"])
 
         # Handles URL encoding properly
-        response = self.client.get("/api/projects/@current/event_definitions/?search=free%20trl%20")
+        response = self.client.get("/api/projects/@current/event_definitions/?search=free%20tri%20")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         for item in response.json()["results"]:
