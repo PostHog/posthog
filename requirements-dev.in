@@ -25,3 +25,4 @@ pytest
 pytest-django
 pytest-mock
 pytest-xdist
+pytest-rerunfailures

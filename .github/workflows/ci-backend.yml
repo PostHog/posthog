@@ -101,7 +101,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest --nomigrations --durations=10 -n auto posthog/
+                  pytest --reruns 5 --nomigrations --durations=10 -n auto posthog/
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -115,7 +115,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest --durations=10 -n auto ee/
+                  pytest --reruns 5 --durations=10 -n 4 ee/
 
     cloud:
         name: Django tests – Cloud
@@ -171,7 +171,7 @@ jobs:
                   cd deploy
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django pytest-xdist
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django pytest-xdist pytest-rerunfailures
 
             - name: Link posthog-cloud at current branch
               run: |
@@ -200,7 +200,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest --nomigrations -n auto --reuse-db -m "not skip_on_multitenancy" posthog
+                  pytest --reruns 5 --nomigrations -n auto --reuse-db -m "not skip_on_multitenancy" posthog
 
             - name: Run cloud tests (posthog-cloud)
               env:
@@ -213,7 +213,7 @@ jobs:
               run: |
                   source .env.template
                   cd deploy
-                  pytest -n auto multi_tenancy messaging -m "not skip_on_multitenancy"
+                  pytest --reruns 5 -n auto multi_tenancy messaging -m "not skip_on_multitenancy"
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -224,7 +224,7 @@ jobs:
                   TEST: 1
               run: |
                   cd deploy/
-                  pytest -n auto ee -s -m "not skip_on_multitenancy"
+                  pytest --reruns 5 -n auto ee -s -m "not skip_on_multitenancy"
 
     foss:
         name: Django tests – FOSS

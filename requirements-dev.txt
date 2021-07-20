@@ -125,6 +125,8 @@ pytest-forked==1.3.0
     # via pytest-xdist
 pytest-mock==3.5.1
     # via -r requirements-dev.in
+pytest-rerunfailures==10.1
+    # via -r requirements-dev.in
 pytest-xdist==2.3.0
     # via -r requirements-dev.in
 pytest==6.2.2
@@ -133,6 +135,7 @@ pytest==6.2.2
     #   pytest-django
     #   pytest-forked
     #   pytest-mock
+    #   pytest-rerunfailures
     #   pytest-xdist
 python-dateutil==2.8.1
     # via freezegun
