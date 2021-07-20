@@ -247,14 +247,14 @@ function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeIns
                 className="text-muted-alt"
                 style={{ paddingRight: 4, display: 'inline-block', visibility: infoTextVisible ? undefined : 'hidden' }}
             >
-                Mean time:
+                Average time:
             </span>
             <ValueInspectorButton
                 innerRef={buttonRef}
                 style={{ paddingLeft: 0, paddingRight: 0 }}
                 onClick={onClick}
                 disabled={disabled}
-                title="Mean time elapsed between completing this step and starting the next one."
+                title="Average of time elapsed for each user between completing this step and starting the next one."
             >
                 {humanFriendlyDuration(averageTime, 2)}
             </ValueInspectorButton>
@@ -307,13 +307,8 @@ export function FunnelBarGraph({ filters, dashboardItemId }: Omit<ChartParams, '
                                 <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${layout}`}>
-                                {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (
-                                    <AverageTimeInspector
-                                        onClick={() => {}}
-                                        averageTime={step.average_conversion_time}
-                                        disabled
-                                    />
-                                ) : null}
+                                {/*step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON */}
+                                {true ? <AverageTimeInspector onClick={() => {}} averageTime={33} disabled /> : null}
                             </div>
                         </header>
                         <div className="funnel-inner-viz">

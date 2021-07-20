@@ -241,7 +241,6 @@ $funnel_canvas_background: #fafafa;
 
             .funnel-conversion-metadata {
                 font-size: 1rem;
-                height: 98px;
                 display: block;
 
                 .funnel-inspect-button {
@@ -351,5 +350,20 @@ $funnel_canvas_background: #fafafa;
 .dashboard-item-content {
     .funnel-bar-graph {
         background-color: unset;
+        font-size: 0.85em;
+
+        .funnel-conversion-metadata {
+            font-size: unset !important;
+            .funnel-inspect-button {
+                margin-left: -2.3em !important;
+            }
+        }
+        .funnel-inspect-button {
+            font-size: 0.85rem !important;
+            margin-left: -1.8em !important;
+            .value-inspector-button-icon {
+                background-color: white !important;
+            }
+        }
     }
 }
