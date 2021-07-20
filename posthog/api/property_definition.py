@@ -1,11 +1,16 @@
-from typing import Type
+from distutils.util import strtobool
+from typing import Optional, Type, TypeVar
 
-from rest_framework import filters, mixins, permissions, serializers, viewsets
+from django.db import connection, models
+from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.exceptions import EnterpriseFeatureException
+from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import PropertyDefinition
 from posthog.permissions import OrganizationMemberPermissions
+
+_MT = TypeVar("_MT", bound=models.Model)
 
 
 class PropertyDefinitionSerializer(serializers.ModelSerializer):
@@ -32,11 +37,12 @@ class PropertyDefinitionViewSet(
     serializer_class = PropertyDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
+    filter_backends = [TermSearchFilterBackend]
     ordering = "name"
-    filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
 
     def get_queryset(self):
+
         if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
             try:
                 from ee.models.property_definition import EnterprisePropertyDefinition
@@ -46,21 +52,25 @@ class PropertyDefinitionViewSet(
                 properties_to_filter = self.request.GET.get("properties", None)
                 if properties_to_filter:
                     names = tuple(properties_to_filter.split(","))
-                    name_filter = f"AND name IN %(names)s"
+                    name_filter = "AND name IN %(names)s"
                 else:
-                    name_filter = ""
                     names = ()
+                    name_filter = ""
+
+                search = self.request.GET.get("search", None)
+                search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
                 ee_property_definitions = EnterprisePropertyDefinition.objects.raw(
                     f"""
                     SELECT *
                     FROM ee_enterprisepropertydefinition
                     FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
-                    WHERE team_id = %(team_id)s {name_filter}
+                    WHERE team_id = %(team_id)s {name_filter} {search_query}
                     ORDER BY name
                     """,
-                    params={"team_id": self.request.user.team.id, "names": names},  # type: ignore
+                    params={"names": names, "team_id": self.request.user.team.id, **search_kwargs},  # type: ignore
                 )
                 return ee_property_definitions
+
         return self.filter_queryset_by_parents_lookups(PropertyDefinition.objects.all()).order_by(self.ordering)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:

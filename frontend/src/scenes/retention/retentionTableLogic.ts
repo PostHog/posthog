@@ -2,12 +2,18 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams, objectsEqual, uuid } from 'lib/utils'
-import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import {
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_TABLE,
+    FEATURE_FLAGS,
+    RETENTION_FIRST_TIME,
+    RETENTION_RECURRING,
+} from 'lib/constants'
 import { actionsModel } from '~/models/actionsModel'
-import { ActionType, FilterType } from '~/types'
+import { ActionType, FilterType, ViewType } from '~/types'
 import {
     RetentionTablePayload,
     RetentionTrendPayload,
@@ -17,6 +23,7 @@ import {
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -67,6 +74,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 try {
                     res = await api.get(`api/insight/retention/?${urlParams}`)
                 } catch (e) {
+                    breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.RETENTION, null, e)
                     return []
                 }
@@ -134,8 +142,13 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
         ],
         filtersLoading: [
-            () => [eventDefinitionsModel.selectors.loaded, propertyDefinitionsModel.selectors.loaded],
-            (eventsLoaded, propertiesLoaded) => !eventsLoaded || !propertiesLoaded,
+            () => [
+                featureFlagLogic.selectors.featureFlags,
+                eventDefinitionsModel.selectors.loaded,
+                propertyDefinitionsModel.selectors.loaded,
+            ],
+            (featureFlags, eventsLoaded, propertiesLoaded) =>
+                !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && (!eventsLoaded || !propertiesLoaded),
         ],
     },
     events: ({ actions, props }) => ({

@@ -1,21 +1,15 @@
 from ee.kafka_client.topics import KAFKA_EVENTS
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
-from .person import GET_LATEST_PERSON_DISTINCT_ID_SQL
-
-DROP_EVENTS_TABLE_SQL = """
-DROP TABLE events
-"""
-
-DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL = """
-DROP TABLE events_with_array_props_view
-"""
-
+from .person import GET_TEAM_PERSON_DISTINCT_IDS
 
 EVENTS_TABLE = "events"
 
+DROP_EVENTS_TABLE_SQL = f"DROP TABLE {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+
 EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE {table_name} 
+CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
     uuid UUID,
     event VARCHAR,
@@ -46,6 +40,7 @@ SAMPLE BY uuid
 """
 ).format(
     table_name=EVENTS_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
     engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
@@ -54,14 +49,17 @@ SAMPLE BY uuid
 
 KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_" + EVENTS_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
     extra_fields="",
     materialized_columns="",
 )
 
+# You must include the database here because of a bug in clickhouse
+# related to https://github.com/ClickHouse/ClickHouse/issues/10471
 EVENTS_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv 
-TO {table_name} 
+CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
+TO {database}.{table_name} 
 AS SELECT
 uuid,
 event,
@@ -73,9 +71,9 @@ elements_chain,
 created_at,
 _timestamp,
 _offset
-FROM kafka_{table_name} 
+FROM {database}.kafka_{table_name} 
 """.format(
-    table_name=EVENTS_TABLE
+    table_name=EVENTS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
 )
 
 INSERT_EVENT_SQL = """
@@ -108,24 +106,6 @@ SELECT
 FROM events WHERE team_id = %(team_id)s
 """
 
-EVENTS_WITH_PROPS_TABLE_SQL = """
-CREATE VIEW events_with_array_props_view
-AS SELECT
-uuid,
-event,
-properties,
-timestamp,
-team_id,
-distinct_id,
-elements_chain,
-created_at,
-arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) array_property_keys,
-arrayMap(k -> toString(k.2), JSONExtractKeysAndValuesRaw(properties)) array_property_values,
-_timestamp,
-_offset
-FROM events
-"""
-
 SELECT_PROP_VALUES_SQL = """
 SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where JSONHas(properties, %(key)s) AND team_id = %(team_id)s {parsed_date_from} {parsed_date_to} LIMIT 10
 """
@@ -134,7 +114,7 @@ SELECT_PROP_VALUES_SQL_WITH_FILTER = """
 SELECT DISTINCT trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) FROM events where team_id = %(team_id)s AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) LIKE %(value)s {parsed_date_from} {parsed_date_to} LIMIT 10
 """
 
-SELECT_EVENT_WITH_ARRAY_PROPS_SQL = """
+SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL = """
 SELECT
     uuid,
     event,
@@ -151,7 +131,7 @@ where team_id = %(team_id)s
 ORDER BY toDate(timestamp) DESC, timestamp DESC {limit}
 """
 
-SELECT_EVENT_WITH_PROP_SQL = """
+SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL = """
 SELECT
     uuid,
     event,
@@ -190,11 +170,9 @@ NULL_SQL = """
 SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start from numbers({num_intervals})
 """
 
-EVENT_JOIN_PERSON_SQL = """
-INNER JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) as pdi ON events.distinct_id = pdi.distinct_id
-""".format(
-    latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
-)
+EVENT_JOIN_PERSON_SQL = f"""
+INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON events.distinct_id = pdi.distinct_id
+"""
 
 GET_EVENTS_WITH_PROPERTIES = """
 SELECT * FROM events WHERE 
@@ -221,10 +199,6 @@ LIMIT %(limit)s
 
 GET_CUSTOM_EVENTS = """
 SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
-"""
-
-GET_PROPERTIES_VOLUME = """
-    SELECT arrayJoin(array_property_keys) as key, count(1) as count FROM events_with_array_props_view WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY key ORDER BY count DESC
 """
 
 GET_EVENTS_VOLUME = "SELECT event, count(1) as count FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"

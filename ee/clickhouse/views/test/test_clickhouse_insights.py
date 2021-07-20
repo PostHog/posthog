@@ -260,7 +260,13 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.json(), {"result": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1],]},
+            response.json(),
+            {
+                "result": {
+                    "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
+                    "average_conversion_time": 29540.0,
+                }
+            },
         )
 
     def test_funnel_time_to_convert_auto_bins_strict(self):
@@ -302,7 +308,13 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.json(), {"result": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1],]},
+            response.json(),
+            {
+                "result": {
+                    "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
+                    "average_conversion_time": 29540.0,
+                }
+            },
         )
 
     def test_funnel_time_to_convert_auto_bins_unordered(self):
@@ -344,7 +356,13 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.json(), {"result": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1],]},
+            response.json(),
+            {
+                "result": {
+                    "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
+                    "average_conversion_time": 29540.0,
+                }
+            },
         )
 
     def test_funnel_invalid_action_handled(self):
@@ -352,3 +370,32 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), self.validation_error_response("Action ID 666 does not exist!"))
+
+    def test_funnel_basic_exclusions(self):
+        _create_person(distinct_ids=["1"], team=self.team)
+        _create_event(team=self.team, event="step one", distinct_id="1")
+        _create_event(team=self.team, event="step x", distinct_id="1")
+        _create_event(team=self.team, event="step two", distinct_id="1")
+
+        _create_person(distinct_ids=["2"], team=self.team)
+        _create_event(team=self.team, event="step one", distinct_id="2")
+        _create_event(team=self.team, event="step two", distinct_id="2")
+
+        response = self.client.post(
+            "/api/insight/funnel/",
+            {
+                "events": [
+                    {"id": "step one", "type": "events", "order": 0},
+                    {"id": "step two", "type": "events", "order": 1},
+                ],
+                "exclusions": [{"id": "step x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},],
+                "funnel_window_days": 14,
+                "insight": "funnels",
+            },
+        ).json()
+
+        self.assertEqual(len(response["result"]), 2)
+        self.assertEqual(response["result"][0]["name"], "step one")
+        self.assertEqual(response["result"][1]["name"], "step two")
+        self.assertEqual(response["result"][0]["count"], 1)
+        self.assertEqual(response["result"][1]["count"], 1)

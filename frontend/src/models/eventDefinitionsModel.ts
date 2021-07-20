@@ -5,7 +5,7 @@ import { EventDefinition, SelectOption } from '~/types'
 import { eventDefinitionsModelType } from './eventDefinitionsModelType'
 import { propertyDefinitionsModel } from './propertyDefinitionsModel'
 
-interface EventDefinitionStorage {
+export interface EventDefinitionStorage {
     count: number
     next: null | string
     results: EventDefinition[]

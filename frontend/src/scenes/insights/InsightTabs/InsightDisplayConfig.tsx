@@ -2,17 +2,9 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import {
-    ACTIONS_BAR_CHART_VALUE,
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_PIE_CHART,
-    ACTIONS_TABLE,
-    FEATURE_FLAGS,
-    FUNNELS_TIME_TO_CONVERT,
-} from 'lib/constants'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
 import React from 'react'
-import { ChartDisplayType, FilterType } from '~/types'
-import { ViewType } from '../insightLogic'
+import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
@@ -32,7 +24,7 @@ interface InsightDisplayConfigProps {
 const showIntervalFilter = function (activeView: ViewType, filter: FilterType): boolean {
     switch (activeView) {
         case ViewType.FUNNELS:
-            return filter.display === ACTIONS_LINE_GRAPH_LINEAR
+            return filter.funnel_viz_type === FunnelVizType.Trends
         case ViewType.RETENTION:
         case ViewType.PATHS:
             return false
@@ -104,7 +96,7 @@ export function InsightDisplayConfig({
             <div style={{ width: '100%', textAlign: 'right' }}>
                 {showChartFilter(activeView) && (
                     <ChartFilter
-                        onChange={(display: ChartDisplayType) => {
+                        onChange={(display: ChartDisplayType | FunnelVizType) => {
                             if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
                                 clearAnnotationsToCreate()
                             }
@@ -117,7 +109,7 @@ export function InsightDisplayConfig({
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
 
-                {showFunnelBarOptions && allFilters.display !== FUNNELS_TIME_TO_CONVERT && (
+                {showFunnelBarOptions && allFilters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <FunnelDisplayLayoutPicker />
                         <FunnelStepReferencePicker />

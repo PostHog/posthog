@@ -78,6 +78,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
+                    "median_conversion_time": None,
                     "breakdown": "Chrome",
                 },
                 {
@@ -88,6 +89,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "count": 0,
                     "type": "events",
                     "average_conversion_time": None,
+                    "median_conversion_time": None,
                     "breakdown": "Chrome",
                 },
             ],
@@ -106,6 +108,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
+                    "median_conversion_time": None,
                     "breakdown": "Safari",
                 },
                 {
@@ -116,6 +119,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 3600,
+                    "median_conversion_time": 3600,
                     "breakdown": "Safari",
                 },
             ],

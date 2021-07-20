@@ -7,22 +7,10 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FilterType } from '~/types'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { FilterType, FunnelVizType, PropertyFilter, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
-
-export enum ViewType {
-    TRENDS = 'TRENDS',
-    STICKINESS = 'STICKINESS',
-    LIFECYCLE = 'LIFECYCLE',
-    SESSIONS = 'SESSIONS',
-    FUNNELS = 'FUNNELS',
-    RETENTION = 'RETENTION',
-    PATHS = 'PATHS',
-    HISTORY = 'HISTORY',
-}
-
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
+import { Scene, sceneLogic } from 'scenes/sceneLogic'
 
 /*
 InsightLogic maintains state for changing between insight features
@@ -32,6 +20,14 @@ This includes handling the urls and view state
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 export const defaultFilterTestAccounts = (): boolean => {
     return localStorage.getItem('default_filter_test_accounts') === 'true' || false
+}
+
+interface UrlParams {
+    insight: string
+    properties: PropertyFilter[] | undefined
+    filter_test_accounts: boolean
+    funnel_viz_type?: string
+    display?: string
 }
 
 export const logicFromInsight = (insight: string, logicProps: Record<string, any>): Logic & BuiltLogic => {
@@ -46,17 +42,23 @@ export const logicFromInsight = (insight: string, logicProps: Record<string, any
     }
 }
 
-export const insightLogic = kea<insightLogicType<ViewType>>({
+export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
         setCachedUrl: (type: ViewType, url: string) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: (queryId: string) => ({ queryId }),
-        endQuery: (queryId: string, view: string, lastRefresh: string | null, exception?: Record<string, any>) => ({
+        endQuery: (queryId: string, view: ViewType, lastRefresh: string | null, exception?: Record<string, any>) => ({
             queryId,
             view,
             lastRefresh,
+            exception,
+        }),
+        abortQuery: (queryId: string, view: ViewType, scene: Scene | null, exception?: Record<string, any>) => ({
+            queryId,
+            view,
+            scene,
             exception,
         }),
         setMaybeShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
@@ -173,6 +175,18 @@ export const insightLogic = kea<insightLogicType<ViewType>>({
             )
             actions.setIsLoading(true)
         },
+        abortQuery: ({ queryId, view, scene, exception }) => {
+            const duration = new Date().getTime() - values.queryStartTimes[queryId]
+            const tags = {
+                insight: view,
+                scene: scene,
+                success: !exception,
+                ...exception,
+            }
+
+            posthog.capture('insight aborted', { ...tags, duration })
+            captureInternalMetric({ method: 'timing', metric: 'insight_abort_time', value: duration, tags })
+        },
         endQuery: ({ queryId, view, lastRefresh, exception }) => {
             if (values.timeout) {
                 clearTimeout(values.timeout)
@@ -222,10 +236,15 @@ export const insightLogic = kea<insightLogicType<ViewType>>({
                 return cachedUrl + '&' + toParams({ properties })
             }
 
-            const urlParams = {
+            const urlParams: UrlParams = {
                 insight: type,
                 properties: values.allFilters.properties,
                 filter_test_accounts: defaultFilterTestAccounts(),
+            }
+
+            if (type === ViewType.FUNNELS) {
+                urlParams.funnel_viz_type = FunnelVizType.Steps
+                urlParams.display = 'FunnelViz'
             }
             return ['/insights', urlParams]
         },

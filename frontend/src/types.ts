@@ -9,7 +9,6 @@ import {
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { Dayjs } from 'dayjs'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
@@ -85,6 +84,7 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeatures[]
+    domain_whitelist: string[]
 }
 
 export interface OrganizationMemberType {
@@ -339,7 +339,7 @@ export interface CohortType {
     created_by?: UserBasicType | null
     created_at?: string
     deleted?: boolean
-    id: number | 'new'
+    id: number | 'new' | 'personsModalNew'
     is_calculating?: boolean
     last_calculation?: string
     is_static?: boolean
@@ -472,7 +472,6 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
 }
-
 export interface PluginType {
     id: number
     plugin_type: PluginInstallationType
@@ -488,6 +487,7 @@ export interface PluginType {
     organization_id: string
     organization_name: string
     metrics?: Record<string, StoredMetricMathOperations>
+    capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
 }
 
 export interface PluginConfigType {
@@ -556,19 +556,37 @@ export enum ChartDisplayType {
     ActionsBarChartValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
-    FunnelsTimeToConvert = 'FunnelsTimeToConvert',
 }
 
-export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
 export type BreakdownType = 'cohort' | 'person' | 'event'
 export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+
+// NB! Keep InsightType and ViewType in sync!
+export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+export enum ViewType {
+    TRENDS = 'TRENDS',
+    STICKINESS = 'STICKINESS',
+    LIFECYCLE = 'LIFECYCLE',
+    SESSIONS = 'SESSIONS',
+    FUNNELS = 'FUNNELS',
+    RETENTION = 'RETENTION',
+    PATHS = 'PATHS',
+    // Views that are not insights:
+    HISTORY = 'HISTORY',
+}
 
 export enum PathType {
     PageView = '$pageview',
     AutoCapture = '$autocapture',
     Screen = '$screen',
     CustomEvent = 'custom_event',
+}
+
+export enum FunnelVizType {
+    Steps = 'steps',
+    TimeToConvert = 'time_to_convert',
+    Trends = 'trends',
 }
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
@@ -582,8 +600,8 @@ export interface FilterType {
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
-    breakdown_type?: BreakdownType
-    breakdown?: string
+    breakdown_type?: BreakdownType | null
+    breakdown?: string | null
     breakdown_value?: string
     shown_as?: ShownAsType
     session?: string
@@ -604,8 +622,12 @@ export interface FilterType {
     filter_test_accounts?: boolean
     from_dashboard?: boolean
     funnel_step?: number
-    funnel_viz_type?: string // this and the below param is used for funnels time to convert, it'll be updated soon
-    funnel_to_step?: number
+    entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
+    drop_off?: boolean
+    funnel_viz_type?: string // parameter sent to funnels API for time conversion code path
+    funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
+    funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
+    compare?: boolean
 }
 
 export interface SystemStatusSubrows {
@@ -682,35 +704,74 @@ export interface TrendResultWithAggregate extends TrendResult {
 }
 
 export interface FunnelStep {
+    // The type returned from the API.
     action_id: string
-    average_conversion_time: number
+    average_conversion_time: number | null
     count: number
     name: string
     order: number
-    people: string[]
+    people?: string[]
     type: EntityType
     labels?: string[]
+    breakdown?: string
+    breakdown_value?: string
 }
 
-export interface FunnelResult {
+export interface FunnelStepWithNestedBreakdown extends FunnelStep {
+    nested_breakdown?: FunnelStep[]
+}
+
+export interface FunnelResult<ResultType = FunnelStep[]> {
     is_cached: boolean
     last_refresh: string | null
-    result: FunnelStep[]
+    result: ResultType
     type: 'Funnel'
+}
+
+export interface FunnelsTimeConversionBins {
+    bins: [number, number][] | []
+    average_conversion_time: number
 }
 
 export interface FunnelsTimeConversionResult {
-    result: number[]
+    result: FunnelsTimeConversionBins
     last_refresh: string | null
     is_cached: boolean
     type: 'Funnel'
+}
+
+// Indexing boundaries = [from_step, to_step)
+export interface FunnelTimeConversionStep {
+    from_step: number // set this to -1 if querying for all steps
+    to_step: number
+    label?: string
+    average_conversion_time?: number
+    count?: number
+}
+
+export interface FunnelTimeConversionMetrics {
+    averageTime: number
+    stepRate: number
+    totalRate: number
+}
+
+export interface FunnelRequestParams extends FilterType {
+    refresh?: boolean
+    from_dashboard?: boolean
+    funnel_window_days?: number
+}
+
+export interface LoadedRawFunnelResults {
+    results: FunnelStep[] | FunnelStep[][]
+    timeConversionResults: FunnelsTimeConversionBins
 }
 
 export interface ChartParams {
     dashboardItemId?: number
     color?: string
-    filters?: Partial<FilterType>
+    filters: Partial<FilterType>
     inSharedMode?: boolean
+    showPersonsModal?: boolean
     cachedResults?: TrendResult
     view: ViewType
 }
@@ -754,10 +815,16 @@ export interface PreflightStatus {
     plugins: boolean
     redis: boolean
     db: boolean
+    /** An initiated instance is one that already has any organization(s). */
     initiated: boolean
+    /** Org creation is allowed on Cloud OR initiated self-hosted organizations with a license and MULTI_ORG_ENABLED. */
+    can_create_org: boolean
+    /** Whether this is PostHog Cloud. */
     cloud: boolean
     celery: boolean
+    /** Whether EE code is available (but not necessarily a license). */
     ee_available?: boolean
+    /** Is ClickHouse used as the analytics database instead of Postgres. */
     is_clickhouse_enabled?: boolean
     realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
     db_backend?: 'postgres' | 'clickhouse'
@@ -766,6 +833,7 @@ export interface PreflightStatus {
     opt_out_capture?: boolean
     posthog_version?: string
     email_service_available?: boolean
+    /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null

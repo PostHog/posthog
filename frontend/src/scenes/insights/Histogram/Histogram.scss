@@ -1,0 +1,21 @@
+.histogram-container {
+    display: flex;
+    min-height: 600px;
+    width: 100%;
+
+    svg {
+        width: 100%;
+        position: relative;
+        top: 0;
+        left: 0;
+        margin-left: 0;
+        margin-right: 0;
+
+        g#y-gridlines,
+        g#y-axis {
+            .domain {
+                display: none; // hide axis line
+            }
+        }
+    }
+}

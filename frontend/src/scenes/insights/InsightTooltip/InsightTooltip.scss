@@ -1,17 +1,35 @@
 @import '~/vars';
 
-.ph-graph-tooltip {
-    background: #fafafa;
-    border: 1px solid $border;
+.ph-graph-tooltip,
+.ant-popover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    border-radius: $radius;
-    padding: 8px 0;
     font-size: 0.85rem;
-    max-width: 480px;
     overflow-x: hidden;
     z-index: $z_graph_tooltip;
     transition: all 0.4s;
+}
 
+.ph-graph-tooltip {
+    max-width: 480px;
+    padding: 8px 0;
+    border: 1px solid $border;
+    border-radius: $radius;
+    background: #fafafa;
+}
+
+.inner-tooltip {
+    &.multiple {
+        header {
+            padding-bottom: 4px;
+            border-bottom: 1px solid $border;
+        }
+
+        footer {
+            margin-top: 0 !important;
+            padding-top: 6px;
+            border-top: 1px solid $border;
+        }
+    }
     header {
         padding: 0 8px;
         font-weight: bold;
@@ -48,21 +66,6 @@
             display: flex;
             align-items: center;
             padding-bottom: 2px;
-        }
-    }
-
-    .inner-tooltip {
-        &.multiple {
-            header {
-                padding-bottom: 4px;
-                border-bottom: 1px solid $border;
-            }
-
-            footer {
-                margin-top: 0 !important;
-                padding-top: 6px;
-                border-top: 1px solid $border;
-            }
         }
     }
 }

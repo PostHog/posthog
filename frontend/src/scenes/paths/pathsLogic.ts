@@ -2,12 +2,14 @@ import { kea } from 'kea'
 import { toParams, objectsEqual, uuid } from 'lib/utils'
 import api from 'lib/api'
 import { router } from 'kea-router'
-import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { FilterType, PathType, PropertyFilter } from '~/types'
+import { FilterType, PathType, PropertyFilter, ViewType } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const pathOptionsToLabels = {
     [PathType.PageView]: 'Page views (Web)',
@@ -72,6 +74,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 try {
                     paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                 } catch (e) {
+                    breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
                     return { paths: [], filter, error: true }
                 }
@@ -175,8 +178,8 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             },
         ],
         filtersLoading: [
-            () => [propertyDefinitionsModel.selectors.loaded],
-            (propertiesLoaded): boolean => !propertiesLoaded,
+            () => [featureFlagLogic.selectors.featureFlags, propertyDefinitionsModel.selectors.loaded],
+            (featureFlags, loaded) => !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && !loaded,
         ],
     },
     actionToUrl: ({ values }) => ({

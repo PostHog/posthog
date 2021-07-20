@@ -30,17 +30,19 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
-import { logicFromInsight, ViewType } from 'scenes/insights/insightLogic'
+import { logicFromInsight } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType } from '~/types'
+import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { FunnelHistogram } from 'scenes/funnels/FunnelHistogram'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Funnel } from 'scenes/funnels/Funnel'
 
 dayjs.extend(relativeTime)
 
@@ -135,19 +137,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
             ).url
         },
     },
-    FunnelsTimeToConvert: {
-        className: 'funnel-time-to-convert',
-        element: FunnelHistogram,
-        icon: BarChartOutlined,
-        viewText: 'View time conversion',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
-            return combineUrl(
-                `/insights`,
-                { insight: ViewType.FUNNELS, ...filters },
-                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
-            ).url
-        },
-    },
     RetentionContainer: {
         className: 'retention',
         element: RetentionContainer,
@@ -196,6 +185,13 @@ export function DashboardItem({
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
+    const { dashboards } = useValues(dashboardsModel)
+    const { renameDashboardItem } = useActions(dashboardItemsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
+        displayMap.FunnelViz.element = Funnel
+    }
 
     const _type: DisplayedType =
         item.filters.insight === ViewType.RETENTION
@@ -225,8 +221,6 @@ export function DashboardItem({
     const viewText = displayMap[_type].viewText
     const link = displayMap[_type].link(item)
     const color = item.color || 'white'
-    const { dashboards } = useValues(dashboardsModel)
-    const { renameDashboardItem } = useActions(dashboardItemsModel)
     const otherDashboards: DashboardType[] = dashboards.filter((d: DashboardType) => d.id !== dashboardId)
 
     const longPressProps = useLongPress(setEditMode, {
