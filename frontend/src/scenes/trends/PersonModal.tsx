@@ -15,6 +15,7 @@ import { Link } from 'lib/components/Link'
 import './PersonModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
+import { PlayCircleOutlined } from '@ant-design/icons'
 // Utility function to handle filter conversion required for deeplinking to person -> sessions
 const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
     if (!people?.action) {
@@ -28,6 +29,10 @@ const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterTyp
         type: a.type === EntityTypes.ACTIONS ? ACTION_TYPE : EVENT_TYPE,
         properties: [...(a.properties || []), ...(filters.properties || [])] as EventPropertyFilter[], // combine global properties into action/event filter
     }))
+}
+
+const toSessionRecording = (id: string): string => {
+    return `sessions?sessionRecordingId=${id}`
 }
 
 interface Props {
@@ -210,7 +215,7 @@ export function PersonRow({ person, people, filters }: PersonRowProps): JSX.Elem
                 borderBottom: '1px solid #D9D9D9',
             }}
         >
-            <Row style={{ justifyContent: 'space-between' }}>
+            <Row style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                 <Row>
                     <ExpandIcon {...expandProps}>{undefined}</ExpandIcon>
                     <Col>
@@ -229,6 +234,17 @@ export function PersonRow({ person, people, filters }: PersonRowProps): JSX.Elem
                         </div>
                     </Col>
                 </Row>
+                {person.session_recording && (
+                    <Link
+                        to={toSessionRecording(person.session_recording)}
+                        key={person.id}
+                        onClick={(event) => event.stopPropagation()}
+                        data-attr="sessions-player-button"
+                    >
+                        <PlayCircleOutlined style={{ fontSize: 16 }} />
+                        <span style={{ paddingLeft: 8, color: 'var(--text-muted-alt)' }}>Watch</span>
+                    </Link>
+                )}
                 <Button>
                     <Link
                         to={deepLinkToPersonSessions(
