@@ -363,7 +363,7 @@ $funnel_canvas_background: #fafafa;
             }
         }
         .funnel-inspect-button {
-            font-size: 0.85rem !important;
+            font-size: 0.8rem !important;
             .value-inspector-button-icon {
                 background-color: white !important;
             }
@@ -372,6 +372,12 @@ $funnel_canvas_background: #fafafa;
         &.colored {
             // Dashboard item is non-white, adjust stylings
             color: white;
+
+            a,
+            .ant-btn {
+                color: var(--item-primary) !important;
+            }
+
             .text-muted-alt {
                 color: rgba(white, 0.85);
             }
@@ -410,6 +416,19 @@ $funnel_canvas_background: #fafafa;
                             color: $text_default !important;
                         }
                         &.outside {
+                            color: white !important;
+                        }
+                    }
+                }
+            }
+
+            &.black {
+                // Special styles for dark mode
+                .funnel-bar-wrapper {
+                    background-color: #32384c;
+                    .funnel-bar {
+                        background: $primary;
+                        .funnel-bar-percentage {
                             color: white !important;
                         }
                     }

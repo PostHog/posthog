@@ -81,6 +81,7 @@
         --item-darker: hsl(212, 63%, 35%);
         --item-darkest: hsl(212, 63%, 30%);
         --item-lighter: hsl(212, 63%, 60%);
+        --item-primary: hsl(202, 100%, 83%);
     }
 
     &.purple {
@@ -88,6 +89,7 @@
         --item-darker: hsl(249, 46%, 46%);
         --item-darkest: hsl(249, 46%, 41%);
         --item-lighter: hsl(249, 46%, 65%);
+        --item-primary: hsl(284, 84%, 83%);
     }
 
     &.green {
@@ -95,6 +97,7 @@
         --item-darker: hsl(145, 60%, 29%);
         --item-darkest: hsl(145, 60%, 24%);
         --item-lighter: hsl(145, 60%, 50%);
+        --item-primary: hsl(112, 87%, 81%);
     }
 
     &.black {
@@ -102,6 +105,7 @@
         --item-darker: hsl(0, 0%, 9%);
         --item-darkest: hsl(0, 0%, 4%);
         --item-lighter: hsl(0, 0%, 40%);
+        --item-primary: hsl(228, 100%, 77%);
     }
 
     &.blue,
