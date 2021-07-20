@@ -1,4 +1,5 @@
 import inspect
+import uuid
 from typing import Any, Dict, Optional, Union
 
 from rest_framework.exceptions import ValidationError
@@ -89,11 +90,11 @@ class ExclusionEntity(Entity, FunnelFromToStepsMixin):
 
     def __init__(self, data: Dict[str, Any]) -> None:
         super().__init__(data)
+        self.identifier = str(uuid.uuid4())
 
     @property
     def sql_id(self):
-        # TODO: prevent SQL injection :(
-        return self.id.replace(" ", "_") if isinstance(self.id, str) else self.id
+        return self.identifier[-12:]
 
     def to_dict(self) -> Dict[str, Any]:
 
