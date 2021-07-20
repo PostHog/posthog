@@ -8,13 +8,6 @@ from posthog.models.person import Person
 
 
 class ClickhouseFunnelTrendsPersons(ClickhouseFunnelTrends):
-    def run(self, *args, **kwargs):
-        if len(self._filter.entities) == 0:
-            return []
-
-        results = self._exec_query()
-        return self._format_results(results), len(results) > self._filter.limit - 1
-
     def get_query(self) -> str:
         drop_off = self._filter.drop_off
         if drop_off is None:
@@ -48,4 +41,4 @@ class ClickhouseFunnelTrendsPersons(ClickhouseFunnelTrends):
 
         from posthog.api.person import PersonSerializer
 
-        return PersonSerializer(people, many=True).data
+        return PersonSerializer(people, many=True).data, len(results) > self._filter.limit - 1

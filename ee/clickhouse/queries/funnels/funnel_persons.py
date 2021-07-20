@@ -4,13 +4,6 @@ from posthog.models import Person
 
 
 class ClickhouseFunnelPersons(ClickhouseFunnel):
-    def run(self, *args, **kwargs):
-        if len(self._filter.entities) == 0:
-            return []
-
-        results = self._exec_query()
-        return self._format_results(results), len(results) > self._filter.limit - 1
-
     def get_query(self):
         return FUNNEL_PERSONS_BY_STEP_SQL.format(
             offset=self._filter.offset,
@@ -23,4 +16,4 @@ class ClickhouseFunnelPersons(ClickhouseFunnel):
 
         from posthog.api.person import PersonSerializer
 
-        return PersonSerializer(people, many=True).data
+        return PersonSerializer(people, many=True).data, len(results) > self._filter.limit - 1
