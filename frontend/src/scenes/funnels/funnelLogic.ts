@@ -288,7 +288,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
                 const score = (person: PersonType): number => {
                     return steps.reduce(
-                        (val, step) => (person.uuid && step.people?.indexOf(person.uuid) > -1 ? val + 1 : val),
+                        (val, step) => (person.uuid && (step.people?.indexOf(person.uuid) ?? -1) > -1 ? val + 1 : val),
                         0
                     )
                 }
@@ -443,7 +443,7 @@ export const funnelLogic = kea<funnelLogicType>({
         loadResultsSuccess: async () => {
             // load the old people table
             if (!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
-                if (values.stepsWithCount[0]?.people?.length > 0) {
+                if ((values.stepsWithCount[0]?.people?.length ?? 0) > 0) {
                     actions.loadPeople(values.stepsWithCount)
                 }
             }
