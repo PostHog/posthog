@@ -4,15 +4,15 @@ import FunnelGraph from 'funnel-graph-js'
 import { Loading, humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues, BindLogic } from 'kea'
 import { funnelLogic } from './funnelLogic'
-import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
 import { router } from 'kea-router'
-import { InputNumber } from 'antd'
+import { InputNumber, Row } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { ChartParams } from '~/types'
+import { ChartParams, FunnelVizType } from '~/types'
 import { FunnelEmptyState } from 'scenes/insights/EmptyStates'
 
 import './FunnelViz.scss'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 export function FunnelViz({
     filters: defaultFilters,
@@ -32,6 +32,7 @@ export function FunnelViz({
         areFiltersValid,
     } = useValues(logic)
     const { loadResults: loadFunnel, loadConversionWindow } = useActions(logic)
+    const { loadPeople } = useActions(personsModalLogic)
     const {
         hashParams: { fromItem },
     } = useValues(router)
@@ -40,7 +41,7 @@ export function FunnelViz({
     function buildChart(): void {
         // Build and mount graph for default "flow" visualization.
         // If steps are empty, new bargraph view is active, or linechart is visible, don't render flow graph.
-        if (!steps || steps.length === 0 || filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
+        if (!steps || steps.length === 0 || filters.funnel_viz_type === FunnelVizType.Trends) {
             return
         }
         if (container.current) {
@@ -103,10 +104,10 @@ export function FunnelViz({
         )
     }
 
-    if (filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
+    if (filters.funnel_viz_type === FunnelVizType.Trends) {
         return steps && steps.length > 0 && steps[0].labels ? (
             <>
-                <div style={{ position: 'absolute', marginTop: -20, textAlign: 'center', width: '90%' }}>
+                <Row style={{ marginTop: -16, justifyContent: 'center' }}>
                     {preflight?.is_clickhouse_enabled && (
                         <>
                             converted within&nbsp;
@@ -121,7 +122,7 @@ export function FunnelViz({
                         </>
                     )}
                     % converted from first to last step
-                </div>
+                </Row>
                 <LineGraph
                     data-attr="trend-line-graph-funnel"
                     type="line"
@@ -132,6 +133,20 @@ export function FunnelViz({
                     dashboardItemId={dashboardItemId || fromItem}
                     inSharedMode={inSharedMode}
                     percentage={true}
+                    onClick={
+                        dashboardItemId
+                            ? null
+                            : (point) => {
+                                  loadPeople({
+                                      action: { id: point.index, name: point.label, properties: [], type: 'actions' },
+                                      label: `Persons converted on ${point.label}`,
+                                      date_from: point.day,
+                                      date_to: point.day,
+                                      filters: filters,
+                                      saveOriginal: true,
+                                  })
+                              }
+                    }
                 />
             </>
         ) : null

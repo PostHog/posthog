@@ -7,9 +7,9 @@ import { calcPercentage, getReferenceStep } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/Histogram'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { ChartDisplayType } from '~/types'
 
 import './FunnelHistogram.scss'
+import { FunnelVizType } from '~/types'
 import { ChartParams } from '~/types'
 
 export function FunnelHistogramHeader(): JSX.Element | null {
@@ -17,7 +17,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
     const { changeHistogramStep } = useActions(funnelLogic)
     const { allFilters } = useValues(insightLogic)
 
-    if (allFilters.display !== ChartDisplayType.FunnelsTimeToConvert) {
+    if (allFilters.funnel_viz_type !== FunnelVizType.TimeToConvert) {
         return null
     }
 
