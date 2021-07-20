@@ -58,20 +58,30 @@
     }
 }
 .row-action-btn {
-    &:focus {
+    padding: 0 4px;
+    &:hover,
+    &:focus,
+    &.visible {
         border: 1px solid $primary;
     }
-    &.delete {
-        padding: 0 4px;
+}
+.action-row,
+.action-row-striped {
+    &.full-width {
+        flex-basis: 100%;
     }
-    &.show-filters {
-        padding: 0 8px;
-        &:hover,
-        &.visible {
-            border: 1px solid $primary;
+}
+
+.draggable-action-filter.drag-handle-visible {
+    .action-row,
+    .action-row-striped {
+        &.full-width {
+            width: calc(100% - 16px);
+            flex-basis: calc(100% - 16px);
         }
     }
 }
+
 .action-row-striped {
     padding: 0 0.25rem;
     margin: 0.25rem 0;
@@ -80,6 +90,7 @@
         background-color: #f6f6f6;
     }
 }
+
 .full-width {
     .property-filter-button-label {
         max-width: 300px;

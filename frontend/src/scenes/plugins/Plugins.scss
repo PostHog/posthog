@@ -1,6 +1,12 @@
 .plugins-scene {
     padding-bottom: 60px;
 }
+.plugins-installed-tab-section-header:hover {
+    cursor: pointer;
+}
+.plugin-capabilities-tag {
+    cursor: default;
+}
 .plugins-scene-plugin-card {
     > .ant-card-body {
         padding: 15px;

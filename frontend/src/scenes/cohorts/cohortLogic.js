@@ -80,6 +80,13 @@ export const cohortLogic = kea({
         ],
     }),
 
+    selectors: () => ({
+        isNewCohort: [
+            (selectors) => [selectors.cohort],
+            (cohort) => cohort.id === 'new' || cohort.id === 'personsModalNew',
+        ],
+    }),
+
     listeners: ({ sharedListeners, actions, values }) => ({
         saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
             let cohort = { ...values.cohort, ...cohortParams }
@@ -97,15 +104,15 @@ export const cohortLogic = kea({
                     cohortFormData.append(key, value)
                 }
             }
-            if (cohort.id !== 'new') {
+            if (cohort.id === 'new' || cohort.id === 'personsModalNew') {
+                cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortFormData)
+                cohortsModel.actions.createCohort(cohort)
+            } else {
                 cohort = await api.update(
                     'api/cohort/' + cohort.id + (filterParams ? '?' + filterParams : ''),
                     cohortFormData
                 )
                 cohortsModel.actions.updateCohort(cohort)
-            } else {
-                cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortFormData)
-                cohortsModel.actions.createCohort(cohort)
             }
             cohort.is_calculating = true // this will ensure there is always a polling period to allow for backend calculation task to run
             breakpoint()

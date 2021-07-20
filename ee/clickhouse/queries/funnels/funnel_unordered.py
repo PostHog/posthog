@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
@@ -23,17 +23,42 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     Here, `step_i` (0 indexed) signifies the number of people that did at least `i+1` steps.
     """
 
-    def get_query(self, format_properties):
-        return self.get_step_counts_query()
+    def get_query(self):
+
+        max_steps = len(self._filter.entities)
+
+        breakdown_clause = self._get_breakdown_prop()
+
+        return f"""
+        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
+            {self.get_step_counts_query()}
+        ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
+        """
 
     def get_step_counts_query(self):
 
         max_steps = len(self._filter.entities)
+
+        union_query = self.get_step_counts_without_aggregation_query()
+        breakdown_clause = self._get_breakdown_prop()
+
+        return f"""
+            SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} FROM (
+                SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} FROM (
+                        {union_query}
+                )
+            ) GROUP BY person_id, steps {breakdown_clause}
+            HAVING steps = max_steps
+        """
+
+    def get_step_counts_without_aggregation_query(self):
+        max_steps = len(self._filter.entities)
         union_queries = []
         entities_to_use = list(self._filter.entities)
 
-        partition_select = self.get_partition_cols(1, max_steps)
+        partition_select = self._get_partition_cols(1, max_steps)
         sorting_condition = self.get_sorting_condition(max_steps)
+        breakdown_clause = self._get_breakdown_prop()
 
         for i in range(max_steps):
             inner_query = f"""
@@ -41,11 +66,12 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
                 person_id,
                 timestamp,
                 {partition_select}
+                {breakdown_clause}
                 FROM ({self._get_inner_event_query(entities_to_use, f"events_{i}")})
             """
 
             formatted_query = f"""
-                SELECT *, {sorting_condition} AS steps FROM (
+                SELECT *, {sorting_condition} AS steps {self._get_step_times(max_steps)} FROM (
                         {inner_query}
                     ) WHERE step_0 = 1"""
 
@@ -53,15 +79,33 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             entities_to_use.append(entities_to_use.pop(0))
             union_queries.append(formatted_query)
 
-        union_formatted_query = " UNION ALL ".join(union_queries)
+        return " UNION ALL ".join(union_queries)
 
-        return f"""
-        SELECT furthest, count(1), groupArray(100)(person_id) FROM (
-            SELECT person_id, max(steps) AS furthest FROM (
-                {union_formatted_query}
-            ) GROUP BY person_id
-        ) GROUP BY furthest SETTINGS allow_experimental_window_functions = 1
-        """
+    def _get_step_time_names(self, max_steps: int):
+        names = []
+        for i in range(1, max_steps):
+            names.append(f"step_{i}_conversion_time")
+
+        formatted = ",".join(names)
+        return f", {formatted}" if formatted else ""
+
+    def _get_step_times(self, max_steps: int):
+        conditions: List[str] = []
+
+        conversion_times_elements = []
+        for i in range(max_steps):
+            conversion_times_elements.append(f"latest_{i}")
+
+        conditions.append(f"arraySort([{','.join(conversion_times_elements)}]) as conversion_times")
+
+        for i in range(1, max_steps):
+            conditions.append(
+                f"if(isNotNull(conversion_times[{i+1}]), dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
+            )
+            # array indices in ClickHouse are 1-based :shrug:
+
+        formatted = ", ".join(conditions)
+        return f", {formatted}" if formatted else ""
 
     def get_sorting_condition(self, max_steps: int):
 
@@ -71,4 +115,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
                 f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY, 1, 0)"
             )
 
-        return f"arraySum([{','.join(basic_conditions)}, 1])"
+        if basic_conditions:
+            return f"arraySum([{','.join(basic_conditions)}, 1])"
+        else:
+            return "1"

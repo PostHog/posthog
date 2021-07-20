@@ -19,8 +19,8 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import get_active_user_params
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import (
-    GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_SQL,
+    GET_TEAM_PERSON_DISTINCT_IDS,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL,
     PEOPLE_SQL,
     PEOPLE_THROUGH_DISTINCT_SQL,
@@ -41,21 +41,6 @@ from posthog.models.team import Team
 
 class ClickhouseActionSerializer(ActionSerializer):
     is_calculating = serializers.SerializerMethodField()
-
-    def get_count(self, action: Action) -> Optional[int]:
-        if self.context.get("view") and self.context["view"].action != "list":
-            query, params = format_action_filter(action)
-            if query == "":
-                return None
-            try:
-                return sync_execute(
-                    "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query),
-                    {"team_id": action.team_id, **params},
-                )[0][0]
-            except Exception as e:
-                capture_exception(e)
-                return None
-        return None
 
     def get_is_calculating(self, action: Action) -> bool:
         return False
@@ -118,6 +103,19 @@ class ClickhouseActionsViewSet(ActionViewSet):
             }
         )
 
+    @action(methods=["GET"], detail=True)
+    def count(self, request: Request, **kwargs) -> Response:
+        action = self.get_object()
+        query, params = format_action_filter(action)
+        if query == "":
+            return Response({"count": 0})
+
+        results = sync_execute(
+            "SELECT count(1) FROM events WHERE team_id = %(team_id)s AND {}".format(query),
+            {"team_id": action.team_id, **params},
+        )
+        return Response({"count": results[0][0]})
+
 
 def _handle_date_interval(filter: Filter) -> Filter:
     # adhoc date handling. parsed differently with django orm
@@ -169,6 +167,7 @@ def _process_content_sql(team: Team, entity: Entity, filter: Filter):
             filters=prop_filters,
             breakdown_filter="",
             person_filter=person_filter,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             **active_user_params,
         )
     else:
@@ -190,7 +189,7 @@ def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
         (PEOPLE_SQL if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] else PEOPLE_THROUGH_DISTINCT_SQL).format(
             content_sql=content_sql,
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         ),
         params,
     )
@@ -206,7 +205,7 @@ def insert_entity_people_into_cohort(cohort: Cohort, entity: Entity, filter: Fil
             cohort_table=PERSON_STATIC_COHORT_TABLE,
             content_sql=content_sql,
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         ),
         {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
     )

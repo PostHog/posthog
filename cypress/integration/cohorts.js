@@ -42,6 +42,9 @@ describe('Cohorts', () => {
             cy.get('[data-attr="persons-cohorts-tab"]').click()
             cy.get('[data-test-cohort-row]').first().click()
 
+            cy.get('div:not(disabled) > [data-attr="persons-cohorts-tab"]').click()
+            cy.get('[data-test-cohort-row]').first().click()
+
             cy.url().should('include', '/cohorts/')
             cy.get('[data-attr="cohort-name"]').should('have.value', 'Test Cohort')
         })

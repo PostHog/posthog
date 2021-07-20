@@ -81,7 +81,7 @@ export function InsightLabel({
                 <div className="protect-width">
                     {showEventName && <PropertyKeyInfo disableIcon disablePopover value={eventName} />}
 
-                    {hasMultipleSeries && ((action?.math && action.math !== 'total') || showCountedByTag) && (
+                    {((action?.math && action.math !== 'total') || showCountedByTag) && (
                         <MathTag math={action?.math} mathProperty={action?.math_property} />
                     )}
 

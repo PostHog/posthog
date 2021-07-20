@@ -39,6 +39,7 @@ export function LineGraph({
     percentage = false,
     interval = undefined,
     totalValue,
+    showPersonsModal = true,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -68,21 +69,22 @@ export function LineGraph({
 
     const annotationsCondition =
         type === 'line' &&
-        datasets.length > 0 &&
+        datasets?.length > 0 &&
         !datasets[0].compare &&
         !inSharedMode &&
-        datasets[0].labels[0] !== '1 day' // stickiness graphs
+        datasets[0].labels?.[0] !== '1 day' // stickiness graphs
 
+    const isLightTheme = color === 'white'
     const colors = {
-        axisLabel: color === 'white' ? '#333' : 'rgba(255,255,255,0.8)',
-        axisLine: color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)',
-        axis: color === 'white' ? '#999' : 'rgba(255,255,255,0.6)',
+        axisLabel: isLightTheme ? '#333' : 'rgba(255,255,255,0.8)',
+        axisLine: isLightTheme ? '#ddd' : 'rgba(255,255,255,0.2)',
+        axis: isLightTheme ? '#999' : 'rgba(255,255,255,0.6)',
         crosshair: 'rgba(0,0,0,0.2)',
         tooltipBackground: '#1dc9b7',
         tooltipTitle: '#fff',
         tooltipBody: '#fff',
-        annotationColor: color === 'white' ? null : 'white',
-        annotationAccessoryColor: color === 'white' ? null : 'black',
+        annotationColor: isLightTheme ? null : 'white',
+        annotationAccessoryColor: isLightTheme ? null : 'black',
     }
 
     useEscapeKey(() => setFocused(false), [focused])
@@ -175,9 +177,9 @@ export function LineGraph({
             datasets = [
                 ...datasets.map((dataset, index) => {
                     let datasetCopy = Object.assign({}, dataset)
-                    let data = [...dataset.data]
-                    let _labels = [...dataset.labels]
-                    let days = [...dataset.days]
+                    let data = [...(dataset.data || [])]
+                    let _labels = [...(dataset.labels || [])]
+                    let days = [...(dataset.days || [])]
                     data.pop()
                     _labels.pop()
                     days.pop()
@@ -188,7 +190,7 @@ export function LineGraph({
                 }),
                 ...datasets.map((dataset, index) => {
                     let datasetCopy = Object.assign({}, dataset)
-                    let datasetLength = datasetCopy.data.length
+                    let datasetLength = datasetCopy.data?.length ?? 0
                     datasetCopy.dotted = true
 
                     // if last date is still active show dotted line
@@ -220,7 +222,7 @@ export function LineGraph({
             precision: 0,
         }
 
-        const inspectUsersLabel = !dashboardItemId && onClick
+        const inspectUsersLabel = !dashboardItemId && onClick && showPersonsModal
 
         const newUITooltipOptions = {
             enabled: false, // disable builtin tooltip (use custom markup)
@@ -260,7 +262,6 @@ export function LineGraph({
 
                     // This could either be a color or an array of colors (`horizontalBar`)
                     const colorSet = entityData.backgroundColor || entityData.borderColor
-
                     return (
                         <InsightLabel
                             action={action}
@@ -544,10 +545,15 @@ export function LineGraph({
                 },
                 onClick: options.onClick,
             }
+        } else if (type === 'histogram') {
+            options = {
+                ...options,
+                barPercentage: 1,
+            }
         }
 
         myLineChart.current = new Chart(myChartRef, {
-            type,
+            type: type === 'histogram' ? 'bar' : type,
             data: { labels, datasets },
             options,
         })

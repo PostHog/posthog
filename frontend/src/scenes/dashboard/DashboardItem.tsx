@@ -24,20 +24,25 @@ import {
     DeliveredProcedureOutlined,
     BarChartOutlined,
     SaveOutlined,
+    ReloadOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
-import { logicFromInsight, ViewType } from 'scenes/insights/insightLogic'
+import { logicFromInsight } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType } from '~/types'
+import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Funnel } from 'scenes/funnels/Funnel'
 
 dayjs.extend(relativeTime)
 
@@ -180,6 +185,13 @@ export function DashboardItem({
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
+    const { dashboards } = useValues(dashboardsModel)
+    const { renameDashboardItem } = useActions(dashboardItemsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
+        displayMap.FunnelViz.element = Funnel
+    }
 
     const _type: DisplayedType =
         item.filters.insight === ViewType.RETENTION
@@ -209,8 +221,6 @@ export function DashboardItem({
     const viewText = displayMap[_type].viewText
     const link = displayMap[_type].link(item)
     const color = item.color || 'white'
-    const { dashboards } = useValues(dashboardsModel)
-    const { renameDashboardItem } = useActions(dashboardItemsModel)
     const otherDashboards: DashboardType[] = dashboards.filter((d: DashboardType) => d.id !== dashboardId)
 
     const longPressProps = useLongPress(setEditMode, {
@@ -228,6 +238,8 @@ export function DashboardItem({
         preventLoading,
     }
 
+    const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
+    const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
     const { results, resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
     const previousLoading = usePrevious(resultsLoading)
 
@@ -320,6 +332,27 @@ export function DashboardItem({
                                                 onClick={() => router.actions.push(link)}
                                             >
                                                 {viewText}
+                                            </Menu.Item>
+                                            <Menu.Item
+                                                data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
+                                                icon={<ReloadOutlined />}
+                                                onClick={() => {
+                                                    loadResults(true)
+                                                    reportDashboardItemRefreshed(item)
+                                                }}
+                                            >
+                                                <Tooltip
+                                                    title={
+                                                        <i>
+                                                            Last updated:{' '}
+                                                            {item.last_refresh
+                                                                ? dayjs(item.last_refresh).fromNow()
+                                                                : 'recently'}
+                                                        </i>
+                                                    }
+                                                >
+                                                    Refresh
+                                                </Tooltip>
                                             </Menu.Item>
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-rename'}

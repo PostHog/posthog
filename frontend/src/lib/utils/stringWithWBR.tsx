@@ -9,6 +9,10 @@ export default function stringWithWBR(text: string): JSX.Element {
     let sinceSplit = 0
     let i = 0
 
+    if (text === '') {
+        return <i>(empty string)</i>
+    }
+
     text.split('').forEach((letter) => {
         if (addWBRAfter.indexOf(letter) >= 0 || sinceSplit >= 30) {
             sinceSplit = 0

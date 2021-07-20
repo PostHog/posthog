@@ -1,12 +1,14 @@
 import json
 from datetime import timedelta
 
-from django.test.utils import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.constants import RDBMS
 from posthog.ee import is_clickhouse_enabled
+from posthog.models import User
+from posthog.models.cohort import Cohort
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
 from posthog.models.filters import Filter
@@ -17,6 +19,8 @@ from posthog.test.base import APIBaseTest
 
 def insight_test_factory(event_factory, person_factory):
     class TestInsight(APIBaseTest):
+        maxDiff = None
+
         CLASS_DATA_LEVEL_SETUP = False
 
         def test_get_insight_items(self):
@@ -142,6 +146,54 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response["result"][0]["count"], 2)
             self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
 
+        def test_nonexistent_cohort_is_handled(self):
+            response_nonexistent_property = self.client.get(
+                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'property','key':'foo','value':'barabarab'}])}"
+            ).json()
+            response_nonexistent_cohort = self.client.get(
+                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
+            ).json()  # This should not throw an error, just act like there's no event matches
+
+            self.assertEqual(response_nonexistent_cohort, response_nonexistent_property)  # Both cases just empty
+
+        def test_cohort_without_match_group_works(self):
+            whatever_cohort_without_match_groups = Cohort.objects.create(team=self.team)
+
+            response_nonexistent_property = self.client.get(
+                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'property','key':'foo','value':'barabarab'}])}"
+            )
+            response_cohort_without_match_groups = self.client.get(
+                f"/api/insight/trend/?events={json.dumps([{'id':'$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':whatever_cohort_without_match_groups.pk}])}"
+            )  # This should not throw an error, just act like there's no event matches
+
+            self.assertEqual(response_nonexistent_property.status_code, 200)
+            self.assertEqual(
+                response_nonexistent_property.json(), response_cohort_without_match_groups.json()
+            )  # Both cases just empty
+
+        def test_precalculated_cohort_works(self):
+            person_factory(team=self.team, distinct_ids=["person_1"], properties={"foo": "bar"})
+
+            whatever_cohort: Cohort = Cohort.objects.create(
+                id=113,
+                team=self.team,
+                groups=[{"properties": [{"type": "person", "key": "foo", "value": "bar", "operator": "exact"}]}],
+                last_calculation=timezone.now(),
+            )
+            whatever_cohort.calculate_people()
+            whatever_cohort.calculate_people_ch()
+
+            with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
+                response_user_property = self.client.get(
+                    f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'person','key':'foo','value':'bar'}])}"
+                )
+                response_precalculated_cohort = self.client.get(
+                    f"/api/insight/trend/?events={json.dumps([{'id':'$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':113}])}"
+                )
+
+            self.assertEqual(response_precalculated_cohort.status_code, 200)
+            self.assertEqual(response_precalculated_cohort.json(), response_user_property.json())
+
         def test_insight_trends_breakdown_pagination(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 for i in range(25):
@@ -175,6 +227,7 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(response["result"]), 1)
 
         def test_insight_funnels_basic_post(self):
+            person_factory(team=self.team, distinct_ids=["1"])
             event_factory(team=self.team, event="user signed up", distinct_id="1")
             event_factory(team=self.team, event="user did things", distinct_id="1")
             response = self.client.post(
@@ -192,7 +245,9 @@ def insight_test_factory(event_factory, person_factory):
             if is_clickhouse_enabled():
                 self.assertEqual(len(response["result"]), 2)
                 self.assertEqual(response["result"][0]["name"], "user signed up")
+                self.assertEqual(response["result"][0]["count"], 1)
                 self.assertEqual(response["result"][1]["name"], "user did things")
+                self.assertEqual(response["result"][1]["count"], 1)
             else:
                 self.assertEqual(response["result"]["loading"], True)
 
@@ -231,6 +286,40 @@ def insight_test_factory(event_factory, person_factory):
             response = self.client.get("/api/insight/retention/",).json()
 
             self.assertEqual(len(response["result"]), 11)
+
+        def test_insight_with_specified_token(self):
+            _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
+            assert user.team is not None
+            assert self.team is not None
+            assert self.user.team is not None
+
+            self.assertNotEqual(user.team.id, self.team.id)
+            self.client.force_login(self.user)
+
+            person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=6),
+            )
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=5),
+            )
+
+            events_filter = json.dumps([{"id": "$pageview"}])
+            response_team1 = self.client.get(f"/api/insight/trend/?events={events_filter}")
+            response_team1_token = self.client.get(
+                f"/api/insight/trend/?events={events_filter}&token={self.user.team.api_token}"
+            )
+            response_team2 = self.client.get(
+                f"/api/insight/trend/?events={events_filter}", data={"token": user.team.api_token}
+            )
+
+            self.assertEqual(response_team1.json()["result"], response_team1_token.json()["result"])
+            self.assertNotEqual(len(response_team1.json()["result"]), len(response_team2.json()["result"]))
+
+            response_invalid_token = self.client.get(f"/api/insight/trend?token=invalid")
+            self.assertEqual(response_invalid_token.status_code, 401)
 
     return TestInsight
 

@@ -57,6 +57,17 @@ class TestTeamAPI(APIBaseTest):
             response = self.client.post("/api/projects/", {"name": "Test"})
             self.assertEqual(Team.objects.count(), 1)
 
+    def test_retention_invalid_properties(self):
+        org = Organization.objects.create(name="New Org")
+        team = Team.objects.create(organization=org, name="Default Project")
+
+        properties = "invalid_json"
+        response = self.client.get(f"/api/projects/{team.pk}/actions/retention", data={"properties": properties})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertDictEqual(
+            response.json(), self.validation_error_response("Properties are unparsable!", "invalid_input")
+        )
+
     def test_update_project_timezone(self):
 
         response = self.client.patch("/api/projects/@current/", {"timezone": "Europe/Istanbul"})

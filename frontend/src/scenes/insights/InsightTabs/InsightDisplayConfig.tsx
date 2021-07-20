@@ -2,31 +2,29 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import {
-    ACTIONS_BAR_CHART_VALUE,
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_PIE_CHART,
-    ACTIONS_TABLE,
-    FEATURE_FLAGS,
-} from 'lib/constants'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
 import React from 'react'
-import { ChartDisplayType, FilterType } from '~/types'
-import { ViewType } from '../insightLogic'
+import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
+import { useValues } from 'kea'
+import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
+import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
+
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
     allFilters: FilterType
     activeView: ViewType
-    annotationsToCreate?: Record<string, any>[] // TODO: Annotate properly
+    annotationsToCreate: Record<string, any>[] // TODO: Annotate properly
 }
 
 const showIntervalFilter = function (activeView: ViewType, filter: FilterType): boolean {
     switch (activeView) {
         case ViewType.FUNNELS:
-            return filter.display === ACTIONS_LINE_GRAPH_LINEAR
+            return filter.funnel_viz_type === FunnelVizType.Trends
         case ViewType.RETENTION:
         case ViewType.PATHS:
             return false
@@ -45,6 +43,7 @@ const showChartFilter = function (activeView: ViewType): boolean {
         case ViewType.STICKINESS:
         case ViewType.SESSIONS:
         case ViewType.RETENTION:
+            return true
         case ViewType.FUNNELS:
             return !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]
         case ViewType.LIFECYCLE:
@@ -82,9 +81,12 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
 export function InsightDisplayConfig({
     allFilters,
     activeView,
+    annotationsToCreate,
     clearAnnotationsToCreate,
 }: InsightDisplayConfigProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
+    const showFunnelBarOptions = activeView === ViewType.FUNNELS && featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]
 
     return (
         <div className="display-config-inner">
@@ -94,7 +96,7 @@ export function InsightDisplayConfig({
             <div style={{ width: '100%', textAlign: 'right' }}>
                 {showChartFilter(activeView) && (
                     <ChartFilter
-                        onChange={(display: ChartDisplayType) => {
+                        onChange={(display: ChartDisplayType | FunnelVizType) => {
                             if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
                                 clearAnnotationsToCreate()
                             }
@@ -106,6 +108,13 @@ export function InsightDisplayConfig({
                 {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
+
+                {showFunnelBarOptions && allFilters.funnel_viz_type === FunnelVizType.Steps && (
+                    <>
+                        <FunnelDisplayLayoutPicker />
+                        <FunnelStepReferencePicker />
+                    </>
+                )}
 
                 {showDateFilter[activeView] && (
                     <>
@@ -120,6 +129,17 @@ export function InsightDisplayConfig({
                             )}
                         />
                     </>
+                )}
+
+                {activeView === ViewType.FUNNELS && (
+                    <SaveToDashboard
+                        item={{
+                            entity: {
+                                filters: allFilters,
+                                annotations: annotationsToCreate,
+                            },
+                        }}
+                    />
                 )}
 
                 {showComparePrevious[activeView] && <CompareFilter />}

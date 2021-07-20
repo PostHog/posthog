@@ -4,7 +4,7 @@ import clsx from 'clsx'
 // Imitates how Antd renders the expand icon
 // https://github.com/ant-design/ant-design/blob/master/components/table/ExpandIcon.tsx
 
-interface ExpandIconProps {
+export interface ExpandIconProps {
     prefixCls: string
     onExpand: (record: any, e: React.MouseEvent<HTMLElement>) => void
     record: any
@@ -13,7 +13,14 @@ interface ExpandIconProps {
     children?: JSX.Element
 }
 
-function ExpandIcon({ prefixCls, onExpand, record, expanded, expandable, children }: ExpandIconProps): JSX.Element {
+export function ExpandIcon({
+    prefixCls,
+    onExpand,
+    record,
+    expanded,
+    expandable,
+    children,
+}: ExpandIconProps): JSX.Element {
     const iconPrefix = `${prefixCls}-row-expand-icon`
     return (
         <div
@@ -36,5 +43,3 @@ function ExpandIcon({ prefixCls, onExpand, record, expanded, expandable, childre
         </div>
     )
 }
-
-export default ExpandIcon

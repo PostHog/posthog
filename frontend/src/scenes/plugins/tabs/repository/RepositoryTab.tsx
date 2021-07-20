@@ -5,17 +5,19 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginCard } from 'scenes/plugins/plugin/PluginCard'
 import { Subtitle } from 'lib/components/PageHeader'
 import { PluginLoading } from 'scenes/plugins/plugin/PluginLoading'
+import { PluginsSearch } from '../../PluginsSearch'
 
 export function RepositoryTab(): JSX.Element {
-    const { repositoryLoading, uninstalledPlugins } = useValues(pluginsLogic)
+    const { repositoryLoading, uninstalledPlugins, filteredUninstalledPlugins } = useValues(pluginsLogic)
 
     return (
         <div>
             <Subtitle subtitle="Plugin Repository" />
+            <PluginsSearch />
             <Row gutter={16} style={{ marginTop: 16 }}>
-                {(!repositoryLoading || uninstalledPlugins.length > 0) && (
+                {(!repositoryLoading || filteredUninstalledPlugins.length > 0) && (
                     <>
-                        {uninstalledPlugins.map((plugin) => {
+                        {filteredUninstalledPlugins.map((plugin) => {
                             return (
                                 <PluginCard
                                     key={plugin.url}
@@ -36,7 +38,7 @@ export function RepositoryTab(): JSX.Element {
                     </>
                 )}
             </Row>
-            {repositoryLoading && uninstalledPlugins.length === 0 && (
+            {repositoryLoading && filteredUninstalledPlugins.length === 0 && (
                 <Row gutter={16}>
                     <PluginLoading />
                 </Row>

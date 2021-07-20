@@ -4,7 +4,9 @@ from uuid import uuid4
 import pytz
 
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.queries.funnels import ClickhouseFunnel, ClickhouseFunnelStrict, ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
+from ee.clickhouse.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsPersons
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
 from posthog.models.filters import Filter
@@ -89,15 +91,18 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        funnel_trends = ClickhouseFunnelTrends(filter, self.team)
-        results = funnel_trends.perform_query()
+        funnel_trends = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)
+        results = funnel_trends._exec_query()
+        formatted_results = funnel_trends._format_results(results)
 
         self.assertEqual(len(results), 7)
+        self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
 
     def test_only_one_user_reached_one_step(self):
         _create_person(distinct_ids=["user a"], team=self.team)
 
         _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-07 19:00:00")
+
         filter = Filter(
             data={
                 "insight": INSIGHT_FUNNELS,
@@ -113,78 +118,98 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
+        funnel_trends = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)
+        results = funnel_trends._exec_query()
 
-        funnel_trends = ClickhouseFunnelTrends(filter, self.team)
-        results = funnel_trends.perform_query()
-        self.assertEqual(len(results), 7)
+        self.assertEqual(
+            results,
+            [
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 1,
+                    "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 0,
+                    "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 0,
+                    "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 0,
+                    "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 0,
+                    "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 0,
+                    "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+                {
+                    "reached_to_step_count": 0,
+                    "is_period_final": True,
+                    "conversion_rate": 0,
+                    "reached_from_step_count": 0,
+                    "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=pytz.UTC),
+                },
+            ],
+        )
 
-        day_1, day_2, day_3, day_4, day_5, day_6, day_7 = results
+        # 1 user who dropped off starting 2021-06-07
+        funnel_trends_persons_existent_dropped_off_results, _ = ClickhouseFunnelTrendsPersons(
+            Filter({**filter._data, "entrance_period_start": "2021-06-07 00:00:00", "drop_off": True}),
+            self.team,
+            ClickhouseFunnel,
+        ).run()
 
-        self.assertEqual(day_1["reached_from_step_count"], 1)
-        self.assertEqual(day_1["reached_to_step_count"], 0)
-        self.assertEqual(day_1["conversion_rate"], 0)
-        self.assertEqual(day_1["timestamp"], datetime(2021, 6, 7, 0, 0))
-        self.assertEqual(day_1["is_period_final"], True)
+        self.assertEqual(
+            len(funnel_trends_persons_existent_dropped_off_results), 1,
+        )
+        self.assertEqual(
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user a"]],
+        )
 
-        self.assertDictEqual(
-            day_2,
-            {
-                "reached_to_step_count": 0,
-                "is_period_final": True,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 8, 0, 0),
-            },
+        # No users converted 2021-06-07
+        funnel_trends_persons_nonexistent_converted_results, _ = ClickhouseFunnelTrendsPersons(
+            Filter({**filter._data, "entrance_period_start": "2021-06-07 00:00:00", "drop_off": False}),
+            self.team,
+            ClickhouseFunnel,
+        ).run()
+
+        self.assertEqual(
+            len(funnel_trends_persons_nonexistent_converted_results), 0,
         )
-        self.assertDictEqual(
-            day_3,
-            {
-                "reached_to_step_count": 0,
-                "is_period_final": True,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 9, 0, 0),
-            },
-        )
-        self.assertDictEqual(
-            day_4,
-            {
-                "reached_to_step_count": 0,
-                "is_period_final": True,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 10, 0, 0),
-            },
-        )
-        self.assertDictEqual(
-            day_5,
-            {
-                "reached_to_step_count": 0,
-                "is_period_final": True,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 11, 0, 0),
-            },
-        )
-        self.assertDictEqual(
-            day_6,
-            {
-                "reached_to_step_count": 0,
-                "is_period_final": True,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 12, 0, 0),
-            },
-        )
-        self.assertDictEqual(
-            day_7,
-            {
-                "reached_to_step_count": 0,
-                "is_period_final": True,
-                "conversion_rate": 0,
-                "reached_from_step_count": 0,
-                "timestamp": datetime(2021, 6, 13, 0, 0),
-            },
+
+        # No users dropped off 2021-06-08
+        funnel_trends_persons_nonexistent_converted_results, _ = ClickhouseFunnelTrendsPersons(
+            Filter({**filter._data, "entrance_period_start": "2021-06-08 00:00:00", "drop_off": True}),
+            self.team,
+            ClickhouseFunnel,
+        ).run()
+
+        self.assertEqual(
+            len(funnel_trends_persons_nonexistent_converted_results), 0,
         )
 
     # minute, hour, day, week, month
@@ -204,7 +229,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
         self.assertEqual(len(results), 145)
 
     def test_day_interval(self):
@@ -223,7 +248,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
         self.assertEqual(len(results), 7)
 
     def test_week_interval(self):
@@ -242,7 +267,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
         self.assertEqual(2, len(results))
 
     def test_month_interval(self):
@@ -261,7 +286,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
         self.assertEqual(len(results), 1)
 
     def test_all_results_for_day_interval(self):
@@ -282,7 +307,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
 
         saturday = results[0]  # 5/1
         self.assertEqual(3, saturday["reached_to_step_count"])
@@ -344,7 +369,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
 
         saturday = results[0]  # 5/1
         self.assertEqual(1, saturday["reached_to_step_count"])
@@ -421,7 +446,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
 
         self.assertEqual(len(results), 2)
 
@@ -472,7 +497,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
 
         self.assertEqual(len(results), 1)
 
@@ -504,7 +529,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
 
         self.assertEqual(len(results), 1)
 
@@ -550,7 +575,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
 
         self.assertEqual(len(results), 4)
 
@@ -577,6 +602,34 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_4["reached_to_step_count"], 1)
         self.assertEqual(day_4["conversion_rate"], 50)
         self.assertEqual(day_4["is_period_final"], True)
+
+        # 1 user who dropped off starting # 2021-05-04
+        funnel_trends_persons_existent_dropped_off_results, _ = ClickhouseFunnelTrendsPersons(
+            Filter({**filter._data, "entrance_period_start": "2021-05-04 00:00:00", "drop_off": True}),
+            self.team,
+            ClickhouseFunnel,
+        ).run()
+
+        self.assertEqual(
+            len(funnel_trends_persons_existent_dropped_off_results), 1,
+        )
+        self.assertEqual(
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_two"]],
+        )
+
+        # 1 user who converted starting # 2021-05-04
+        funnel_trends_persons_existent_dropped_off_results, _ = ClickhouseFunnelTrendsPersons(
+            Filter({**filter._data, "entrance_period_start": "2021-05-04 00:00:00", "drop_off": False}),
+            self.team,
+            ClickhouseFunnel,
+        ).run()
+
+        self.assertEqual(
+            len(funnel_trends_persons_existent_dropped_off_results), 1,
+        )
+        self.assertEqual(
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_one"]],
+        )
 
     def test_from_second_step(self):
         _create_person(distinct_ids=["user_one"], team=self.team)
@@ -608,7 +661,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-02 23:59:59",
                 "funnel_window_days": 3,
-                "funnel_from_step": 2,
+                "funnel_from_step": 1,
                 "events": [
                     {"id": "step one", "order": 0},
                     {"id": "step two", "order": 1},
@@ -616,7 +669,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
 
         self.assertEqual(len(results), 2)
 
@@ -662,7 +715,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-02 23:59:59",
                 "funnel_window_days": 3,
-                "funnel_to_step": 2,
+                "funnel_to_step": 1,
                 "events": [
                     {"id": "step one", "order": 0},
                     {"id": "step two", "order": 1},
@@ -670,7 +723,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
 
         self.assertEqual(len(results), 2)
 
@@ -704,7 +757,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results = ClickhouseFunnelTrends(filter, self.team).perform_query()
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
 
         filter_breakdown = Filter(
             data={
@@ -723,6 +776,168 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        results_breakdown = ClickhouseFunnelTrends(filter_breakdown, self.team).perform_query()
+        results_breakdown = ClickhouseFunnelTrends(filter_breakdown, self.team, ClickhouseFunnel)._exec_query()
 
         self.assertEqual(results_breakdown, results)
+
+    def test_one_person_in_multiple_periods_and_windows_in_unordered_funnel(self):
+        _create_person(distinct_ids=["user_one"], team=self.team)
+        _create_person(distinct_ids=["user_two"], team=self.team)
+
+        # 1st user's 1st complete run
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 03:00:00")
+
+        # 1st user's incomplete run
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-03 01:00:00")
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-03 02:00:00")
+
+        # 2nd user's incomplete run
+        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-04 18:00:00")
+
+        # 1st user's 2nd complete run
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-04 11:00:00")
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-04 12:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-04 13:00:00")
+
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-04 23:59:59",
+                "funnel_window_days": 1,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnelUnordered)._exec_query()
+
+        self.assertEqual(len(results), 4)
+
+        day_1 = results[0]  # 2021-05-01
+        self.assertEqual(day_1["reached_from_step_count"], 1)
+        self.assertEqual(day_1["reached_to_step_count"], 1)
+        self.assertEqual(day_1["conversion_rate"], 100)
+        self.assertEqual(day_1["is_period_final"], True)
+
+        day_2 = results[1]  # 2021-05-02
+        self.assertEqual(day_2["reached_from_step_count"], 0)
+        self.assertEqual(day_2["reached_to_step_count"], 0)
+        self.assertEqual(day_2["conversion_rate"], 0)
+        self.assertEqual(day_2["is_period_final"], True)
+
+        day_3 = results[2]  # 2021-05-03
+        self.assertEqual(day_3["reached_from_step_count"], 1)
+        self.assertEqual(day_3["reached_to_step_count"], 0)
+        self.assertEqual(day_3["conversion_rate"], 0)
+        self.assertEqual(day_3["is_period_final"], True)
+
+        day_4 = results[3]  # 2021-05-04
+        self.assertEqual(day_4["reached_from_step_count"], 2)
+        self.assertEqual(day_4["reached_to_step_count"], 1)
+        self.assertEqual(day_4["conversion_rate"], 50)
+        self.assertEqual(day_4["is_period_final"], True)
+
+        # 1 user who dropped off starting # 2021-05-04
+        funnel_trends_persons_existent_dropped_off_results, _ = ClickhouseFunnelTrendsPersons(
+            Filter({**filter._data, "entrance_period_start": "2021-05-04 00:00:00", "drop_off": True}),
+            self.team,
+            ClickhouseFunnelUnordered,
+        ).run()
+
+        self.assertEqual(
+            len(funnel_trends_persons_existent_dropped_off_results), 1,
+        )
+        self.assertEqual(
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_two"]],
+        )
+
+        # 1 user who converted starting # 2021-05-04
+        funnel_trends_persons_existent_dropped_off_results, _ = ClickhouseFunnelTrendsPersons(
+            Filter({**filter._data, "entrance_period_start": "2021-05-04 00:00:00", "drop_off": False}),
+            self.team,
+            ClickhouseFunnelUnordered,
+        ).run()
+
+        self.assertEqual(
+            len(funnel_trends_persons_existent_dropped_off_results), 1,
+        )
+        self.assertEqual(
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_one"]],
+        )
+
+    def test_one_person_in_multiple_periods_and_windows_in_strict_funnel(self):
+        _create_person(distinct_ids=["user_one"], team=self.team)
+        _create_person(distinct_ids=["user_two"], team=self.team)
+
+        # 1st user's 1st complete run
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 03:00:00")
+
+        # 1st user's incomplete run
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-03 01:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-03 02:00:00")
+        # broken because strict
+        _create_event(event="blah", distinct_id="user_one", team=self.team, timestamp="2021-05-03 02:30:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-03 03:00:00")
+
+        # 2nd user's incomplete run
+        _create_event(event="step one", distinct_id="user_two", team=self.team, timestamp="2021-05-04 18:00:00")
+        # broken because strict
+        _create_event(event="blah", distinct_id="user_two", team=self.team, timestamp="2021-05-04 18:20:00")
+        _create_event(event="step two", distinct_id="user_two", team=self.team, timestamp="2021-05-04 19:00:00")
+
+        # 1st user's 2nd complete run
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-04 11:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-04 12:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-04 13:00:00")
+
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-04 23:59:59",
+                "funnel_window_days": 1,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnelStrict)._exec_query()
+
+        self.assertEqual(len(results), 4)
+
+        day_1 = results[0]  # 2021-05-01
+        self.assertEqual(day_1["reached_from_step_count"], 1)
+        self.assertEqual(day_1["reached_to_step_count"], 1)
+        self.assertEqual(day_1["conversion_rate"], 100)
+        self.assertEqual(day_1["is_period_final"], True)
+
+        day_2 = results[1]  # 2021-05-02
+        self.assertEqual(day_2["reached_from_step_count"], 0)
+        self.assertEqual(day_2["reached_to_step_count"], 0)
+        self.assertEqual(day_2["conversion_rate"], 0)
+        self.assertEqual(day_2["is_period_final"], True)
+
+        day_3 = results[2]  # 2021-05-03
+        self.assertEqual(day_3["reached_from_step_count"], 1)
+        self.assertEqual(day_3["reached_to_step_count"], 0)
+        self.assertEqual(day_3["conversion_rate"], 0)
+        self.assertEqual(day_3["is_period_final"], True)
+
+        day_4 = results[3]  # 2021-05-04
+        self.assertEqual(day_4["reached_from_step_count"], 2)
+        self.assertEqual(day_4["reached_to_step_count"], 1)
+        self.assertEqual(day_4["conversion_rate"], 50)
+        self.assertEqual(day_4["is_period_final"], True)

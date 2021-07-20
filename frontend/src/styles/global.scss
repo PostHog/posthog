@@ -24,6 +24,7 @@ style files without adding already imported styles. */
     --text-default: #{$text_default};
     --text-light: #{$text_light};
     --muted: #{$text_muted};
+    --border: #{$border};
     // Used for graph series
     --blue: #{$blue_500};
     --purple: #{$purple_500};
@@ -138,6 +139,10 @@ style files without adding already imported styles. */
 
 .text-muted {
     color: $text_muted;
+}
+
+.text-muted-alt {
+    color: $text_muted_alt;
 }
 
 code.code {

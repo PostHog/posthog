@@ -35,7 +35,6 @@ class TestSessionListBuilder(BaseTest):
                 "distinct_id": "1",
                 "end_time": now(),
                 "start_time": now() - relativedelta(minutes=35),
-                "event_count": 4,
                 "length": 35 * 60,
                 "end_url": None,
                 "start_url": None,
@@ -47,7 +46,6 @@ class TestSessionListBuilder(BaseTest):
                 "distinct_id": "1",
                 "end_time": now() - relativedelta(minutes=99),
                 "start_time": now() - relativedelta(minutes=102),
-                "event_count": 2,
                 "length": 3 * 60,
                 "end_url": None,
                 "start_url": None,
@@ -74,15 +72,13 @@ class TestSessionListBuilder(BaseTest):
 
         self.assertEqual(len(page1), 2)
         self.assertDictContainsSubset(
-            {"distinct_id": "1", "end_time": now(), "start_time": now() - relativedelta(minutes=35), "event_count": 3},
-            page1[0],
+            {"distinct_id": "1", "end_time": now(), "start_time": now() - relativedelta(minutes=35)}, page1[0],
         )
         self.assertDictContainsSubset(
             {
                 "distinct_id": "2",
                 "end_time": now() - relativedelta(minutes=3),
                 "start_time": now() - relativedelta(minutes=45),
-                "event_count": 3,
             },
             page1[1],
         )
@@ -106,7 +102,6 @@ class TestSessionListBuilder(BaseTest):
                 "distinct_id": "3",
                 "end_time": now() - relativedelta(minutes=7),
                 "start_time": now() - relativedelta(minutes=7),
-                "event_count": 1,
             },
             page2[0],
         )
@@ -115,7 +110,6 @@ class TestSessionListBuilder(BaseTest):
                 "distinct_id": "1",
                 "end_time": now() - relativedelta(minutes=85),
                 "start_time": now() - relativedelta(minutes=88),
-                "event_count": 2,
             },
             page2[1],
         )
@@ -126,11 +120,11 @@ class TestSessionListBuilder(BaseTest):
         sessions = self.build(
             [
                 mock_event("1", now()),
-                mock_event("2", now() - relativedelta(minutes=3), current_url="http://foo.bar/landing"),
+                mock_event("2", now() - relativedelta(minutes=3), current_url="http://foo.bar/subpage"),
                 mock_event("2", now() - relativedelta(minutes=25)),
                 mock_event("1", now() - relativedelta(minutes=27)),
                 mock_event("1", now() - relativedelta(minutes=35)),
-                mock_event("2", now() - relativedelta(minutes=45), current_url="http://foo.bar/subpage"),
+                mock_event("2", now() - relativedelta(minutes=45), current_url="http://foo.bar/landing"),
             ],
             emails={"2": "foo@bar.com"},
         )

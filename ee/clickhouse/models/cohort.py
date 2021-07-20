@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from dateutil import parser
 from django.conf import settings
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
@@ -17,9 +18,9 @@ from ee.clickhouse.sql.cohort import (
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
 )
 from ee.clickhouse.sql.person import (
-    GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_ID_SQL,
     GET_PERSON_IDS_BY_FILTER,
+    GET_TEAM_PERSON_DISTINCT_IDS,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
@@ -29,7 +30,7 @@ from posthog.models import Action, Cohort, Filter, Team
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 
-def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
+def format_person_query(cohort: Cohort, index: int, **kwargs) -> Tuple[str, Dict[str, Any]]:
     filters = []
     params: Dict[str, Any] = {}
 
@@ -37,12 +38,18 @@ def format_person_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
 
     if cohort.is_static:
         return (
-            f"{custom_match_field} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s)",
-            {"cohort_id": cohort.pk, "team_id": cohort.team_id},
+            f"{custom_match_field} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %(cohort_id_{index})s AND team_id = %(team_id)s)",
+            {f"cohort_id_{index}": cohort.pk, "team_id": cohort.team_id},
         )
 
     or_queries = []
-    for group_idx, group in enumerate(cohort.groups):
+    groups = cohort.groups
+
+    if not groups:
+        # No person can match a cohort that has no match groups
+        return "0 = 1", {}
+
+    for group_idx, group in enumerate(groups):
         if group.get("action_id") or group.get("event_id"):
             entity_query, entity_params = get_entity_cohort_subquery(cohort, group, group_idx)
             params = {**params, **entity_params}
@@ -93,10 +100,10 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
     if count:
         count_operator = _get_count_operator(count_operator)
         extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             entity_query=entity_query,
             date_query=date_query,
             count_operator=count_operator,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         )
         params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
         return f"person_id IN ({extract_person})", params
@@ -113,7 +120,7 @@ def _get_count_operator(count_operator: Optional[str]) -> str:
     elif count_operator == "eq" or count_operator is None:
         return "="
     else:
-        raise ValueError("count_operator must be gte, lte, eq, or None")
+        raise ValidationError("count_operator must be gte, lte, eq, or None")
 
 
 def _get_entity_query(
@@ -126,7 +133,7 @@ def _get_entity_query(
         action_filter_query, action_params = format_action_filter(action, prepend="_{}_action".format(group_idx))
         return action_filter_query, action_params
     else:
-        raise ValueError("Cohort query requires action_id or event_id")
+        raise ValidationError("Cohort query requires action_id or event_id")
 
 
 def get_date_query(
@@ -168,34 +175,38 @@ def parse_cohort_timestamps(start_time: Optional[str], end_time: Optional[str]) 
 
 
 def is_precalculated_query(cohort: Cohort) -> bool:
+
     if (
         cohort.last_calculation
         and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
-        and not settings.DEBUG
-        and not settings.TEST
+        and settings.USE_PRECALCULATED_CH_COHORT_PEOPLE
+        and not cohort.is_static  # static cohorts are handled within the regular cohort filter query path
     ):
         return True
     else:
         return False
 
 
-def format_filter_query(cohort: Cohort) -> Tuple[str, Dict[str, Any]]:
+def format_filter_query(cohort: Cohort, index: int = 0) -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
-    person_query, params = get_precalculated_query(cohort) if is_precalculated else format_person_query(cohort)
+    person_query, params = (
+        get_precalculated_query(cohort, index) if is_precalculated else format_person_query(cohort, index)
+    )
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
-        query=person_query, latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
+        query=person_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
     )
     return person_id_query, params
 
 
-def get_precalculated_query(cohort: Cohort, **kwargs) -> Tuple[str, Dict[str, Any]]:
+def get_precalculated_query(cohort: Cohort, index: int, **kwargs) -> Tuple[str, Dict[str, Any]]:
     custom_match_field = kwargs.get("custom_match_field", "person_id")
+    filter_query = GET_PERSON_ID_BY_COHORT_ID.format(index=index)
     return (
         f"""
-        {custom_match_field} IN ({GET_PERSON_ID_BY_COHORT_ID})
+        {custom_match_field} IN ({filter_query})
         """,
-        {"team_id": cohort.team_id, "cohort_id": cohort.pk},
+        {"team_id": cohort.team_id, f"cohort_id_{index}": cohort.pk},
     )
 
 
@@ -203,7 +214,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
     from ee.clickhouse.models.property import parse_prop_clauses
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}],})
-    filter_query, filter_params = parse_prop_clauses(filters.properties, team.pk, table_name="pid")
+    filter_query, filter_params = parse_prop_clauses(filters.properties, team.pk, table_name="pdi")
 
     results = sync_execute(GET_PERSON_IDS_BY_FILTER.format(distinct_query=filter_query, query=""), filter_params,)
 
@@ -225,7 +236,7 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 
 def recalculate_cohortpeople(cohort: Cohort):
-    cohort_filter, cohort_params = format_person_query(cohort, custom_match_field="id")
+    cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id")
 
     cohort_filter = GET_PERSON_IDS_BY_FILTER.format(distinct_query="AND " + cohort_filter, query="")
 

@@ -63,7 +63,7 @@ export const MATHS: Record<string, any> = {
         name: 'Total count',
         description: (
             <>
-                Total event count. Number of times the user performed the event.
+                Total event count. Total number of times the event was performed by any user.
                 <br />
                 <br />
                 <i>Example: If a user performs an event 3 times in the given period, it counts as 3.</i>
@@ -91,8 +91,10 @@ export const MATHS: Record<string, any> = {
         name: 'Weekly Active',
         description: (
             <>
-                Users active in the past week (7 days). This is a trailing count that aggregates distinct users in the
-                past 7 days for each day in the time series
+                Users active in the past week (7 days).
+                <br />
+                This is a trailing count that aggregates distinct users in the past 7 days for each day in the time
+                series
             </>
         ),
         onProperty: false,
@@ -115,7 +117,7 @@ export const MATHS: Record<string, any> = {
         name: 'Average',
         description: (
             <>
-                Event property average.
+                Average of a property value within an event or action.
                 <br />
                 <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 14.
@@ -128,7 +130,7 @@ export const MATHS: Record<string, any> = {
         name: 'Sum',
         description: (
             <>
-                Event property sum.
+                Sum of property values within an event or action.
                 <br />
                 <br />
                 For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
@@ -231,8 +233,11 @@ export const FEATURE_FLAGS: Record<string, string> = {
     INGESTION_TAXONOMY: '4267-event-property-taxonomy',
     NEW_TOOLTIPS: '4156-tooltips-legends',
     ENGAGEMENT_COHORTS: 'engagement-cohorts-4349',
-    PERSONS_MODAL_FILTERING: '4819-persons-modal-updates',
-    FUNNEL_BAR_VIZ: '4535-funnel-bar-viz',
+    PLUGIN_METRICS: '4871-plugin-metrics',
+    FUNNEL_BAR_VIZ: '4535-funnel-bar-viz', // Nail Funnels #4785
+    SESSIONS_TABLE: '4964-sessions-table', // Expand/collapse all in sessions table (performance consideration)
+    TAXONOMIC_PROPERTY_FILTER: '4267-taxonomic-property-filter',
+    PERSONS_MODAL_SEARCH: 'persons-modal-search',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
@@ -244,3 +249,13 @@ export enum Environments {
 
 export const ENTITY_MATCH_TYPE = 'entities'
 export const PROPERTY_MATCH_TYPE = 'properties'
+
+export enum FunnelLayout {
+    horizontal = 'horizontal',
+    vertical = 'vertical',
+}
+
+export const ERROR_MESSAGES: Record<string, string> = {
+    no_new_organizations:
+        'Your email address is not associated with an account. Please ask your administrator for an invite.',
+}

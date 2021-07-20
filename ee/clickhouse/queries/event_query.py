@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Tuple
 from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
 from ee.clickhouse.queries.util import parse_timestamps
+from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models import Cohort, Filter, Property, Team
 
 
@@ -56,25 +57,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     def _get_disintct_id_query(self) -> str:
         if self._should_join_distinct_ids:
             return f"""
-            INNER JOIN (
-                SELECT person_id,
-                    distinct_id
-                FROM (
-                        SELECT *
-                        FROM person_distinct_id
-                        JOIN (
-                                SELECT distinct_id,
-                                    max(_offset) as _offset
-                                FROM person_distinct_id
-                                WHERE team_id = %(team_id)s
-                                GROUP BY distinct_id
-                            ) as person_max
-                            ON person_distinct_id.distinct_id = person_max.distinct_id
-                        AND person_distinct_id._offset = person_max._offset
-                        WHERE team_id = %(team_id)s
-                    )
-                WHERE team_id = %(team_id)s
-            ) AS {self.DISTINCT_ID_TABLE_ALIAS}
+            INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON events.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
             """
         else:
@@ -105,7 +88,14 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     return
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
-        cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        try:
+            cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        except Cohort.DoesNotExist:
+            return False
+        if is_precalculated_query(cohort):
+            return True
+        if cohort.is_static:
+            return True
         for group in cohort.groups:
             if group.get("properties"):
                 return True
@@ -125,7 +115,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     GROUP BY id
                     HAVING is_deleted = 0
                 )
-            ) {self.PERSON_TABLE_ALIAS} 
+            ) {self.PERSON_TABLE_ALIAS}
             ON {self.PERSON_TABLE_ALIAS}.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             """
         else:
@@ -186,13 +176,17 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         return " ".join(final), params
 
     def _get_cohort_subquery(self, prop) -> Tuple[str, Dict[str, Any]]:
-        cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        try:
+            cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
+        except Cohort.DoesNotExist:
+            return "0 = 1", {}  # If cohort doesn't exist, nothing can match
+
         is_precalculated = is_precalculated_query(cohort)
 
         person_id_query, cohort_filter_params = (
-            get_precalculated_query(cohort, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
+            get_precalculated_query(cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
             if is_precalculated
-            else format_person_query(cohort, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
+            else format_person_query(cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
         )
 
         return person_id_query, cohort_filter_params

@@ -5,8 +5,11 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ViewType } from '../insightLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { ViewType } from '~/types'
+import { TaxonomicBreakdownFilter } from 'scenes/insights/BreakdownFilter/TaxonomicBreakdownFilter'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const { TabPane } = Tabs
 
@@ -125,7 +128,7 @@ function Content({ breakdown, breakdown_type, onChange }) {
     )
 }
 
-export function BreakdownFilter({ filters, onChange }) {
+export function OriginalBreakdownFilter({ filters, onChange }) {
     const { cohorts } = useValues(cohortsModel)
     const { breakdown, breakdown_type, insight } = filters
     let [open, setOpen] = useState(false)
@@ -176,4 +179,13 @@ export function BreakdownFilter({ filters, onChange }) {
             </Tooltip>
         </Popover>
     )
+}
+
+export function BreakdownFilter(props) {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER]) {
+        return <TaxonomicBreakdownFilter {...props} />
+    } else {
+        return <OriginalBreakdownFilter {...props} />
+    }
 }

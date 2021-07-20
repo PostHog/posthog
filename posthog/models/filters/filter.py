@@ -20,12 +20,21 @@ from posthog.models.filters.mixins.common import (
     FormulaMixin,
     InsightMixin,
     IntervalMixin,
+    LimitMixin,
     OffsetMixin,
     SelectorMixin,
     SessionMixin,
     ShownAsMixin,
 )
-from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin, FunnelStep, FunnelWindowDaysMixin
+from posthog.models.filters.mixins.funnel import (
+    FunnelFromToStepsMixin,
+    FunnelPersonsStepBreakdownMixin,
+    FunnelPersonsStepMixin,
+    FunnelTrendsPersonsMixin,
+    FunnelTypeMixin,
+    FunnelWindowDaysMixin,
+    HistogramMixin,
+)
 from posthog.models.filters.mixins.property import PropertyMixin
 
 
@@ -46,12 +55,17 @@ class Filter(
     InsightMixin,
     SessionMixin,
     OffsetMixin,
+    LimitMixin,
     DateMixin,
-    BaseFilter,
     FormulaMixin,
     FunnelWindowDaysMixin,
     FunnelFromToStepsMixin,
-    FunnelStep,
+    FunnelPersonsStepMixin,
+    FunnelTrendsPersonsMixin,
+    FunnelPersonsStepBreakdownMixin,
+    FunnelTypeMixin,
+    HistogramMixin,
+    BaseFilter,
 ):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.
@@ -77,6 +91,7 @@ class Filter(
 
             data = {
                 **request.GET.dict(),
+                **request.data,
                 **(data if data else {}),
                 **({PROPERTIES: properties}),
             }

@@ -17,10 +17,10 @@ import { Paths } from 'scenes/paths/Paths'
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
+import { insightLogic, logicFromInsight } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { SavedFunnels } from './SavedCard'
-import { ReloadOutlined, DownOutlined, UpOutlined } from '@ant-design/icons'
+import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
@@ -29,13 +29,21 @@ import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { HotKeys } from '~/types'
+import { FunnelVizType, HotKeys, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PersonModal } from 'scenes/trends/PersonModal'
+import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
+import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
+import clsx from 'clsx'
+import { Funnel } from 'scenes/funnels/Funnel'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -64,6 +72,13 @@ export function Insights(): JSX.Element {
     } = useValues(insightLogic)
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
+    const { showingPeople } = useValues(personsModalLogic)
+    const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
+
+    const { cohortModalVisible } = useValues(personsModalLogic)
+    const { setCohortModalVisible } = useActions(personsModalLogic)
 
     const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
@@ -100,6 +115,23 @@ export function Insights(): JSX.Element {
 
     return (
         <div className="insights-page">
+            <PersonModal
+                visible={showingPeople && !cohortModalVisible}
+                view={ViewType.FUNNELS}
+                filters={allFilters}
+                onSaveCohort={() => {
+                    refreshCohort()
+                    setCohortModalVisible(true)
+                }}
+            />
+            <SaveCohortModal
+                visible={cohortModalVisible}
+                onOk={(title: string) => {
+                    saveCohortWithFilters(title, allFilters)
+                    setCohortModalVisible(false)
+                }}
+                onCancel={() => setCohortModalVisible(false)}
+            />
             <PageHeader title="Insights" />
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
@@ -305,22 +337,31 @@ export function Insights(): JSX.Element {
                                 className="insights-graph-container"
                             >
                                 <div>
-                                    {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
-                                        <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
-                                            Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
-                                            <Button
-                                                size="small"
-                                                type="link"
-                                                onClick={() => loadResults(true)}
-                                                style={{ margin: 0 }}
-                                            >
-                                                refresh
-                                                <ReloadOutlined
-                                                    style={{ cursor: 'pointer', marginTop: -3, marginLeft: 3 }}
-                                                />
-                                            </Button>
-                                        </small>
-                                    )}
+                                    <Row
+                                        style={{
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            marginTop: -8,
+                                            marginBottom: 16,
+                                        }}
+                                    >
+                                        <FunnelCanvasLabel />
+                                        <FunnelHistogramHeader />
+                                        {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
+                                            <div className="text-muted-alt">
+                                                Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}{' '}
+                                                &bull;
+                                                <Button
+                                                    size="small"
+                                                    type="link"
+                                                    onClick={() => loadResults(true)}
+                                                    style={{ margin: 0 }}
+                                                >
+                                                    <span style={{ fontSize: 14 }}>Refresh</span>
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </Row>
                                     {showErrorMessage ? (
                                         <ErrorMessage />
                                     ) : (
@@ -349,14 +390,12 @@ export function Insights(): JSX.Element {
                                     </div>
                                 </div>
                             </Card>
-                            {!showErrorMessage &&
+                            {(!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ||
+                                (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && !preflight?.is_clickhouse_enabled)) &&
+                                !showErrorMessage &&
                                 !showTimeoutMessage &&
                                 activeView === ViewType.FUNNELS &&
-                                allFilters.display === FUNNEL_VIZ && (
-                                    <Card style={{ marginTop: 8 }}>
-                                        <FunnelPeople />
-                                    </Card>
-                                )}
+                                allFilters.display === FUNNEL_VIZ && <People />}
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&
                                     allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
@@ -387,42 +426,46 @@ export function Insights(): JSX.Element {
 
 function FunnelInsight(): JSX.Element {
     const {
-        stepsWithCount,
         isValidFunnel,
-        stepsWithCountLoading,
-        filters: { display },
+        isLoading,
+        filters: { funnel_viz_type },
+        areFiltersValid,
+        showBarGraph,
     } = useValues(funnelLogic({}))
+    const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
+
     const { featureFlags } = useValues(featureFlagLogic)
-    const { autoCalculate } = useValues(funnelLogic())
-    const fluidHeight = featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && display === FUNNEL_VIZ
 
     return (
-        <div style={fluidHeight ? {} : { height: 300, position: 'relative' }}>
-            {stepsWithCountLoading && <Loading />}
+        <div
+            className={clsx('funnel-insights-container', {
+                'non-empty-state':
+                    isValidFunnel &&
+                    areFiltersValid &&
+                    (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || funnel_viz_type === FunnelVizType.Trends),
+            })}
+        >
+            {isLoading && <Loading />}
             {isValidFunnel ? (
-                <FunnelViz steps={stepsWithCount} />
+                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && showBarGraph ? (
+                    <Funnel filters={{ funnel_viz_type }} />
+                ) : (
+                    <FunnelViz filters={{ funnel_viz_type }} />
+                )
             ) : (
-                !stepsWithCountLoading && (
+                !isLoading && (
                     <div
                         style={{
                             textAlign: 'center',
                         }}
                     >
                         <span>
-                            Enter the details to your funnel {!autoCalculate && `and click 'calculate'`} to create a
-                            funnel visualization
+                            Enter your funnel details {!clickhouseFeaturesEnabled && `and click 'calculate'`} to create
+                            a funnel visualization
                         </span>
                     </div>
                 )
             )}
         </div>
     )
-}
-
-function FunnelPeople(): JSX.Element {
-    const { stepsWithCount } = useValues(funnelLogic())
-    if (stepsWithCount && stepsWithCount.length > 0) {
-        return <People />
-    }
-    return <></>
 }
