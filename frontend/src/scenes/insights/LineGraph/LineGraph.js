@@ -262,7 +262,6 @@ export function LineGraph({
 
                     // This could either be a color or an array of colors (`horizontalBar`)
                     const colorSet = entityData.backgroundColor || entityData.borderColor
-
                     return (
                         <InsightLabel
                             action={action}

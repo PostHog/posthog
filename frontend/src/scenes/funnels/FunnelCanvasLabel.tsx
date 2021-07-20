@@ -8,7 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
-import { ChartDisplayType } from '~/types'
+import { FunnelVizType } from '~/types'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { stepsWithCount, histogramStep, conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)
@@ -21,7 +21,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
 
     return (
         <div className="funnel-canvas-label">
-            {allFilters.display === ChartDisplayType.FunnelViz && (
+            {allFilters.funnel_viz_type === FunnelVizType.Steps && (
                 <>
                     <span className="text-muted-alt">
                         <Tooltip title="Overall conversion rate for all users on the entire funnel.">
@@ -43,10 +43,10 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                     </span>
                     <Button
                         type="link"
+                        onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}
                         disabled={
-                            !clickhouseFeaturesEnabled || allFilters.display === ChartDisplayType.FunnelsTimeToConvert
+                            !clickhouseFeaturesEnabled || allFilters.funnel_viz_type === FunnelVizType.TimeToConvert
                         }
-                        onClick={() => setChartFilter(ChartDisplayType.FunnelsTimeToConvert)}
                     >
                         {humanFriendlyDuration(conversionMetrics.averageTime)}
                     </Button>

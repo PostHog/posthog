@@ -17,6 +17,7 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { InsightTitle } from '../InsightTitle'
 import { InsightActionBar } from '../InsightActionBar'
 import { BaseTabProps } from 'scenes/insights/Insights'
+import { GlobalFiltersTitle } from 'scenes/insights/common'
 
 export interface TrendTabProps extends BaseTabProps {
     view: string
@@ -83,7 +84,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     {filters.insight === ViewType.LIFECYCLE && (
                         <>
-                            <h4 className="secondary">Global Filters</h4>
+                            <GlobalFiltersTitle unit="actions/events" />
                             <TestAccountFilter filters={filters} onChange={setFilters} />
                             <hr />
                             <h4 className="secondary">Lifecycle Toggles</h4>
@@ -114,7 +115,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                     )}
                     {filters.insight !== ViewType.LIFECYCLE && (
                         <>
-                            <h4 className="secondary">Global Filters</h4>
+                            <GlobalFiltersTitle />
                             {filtersLoading ? (
                                 <Skeleton active paragraph={{ rows: 2 }} />
                             ) : (
