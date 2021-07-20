@@ -42,8 +42,8 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
-import { FunnelBarGraph } from 'scenes/funnels/FunnelBarGraph'
 import clsx from 'clsx'
+import { Funnel } from 'scenes/funnels/Funnel'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -428,8 +428,9 @@ function FunnelInsight(): JSX.Element {
     const {
         isValidFunnel,
         isLoading,
-        filters: { display, funnel_viz_type },
+        filters: { funnel_viz_type },
         areFiltersValid,
+        showBarGraph,
     } = useValues(funnelLogic({}))
     const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
 
@@ -446,10 +447,10 @@ function FunnelInsight(): JSX.Element {
         >
             {isLoading && <Loading />}
             {isValidFunnel ? (
-                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? (
-                    <FunnelBarGraph filters={{ display }} />
+                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && showBarGraph ? (
+                    <Funnel filters={{ funnel_viz_type }} />
                 ) : (
-                    <FunnelViz filters={{ display }} />
+                    <FunnelViz filters={{ funnel_viz_type }} />
                 )
             ) : (
                 !isLoading && (

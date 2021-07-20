@@ -1,20 +1,22 @@
 import { useActions, useValues } from 'kea'
 import React, { useEffect } from 'react'
-import { ChartDisplayType, ChartParams } from '~/types'
+import { ChartParams, FunnelVizType } from '~/types'
 import { FunnelBarGraph } from './FunnelBarGraph'
 import { FunnelHistogram } from './FunnelHistogram'
 import { funnelLogic } from './funnelLogic'
 
 export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
     const logic = funnelLogic({ dashboardItemId: props.dashboardItemId, filters: props.filters })
-    const { timeConversionBins } = useValues(logic)
+    const { timeConversionBins, filters } = useValues(logic)
     const { loadResults } = useActions(logic)
 
     useEffect(() => {
         loadResults()
     }, [])
 
-    if (props.filters.display == ChartDisplayType.FunnelsTimeToConvert) {
+    const funnel_viz_type = filters.funnel_viz_type || props.filters.funnel_viz_type
+
+    if (funnel_viz_type == FunnelVizType.TimeToConvert) {
         return timeConversionBins?.bins?.length ? <FunnelHistogram {...props} /> : null
     }
 
