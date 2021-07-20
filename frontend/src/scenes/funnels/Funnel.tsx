@@ -7,14 +7,16 @@ import { funnelLogic } from './funnelLogic'
 
 export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
     const logic = funnelLogic({ dashboardItemId: props.dashboardItemId, filters: props.filters })
-    const { timeConversionBins } = useValues(logic)
+    const { timeConversionBins, filters } = useValues(logic)
     const { loadResults } = useActions(logic)
 
     useEffect(() => {
         loadResults()
     }, [])
 
-    if (props.filters.display == ChartDisplayType.FunnelsTimeToConvert) {
+    const display = filters.display || props.filters.display
+
+    if (display == ChartDisplayType.FunnelsTimeToConvert) {
         return timeConversionBins?.bins?.length ? <FunnelHistogram {...props} /> : null
     }
 
