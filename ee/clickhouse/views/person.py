@@ -46,8 +46,9 @@ class ClickhousePersonViewSet(PersonViewSet):
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
             funnel_class = ClickhouseFunnelTrendsPersons
 
-        results = funnel_class(filter, team).run()
-        next_url = format_next_absolute_url(request, filter.offset, 100) if len(results) > 99 else None
+        results, should_paginate = funnel_class(filter, team).run()
+        limit = filter.limit if filter.limit else 100
+        next_url = format_next_absolute_url(request, filter.offset, limit) if should_paginate else None
 
         # cached_function expects a dict with the key result
         return {"result": (results, next_url)}

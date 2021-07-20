@@ -146,11 +146,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(100, len(results))
 
         filter_offset = Filter(data={**data, "offset": 100,})
-        results = ClickhouseFunnelPersons(filter_offset, self.team).run()
+        results, _ = ClickhouseFunnelPersons(filter_offset, self.team).run()
         self.assertEqual(100, len(results))
 
         filter_offset = Filter(data={**data, "offset": 200,})
-        results = ClickhouseFunnelPersons(filter_offset, self.team).run()
+        results, _ = ClickhouseFunnelPersons(filter_offset, self.team).run()
         self.assertEqual(50, len(results))
 
     def test_first_step_breakdowns(self):

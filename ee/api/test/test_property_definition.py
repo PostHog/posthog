@@ -37,6 +37,41 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(enterprise_property.name, property.name)  # type: ignore
         self.assertEqual(enterprise_property.team.id, property.team.id)  # type: ignore
 
+    def test_search_property_definition(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="enterprise property", description="", tags=["deprecated"]
+        )
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="other property", description="", tags=["deprecated"]
+        )
+
+        response = self.client.get(f"/api/projects/@current/property_definitions/?search=enter")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
+
+        self.assertEqual(response_data["results"][0]["name"], "enterprise property")
+        self.assertEqual(response_data["results"][0]["description"], "")
+        self.assertEqual(response_data["results"][0]["tags"], ["deprecated"])
+
+        response = self.client.get(f"/api/projects/@current/property_definitions/?search=enterprise")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
+
+        response = self.client.get(f"/api/projects/@current/property_definitions/?search=er pr")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 2)
+
+        response = self.client.get(f"/api/projects/@current/property_definitions/?search=bust")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 0)
+
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
