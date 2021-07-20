@@ -40,7 +40,7 @@ def get_breakdown_person_prop_query(
         SELECT breakdown_value FROM (
             SELECT breakdown_value, {aggregate_operation} AS count
             FROM events e 
-            INNER JOIN (SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE team_id = %(team_id)s) AS pdi ON e.distinct_id = pdi.distinct_id
+            INNER JOIN (SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS})) AS pdi ON e.distinct_id = pdi.distinct_id
             INNER JOIN
                 (
                     SELECT * FROM (
