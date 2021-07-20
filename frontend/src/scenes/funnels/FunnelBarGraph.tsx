@@ -35,6 +35,7 @@ interface BarProps {
     breakdownSumPercentage?: number
     popoverTitle?: string | JSX.Element | null
     popoverMetrics?: { title: string; value: number | string; visible?: boolean }[]
+    disablePopover?: boolean
 }
 
 type LabelPosition = 'inside' | 'outside'
@@ -50,6 +51,7 @@ function Bar({
     breakdownSumPercentage,
     popoverTitle = null,
     popoverMetrics = [],
+    disablePopover,
 }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
@@ -119,7 +121,40 @@ function Bar({
         element: barRef,
     })
 
-    return (
+    const innerContent = (
+        <div
+            ref={barRef}
+            className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
+            style={{
+                [dimensionProperty]: `${percentage}%`,
+                cursor: cursorType,
+                backgroundColor: getSeriesColor(breakdownIndex),
+            }}
+            onClick={() => {
+                if (funnelPersonsEnabled && onBarClick) {
+                    onBarClick()
+                }
+            }}
+        >
+            {shouldShowLabel && (
+                <div
+                    ref={labelRef}
+                    className={`funnel-bar-percentage ${labelPosition}`}
+                    title={name ? `Users who did ${name}` : undefined}
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={breakdownSumPercentage ?? percentage}
+                >
+                    {humanizeNumber(breakdownSumPercentage ?? percentage, 2)}%
+                </div>
+            )}
+        </div>
+    )
+
+    return !disablePopover ? (
+        innerContent
+    ) : (
         <Popover
             trigger="hover"
             placement="right"
@@ -131,34 +166,7 @@ function Bar({
                 </InsightTooltip>
             }
         >
-            <div
-                ref={barRef}
-                className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
-                style={{
-                    [dimensionProperty]: `${percentage}%`,
-                    cursor: cursorType,
-                    backgroundColor: getSeriesColor(breakdownIndex),
-                }}
-                onClick={() => {
-                    if (funnelPersonsEnabled && onBarClick) {
-                        onBarClick()
-                    }
-                }}
-            >
-                {shouldShowLabel && (
-                    <div
-                        ref={labelRef}
-                        className={`funnel-bar-percentage ${labelPosition}`}
-                        title={name ? `Users who did ${name}` : undefined}
-                        role="progressbar"
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={breakdownSumPercentage ?? percentage}
-                    >
-                        {humanizeNumber(breakdownSumPercentage ?? percentage, 2)}%
-                    </div>
-                )}
-            </div>
+            {innerContent}
         </Popover>
     )
 }
@@ -341,6 +349,7 @@ export function FunnelBarGraph({ filters, dashboardItemId }: Omit<ChartParams, '
                                                 name={breakdown.name}
                                                 onBarClick={() => openPersonsModal(step, i + 1, step.breakdown_value)}
                                                 layout={layout}
+                                                disablePopover={!!dashboardItemId}
                                                 popoverTitle={
                                                     <div style={{ wordWrap: 'break-word' }}>
                                                         <PropertyKeyInfo value={step.name} />
@@ -391,6 +400,7 @@ export function FunnelBarGraph({ filters, dashboardItemId }: Omit<ChartParams, '
                                         name={step.name}
                                         onBarClick={() => openPersonsModal(step, i + 1)}
                                         layout={layout}
+                                        disablePopover={!!dashboardItemId}
                                         popoverTitle={<PropertyKeyInfo value={step.name} />}
                                         popoverMetrics={[
                                             {
