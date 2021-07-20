@@ -6,7 +6,7 @@ from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.exceptions import EnterpriseFeatureException
-from posthog.filters import FuzzySearchFilterBackend
+from posthog.filters import TermSearchFilterBackend
 from posthog.models import PropertyDefinition
 from posthog.permissions import OrganizationMemberPermissions
 
@@ -37,10 +37,9 @@ class PropertyDefinitionViewSet(
     serializer_class = PropertyDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
-    filter_backends = [FuzzySearchFilterBackend]
+    filter_backends = [TermSearchFilterBackend]
     ordering = "name"
     search_fields = ["name"]
-    search_threshold = 0.15
 
     def get_queryset(self):
 

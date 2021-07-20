@@ -1,7 +1,7 @@
 from typing import List, Optional, TypeVar
 
-from django.contrib.postgres.search import TrigramSimilarity
 from django.db import models
+from django.db.models import Q
 from django.db.models.query import QuerySet, RawQuerySet
 from rest_framework import filters, settings
 from rest_framework.request import Request
@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 _MT = TypeVar("_MT", bound=models.Model)
 
 
-class FuzzySearchFilterBackend(filters.BaseFilterBackend):
+class TermSearchFilterBackend(filters.BaseFilterBackend):
     """
     Allows fuzzy searching based on the pg_trgm extension.
     Remember to add relevant indices if the table is expected to have large amounts of data.
@@ -25,34 +25,26 @@ class FuzzySearchFilterBackend(filters.BaseFilterBackend):
         """
         return getattr(view, "search_fields", None)
 
-    def get_fuzzy_search_threshold(self, view: APIView) -> float:
-        """
-        Get locally configured threshold for search.
-        """
-        return getattr(view, "search_threshold", 0.3)
-
     def get_search_terms(self, request: Request):
         """
         Search terms are set by a ?search=... query parameter
         """
-        params = request.query_params.get(self.search_param, "")
-        params = params.replace("\x00", "")  # strip null characters
-        return params
+        terms = request.query_params.get(self.search_param, "")
+        terms = terms.replace("\x00", "")  # strip null characters
+        return list(filter(None, terms.split(" ")))
 
     def filter_queryset(self, request: Request, queryset: QuerySet[_MT], view: APIView,) -> QuerySet[_MT]:
-
         search_fields = self.get_search_fields(view)
         search_terms = self.get_search_terms(request)
-        search_threshold = self.get_fuzzy_search_threshold(view)
 
         if not search_fields or not search_terms:
             return queryset
 
-        for idx, search_field in enumerate(search_fields):
-            queryset = (
-                queryset.annotate(**{f"similarity_{idx}": TrigramSimilarity(search_field, search_terms)})
-                .filter(**{f"similarity_{idx}__gte": search_threshold})
-                .order_by(f"-similarity_{idx}")
-            )
+        term_filter = Q()
+        for term_idx, search_term in enumerate(search_terms):
+            search_filter_query = Q()
+            for idx, search_field in enumerate(search_fields):
+                search_filter_query = search_filter_query | Q(**{f"{search_field}__contains": search_term})
+            term_filter = term_filter & search_filter_query
 
-        return queryset
+        return queryset.filter(term_filter)

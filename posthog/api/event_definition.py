@@ -4,7 +4,7 @@ from rest_framework import filters, mixins, permissions, serializers, status, vi
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.exceptions import EnterpriseFeatureException
-from posthog.filters import FuzzySearchFilterBackend
+from posthog.filters import TermSearchFilterBackend
 from posthog.models import EventDefinition
 from posthog.permissions import OrganizationMemberPermissions
 
@@ -33,10 +33,9 @@ class EventDefinitionViewSet(
     serializer_class = EventDefinitionSerializer
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     lookup_field = "id"
-    filter_backends = [FuzzySearchFilterBackend]
+    filter_backends = [TermSearchFilterBackend]
     ordering = "name"
     search_fields = ["name"]
-    search_threshold = 0.15
 
     def get_queryset(self):
         if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
