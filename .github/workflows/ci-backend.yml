@@ -171,7 +171,7 @@ jobs:
                   cd deploy
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django pytest-xdist
 
             - name: Link posthog-cloud at current branch
               run: |
@@ -193,13 +193,14 @@ jobs:
             - name: Run posthog tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  TEST: 1
               run: |
                   cd deploy
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest posthog --reuse-db -m "not skip_on_multitenancy"
+                  pytest --nomigrations -n auto --reuse-db -m "not skip_on_multitenancy" posthog
 
             - name: Run cloud tests (posthog-cloud)
               env:
@@ -208,10 +209,11 @@ jobs:
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
+                  TEST: 1
               run: |
                   source .env.template
                   cd deploy
-                  pytest multi_tenancy messaging -m "not skip_on_multitenancy"
+                  pytest -n auto multi_tenancy messaging -m "not skip_on_multitenancy"
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -219,9 +221,10 @@ jobs:
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
+                  TEST: 1
               run: |
                   cd deploy/
-                  pytest ee -s -m "not skip_on_multitenancy"
+                  pytest -n auto ee -s -m "not skip_on_multitenancy"
 
     foss:
         name: Django tests – FOSS
@@ -269,9 +272,10 @@ jobs:
             - name: Run tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
+                  TEST: 1
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee"
+                  pytest --nomigrations -n auto -m "not ee"
