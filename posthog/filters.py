@@ -1,4 +1,4 @@
-from typing import List, Optional, TypeVar
+from typing import List, Optional, Tuple, TypeVar, Union
 
 from django.db import models
 from django.db.models import Q
@@ -33,9 +33,8 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
         terms = terms.replace("\x00", "")  # strip null characters
         return list(filter(None, terms.split(" ")))
 
-    def filter_queryset(self, request: Request, queryset: QuerySet[_MT], view: APIView,) -> QuerySet[_MT]:
+    def filter_queryset(self, request: Request, queryset: Union[QuerySet[_MT], RawQuerySet], view: APIView):
         if isinstance(queryset, RawQuerySet):
-            # return and filter elsewhere
             return queryset
 
         search_fields = self.get_search_fields(view)
@@ -54,7 +53,7 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
         return queryset.filter(term_filter)
 
 
-def term_search_filter_sql(search_fields: [str], search_terms: str = "") -> (str, dict):
+def term_search_filter_sql(search_fields: List[str], search_terms: Optional[str] = "") -> Tuple[str, dict]:
     if not search_fields or not search_terms:
         return "", {}
 
