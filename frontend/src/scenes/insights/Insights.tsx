@@ -61,8 +61,15 @@ export function Insights(): JSX.Element {
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const { lastRefresh, isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage, controlsCollapsed } =
-        useValues(insightLogic)
+    const {
+        lastRefresh,
+        isLoading,
+        activeView,
+        allFilters,
+        showTimeoutMessage,
+        showErrorMessage,
+        controlsCollapsed,
+    } = useValues(insightLogic)
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
