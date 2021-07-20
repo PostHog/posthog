@@ -1,4 +1,5 @@
 import { AnyPropertyFilter, EventDefinition, PropertyFilter, PropertyOperator } from '~/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function parseProperties(
     input: AnyPropertyFilter[] | Record<string, string> | null | undefined
@@ -36,4 +37,21 @@ export function filterMatchesItem(
         return false
     }
     return filter.type === 'cohort' ? filter.value === item.id : filter.key === item.name
+}
+
+const propertyFilterMapping: Record<string, TaxonomicFilterGroupType> = {
+    person: TaxonomicFilterGroupType.PersonProperties,
+    event: TaxonomicFilterGroupType.EventProperties,
+    cohort: TaxonomicFilterGroupType.Cohorts,
+    element: TaxonomicFilterGroupType.Elements,
+}
+
+export function propertyFilterTypeToTaxonomicFilterType(
+    filterType?: string | null
+): TaxonomicFilterGroupType | undefined {
+    return filterType && filterType in propertyFilterMapping ? propertyFilterMapping[filterType] : undefined
+}
+
+export function taxonomicFilterTypeToPropertyFilterType(filterType?: TaxonomicFilterGroupType): string | undefined {
+    return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0]
 }

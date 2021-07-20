@@ -2,9 +2,9 @@ BREAKDOWN_QUERY_SQL = """
 SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value FROM (
     SELECT SUM(total) as count, day_start, breakdown_value FROM (
         SELECT * FROM (
-            SELECT 
-            toUInt16(0) AS total, 
-            {interval}(toDateTime(%(date_to)s) - number * %(seconds_in_interval)s) as day_start, 
+            SELECT
+            toUInt16(0) AS total,
+            {interval}(toDateTime(%(date_to)s) - number * %(seconds_in_interval)s) as day_start,
             breakdown_value from numbers(%(num_intervals)s) as main
             CROSS JOIN
                 (
@@ -38,33 +38,17 @@ BREAKDOWN_ACTIVE_USER_INNER_SQL = """
 SELECT counts as total, timestamp as day_start, breakdown_value
 FROM (
     SELECT d.timestamp, COUNT(DISTINCT person_id) counts, breakdown_value FROM (
-        SELECT toStartOfDay(timestamp) as timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp 
+        SELECT toStartOfDay(timestamp) as timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (
-        SELECT toStartOfDay(timestamp) as timestamp, person_id, {breakdown_value} as breakdown_value FROM events e INNER JOIN (
-            SELECT person_id,
-                distinct_id
-            FROM (
-                    SELECT *
-                    FROM person_distinct_id
-                    JOIN (
-                            SELECT distinct_id,
-                                max(_offset) as _offset
-                            FROM person_distinct_id
-                            WHERE team_id = %(team_id)s
-                            GROUP BY distinct_id
-                        ) as person_max
-                        ON person_distinct_id.distinct_id = person_max.distinct_id
-                    AND person_distinct_id._offset = person_max._offset
-                    WHERE team_id = %(team_id)s
-                )
-            WHERE team_id = %(team_id)s
-        ) as pdi
+        SELECT toStartOfDay(timestamp) as timestamp, person_id, {breakdown_value} as breakdown_value
+        FROM events e
+        INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi
         ON e.distinct_id = pdi.distinct_id
         {event_join}
         {conditions}
         GROUP BY timestamp, person_id, breakdown_value
-    ) e 
+    ) e
     WHERE e.timestamp <= d.timestamp AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp, breakdown_value
     ORDER BY d.timestamp

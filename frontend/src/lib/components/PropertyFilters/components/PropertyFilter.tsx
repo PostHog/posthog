@@ -1,7 +1,7 @@
 import React from 'react'
 import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverflow'
 import { TabbedPropertyFilter } from './TabbedPropertyFilter'
-import { TaxonomicPropertyFilter } from './TaxonomicPropertyFilter/TaxonomicPropertyFilter'
+import { TaxonomicPropertyFilter } from './TaxonomicPropertyFilter'
 import { UnifiedPropertyFilter } from './UnifiedPropertyFilter'
 
 export interface PropertyFilterInternalProps {

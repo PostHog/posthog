@@ -57,8 +57,8 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ClickhouseFunnelUnorderedPersons(filter, self.team).run()
 
         filter = filter.with_data({"funnel_step": -1})
-        result = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
-        self.assertEqual(0, len(result))
+        results, _ = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
+        self.assertEqual(0, len(results))
 
     def test_first_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -76,7 +76,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
+        results, _ = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
         self.assertEqual(35, len(results))
 
     def test_last_step(self):
@@ -95,7 +95,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
+        results, _ = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
         self.assertEqual(5, len(results))
 
     def test_second_step_dropoff(self):
@@ -114,7 +114,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
+        results, _ = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
         self.assertEqual(20, len(results))
 
     def test_last_step_dropoff(self):
@@ -133,5 +133,5 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
+        results, _ = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
         self.assertEqual(10, len(results))

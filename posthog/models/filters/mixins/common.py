@@ -24,6 +24,7 @@ from posthog.constants import (
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
     INTERVAL,
+    LIMIT,
     OFFSET,
     SELECTOR,
     SESSION,
@@ -173,6 +174,17 @@ class OffsetMixin(BaseParamMixin):
     @include_dict
     def offset_to_dict(self):
         return {"offset": self.offset} if self.offset else {}
+
+
+class LimitMixin(BaseParamMixin):
+    @cached_property
+    def limit(self) -> Optional[int]:
+        limit = self._data.get(LIMIT, None)
+        return limit
+
+    @include_dict
+    def limit_to_dict(self):
+        return {"limit": self.limit} if self.limit else {}
 
 
 class CompareMixin(BaseParamMixin):
