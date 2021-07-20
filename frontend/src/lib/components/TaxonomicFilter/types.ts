@@ -1,5 +1,6 @@
 import { LogicWrapper } from 'kea'
-import { PropertyFilterValue } from '~/types'
+import { CohortType, EventDefinition, PropertyFilterValue } from '~/types'
+import Fuse from 'fuse.js'
 
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
@@ -34,7 +35,24 @@ export enum TaxonomicFilterGroupType {
     PersonProperties = 'person_properties',
 }
 
-export interface InfiniteListLogicProps {
-    taxonomicFilterLogicKey: string
+export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
     listGroupType: TaxonomicFilterGroupType
 }
+
+export interface ListStorage {
+    results: (EventDefinition | CohortType)[]
+    searchQuery?: string // Query used for the results currently in state
+    count: number
+    queryChanged?: boolean
+    first?: boolean
+}
+
+export interface LoaderOptions {
+    offset: number
+    limit: number
+}
+
+export type ListFuse = Fuse<{
+    name: string
+    item: EventDefinition | CohortType
+}> // local alias for typegen
