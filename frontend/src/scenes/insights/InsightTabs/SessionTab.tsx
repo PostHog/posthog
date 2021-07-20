@@ -12,6 +12,7 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { BaseTabProps } from '../Insights'
 import { InsightTitle } from './InsightTitle'
 import { InsightActionBar } from './InsightActionBar'
+import { GlobalFiltersTitle } from '../common'
 
 export function SessionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
@@ -48,7 +49,7 @@ export function SessionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
                 />
             </Col>
             <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
-                <h4 className="secondary">Filters</h4>
+                <GlobalFiltersTitle unit="actions/events" />
                 {filtersLoading ? (
                     <Skeleton active paragraph={{ rows: 1 }} />
                 ) : (
