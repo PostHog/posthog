@@ -48,6 +48,7 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
+import { FunnelBarGraph } from 'scenes/funnels/FunnelBarGraph'
 import clsx from 'clsx'
 
 export interface BaseTabProps {
@@ -451,7 +452,11 @@ function FunnelInsight(): JSX.Element {
         >
             {isLoading && <Loading />}
             {isValidFunnel ? (
-                <FunnelViz filters={{ display }} />
+                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? (
+                    <FunnelBarGraph filters={{ display }} />
+                ) : (
+                    <FunnelViz filters={{ display }} />
+                )
             ) : (
                 !isLoading && (
                     <div

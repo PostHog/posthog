@@ -505,7 +505,7 @@ export const keyMapping: KeyMappingInterface = {
 interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
-    style?: any
+    style?: React.CSSProperties
     tooltipPlacement?: TooltipPlacement
     disablePopover?: boolean
     disableIcon?: boolean

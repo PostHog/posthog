@@ -208,12 +208,12 @@ export const funnelLogic = kea<funnelLogicType>({
                         ])
                         breakpoint()
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
-
                         return { results: result.result, timeConversionResults }
                     } catch (e) {
                         if (!isBreakpoint(e)) {
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                         }
+                        console.error(e)
                         return EMPTY_FUNNEL_RESULTS
                     }
                 },
