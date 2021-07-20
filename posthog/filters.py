@@ -34,6 +34,10 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
         return list(filter(None, terms.split(" ")))
 
     def filter_queryset(self, request: Request, queryset: QuerySet[_MT], view: APIView,) -> QuerySet[_MT]:
+        if isinstance(queryset, RawQuerySet):
+            # return and filter elsewhere
+            return queryset
+
         search_fields = self.get_search_fields(view)
         search_terms = self.get_search_terms(request)
 
@@ -48,3 +52,25 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
             term_filter = term_filter & search_filter_query
 
         return queryset.filter(term_filter)
+
+
+def term_search_filter_sql(search_fields: [str], search_terms: str = "") -> (str, dict):
+    terms = list(filter(None, search_terms.replace("\x00", "").split(" ")))
+
+    if not search_fields or not terms:
+        return "", {}
+
+    kwargs = {}
+    term_filter = []
+    for term_idx, search_term in enumerate(terms):
+        search_filter_query = []
+        for idx, search_field in enumerate(search_fields):
+            index = term_idx * len(search_fields) + idx
+            search_filter_query.append(f"{search_field} ilike %(search_{index})s")
+            kwargs[f"search_{index}"] = f"%{search_term}%"
+        term_filter.append(f"({' OR '.join(search_filter_query)})")
+
+    if term_filter:
+        return f"AND ({' AND '.join(term_filter)})", kwargs
+    else:
+        return "", {}

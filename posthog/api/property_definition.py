@@ -6,7 +6,7 @@ from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.exceptions import EnterpriseFeatureException
-from posthog.filters import TermSearchFilterBackend
+from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import PropertyDefinition
 from posthog.permissions import OrganizationMemberPermissions
 
@@ -58,17 +58,16 @@ class PropertyDefinitionViewSet(
                     name_filter = ""
 
                 search = self.request.GET.get("search", None)
-                select_criteria = "*, similarity(name, %(search)s)" if bool(search) else "*"
-                search_threshold_filter = "AND name %% %(search)s" if bool(search) else ""
+                search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
                 ee_property_definitions = EnterprisePropertyDefinition.objects.raw(
                     f"""
-                    SELECT {select_criteria}
+                    SELECT *
                     FROM ee_enterprisepropertydefinition
                     FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
-                    WHERE team_id = %(team_id)s {name_filter} {search_threshold_filter}
+                    WHERE team_id = %(team_id)s {name_filter} {search_query}
                     ORDER BY name
                     """,
-                    params={"names": names, "team_id": self.request.user.team.id, "search": search},  # type: ignore
+                    params={"names": names, "team_id": self.request.user.team.id, **search_kwargs},  # type: ignore
                 )
                 return ee_property_definitions
 

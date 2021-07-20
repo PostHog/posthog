@@ -4,7 +4,7 @@ from rest_framework import filters, mixins, permissions, serializers, status, vi
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.exceptions import EnterpriseFeatureException
-from posthog.filters import TermSearchFilterBackend
+from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventDefinition
 from posthog.permissions import OrganizationMemberPermissions
 
@@ -45,17 +45,16 @@ class EventDefinitionViewSet(
                 pass
             else:
                 search = self.request.GET.get("search", None)
-                select_criteria = "*, similarity(name, %(search)s)" if bool(search) else "*"
-                search_threshold_filter = "AND name %% %(search)s" if bool(search) else ""
+                search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
                 ee_event_definitions = EnterpriseEventDefinition.objects.raw(
                     f"""
-                    SELECT {select_criteria}
+                    SELECT *
                     FROM ee_enterpriseeventdefinition
                     FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-                    WHERE team_id = %(team_id)s {search_threshold_filter}
+                    WHERE team_id = %(team_id)s {search_query}
                     ORDER BY name
                     """,
-                    params={"team_id": self.request.user.team.id, "search": search},  # type: ignore
+                    params={"team_id": self.request.user.team.id, **search_kwargs},  # type: ignore
                 )
                 return ee_event_definitions
 
