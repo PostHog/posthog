@@ -127,10 +127,14 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
 
 def format_breakdown_cohort_join_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, List, Dict]:
     entity = kwargs.pop("entity", None)
-    cohorts = Cohort.objects.filter(team_id=team_id, pk__in=[b for b in filter.breakdown if b != "all"])
+    cohorts = (
+        Cohort.objects.filter(team_id=team_id, pk__in=[b for b in filter.breakdown if b != "all"])
+        if isinstance(filter.breakdown, list)
+        else Cohort.objects.filter(team_id=team_id, pk=filter.breakdown)
+    )
     cohort_queries, params = _parse_breakdown_cohorts(cohorts)
     ids = [cohort.pk for cohort in cohorts]
-    if "all" in filter.breakdown:
+    if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
         all_query, all_params = _format_all_query(team_id, filter, entity=entity)
         cohort_queries.append(all_query)
         params = {**params, **all_params}
