@@ -7,7 +7,7 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FilterType, ViewType } from '~/types'
+import { FilterType, FunnelVizType, PropertyFilter, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
@@ -20,6 +20,14 @@ This includes handling the urls and view state
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 export const defaultFilterTestAccounts = (): boolean => {
     return localStorage.getItem('default_filter_test_accounts') === 'true' || false
+}
+
+interface UrlParams {
+    insight: string
+    properties: PropertyFilter[] | undefined
+    filter_test_accounts: boolean
+    funnel_viz_type?: string
+    display?: string
 }
 
 export const logicFromInsight = (insight: string, logicProps: Record<string, any>): Logic & BuiltLogic => {
@@ -228,10 +236,15 @@ export const insightLogic = kea<insightLogicType>({
                 return cachedUrl + '&' + toParams({ properties })
             }
 
-            const urlParams = {
+            const urlParams: UrlParams = {
                 insight: type,
                 properties: values.allFilters.properties,
                 filter_test_accounts: defaultFilterTestAccounts(),
+            }
+
+            if (type === ViewType.FUNNELS) {
+                urlParams.funnel_viz_type = FunnelVizType.Steps
+                urlParams.display = 'FunnelViz'
             }
             return ['/insights', urlParams]
         },

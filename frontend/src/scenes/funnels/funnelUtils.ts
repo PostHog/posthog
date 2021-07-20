@@ -71,7 +71,7 @@ export function getSeriesPositionName(
 }
 
 export function humanizeStepCount(count: number): string {
-    return count > 9999 ? humanizeNumber(count, 2) : count.toLocaleString()
+    return count > 9999 ? humanizeNumber(count, 2) : count?.toLocaleString()
 }
 
 export function cleanBinResult(binsResult: FunnelsTimeConversionBins): FunnelsTimeConversionBins {
