@@ -310,8 +310,9 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                 <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${layout}`}>
-                                {/*step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON */}
-                                {true ? <AverageTimeInspector onClick={() => {}} averageTime={33} disabled /> : null}
+                                {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (
+                                    <AverageTimeInspector onClick={() => {}} averageTime={33} disabled />
+                                ) : null}
                             </div>
                         </header>
                         <div className="funnel-inner-viz">
