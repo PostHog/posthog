@@ -4,19 +4,15 @@ import FunnelGraph from 'funnel-graph-js'
 import { Loading, humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues, BindLogic } from 'kea'
 import { funnelLogic } from './funnelLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LineGraph } from 'scenes/insights/LineGraph'
-import { FunnelBarGraph } from './FunnelBarGraph'
 import { router } from 'kea-router'
 import { InputNumber, Row } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ChartParams, FunnelVizType } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FunnelHistogram } from './FunnelHistogram'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { FunnelEmptyState } from 'scenes/insights/EmptyStates'
 
 import './FunnelViz.scss'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 export function FunnelViz({
     filters: defaultFilters,
@@ -30,7 +26,6 @@ export function FunnelViz({
     const {
         results: stepsResult,
         steps,
-        timeConversionBins,
         isLoading: funnelLoading,
         filters,
         conversionWindowInDays,
@@ -42,17 +37,11 @@ export function FunnelViz({
         hashParams: { fromItem },
     } = useValues(router)
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     function buildChart(): void {
         // Build and mount graph for default "flow" visualization.
         // If steps are empty, new bargraph view is active, or linechart is visible, don't render flow graph.
-        if (
-            !steps ||
-            steps.length === 0 ||
-            featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ||
-            filters.funnel_viz_type === FunnelVizType.Trends
-        ) {
+        if (!steps || steps.length === 0 || filters.funnel_viz_type === FunnelVizType.Trends) {
             return
         }
         if (container.current) {
@@ -86,7 +75,7 @@ export function FunnelViz({
     }
 
     useEffect(() => {
-        if (steps) {
+        if (steps && steps.length) {
             buildChart()
         } else {
             loadFunnel()
@@ -161,13 +150,6 @@ export function FunnelViz({
                 />
             </>
         ) : null
-    }
-    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && filters.funnel_viz_type == FunnelVizType.TimeToConvert) {
-        return timeConversionBins && timeConversionBins.length > 0 ? <FunnelHistogram /> : null
-    }
-
-    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
-        return steps && steps.length > 0 ? <FunnelBarGraph /> : null
     }
 
     return !funnelLoading ? (

@@ -260,7 +260,13 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.json(), {"result": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1],]},
+            response.json(),
+            {
+                "result": {
+                    "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
+                    "average_conversion_time": 29540.0,
+                }
+            },
         )
 
     def test_funnel_time_to_convert_auto_bins_strict(self):
@@ -302,7 +308,13 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.json(), {"result": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1],]},
+            response.json(),
+            {
+                "result": {
+                    "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
+                    "average_conversion_time": 29540.0,
+                }
+            },
         )
 
     def test_funnel_time_to_convert_auto_bins_unordered(self):
@@ -344,7 +356,13 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.json(), {"result": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1],]},
+            response.json(),
+            {
+                "result": {
+                    "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
+                    "average_conversion_time": 29540.0,
+                }
+            },
         )
 
     def test_funnel_invalid_action_handled(self):

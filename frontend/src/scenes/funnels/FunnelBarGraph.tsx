@@ -22,7 +22,7 @@ import {
     getSeriesPositionName,
     humanizeStepCount,
 } from './funnelUtils'
-import { FunnelStepWithNestedBreakdown } from '~/types'
+import { ChartParams, FunnelStepWithNestedBreakdown } from '~/types'
 
 interface BarProps {
     percentage: number
@@ -273,16 +273,9 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
     )
 }
 
-export function FunnelBarGraph(): JSX.Element {
-    const {
-        steps: simpleSteps,
-        stepsWithNestedBreakdown,
-        stepReference,
-        barGraphLayout: layout,
-        funnelPersonsEnabled,
-        filters,
-    } = useValues(funnelLogic)
-    const steps = filters.breakdown ? stepsWithNestedBreakdown : simpleSteps
+export function FunnelBarGraph({ filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element {
+    const logic = funnelLogic({ dashboardItemId, filters })
+    const { steps, stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(logic)
     const { openPersonsModal } = useActions(funnelLogic)
     const firstStep = getReferenceStep(steps, FunnelStepReference.total)
 
@@ -311,7 +304,7 @@ export function FunnelBarGraph(): JSX.Element {
                         </div>
                         <header>
                             <div className="funnel-step-title">
-                                <PropertyKeyInfo value={step.name} />
+                                <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${layout}`}>
                                 {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (

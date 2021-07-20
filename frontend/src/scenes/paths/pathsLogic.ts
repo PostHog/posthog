@@ -8,6 +8,8 @@ import { pathsLogicType } from './pathsLogicType'
 import { FilterType, PathType, PropertyFilter, ViewType } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const pathOptionsToLabels = {
     [PathType.PageView]: 'Page views (Web)',
@@ -176,8 +178,8 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             },
         ],
         filtersLoading: [
-            () => [propertyDefinitionsModel.selectors.loaded],
-            (propertiesLoaded): boolean => !propertiesLoaded,
+            () => [featureFlagLogic.selectors.featureFlags, propertyDefinitionsModel.selectors.loaded],
+            (featureFlags, loaded) => !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && !loaded,
         ],
     },
     actionToUrl: ({ values }) => ({

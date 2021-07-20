@@ -2,7 +2,7 @@ from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
-from .person import GET_LATEST_PERSON_DISTINCT_ID_SQL
+from .person import GET_TEAM_PERSON_DISTINCT_IDS
 
 EVENTS_TABLE = "events"
 
@@ -59,7 +59,7 @@ KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 EVENTS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
-TO {table_name} 
+TO {database}.{table_name} 
 AS SELECT
 uuid,
 event,
@@ -170,11 +170,9 @@ NULL_SQL = """
 SELECT toUInt16(0) AS total, {interval}(toDateTime('{date_to}') - number * {seconds_in_interval}) as day_start from numbers({num_intervals})
 """
 
-EVENT_JOIN_PERSON_SQL = """
-INNER JOIN (SELECT person_id, distinct_id FROM ({latest_distinct_id_sql}) WHERE team_id = %(team_id)s) as pdi ON events.distinct_id = pdi.distinct_id
-""".format(
-    latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
-)
+EVENT_JOIN_PERSON_SQL = f"""
+INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON events.distinct_id = pdi.distinct_id
+"""
 
 GET_EVENTS_WITH_PROPERTIES = """
 SELECT * FROM events WHERE 

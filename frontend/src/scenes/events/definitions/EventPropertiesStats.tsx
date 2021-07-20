@@ -72,11 +72,15 @@ export function EventPropertiesStats(): JSX.Element {
             title: 'Example',
             key: 'example',
             render: function renderExample({ name }: PropertyDefinition) {
+                let example = propertyExamples[name]
+                // Just show a json stringify if it's an array or object
+                example =
+                    Array.isArray(example) || example instanceof Object
+                        ? JSON.stringify(example).substr(0, 140)
+                        : example
                 return (
                     <div style={{ backgroundColor: '#F0F0F0', padding: '4px, 15px', textAlign: 'center' }}>
-                        <span style={{ fontSize: 10, fontWeight: 400, fontFamily: 'monaco' }}>
-                            {propertyExamples[name]}
-                        </span>
+                        <span style={{ fontSize: 10, fontWeight: 400, fontFamily: 'monaco' }}>{example}</span>
                     </div>
                 )
             },
