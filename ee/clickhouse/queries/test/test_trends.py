@@ -667,7 +667,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(res[0]["count"], 1)
         self.assertEqual(res[1]["count"], 2)
 
-    def test_breakdown_multiple_cohorts(self):
+    def test_breakdown_single_cohort(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
         _create_event(
             team=self.team,
