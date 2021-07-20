@@ -1,13 +1,13 @@
 import { useEffect } from 'react'
 
-const exceptions = ['.ant-select-dropdown *']
+const exceptions = ['.ant-select-dropdown *', '.click-outside-block', '.click-outside-block *']
 
 export function useOutsideClickHandler(
     refOrRefs: Element | null | (Element | null)[],
-    handleClickOutside?: () => void,
+    handleClickOutside?: (event: Event) => void,
     extraDeps: any[] = []
 ): void {
-    const allRefs = Array.isArray(refOrRefs) ? refOrRefs : [refOrRefs]
+    const allRefs = (Array.isArray(refOrRefs) ? refOrRefs : [refOrRefs]).map((f) => f)
 
     useEffect(() => {
         function handleClick(event: Event): void {
@@ -17,7 +17,7 @@ export function useOutsideClickHandler(
             if (allRefs.some((ref) => ref?.contains(event.target as Element))) {
                 return
             }
-            handleClickOutside?.()
+            handleClickOutside?.(event)
         }
 
         if (allRefs.length > 0) {

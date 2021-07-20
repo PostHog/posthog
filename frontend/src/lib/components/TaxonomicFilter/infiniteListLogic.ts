@@ -4,14 +4,14 @@ import api from 'lib/api'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { EventDefinitionStorage } from '~/models/eventDefinitionsModel'
 import { infiniteListLogicType } from './infiniteListLogicType'
-import { TaxonomicPropertyFilterListLogicProps } from 'lib/components/PropertyFilters/types'
-import { groups } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/groups'
-import { taxonomicPropertyFilterLogic } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter/taxonomicPropertyFilterLogic'
-import { EventDefinition } from '~/types'
+import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
+import { InfiniteListLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { groups } from 'lib/components/TaxonomicFilter/groups'
 
 interface ListStorage {
-    results: EventDefinition[]
+    results: (EventDefinition | CohortType)[]
     searchQuery?: string // Query used for the results currently in state
     count: number
     queryChanged?: boolean
@@ -23,7 +23,10 @@ interface LoaderOptions {
     limit: number
 }
 
-type ListFuse = Fuse<EventDefinition> // local alias for typegen
+type ListFuse = Fuse<{
+    name: string
+    item: EventDefinition | CohortType
+}> // local alias for typegen
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {
@@ -49,17 +52,17 @@ const apiCache: Record<string, EventDefinitionStorage> = {}
 const apiCacheTimers: Record<string, number> = {}
 
 export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage, LoaderOptions>>({
-    props: {} as TaxonomicPropertyFilterListLogicProps,
+    props: {} as InfiniteListLogicProps,
 
-    key: (props) => `${props.pageKey}-${props.filterIndex}-${props.type}`,
+    key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,
 
-    connect: (props: TaxonomicPropertyFilterListLogicProps) => ({
-        values: [taxonomicPropertyFilterLogic(props), ['searchQuery', 'filter']],
-        actions: [taxonomicPropertyFilterLogic(props), ['setSearchQuery', 'selectItem as selectFilterItem']],
+    connect: (props: InfiniteListLogicProps) => ({
+        values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType']],
+        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem']],
     }),
 
     actions: {
-        selectSelected: (onComplete?: () => void) => ({ onComplete }),
+        selectSelected: true,
         moveUp: true,
         moveDown: true,
         setIndex: (index: number) => ({ index }),
@@ -82,6 +85,8 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
                 setLimit: (_, { limit }) => limit,
             },
         ],
+        startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
+        stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
     },
 
     loaders: ({ values }) => ({
@@ -164,46 +169,52 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
             const { index, totalCount } = values
             actions.setIndex((index + 1) % totalCount)
         },
-        selectSelected: ({ onComplete }) => {
-            const item = values.selectedItem
-            if (item) {
-                actions.selectFilterItem(props.type, item.id, item.name)
-                onComplete?.()
-            }
+        selectSelected: () => {
+            actions.selectItem(props.listGroupType, values.selectedItemValue, values.selectedItem)
         },
     }),
 
     selectors: {
+        listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
-        group: [() => [(_, props) => props.type], (type) => groups.find((g) => g.type === type)],
+        group: [(s) => [s.listGroupType], (listGroupType) => groups.find((g) => g.type === listGroupType)],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         rawLocalItems: [
             () => [
                 (state, props) => {
-                    const group = groups.find((g) => g.type === props.type)
+                    const group = groups.find((g) => g.type === props.listGroupType)
                     if (group?.logic && group?.value) {
                         return group.logic.selectors[group.value]?.(state) || null
+                    }
+                    if (group?.options) {
+                        return group.options
                     }
                     return null
                 },
             ],
-            (rawLocalItems: EventDefinition[]) => rawLocalItems,
+            (rawLocalItems: (EventDefinition | CohortType)[]) => rawLocalItems,
         ],
         fuse: [
-            (s) => [s.rawLocalItems],
-            (rawLocalItems): ListFuse =>
-                new Fuse(rawLocalItems || [], {
-                    keys: ['name'],
-                    threshold: 0.3,
-                }),
+            (s) => [s.rawLocalItems, s.group],
+            (rawLocalItems, group): ListFuse =>
+                new Fuse(
+                    (rawLocalItems || []).map((item) => ({
+                        name: group?.getName?.(item) || '',
+                        item: item,
+                    })),
+                    {
+                        keys: ['name'],
+                        threshold: 0.3,
+                    }
+                ),
         ],
         localItems: [
-            (s) => [s.rawLocalItems, s.group, s.searchQuery, s.fuse],
-            (rawLocalItems, group, searchQuery, fuse): ListStorage => {
+            (s) => [s.rawLocalItems, s.searchQuery, s.fuse],
+            (rawLocalItems, searchQuery, fuse): ListStorage => {
                 if (rawLocalItems) {
                     const filteredItems = searchQuery
-                        ? fuse.search(searchQuery).map((result) => (group?.map ? group.map(result.item) : result.item))
+                        ? fuse.search(searchQuery).map((result) => result.item.item)
                         : rawLocalItems
 
                     return {
@@ -222,23 +233,23 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
         totalCount: [(s) => [s.items], (items) => items.count || 0],
         results: [(s) => [s.items], (items) => items.results],
         selectedItem: [(s) => [s.index, s.items], (index, items) => (index >= 0 ? items.results[index] : undefined)],
+        selectedItemValue: [
+            (s) => [s.selectedItem, s.group],
+            (selectedItem, group) => group?.getValue?.(selectedItem) || null,
+        ],
+        selectedItemInView: [
+            (s) => [s.index, s.startIndex, s.stopIndex],
+            (index, startIndex, stopIndex) => typeof index === 'number' && index >= startIndex && index <= stopIndex,
+        ],
     },
 
     events: ({ actions, values, props }) => ({
         afterMount: () => {
             if (values.isRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
-            } else if (values.filter?.type === props.type) {
-                const {
-                    filter: { key, value },
-                    results,
-                } = values
-
-                if (props.type === 'cohort') {
-                    actions.setIndex(results.findIndex((r) => r.id === value))
-                } else {
-                    actions.setIndex(results.findIndex((r) => r.name === key))
-                }
+            } else if (values.groupType === props.listGroupType) {
+                const { value, group, results } = values
+                actions.setIndex(results.findIndex((r) => group?.getValue?.(r) === value))
             }
         },
     }),

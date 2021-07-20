@@ -4,13 +4,13 @@
 .ant-popover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     font-size: 0.85rem;
-    max-width: 480px;
     overflow-x: hidden;
     z-index: $z_graph_tooltip;
     transition: all 0.4s;
 }
 
 .ph-graph-tooltip {
+    max-width: 480px;
     padding: 8px 0;
     border: 1px solid $border;
     border-radius: $radius;

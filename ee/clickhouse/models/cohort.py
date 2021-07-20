@@ -18,9 +18,9 @@ from ee.clickhouse.sql.cohort import (
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
 )
 from ee.clickhouse.sql.person import (
-    GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_ID_SQL,
     GET_PERSON_IDS_BY_FILTER,
+    GET_TEAM_PERSON_DISTINCT_IDS,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
@@ -100,10 +100,10 @@ def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: in
     if count:
         count_operator = _get_count_operator(count_operator)
         extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
             entity_query=entity_query,
             date_query=date_query,
             count_operator=count_operator,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         )
         params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
         return f"person_id IN ({extract_person})", params
@@ -194,7 +194,7 @@ def format_filter_query(cohort: Cohort, index: int = 0) -> Tuple[str, Dict[str, 
     )
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
-        query=person_query, latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL
+        query=person_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
     )
     return person_id_query, params
 

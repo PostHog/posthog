@@ -22,27 +22,11 @@ SELECT counts as total, timestamp as day_start FROM (
 PERSONS_ACTIVE_USER_SQL = """
 SELECT DISTINCT person_id FROM (
     SELECT d.timestamp, person_id FROM (
-        SELECT toStartOfDay(timestamp) as timestamp FROM events WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp 
+        SELECT toStartOfDay(timestamp) as timestamp FROM events WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (
         SELECT toStartOfDay(timestamp) as timestamp, person_id FROM events INNER JOIN (
-            SELECT person_id,
-                distinct_id
-            FROM (
-                    SELECT *
-                    FROM person_distinct_id
-                    JOIN (
-                            SELECT distinct_id,
-                                max(_offset) as _offset
-                            FROM person_distinct_id
-                            WHERE team_id = %(team_id)s
-                            GROUP BY distinct_id
-                        ) as person_max
-                        ON person_distinct_id.distinct_id = person_max.distinct_id
-                    AND person_distinct_id._offset = person_max._offset
-                    WHERE team_id = %(team_id)s
-                )
-            WHERE team_id = %(team_id)s
+            {GET_TEAM_PERSON_DISTINCT_IDS}
         ) AS pdi
         ON events.distinct_id = pdi.distinct_id
         WHERE team_id = %(team_id)s {entity_query} {filters} {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp, person_id

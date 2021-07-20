@@ -12,7 +12,3 @@ export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {
     filterIndex: number
 }
-
-export interface TaxonomicPropertyFilterListLogicProps extends TaxonomicPropertyFilterLogicProps {
-    type: string
-}

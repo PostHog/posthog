@@ -10,6 +10,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ChartDisplayType } from '~/types'
 
 import './FunnelHistogram.scss'
+import { ChartParams } from '~/types'
 
 export function FunnelHistogramHeader(): JSX.Element | null {
     const { stepsWithCount, stepReference, histogramStepsDropdown } = useValues(funnelLogic)
@@ -60,8 +61,9 @@ export function FunnelHistogramHeader(): JSX.Element | null {
     )
 }
 
-export function FunnelHistogram(): JSX.Element {
-    const { histogramGraphData, barGraphLayout } = useValues(funnelLogic)
+export function FunnelHistogram({ filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element {
+    const logic = funnelLogic({ dashboardItemId, filters })
+    const { histogramGraphData, barGraphLayout } = useValues(logic)
     const ref = useRef(null)
     const [width] = useSize(ref)
 
