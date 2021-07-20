@@ -58,7 +58,9 @@ export function People(): JSX.Element | null {
                                     <td
                                         key={index}
                                         className={
-                                            step.people.indexOf(person.uuid) > -1 ? 'funnel-success' : 'funnel-dropped'
+                                            (step.people?.indexOf(person.uuid) ?? -1) > -1
+                                                ? 'funnel-success'
+                                                : 'funnel-dropped'
                                         }
                                     />
                                 ))}

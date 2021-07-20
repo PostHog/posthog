@@ -703,7 +703,7 @@ export interface FunnelStep {
     count: number
     name: string
     order: number
-    people: string[]
+    people?: string[]
     type: EntityType
     labels?: string[]
     breakdown?: string
