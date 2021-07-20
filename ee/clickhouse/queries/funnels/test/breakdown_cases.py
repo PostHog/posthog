@@ -726,4 +726,23 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
             self.assertCountEqual(self._get_people_at_step(filter, 1, cohort.pk), [person.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, cohort.pk), [])
 
+            # non array
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "cohort",
+                "breakdown": cohort.pk,
+            }
+            filter = Filter(data=filters)
+            funnel = ClickhouseFunnel(filter, self.team)
+
+            result = funnel.run()
+            self.assertEqual(len(result[0]), 3)
+            self.assertEqual(result[0][0]["breakdown"], "test_cohort")
+            self.assertCountEqual(self._get_people_at_step(filter, 1, cohort.pk), [person.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, cohort.pk), [])
+
     return TestFunnelBreakdown
