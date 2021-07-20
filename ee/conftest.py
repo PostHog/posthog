@@ -42,6 +42,7 @@ def django_db_setup(django_db_setup, django_db_keepdb, worker_id):
             "ee.clickhouse.sql.events",
             "ee.clickhouse.sql.plugin_log_entries",
             "ee.clickhouse.sql.session_recording_events",
+            "ee.clickhouse.client",
         ]:
             module = importlib.import_module(path)
             importlib.reload(module)
@@ -72,6 +73,7 @@ def db(db, worker_id):
             "ee.clickhouse.sql.events",
             "ee.clickhouse.sql.plugin_log_entries",
             "ee.clickhouse.sql.session_recording_events",
+            "ee.clickhouse.client",
         ]:
             module = importlib.import_module(path)
             importlib.reload(module)
