@@ -65,11 +65,11 @@ export function FunnelHistogram({ filters, dashboardItemId }: Omit<ChartParams, 
     const logic = funnelLogic({ dashboardItemId, filters })
     const { histogramGraphData } = useValues(logic)
     const ref = useRef(null)
-    const [width] = useSize(ref)
+    const [width, height] = useSize(ref)
 
     return (
         <div className="funnel-histogram-outer-container" ref={ref}>
-            <Histogram data={histogramGraphData} width={width} />
+            <Histogram data={histogramGraphData} width={width} height={height} />
         </div>
     )
 }
