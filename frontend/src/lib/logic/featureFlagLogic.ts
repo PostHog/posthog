@@ -27,6 +27,9 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             {},
             {
                 get(_, flag) {
+                    if (flag === 'toJSON') {
+                        return JSON.stringify(featureFlags)
+                    }
                     const flagString = flag.toString()
                     const flagState = !!featureFlags[flagString]
                     notifyFlagIfNeeded(flagString, flagState)
@@ -40,6 +43,9 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
         for (const flag of Object.keys(featureFlags)) {
             Object.defineProperty(flags, flag, {
                 get: function () {
+                    if (flag === 'toJSON') {
+                        return JSON.stringify(featureFlags)
+                    }
                     notifyFlagIfNeeded(flag, true)
                     return true
                 },

@@ -17,5 +17,10 @@
                 display: none; // hide axis line
             }
         }
+
+        g#x-axis,
+        g#y-axis {
+            font-size: 14px;
+        }
     }
 }

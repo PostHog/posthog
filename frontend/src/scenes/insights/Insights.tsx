@@ -6,13 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import {
-    FUNNEL_VIZ,
-    ACTIONS_TABLE,
-    ACTIONS_BAR_CHART_VALUE,
-    FEATURE_FLAGS,
-    ACTIONS_LINE_GRAPH_LINEAR,
-} from 'lib/constants'
+import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -21,7 +15,6 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
-import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
@@ -35,7 +28,7 @@ import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { HotKeys, ViewType } from '~/types'
+import { FunnelVizType, HotKeys, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
@@ -434,9 +427,8 @@ function FunnelInsight(): JSX.Element {
     const {
         isValidFunnel,
         isLoading,
+        filters: { funnel_viz_type },
         areFiltersValid,
-        filters: { display },
-        showBarGraph,
     } = useValues(funnelLogic({}))
     const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
 
@@ -448,16 +440,12 @@ function FunnelInsight(): JSX.Element {
                 'non-empty-state':
                     isValidFunnel &&
                     areFiltersValid &&
-                    (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || display === ACTIONS_LINE_GRAPH_LINEAR),
+                    (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || funnel_viz_type === FunnelVizType.Trends),
             })}
         >
             {isLoading && <Loading />}
             {isValidFunnel ? (
-                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && showBarGraph ? (
-                    <Funnel filters={{ display }} />
-                ) : (
-                    <FunnelViz filters={{ display }} />
-                )
+                <Funnel filters={{ funnel_viz_type }} />
             ) : (
                 !isLoading && (
                     <div

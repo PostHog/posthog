@@ -8,10 +8,10 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
-import { ChartDisplayType } from '~/types'
+import { FunnelVizType } from '~/types'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { stepsWithCount, histogramStep, conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)
+    const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { allFilters } = useValues(insightLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
 
@@ -21,11 +21,11 @@ export function FunnelCanvasLabel(): JSX.Element | null {
 
     return (
         <div className="funnel-canvas-label">
-            {allFilters.display === ChartDisplayType.FunnelViz && (
+            {allFilters.funnel_viz_type === FunnelVizType.Steps && (
                 <>
                     <span className="text-muted-alt">
                         <Tooltip title="Overall conversion rate for all users on the entire funnel.">
-                            <InfoCircleOutlined style={{ marginRight: 3 }} />
+                            <InfoCircleOutlined className="info-indicator left" />
                         </Tooltip>
                         Total conversion rate:{' '}
                     </span>
@@ -33,25 +33,21 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                     <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                 </>
             )}
-            {stepsWithCount[histogramStep.from_step]?.average_conversion_time !== null && (
-                <>
-                    <span className="text-muted-alt">
-                        <Tooltip title="Average (arithmetic mean) of the total time each user spent in the enitre funnel.">
-                            <InfoCircleOutlined style={{ marginRight: 3 }} />
-                        </Tooltip>
-                        Average time to convert:{' '}
-                    </span>
-                    <Button
-                        type="link"
-                        disabled={
-                            !clickhouseFeaturesEnabled || allFilters.display === ChartDisplayType.FunnelsTimeToConvert
-                        }
-                        onClick={() => setChartFilter(ChartDisplayType.FunnelsTimeToConvert)}
-                    >
-                        {humanFriendlyDuration(conversionMetrics.averageTime)}
-                    </Button>
-                </>
+            {allFilters.funnel_viz_type !== FunnelVizType.Trends && (
+                <span className="text-muted-alt">
+                    <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
+                        <InfoCircleOutlined className="info-indicator left" />
+                    </Tooltip>
+                    Average time to convert:{' '}
+                </span>
             )}
+            <Button
+                type="link"
+                onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}
+                disabled={!clickhouseFeaturesEnabled || allFilters.funnel_viz_type === FunnelVizType.TimeToConvert}
+            >
+                {humanFriendlyDuration(conversionMetrics.averageTime, 2)}
+            </Button>
         </div>
     )
 }

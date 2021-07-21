@@ -5,15 +5,17 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.constants import RDBMS
 from posthog.ee import is_clickhouse_enabled
-from posthog.models import User
-from posthog.models.cohort import Cohort
-from posthog.models.dashboard_item import DashboardItem
-from posthog.models.event import Event
-from posthog.models.filters import Filter
-from posthog.models.person import Person
-from posthog.models.team import Team
+from posthog.models import (
+    Cohort,
+    Dashboard,
+    DashboardItem,
+    Event,
+    Filter,
+    Person,
+    Team,
+    User,
+)
 from posthog.test.base import APIBaseTest
 
 
@@ -129,6 +131,57 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(objects), 1)
             self.assertEqual(objects[0].filters["events"][0]["id"], "$pageview")
             self.assertEqual(objects[0].filters["date_from"], "-90d")
+            self.assertEqual(len(objects[0].short_id), 8)
+
+        def test_save_new_funnel(self):
+
+            dashboard = Dashboard.objects.create(name="My Dashboard", team=self.team)
+
+            response = self.client.post(
+                "/api/insight",
+                data={
+                    "filters": {
+                        "insight": "FUNNELS",
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "math": None,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [],
+                                "math_property": None,
+                            },
+                            {
+                                "id": "$rageclick",
+                                "math": None,
+                                "name": "$rageclick",
+                                "type": "events",
+                                "order": 2,
+                                "properties": [],
+                                "math_property": None,
+                            },
+                        ],
+                        "display": "FunnelViz",
+                        "interval": "day",
+                        "date_from": "-30d",
+                        "actions": [],
+                        "new_entity": [],
+                        "layout": "horizontal",
+                    },
+                    "name": "My Funnel One",
+                    "dashboard": dashboard.pk,
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+            objects = DashboardItem.objects.all()
+            self.assertEqual(len(objects), 1)
+            self.assertEqual(objects[0].filters["events"][1]["id"], "$rageclick")
+            self.assertEqual(objects[0].filters["display"], "FunnelViz")
+            self.assertEqual(objects[0].filters["interval"], "day")
+            self.assertEqual(objects[0].filters["date_from"], "-30d")
+            self.assertEqual(objects[0].filters["layout"], "horizontal")
             self.assertEqual(len(objects[0].short_id), 8)
 
         # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight

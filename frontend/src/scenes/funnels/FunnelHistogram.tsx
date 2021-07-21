@@ -7,9 +7,9 @@ import { calcPercentage, getReferenceStep } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/Histogram'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { ChartDisplayType } from '~/types'
 
 import './FunnelHistogram.scss'
+import { FunnelVizType } from '~/types'
 import { ChartParams } from '~/types'
 
 export function FunnelHistogramHeader(): JSX.Element | null {
@@ -17,7 +17,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
     const { changeHistogramStep } = useActions(funnelLogic)
     const { allFilters } = useValues(insightLogic)
 
-    if (allFilters.display !== ChartDisplayType.FunnelsTimeToConvert) {
+    if (allFilters.funnel_viz_type !== FunnelVizType.TimeToConvert) {
         return null
     }
 
@@ -31,7 +31,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
                         changeHistogramStep(from_step, from_step + 1)
                     }}
                     dropdownMatchSelectWidth={false}
-                    dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomLeft}
+                    dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
                     data-attr="funnel-bar-layout-selector"
                     optionLabelProp="label"
                 >
@@ -63,13 +63,13 @@ export function FunnelHistogramHeader(): JSX.Element | null {
 
 export function FunnelHistogram({ filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element {
     const logic = funnelLogic({ dashboardItemId, filters })
-    const { histogramGraphData, barGraphLayout } = useValues(logic)
+    const { histogramGraphData } = useValues(logic)
     const ref = useRef(null)
     const [width] = useSize(ref)
 
     return (
-        <div ref={ref}>
-            <Histogram data={histogramGraphData} layout={barGraphLayout} width={width} />
+        <div className="funnel-histogram-outer-container" ref={ref}>
+            <Histogram data={histogramGraphData} width={width} />
         </div>
     )
 }

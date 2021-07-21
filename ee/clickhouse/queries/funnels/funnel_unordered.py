@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
@@ -30,7 +30,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
 
         return f"""
-        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
+        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
             {self.get_step_counts_query()}
         ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
@@ -43,7 +43,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
 
         return f"""
-            SELECT person_id, steps {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
+            SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} FROM (
                 SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} FROM (
                         {union_query}
                 )
@@ -84,7 +84,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     def _get_step_time_names(self, max_steps: int):
         names = []
         for i in range(1, max_steps):
-            names.append(f"step_{i}_average_conversion_time")
+            names.append(f"step_{i}_conversion_time")
 
         formatted = ",".join(names)
         return f", {formatted}" if formatted else ""
@@ -100,7 +100,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
         for i in range(1, max_steps):
             conditions.append(
-                f"if(isNotNull(conversion_times[{i+1}]), dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_average_conversion_time"
+                f"if(isNotNull(conversion_times[{i+1}]), dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
             )
             # array indices in ClickHouse are 1-based :shrug:
 
@@ -112,7 +112,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         basic_conditions: List[str] = []
         for i in range(1, max_steps):
             basic_conditions.append(
-                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY, 1, 0)"
+                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days_or_default} DAY, 1, 0)"
             )
 
         if basic_conditions:

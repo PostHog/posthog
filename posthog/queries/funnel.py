@@ -18,11 +18,11 @@ from posthog.utils import format_label_date, get_daterange
 
 
 class Funnel(BaseQuery):
-
     _filter: Filter
     _team: Team
 
     def __init__(self, filter: Filter, team: Team) -> None:
+        super().__init__()
         self._filter = filter
         self._team = team
 

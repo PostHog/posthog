@@ -25,10 +25,11 @@ class ClickhouseTrendsFormula:
         params: Dict[str, Any] = {}
         for idx, entity in enumerate(filter.entities):
             sql, entity_params, _ = self._get_sql_for_entity(filter, entity, team_id)  # type: ignore
-            sql = sql.replace("%(", "%({}_".format(idx))
-            entity_params = {"{}_{}".format(idx, key): value for key, value in entity_params.items()}
+            sql = sql.replace("%(", f"%({idx}_")
+            entity_params_prefixed = {f"{idx}_{key}": value for key, value in entity_params.items()}
             queries.append(sql)
-            params = {**params, **entity_params}
+            params.update(entity_params)
+            params.update(entity_params_prefixed)
 
         breakdown_value = (
             ", sub_A.breakdown_value"
@@ -69,7 +70,8 @@ class ClickhouseTrendsFormula:
                 [" CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
             ),
         )
-        result = sync_execute(sql, params)
+
+        result = sync_execute(self._prefix_query_with_ctes(sql), params)  # type: ignore
         response = []
         for item in result:
             additional_values: Dict[str, Any] = {

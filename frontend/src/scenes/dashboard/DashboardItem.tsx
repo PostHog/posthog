@@ -40,7 +40,6 @@ import { ActionsBarValueGraph } from 'scenes/trends/viz'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { FunnelHistogram } from 'scenes/funnels/FunnelHistogram'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -130,19 +129,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         element: FunnelViz,
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
-            return combineUrl(
-                `/insights`,
-                { insight: ViewType.FUNNELS, ...filters },
-                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
-            ).url
-        },
-    },
-    FunnelsTimeToConvert: {
-        className: 'funnel-time-to-convert',
-        element: FunnelHistogram,
-        icon: BarChartOutlined,
-        viewText: 'View time conversion',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
@@ -512,7 +498,7 @@ export function DashboardItem({
                     <div style={{ padding: '0 16px', marginBottom: 16, fontSize: 12 }}>{item.description}</div>
                 )}
 
-                <div className="dashboard-item-content" onClickCapture={onClick}>
+                <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
                     {Element ? (
                         <Alert.ErrorBoundary message="Error rendering graph!">
                             {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (

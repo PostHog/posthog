@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
@@ -19,6 +20,13 @@ from posthog.utils import get_compare_period_dates
 """
 process_entity_for_events takes in an Entity and team_id, and returns an Event QuerySet that's correctly filtered
 """
+
+
+@dataclass()
+class CTE:
+    query: str
+    alias: str
+    is_scalar: bool
 
 
 def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> QuerySet:
@@ -235,5 +243,19 @@ class BaseQuery:
         The output is a List comprised of Dicts. What those dicts looks like depend on the needs of the frontend.
     """
 
+    ctes: List[CTE]
+
+    def __init__(self) -> None:
+        self.ctes = []
+
     def run(self, filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         raise NotImplementedError("You need to implement run")
+
+    def _prefix_query_with_ctes(self, query: str) -> str:
+        COMMA_NEWLINE = ",\n"
+        if self.ctes:
+            return f"""
+            WITH
+                {COMMA_NEWLINE.join((f"( {cte.query} ) AS {cte.alias}" if cte.is_scalar else f"{cte.alias} AS ( {cte.query} )" for cte in self.ctes))}
+            {query}"""
+        return query
