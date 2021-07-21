@@ -35,7 +35,7 @@ export function ToggleButtonChartFilter({
         {
             value: FunnelVizType.Trends,
             label: <Tooltip title="Track how this funnel's conversion rate is trending over time">Historical</Tooltip>,
-            visible: true,
+            visible: clickhouseFeaturesEnabled,
         },
     ]
 
