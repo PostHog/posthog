@@ -15,41 +15,41 @@ import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { FlattenedFunnelStep } from '~/types'
 
 interface FunnelStepTableProps {
-    layout?: FunnelLayout
+    layout?: FunnelLayout // Not yet implemented
 }
 
 function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string {
     return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order) || 'var(--primary)'
 }
 
-export function FunnelStepTable({ layout = FunnelLayout.horizontal }: FunnelStepTableProps): JSX.Element {
+export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
     const { flattenedSteps, visibilityMap, filters, steps } = useValues(funnelLogic)
     const { setVisibility, openPersonsModal } = useActions(funnelLogic)
     const { cohorts } = useValues(cohortsModel)
     const columns: ColumnsType<FlattenedFunnelStep> = []
 
-    if (layout === 'horizontal') {
-        columns.push({
-            title: '',
-            render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
-                if (step.breakdownIndex === undefined) {
-                    // Only allow toggling breakdowns
-                    return null
-                }
-                const isVisible = !!(step.breakdown && visibilityMap[step.breakdown])
-                const color = getStepColor(step, !!filters.breakdown)
-                return (
+    columns.push({
+        title: '',
+        render: function RenderCheckboxOrGlyph({}, step: FlattenedFunnelStep): JSX.Element {
+            if (step.breakdownIndex === undefined) {
+                // Not a breakdown value; show a step-order glyph
+                return <SeriesGlyph variant="funnel-step-glyph">{humanizeOrder(step.order)}</SeriesGlyph>
+            }
+            const isVisible = !!(step.breakdown && visibilityMap[step.breakdown])
+            const color = getStepColor(step, !!filters.breakdown)
+            return (
+                <div style={{ marginLeft: '0.15em' }}>
                     <PHCheckbox
                         color={color}
                         checked={isVisible}
                         onChange={() => step.breakdown && setVisibility(step.breakdown, !isVisible)}
                     />
-                )
-            },
-            fixed: 'left',
-            width: 30,
-        })
-    }
+                </div>
+            )
+        },
+        fixed: 'left',
+        width: 30,
+    })
 
     columns.push({
         title: 'Step',
@@ -64,25 +64,20 @@ export function FunnelStepTable({ layout = FunnelLayout.horizontal }: FunnelStep
                     style={{ display: 'flex', alignItems: 'center' }}
                 >
                     {isBreakdownChild ? (
-                        <div style={{ maxWidth: 270, wordBreak: 'break-word', marginLeft: 30 }}>
+                        <div style={{ maxWidth: 270, wordBreak: 'break-word' }}>
                             {formatBreakdownLabel(step.breakdown, cohorts)}
                         </div>
                     ) : (
-                        <>
-                            <SeriesGlyph variant="funnel-step-glyph" style={{ marginRight: '0.5em' }}>
-                                {humanizeOrder(step.order)}
-                            </SeriesGlyph>
-                            <div style={{ flexGrow: 1 }}>
-                                <InsightLabel
-                                    seriesColor={color}
-                                    fallbackName={step.name}
-                                    hasMultipleSeries={steps.length > 1}
-                                    breakdownValue={step.breakdown}
-                                    hideBreakdown
-                                    hideIcon
-                                />
-                            </div>
-                        </>
+                        <div style={{ flexGrow: 1 }}>
+                            <InsightLabel
+                                seriesColor={color}
+                                fallbackName={step.name}
+                                hasMultipleSeries={steps.length > 1}
+                                breakdownValue={step.breakdown}
+                                hideBreakdown
+                                hideIcon
+                            />
+                        </div>
                     )}
                 </SeriesToggleWrapper>
             )
