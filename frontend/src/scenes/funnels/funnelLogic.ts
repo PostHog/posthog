@@ -30,6 +30,8 @@ import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/Funne
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { calcPercentage, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { router } from 'kea-router'
+
 function aggregateBreakdownResult(breakdownList: FunnelStep[][]): FunnelStepWithNestedBreakdown[] {
     if (breakdownList.length) {
         return breakdownList[0].map((step, i) => ({
@@ -498,12 +500,12 @@ export const funnelLogic = kea<funnelLogicType>({
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
+                return ['/insights', values.propertiesForUrl, router.values.hashParams, { replace: true }]
             }
         },
         clearFunnel: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', { insight: ViewType.FUNNELS }, undefined, { replace: true }]
+                return ['/insights', { insight: ViewType.FUNNELS }, router.values.hashParams, { replace: true }]
             }
         },
     }),
