@@ -85,8 +85,7 @@ async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParams): Pro
 }
 
 export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNotUsedByFunnels = false): FilterType => {
-    const breakdownEnabled =
-        filters.funnel_viz_type !== FunnelVizType.Trends && filters.funnel_viz_type !== FunnelVizType.TimeToConvert
+    const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
 
     return {
         // Use "discardFiltersNotUsedByFunnels" to get funnel params that you can compare.
