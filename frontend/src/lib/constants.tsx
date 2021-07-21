@@ -231,7 +231,6 @@ export const FEATURE_FLAGS = {
     EVENT_COLUMN_CONFIG: '4141-event-columns',
     NPS_PROMPT: '4562-nps',
     INGESTION_TAXONOMY: '4267-event-property-taxonomy',
-    NEW_TOOLTIPS: '4156-tooltips-legends',
     ENGAGEMENT_COHORTS: 'engagement-cohorts-4349',
     PLUGIN_METRICS: '4871-plugin-metrics',
     FUNNEL_BAR_VIZ: '4535-funnel-bar-viz', // Nail Funnels #4785
