@@ -95,7 +95,6 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                 </Row>
             }
             width={600}
-            bodyStyle={{ padding: 0, maxHeight: 500, overflowY: 'scroll' }}
             className="person-modal"
         >
             {peopleLoading && (
