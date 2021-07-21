@@ -353,6 +353,8 @@ $funnel_canvas_background: #fafafa;
 
 .dashboard-item-content {
     .funnel-bar-graph {
+        margin: 0;
+        padding: 12px 0;
         background-color: unset;
         font-size: 0.85em;
 
