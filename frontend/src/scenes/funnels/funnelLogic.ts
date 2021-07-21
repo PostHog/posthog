@@ -443,10 +443,8 @@ export const funnelLogic = kea<funnelLogicType>({
     listeners: ({ actions, values, props }) => ({
         loadResultsSuccess: async () => {
             // load the old people table
-            if (!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
-                if ((values.stepsWithCount[0]?.people?.length ?? 0) > 0) {
-                    actions.loadPeople(values.stepsWithCount)
-                }
+            if ((values.stepsWithCount[0]?.people?.length ?? 0) > 0) {
+                actions.loadPeople(values.stepsWithCount)
             }
         },
         setFilters: ({ refresh }) => {
