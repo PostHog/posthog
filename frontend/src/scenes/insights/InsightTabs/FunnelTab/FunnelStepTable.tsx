@@ -16,7 +16,7 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 
 interface FunnelStepTableProps {
     layout?: FunnelLayout
@@ -47,8 +47,11 @@ export function FunnelStepTable({ layout = FunnelLayout.horizontal }: FunnelStep
     if (layout === 'horizontal') {
         columns.push({
             title: '',
-            render: function RenderCheckbox({}, step: FlattenedFunnelStep) {
-                // legend will always be on insight page where the background is white
+            render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
+                if (step.isBreakdownParent) {
+                    // Only allow toggling breakdowns
+                    return null
+                }
                 const isVisible = isStepVisible(step.order, step.breakdown)
                 const color = getStepColor(step, !!filters.breakdown)
                 return (
@@ -118,16 +121,16 @@ export function FunnelStepTable({ layout = FunnelLayout.horizontal }: FunnelStep
 
     columns.push({
         title: 'Conversion',
-        render: function RenderConversion({}, step: FlattenedFunnelStep): JSX.Element {
-            return <span>{step.conversionRates.total}%</span>
+        render: function RenderConversion({}, step: FlattenedFunnelStep): JSX.Element | null {
+            return step.order === 0 ? null : <span>{step.conversionRates.total}%</span>
         },
         width: 30,
     })
 
     columns.push({
         title: 'Dropped off',
-        render: function RenderDropoff({}, step: FlattenedFunnelStep): JSX.Element {
-            return (
+        render: function RenderDropoff({}, step: FlattenedFunnelStep): JSX.Element | null {
+            return step.order === 0 ? null : (
                 <ValueInspectorButton
                     onClick={() =>
                         openPersonsModal(step, step.count + 1, step.breakdown_value)
@@ -142,8 +145,8 @@ export function FunnelStepTable({ layout = FunnelLayout.horizontal }: FunnelStep
 
     columns.push({
         title: 'From previous',
-        render: function RenderDropoffFromPrevious({}, step: FlattenedFunnelStep): JSX.Element {
-            return <span>{step.conversionRates.fromPrevious}%</span>
+        render: function RenderDropoffFromPrevious({}, step: FlattenedFunnelStep): JSX.Element | null {
+            return step.order === 0 ? null : <span>{humanizeNumber(100 - step.conversionRates.fromPrevious, 2)}%</span>
         },
         width: 30,
     })
