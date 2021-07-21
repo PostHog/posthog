@@ -38,6 +38,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         setFirstLoadedPeople: (firstLoadedPeople: TrendPeople | null) => ({ firstLoadedPeople }),
         refreshCohort: true,
         savePeopleParams: (peopleParams: PersonModalParams) => ({ peopleParams }),
+        setLoadMorePeople: (morePeople: TrendPeople) => ({ morePeople }),
     }),
     reducers: () => ({
         searchTerm: [
@@ -66,6 +67,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 }),
                 setFilters: () => null,
                 setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
+                setLoadMorePeople: (_, { morePeople }) => morePeople,
             },
         ],
         firstLoadedPeople: [
@@ -96,7 +98,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             },
         ],
     }),
-    loaders: ({ actions, values }) => ({
+    loaders: ({ actions }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
                 let people = []
@@ -161,24 +163,6 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 }
                 return peopleResult
             },
-            loadMorePeople: async ({}, breakpoint) => {
-                if (values.people) {
-                    const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
-                    const people = await api.get(next)
-                    breakpoint()
-
-                    return {
-                        people: [...currPeople, ...people.results[0]?.people],
-                        count: count + people.results[0]?.count,
-                        action,
-                        label,
-                        day,
-                        breakdown_value,
-                        next: people.next,
-                    }
-                }
-                return null
-            },
         },
     }),
     listeners: ({ actions, values }) => ({
@@ -192,6 +176,23 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 id: 'personsModalNew',
                 groups: [],
             })
+        },
+        loadMorePeople: async ({}, breakpoint) => {
+            if (values.people) {
+                const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
+                const morePeopleResults = await api.get(next)
+                breakpoint()
+                const morePeople = {
+                    people: [...currPeople, ...morePeopleResults.results[0]?.people],
+                    count: count + morePeopleResults.results[0]?.count,
+                    action,
+                    label,
+                    day,
+                    breakdown_value,
+                    next: morePeopleResults.next,
+                }
+                actions.setLoadMorePeople(morePeople)
+            }
         },
         saveCohortWithFilters: ({ cohortName, filters }) => {
             if (values.people) {
