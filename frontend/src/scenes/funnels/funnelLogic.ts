@@ -479,7 +479,6 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.loadResults()
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
-            personsModalLogic.actions.setShowingPeople(true)
             personsModalLogic.actions.loadPeople({
                 action: { id: step.action_id, name: step.name, properties: [], type: step.type },
                 breakdown_value: breakdown_value || '',
