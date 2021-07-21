@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from itertools import groupby
 from typing import Optional, Tuple, Type, Union
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
@@ -62,6 +63,9 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         self, *, specific_entrance_period_start: Optional[datetime] = None
     ) -> str:
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
+
+        self.ctes = self.funnel_order.ctes
+
         interval_method = get_trunc_func_ch(self._filter.interval)
 
         # This is used by funnel trends when we only need data for one period, e.g. person per data point
@@ -114,9 +118,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             FULL OUTER JOIN (
                 SELECT
                     {interval_method}(toDateTime('{self._filter.date_from.strftime(TIMESTAMP_FORMAT)}') + number * {seconds_in_interval}) AS entrance_period_start
+                    {', breakdown_value as prop' if breakdown_clause else ''}
                 FROM numbers({num_intervals}) AS period_offsets
+                {'CROSS JOIN breakdown_values' if breakdown_clause else ''}
             ) fill
-            USING (entrance_period_start)
+            USING (entrance_period_start, prop)
             ORDER BY entrance_period_start ASC
             SETTINGS allow_experimental_window_functions = 1"""
 
@@ -153,7 +159,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             if breakdown_clause:
                 serialized_result.update(
                     {
-                        "breakdown": period_row[-1]
+                        "breakdown_value": period_row[-1]
                         if isinstance(period_row[-1], str)
                         else Cohort.objects.get(pk=period_row[-1]).name
                     }
@@ -163,18 +169,36 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return summary
 
     def _format_results(self, summary):
+
+        if self._filter.breakdown:
+            grouper = lambda row: row["breakdown_value"]
+            sorted_data = sorted(summary, key=grouper)
+            final_res = []
+            for key, value in groupby(sorted_data, grouper):
+                breakdown_res = self._format_single_summary(list(value))
+                final_res.append({**breakdown_res, "breakdown_value": key})
+            return final_res
+        else:
+            res = self._format_single_summary(summary)
+
+            return [res]
+
+    def _format_single_summary(self, summary):
         count = len(summary)
         data = []
         days = []
         labels = []
-
         for row in summary:
             data.append(row["conversion_rate"])
             hour_min_sec = " %H:%M:%S" if self._filter.interval == "hour" or self._filter.interval == "minute" else ""
             days.append(row["timestamp"].strftime(f"%Y-%m-%d{hour_min_sec}"))
             labels.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
-
-        return [{"count": count, "data": data, "days": days, "labels": labels,}]
+        return {
+            "count": count,
+            "data": data,
+            "days": days,
+            "labels": labels,
+        }
 
     def _is_period_final(self, timestamp: Union[datetime, date]):
         # difference between current date and timestamp greater than window
