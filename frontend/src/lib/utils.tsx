@@ -35,6 +35,14 @@ export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
             adjustY: 0,
         },
     },
+    bottomRight: {
+        points: ['tr', 'br'],
+        offset: [0, 4],
+        overflow: {
+            adjustX: 0,
+            adjustY: 0,
+        },
+    },
     topLeft: {
         points: ['bl', 'tl'],
         offset: [0, -4],

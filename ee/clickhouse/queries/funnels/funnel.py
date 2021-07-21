@@ -33,7 +33,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
 
         return f"""
-        SELECT {self._get_count_columns(max_steps)} {self._get_people_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
+        SELECT {self._get_count_columns(max_steps)} {self._get_people_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
                 {self.get_step_counts_query()}
         ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
@@ -53,7 +53,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
 
         return f"""
-            SELECT person_id, steps {self._get_step_time_avgs(max_steps)} {breakdown_clause} FROM (
+            SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} FROM (
                 SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} FROM (
                         {steps_per_person_query}
                 )
@@ -87,9 +87,14 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
             serialized_result = self._serialize_step(step, total_people, relevant_people[0:100])
             if step.order > 0:
-                serialized_result.update({"average_conversion_time": result[step.order + num_entities * 2 - 1]})
+                serialized_result.update(
+                    {
+                        "average_conversion_time": result[step.order + num_entities * 2 - 1],
+                        "median_conversion_time": result[step.order + num_entities * 3 - 2],
+                    }
+                )
             else:
-                serialized_result.update({"average_conversion_time": None})
+                serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
             if with_breakdown:
                 serialized_result.update(

@@ -14,7 +14,7 @@ from ee.clickhouse.queries.breakdown_props import (
 )
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
-from posthog.constants import FUNNEL_WINDOW_DAYS, TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import FUNNEL_WINDOW_DAYS, LIMIT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity, Filter, Team
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
@@ -26,16 +26,20 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def __init__(self, filter: Filter, team: Team) -> None:
         self._filter = filter
-
-        # handle default if window isn't provided
-        if not self._filter.funnel_window_days:
-            self._filter = self._filter.with_data({FUNNEL_WINDOW_DAYS: 14})
-
         self._team = team
         self.params = {
             "team_id": self._team.pk,
             "events": [],  # purely a speed optimization, don't need this for filtering
         }
+
+        # handle default if window isn't provided
+        if not self._filter.funnel_window_days:
+            self._filter = self._filter.with_data({FUNNEL_WINDOW_DAYS: 14})
+
+        if not self._filter.limit:
+            new_limit = {LIMIT: 100}
+            self._filter = self._filter.with_data(new_limit)
+            self.params.update(new_limit)
 
     def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
@@ -57,10 +61,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
             serialized_result = self._serialize_step(step, total_people, [])
             if step.order > 0:
                 serialized_result.update(
-                    {"average_conversion_time": results[step.order + len(self._filter.entities) - 1]}
+                    {
+                        "average_conversion_time": results[step.order + len(self._filter.entities) - 1],
+                        "median_conversion_time": results[step.order + len(self._filter.entities) * 2 - 2],
+                    }
                 )
             else:
-                serialized_result.update({"average_conversion_time": None})
+                serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
             if with_breakdown:
                 serialized_result.update({"breakdown": results[-1]})
@@ -109,14 +116,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
         self._filter = self._filter.with_data(data)
 
         query = self.get_query()
-
         return sync_execute(query, self.params)
 
     def _get_step_times(self, max_steps: int):
         conditions: List[str] = []
         for i in range(1, max_steps):
             conditions.append(
-                f"if(isNotNull(latest_{i}), dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_average_conversion_time"
+                f"if(isNotNull(latest_{i}), dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_conversion_time"
             )
 
         formatted = ", ".join(conditions)
@@ -315,15 +321,31 @@ class ClickhouseFunnelBase(ABC, Funnel):
     def _get_step_time_names(self, max_steps: int):
         names = []
         for i in range(1, max_steps):
-            names.append(f"step_{i}_average_conversion_time")
+            names.append(f"step_{i}_conversion_time")
 
         formatted = ",".join(names)
         return f", {formatted}" if formatted else ""
 
-    def _get_step_time_avgs(self, max_steps: int):
+    def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False):
         conditions: List[str] = []
         for i in range(1, max_steps):
-            conditions.append(f"avg(step_{i}_average_conversion_time) step_{i}_average_conversion_time")
+            conditions.append(
+                f"avg(step_{i}_conversion_time) step_{i}_average_conversion_time_inner"
+                if inner_query
+                else f"avg(step_{i}_average_conversion_time_inner) step_{i}_average_conversion_time"
+            )
+
+        formatted = ", ".join(conditions)
+        return f", {formatted}" if formatted else ""
+
+    def _get_step_time_median(self, max_steps: int, inner_query: bool = False):
+        conditions: List[str] = []
+        for i in range(1, max_steps):
+            conditions.append(
+                f"median(step_{i}_conversion_time) step_{i}_median_conversion_time_inner"
+                if inner_query
+                else f"median(step_{i}_median_conversion_time_inner) step_{i}_median_conversion_time"
+            )
 
         formatted = ", ".join(conditions)
         return f", {formatted}" if formatted else ""

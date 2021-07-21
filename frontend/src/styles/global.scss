@@ -457,6 +457,11 @@ code.code {
     color: $primary !important;
     cursor: pointer;
     margin-left: 5px;
+
+    &.left {
+        margin-left: 0;
+        margin-right: 5px;
+    }
 }
 
 .btn-lg-2x {
@@ -609,6 +614,8 @@ code.code {
 
     &.or {
         background-color: $blue_300;
+        text-align: center;
+        max-width: 50px;
     }
 
     &.width-locked {

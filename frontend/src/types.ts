@@ -6,10 +6,14 @@ import {
     ShownAsValue,
     RETENTION_RECURRING,
     RETENTION_FIRST_TIME,
+    ENTITY_MATCH_TYPE,
+    FunnelLayout,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { Dayjs } from 'dayjs'
+import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { UploadFile } from 'antd/lib/upload/interface'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -329,13 +333,22 @@ export interface PersonType {
 }
 
 export interface CohortGroupType {
+    id: string
     days?: string
     action_id?: number
-    properties?: Record<string, any>
+    event_id?: string
+    label?: string
+    count?: number
+    count_operator?: string
+    properties?: AnyPropertyFilter[]
+    matchType: MatchType
 }
+
+export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
 
 export interface CohortType {
     count?: number
+    description?: string
     created_by?: UserBasicType | null
     created_at?: string
     deleted?: boolean
@@ -344,7 +357,7 @@ export interface CohortType {
     last_calculation?: string
     is_static?: boolean
     name?: string
-    csv?: File
+    csv?: UploadFile
     groups: CohortGroupType[]
 }
 
@@ -556,7 +569,6 @@ export enum ChartDisplayType {
     ActionsBarChartValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
-    FunnelsTimeToConvert = 'FunnelsTimeToConvert',
 }
 
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
@@ -582,6 +594,12 @@ export enum PathType {
     AutoCapture = '$autocapture',
     Screen = '$screen',
     CustomEvent = 'custom_event',
+}
+
+export enum FunnelVizType {
+    Steps = 'steps',
+    TimeToConvert = 'time_to_convert',
+    Trends = 'trends',
 }
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
@@ -616,7 +634,10 @@ export interface FilterType {
     formula?: any
     filter_test_accounts?: boolean
     from_dashboard?: boolean
+    layout?: FunnelLayout // used only for funnels
     funnel_step?: number
+    entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
+    drop_off?: boolean
     funnel_viz_type?: string // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
     funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
@@ -703,7 +724,7 @@ export interface FunnelStep {
     count: number
     name: string
     order: number
-    people: string[]
+    people?: string[]
     type: EntityType
     labels?: string[]
     breakdown?: string
