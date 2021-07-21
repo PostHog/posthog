@@ -457,6 +457,11 @@ code.code {
     color: $primary !important;
     cursor: pointer;
     margin-left: 5px;
+
+    &.left {
+        margin-left: 0;
+        margin-right: 5px;
+    }
 }
 
 .btn-lg-2x {

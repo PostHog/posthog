@@ -163,6 +163,11 @@ export const funnelLogic = kea<funnelLogicType>({
                             const result = await pollFunnel<FunnelStep[] | FunnelStep[][]>({
                                 ...apiParams,
                                 ...(refresh ? { refresh } : {}),
+                                // Time to convert requires steps funnel api to be called for now. Remove once two api's are functionally separated
+                                funnel_viz_type:
+                                    filters.funnel_viz_type === FunnelVizType.TimeToConvert
+                                        ? FunnelVizType.Steps
+                                        : apiParams.funnel_viz_type,
                             })
                             eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
                             return result
@@ -175,27 +180,23 @@ export const funnelLogic = kea<funnelLogicType>({
                                 false,
                                 e.message
                             )
-                            throw new Error('Could not load funnel results')
+                            throw e
                         }
                     }
 
                     async function loadBinsResults(): Promise<FunnelsTimeConversionBins> {
                         if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
-                            try {
-                                // API specs (#5110) require neither funnel_{from|to}_step to be provided if querying
-                                // for all steps
-                                const isAllSteps = values.histogramStep.from_step === -1
+                            // API specs (#5110) require neither funnel_{from|to}_step to be provided if querying
+                            // for all steps
+                            const isAllSteps = values.histogramStep.from_step === -1
 
-                                const binsResult = await pollFunnel<FunnelsTimeConversionBins>({
-                                    ...apiParams,
-                                    ...(refresh ? { refresh } : {}),
-                                    ...(!isAllSteps ? { funnel_from_step: histogramStep.from_step } : {}),
-                                    ...(!isAllSteps ? { funnel_to_step: histogramStep.to_step } : {}),
-                                })
-                                return cleanBinResult(binsResult.result)
-                            } catch (e) {
-                                throw new Error('Could not load funnel time conversion bins')
-                            }
+                            const binsResult = await pollFunnel<FunnelsTimeConversionBins>({
+                                ...apiParams,
+                                ...(refresh ? { refresh } : {}),
+                                ...(!isAllSteps ? { funnel_from_step: histogramStep.from_step } : {}),
+                                ...(!isAllSteps ? { funnel_to_step: histogramStep.to_step } : {}),
+                            })
+                            return cleanBinResult(binsResult.result)
                         }
                         return EMPTY_FUNNEL_RESULTS.timeConversionResults
                     }
@@ -213,8 +214,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     } catch (e) {
                         if (!isBreakpoint(e)) {
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
+                            console.error(e)
                         }
-                        console.error(e)
                         return EMPTY_FUNNEL_RESULTS
                     }
                 },
