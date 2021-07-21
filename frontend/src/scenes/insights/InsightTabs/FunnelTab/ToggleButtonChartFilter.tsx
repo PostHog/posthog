@@ -15,7 +15,7 @@ const noop = (): void => {}
 export function ToggleButtonChartFilter({
     onChange = noop,
     disabled = false,
-}: ToggleButtonChartFilterProps): JSX.Element {
+}: ToggleButtonChartFilterProps): JSX.Element | null {
     const { clickhouseFeaturesEnabled } = useValues(funnelLogic())
     const { chartFilter } = useValues(chartFilterLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
@@ -39,22 +39,29 @@ export function ToggleButtonChartFilter({
         },
     ]
 
+    if (options.filter((option) => option.visible).length <= 1) {
+        return null
+    }
+
     return (
-        <Radio.Group
-            key="2"
-            defaultValue={defaultDisplay}
-            value={chartFilter || defaultDisplay}
-            onChange={({ target: { value } }: { target: { value?: FunnelVizType } }) => {
-                if (value) {
-                    setChartFilter(value)
-                    onChange(value)
-                }
-            }}
-            data-attr="chart-filter"
-            disabled={disabled}
-            options={options.filter((o) => o.visible)}
-            optionType="button"
-            size="small"
-        />
+        <div style={{ paddingBottom: '1rem' }}>
+            <h4 className="secondary">Graph Type</h4>
+            <Radio.Group
+                key="2"
+                defaultValue={defaultDisplay}
+                value={chartFilter || defaultDisplay}
+                onChange={({ target: { value } }: { target: { value?: FunnelVizType } }) => {
+                    if (value) {
+                        setChartFilter(value)
+                        onChange(value)
+                    }
+                }}
+                data-attr="chart-filter"
+                disabled={disabled}
+                options={options.filter((o) => o.visible)}
+                optionType="button"
+                size="small"
+            />
+        </div>
     )
 }

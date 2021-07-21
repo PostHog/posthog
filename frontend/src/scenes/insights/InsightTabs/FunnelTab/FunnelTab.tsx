@@ -50,12 +50,7 @@ export function FunnelTab(): JSX.Element {
                     ) : undefined
                 }
             />
-            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && (
-                <div style={{ paddingBottom: '1rem' }}>
-                    <h4 className="secondary">Graph Type</h4>
-                    <ToggleButtonChartFilter />
-                </div>
-            )}
+            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && <ToggleButtonChartFilter />}
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
