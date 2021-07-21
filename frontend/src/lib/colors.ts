@@ -82,7 +82,7 @@ export const dashboardColorHSL = {
     blue: [212, 63, 40],
     purple: [249, 46, 51],
     green: [145, 60, 34],
-    black: [0, 0, 0],
+    black: [0, 0, 18],
 }
 
 export const cssHSL = (h: number, s: number, l: number): string =>

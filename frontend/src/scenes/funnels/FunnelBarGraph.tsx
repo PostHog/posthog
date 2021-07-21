@@ -247,14 +247,14 @@ function AverageTimeInspector({ onClick, disabled, averageTime }: AverageTimeIns
                 className="text-muted-alt"
                 style={{ paddingRight: 4, display: 'inline-block', visibility: infoTextVisible ? undefined : 'hidden' }}
             >
-                Mean time:
+                Average time:
             </span>
             <ValueInspectorButton
                 innerRef={buttonRef}
                 style={{ paddingLeft: 0, paddingRight: 0 }}
                 onClick={onClick}
                 disabled={disabled}
-                title="Mean time elapsed between completing this step and starting the next one."
+                title="Average of time elapsed for each user between completing this step and starting the next one."
             >
                 {humanFriendlyDuration(averageTime, 2)}
             </ValueInspectorButton>
@@ -273,14 +273,17 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
     )
 }
 
-export function FunnelBarGraph({ filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element {
+export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Omit<ChartParams, 'view'>): JSX.Element {
     const logic = funnelLogic({ dashboardItemId, filters })
     const { steps, stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(logic)
     const { openPersonsModal } = useActions(funnelLogic)
     const firstStep = getReferenceStep(steps, FunnelStepReference.total)
 
     return (
-        <div className={`funnel-bar-graph ${layout}`}>
+        <div
+            className={`funnel-bar-graph ${layout}${color && color !== 'white' ? ' colored' : ''} ${color}`}
+            style={dashboardItemId ? {} : { minHeight: 450 }}
+        >
             {steps.map((step, i) => {
                 const basisStep = getReferenceStep(steps, stepReference, i)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, i)

@@ -498,7 +498,7 @@ export function DashboardItem({
                     <div style={{ padding: '0 16px', marginBottom: 16, fontSize: 12 }}>{item.description}</div>
                 )}
 
-                <div className="dashboard-item-content" onClickCapture={onClick}>
+                <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
                     {Element ? (
                         <Alert.ErrorBoundary message="Error rendering graph!">
                             {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (

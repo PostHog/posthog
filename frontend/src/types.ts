@@ -7,6 +7,7 @@ import {
     RETENTION_RECURRING,
     RETENTION_FIRST_TIME,
     ENTITY_MATCH_TYPE,
+    FunnelLayout,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
@@ -633,6 +634,7 @@ export interface FilterType {
     formula?: any
     filter_test_accounts?: boolean
     from_dashboard?: boolean
+    layout?: FunnelLayout // used only for funnels
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
