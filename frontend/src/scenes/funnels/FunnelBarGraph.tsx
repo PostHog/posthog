@@ -275,7 +275,7 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
 
 export function FunnelBarGraph({ filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element {
     const logic = funnelLogic({ dashboardItemId, filters })
-    const { steps, stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(logic)
+    const { steps, stepReference, barGraphLayout: layout, funnelPersonsEnabled, visibilityMap } = useValues(logic)
     const { openPersonsModal } = useActions(funnelLogic)
     const firstStep = getReferenceStep(steps, FunnelStepReference.total)
 
@@ -320,6 +320,9 @@ export function FunnelBarGraph({ filters, dashboardItemId }: Omit<ChartParams, '
                             <div className="funnel-bar-wrapper">
                                 {Array.isArray(step.nested_breakdown) && step.nested_breakdown?.length ? (
                                     step.nested_breakdown.map((breakdown, index) => {
+                                        if (breakdown.breakdown && !visibilityMap[breakdown.breakdown]) {
+                                            return null
+                                        }
                                         const conversionRate = calcPercentage(breakdown.count, basisStep.count)
                                         const _previousCount =
                                             (previousStep as FunnelStepWithNestedBreakdown)?.nested_breakdown?.[index]
