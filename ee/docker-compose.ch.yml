@@ -14,7 +14,7 @@ services:
         ports:
             - '6379:6379'
     clickhouse:
-        image: yandex/clickhouse-server
+        image: yandex/clickhouse-server:21.6.5.37
         depends_on:
             - kafka
             - zookeeper
