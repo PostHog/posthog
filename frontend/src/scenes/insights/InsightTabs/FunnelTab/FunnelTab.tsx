@@ -19,7 +19,7 @@ import { InsightActionBar } from '../InsightActionBar'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
-import { BreakdownType } from '~/types'
+import { BreakdownType, FunnelVizType } from '~/types'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
@@ -86,7 +86,7 @@ export function FunnelTab(): JSX.Element {
                     }}
                 />
                 <TestAccountFilter filters={filters} onChange={setFilters} />
-                {clickhouseFeaturesEnabled && (
+                {clickhouseFeaturesEnabled && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <hr />
                         <h4 className="secondary">
