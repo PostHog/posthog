@@ -85,6 +85,9 @@ async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParams): Pro
 }
 
 export const cleanFunnelParams = (filters: Partial<FilterType>, returnOnlyFunnelParams = false): FilterType => {
+    const breakdownEnabled =
+        filters.funnel_viz_type !== FunnelVizType.Trends && filters.funnel_viz_type !== FunnelVizType.TimeToConvert
+
     return {
         ...(returnOnlyFunnelParams ? {} : filters),
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
@@ -102,9 +105,8 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, returnOnlyFunnel
         ...(filters.entrance_period_start ? { entrance_period_start: filters.entrance_period_start } : {}),
         ...(filters.drop_off ? { drop_off: filters.drop_off } : {}),
         interval: autocorrectInterval(filters),
-        breakdown: filters.breakdown || undefined,
-        breakdown_type: filters.breakdown_type || undefined,
-
+        breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
+        breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
         insight: ViewType.FUNNELS,
     }
 }
@@ -295,20 +297,21 @@ export const funnelLogic = kea<funnelLogicType>({
         isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],
         propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
         isValidFunnel: [
-            () => [selectors.stepsWithCount, selectors.timeConversionBins],
-            (stepsWithCount: FunnelStep[], timeConversionBins: FunnelsTimeConversionBins) => {
-                return (
-                    (stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1) ||
-                    timeConversionBins?.bins?.length > 0
-                )
+            () => [selectors.filters, selectors.results, selectors.stepsWithCount, selectors.timeConversionBins],
+            (filters, results, stepsWithCount, timeConversionBins) => {
+                if (filters.funnel_viz_type === FunnelVizType.Steps || !filters.funnel_viz_type) {
+                    return !!(stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1)
+                }
+                if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                    return timeConversionBins?.bins?.length > 0
+                }
+                if (filters.funnel_viz_type === FunnelVizType.Trends) {
+                    return results?.length > 0
+                }
+                return false
             },
         ],
         barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
-        showBarGraph: [
-            () => [selectors.filters],
-            ({ funnel_viz_type }) =>
-                funnel_viz_type === FunnelVizType.Steps || funnel_viz_type === FunnelVizType.TimeToConvert,
-        ],
         clickhouseFeaturesEnabled: [
             () => [featureFlagLogic.selectors.featureFlags, selectors.preflight],
             // Controls auto-calculation of results and ability to break down values
