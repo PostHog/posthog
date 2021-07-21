@@ -61,10 +61,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
             serialized_result = self._serialize_step(step, total_people, [])
             if step.order > 0:
                 serialized_result.update(
-                    {"average_conversion_time": results[step.order + len(self._filter.entities) - 1]}
+                    {
+                        "average_conversion_time": results[step.order + len(self._filter.entities) - 1],
+                        "median_conversion_time": results[step.order + len(self._filter.entities) * 2 - 2],
+                    }
                 )
             else:
-                serialized_result.update({"average_conversion_time": None})
+                serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
             if with_breakdown:
                 serialized_result.update({"breakdown": results[-1]})
@@ -113,14 +116,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
         self._filter = self._filter.with_data(data)
 
         query = self.get_query()
-
         return sync_execute(query, self.params)
 
     def _get_step_times(self, max_steps: int):
         conditions: List[str] = []
         for i in range(1, max_steps):
             conditions.append(
-                f"if(isNotNull(latest_{i}), dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_average_conversion_time"
+                f"if(isNotNull(latest_{i}), dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_conversion_time"
             )
 
         formatted = ", ".join(conditions)
@@ -316,10 +318,26 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         return ", ".join(cols)
 
-    def _get_step_time_avgs(self, max_steps: int):
+    def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False):
         conditions: List[str] = []
         for i in range(1, max_steps):
-            conditions.append(f"avg(step_{i}_average_conversion_time) step_{i}_average_conversion_time")
+            conditions.append(
+                f"avg(step_{i}_conversion_time) step_{i}_average_conversion_time_inner"
+                if inner_query
+                else f"avg(step_{i}_average_conversion_time_inner) step_{i}_average_conversion_time"
+            )
+
+        formatted = ", ".join(conditions)
+        return f", {formatted}" if formatted else ""
+
+    def _get_step_time_median(self, max_steps: int, inner_query: bool = False):
+        conditions: List[str] = []
+        for i in range(1, max_steps):
+            conditions.append(
+                f"median(step_{i}_conversion_time) step_{i}_median_conversion_time_inner"
+                if inner_query
+                else f"median(step_{i}_median_conversion_time_inner) step_{i}_median_conversion_time"
+            )
 
         formatted = ", ".join(conditions)
         return f", {formatted}" if formatted else ""

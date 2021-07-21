@@ -56,7 +56,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             )
 
         steps_average_conversion_time_identifiers = [
-            f"step_{step+1}_average_conversion_time" for step in range(from_step, to_step)
+            f"step_{step+1}_average_conversion_time_inner" for step in range(from_step, to_step)
         ]
         steps_average_conversion_time_expression_sum = " + ".join(steps_average_conversion_time_identifiers)
 
@@ -99,7 +99,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
                     count() AS person_count
                 FROM step_runs
                 -- We only need to check step to_step here, because it depends on all the other ones being NOT NULL too
-                WHERE step_{to_step}_average_conversion_time IS NOT NULL
+                WHERE step_{to_step}_average_conversion_time_inner IS NOT NULL
                 GROUP BY bin_from_seconds
             ) results
             FULL OUTER JOIN (

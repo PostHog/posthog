@@ -5,7 +5,7 @@ import { Button, Card, Col, Divider, Input, Row } from 'antd'
 import { AimOutlined, ArrowLeftOutlined, InboxOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import { useValues, useActions, BuiltLogic } from 'kea'
 import { CohortGroupType, CohortType } from '~/types'
-import { Persons } from './Persons'
+import { Persons } from '../persons/Persons'
 import Dragger from 'antd/lib/upload/Dragger'
 
 const isSubmitDisabled = (cohort: CohortType): boolean => {
@@ -64,8 +64,9 @@ function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
 }
 
 function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
-    const { setCohort } = useActions(logic)
+    const { updateCohortGroups, setCohort } = useActions(logic)
     const { cohort, isNewCohort } = useValues(logic)
+
     return (
         <>
             {isNewCohort && (
@@ -84,12 +85,13 @@ function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
                         allowRemove={cohort.groups.length > 1}
                         index={index}
                         onRemove={() => {
-                            cohort.groups.splice(index, 1)
-                            setCohort({ ...cohort })
+                            const groups = [...cohort.groups].splice(index, 1)
+                            updateCohortGroups(groups)
                         }}
                         onChange={(_group: CohortGroupType) => {
-                            cohort.groups[index] = _group
-                            setCohort({ ...cohort })
+                            const groups = [...cohort.groups]
+                            groups[index] = _group
+                            updateCohortGroups(groups)
                         }}
                     />
                     {index < cohort.groups.length - 1 && (
@@ -183,15 +185,12 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                         htmlType="submit"
                         disabled={isSubmitDisabled(cohort)}
                         data-attr="save-cohort"
-                        style={{ marginTop: '1rem' }}
+                        style={{ marginRight: '1rem' }}
                     >
                         Save cohort
                     </Button>
                     {cohort.is_static === false && (
-                        <Button
-                            style={{ marginTop: '1rem', marginLeft: 12 }}
-                            onClick={() => setCohort({ ...cohort, groups: [...cohort.groups, {}] })}
-                        >
+                        <Button onClick={() => setCohort({ ...cohort, groups: [...cohort.groups, {}] })}>
                             New group
                         </Button>
                     )}

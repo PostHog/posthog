@@ -84,7 +84,14 @@ export function PluginSource(): JSX.Element {
         <Drawer
             forceRender={true}
             visible={editingSource}
-            onClose={() => setEditingSource(false)}
+            onClose={() => {
+                if (form.getFieldValue('source') !== editingPlugin?.source) {
+                    confirm('You have unsaved changes in your plugin. Are you sure you want to exit?') &&
+                        setEditingSource(false)
+                } else {
+                    setEditingSource(false)
+                }
+            }}
             width={'min(90vw, 64rem)'}
             title={`Coding Plugin: ${editingPlugin?.name}`}
             placement="left"

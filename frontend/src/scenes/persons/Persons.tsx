@@ -29,7 +29,7 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
             {!cohort && <PageHeader title="Persons" />}
             <Row style={{ gap: '0.75rem' }} className="mb">
                 <div style={{ flexGrow: 1, maxWidth: 600 }}>
-                    <PersonsSearch />
+                    <PersonsSearch autoFocus={!cohort} />
                     <div className="text-muted text-small">
                         You can also filter persons that have a certain property set (e.g. <code>has:email</code> or{' '}
                         <code>has:name</code>)

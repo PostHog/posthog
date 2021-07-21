@@ -930,9 +930,14 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
         )
 
         result = funnel.run()
+
         self.assertEqual(result[0]["average_conversion_time"], None)
         self.assertEqual(result[1]["average_conversion_time"], 6000)
         self.assertEqual(result[2]["average_conversion_time"], 5400)
+
+        self.assertEqual(result[0]["median_conversion_time"], None)
+        self.assertEqual(result[1]["median_conversion_time"], 7200)
+        self.assertEqual(result[2]["median_conversion_time"], 5400)
 
     def test_funnel_exclusions_invalid_params(self):
         filters = {
