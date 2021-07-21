@@ -30,6 +30,7 @@ import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/Funne
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { calcPercentage, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { router } from 'kea-router'
 
 // BreakdownVisibilityMap may toggle a whole step's visibility, or contain a record of toggles for each nested breakdown.
 export type BreakdownVisibilityMap = Record<string, boolean>
@@ -104,14 +105,18 @@ async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParams): Pro
     return result
 }
 
-export const cleanFunnelParams = (filters: Partial<FilterType>): FilterType => {
+export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNotUsedByFunnels = false): FilterType => {
+    const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
+
     return {
-        ...filters,
+        // Use "discardFiltersNotUsedByFunnels" to get funnel params that you can compare.
+        ...(discardFiltersNotUsedByFunnels ? {} : filters),
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
         ...(filters.date_to ? { date_to: filters.date_to } : {}),
         ...(filters.actions ? { actions: filters.actions } : {}),
         ...(filters.events ? { events: filters.events } : {}),
         ...(filters.display ? { display: filters.display } : {}),
+        ...(filters.layout ? { layout: filters.layout } : {}),
         ...(filters.interval ? { interval: filters.interval } : {}),
         ...(filters.properties ? { properties: filters.properties } : {}),
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
@@ -121,9 +126,8 @@ export const cleanFunnelParams = (filters: Partial<FilterType>): FilterType => {
         ...(filters.entrance_period_start ? { entrance_period_start: filters.entrance_period_start } : {}),
         ...(filters.drop_off ? { drop_off: filters.drop_off } : {}),
         interval: autocorrectInterval(filters),
-        breakdown: filters.breakdown || undefined,
-        breakdown_type: filters.breakdown_type || undefined,
-
+        breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
+        breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
         insight: ViewType.FUNNELS,
     }
 }
@@ -157,7 +161,6 @@ export const funnelLogic = kea<
             breakdown_value,
         }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
-        setBarGraphLayout: (barGraphLayout: FunnelLayout) => ({ barGraphLayout }),
         changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setVisibilityMap: (visibilityMap: BreakdownVisibilityMap) => ({ visibilityMap }),
@@ -193,6 +196,11 @@ export const funnelLogic = kea<
                             const result = await pollFunnel<FunnelStep[] | FunnelStep[][]>({
                                 ...apiParams,
                                 ...(refresh ? { refresh } : {}),
+                                // Time to convert requires steps funnel api to be called for now. Remove once two api's are functionally separated
+                                funnel_viz_type:
+                                    filters.funnel_viz_type === FunnelVizType.TimeToConvert
+                                        ? FunnelVizType.Steps
+                                        : apiParams.funnel_viz_type,
                             })
                             eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
                             return result
@@ -205,27 +213,23 @@ export const funnelLogic = kea<
                                 false,
                                 e.message
                             )
-                            throw new Error('Could not load funnel results')
+                            throw e
                         }
                     }
 
                     async function loadBinsResults(): Promise<FunnelsTimeConversionBins> {
                         if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
-                            try {
-                                // API specs (#5110) require neither funnel_{from|to}_step to be provided if querying
-                                // for all steps
-                                const isAllSteps = values.histogramStep.from_step === -1
+                            // API specs (#5110) require neither funnel_{from|to}_step to be provided if querying
+                            // for all steps
+                            const isAllSteps = values.histogramStep.from_step === -1
 
-                                const binsResult = await pollFunnel<FunnelsTimeConversionBins>({
-                                    ...apiParams,
-                                    ...(refresh ? { refresh } : {}),
-                                    ...(!isAllSteps ? { funnel_from_step: histogramStep.from_step } : {}),
-                                    ...(!isAllSteps ? { funnel_to_step: histogramStep.to_step } : {}),
-                                })
-                                return cleanBinResult(binsResult.result)
-                            } catch (e) {
-                                throw new Error('Could not load funnel time conversion bins')
-                            }
+                            const binsResult = await pollFunnel<FunnelsTimeConversionBins>({
+                                ...apiParams,
+                                ...(refresh ? { refresh } : {}),
+                                ...(!isAllSteps ? { funnel_from_step: histogramStep.from_step } : {}),
+                                ...(!isAllSteps ? { funnel_to_step: histogramStep.to_step } : {}),
+                            })
+                            return cleanBinResult(binsResult.result)
                         }
                         return EMPTY_FUNNEL_RESULTS.timeConversionResults
                     }
@@ -243,8 +247,8 @@ export const funnelLogic = kea<
                     } catch (e) {
                         if (!isBreakpoint(e)) {
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
+                            console.error(e)
                         }
-                        console.error(e)
                         return EMPTY_FUNNEL_RESULTS
                     }
                 },
@@ -284,12 +288,6 @@ export const funnelLogic = kea<
             FunnelStepReference.total as FunnelStepReference,
             {
                 setStepReference: (_, { stepReference }) => stepReference,
-            },
-        ],
-        barGraphLayout: [
-            FunnelLayout.vertical as FunnelLayout,
-            {
-                setBarGraphLayout: (_, { barGraphLayout }) => barGraphLayout,
             },
         ],
         histogramStep: [
@@ -340,19 +338,21 @@ export const funnelLogic = kea<
         isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],
         propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
         isValidFunnel: [
-            () => [selectors.stepsWithCount, selectors.timeConversionBins],
-            (stepsWithCount: FunnelStep[], timeConversionBins: FunnelsTimeConversionBins) => {
-                return (
-                    (stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1) ||
-                    timeConversionBins?.bins?.length > 0
-                )
+            () => [selectors.filters, selectors.results, selectors.stepsWithCount, selectors.timeConversionBins],
+            (filters, results, stepsWithCount, timeConversionBins) => {
+                if (filters.funnel_viz_type === FunnelVizType.Steps || !filters.funnel_viz_type) {
+                    return !!(stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1)
+                }
+                if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                    return timeConversionBins?.bins?.length > 0
+                }
+                if (filters.funnel_viz_type === FunnelVizType.Trends) {
+                    return results?.length > 0
+                }
+                return false
             },
         ],
-        showBarGraph: [
-            () => [selectors.filters],
-            ({ funnel_viz_type }: { funnel_viz_type: FunnelVizType }) =>
-                funnel_viz_type === FunnelVizType.Steps || funnel_viz_type === FunnelVizType.TimeToConvert,
-        ],
+        barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
         clickhouseFeaturesEnabled: [
             () => [featureFlagLogic.selectors.featureFlags, selectors.preflight],
             // Controls auto-calculation of results and ability to break down values
@@ -589,11 +589,12 @@ export const funnelLogic = kea<
             actions.loadResults()
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
-            personsModalLogic.actions.setShowingPeople(true)
             personsModalLogic.actions.loadPeople({
                 action: { id: step.action_id, name: step.name, properties: [], type: step.type },
                 breakdown_value: breakdown_value || '',
-                label: `Persons who completed Step #${stepNumber} - "${step.name}"`,
+                label: `Persons who ${stepNumber >= 0 ? 'completed' : 'dropped off at'} Step #${Math.abs(
+                    stepNumber
+                )} - ${step.name}`,
                 date_from: '',
                 date_to: '',
                 filters: values.filters,
@@ -608,12 +609,12 @@ export const funnelLogic = kea<
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
+                return ['/insights', values.propertiesForUrl, router.values.hashParams, { replace: true }]
             }
         },
         clearFunnel: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', { insight: ViewType.FUNNELS }, undefined, { replace: true }]
+                return ['/insights', { insight: ViewType.FUNNELS }, router.values.hashParams, { replace: true }]
             }
         },
     }),
@@ -623,25 +624,10 @@ export const funnelLogic = kea<
                 return
             }
             if (searchParams.insight === ViewType.FUNNELS) {
-                const paramsToCheck = {
-                    date_from: searchParams.date_from,
-                    date_to: searchParams.date_to,
-                    actions: searchParams.actions,
-                    events: searchParams.events,
-                    display: searchParams.display,
-                    interval: searchParams.interval,
-                    properties: searchParams.properties,
-                }
-                const _filters = {
-                    date_from: values.filters.date_from,
-                    date_to: values.filters.date_to,
-                    actions: values.filters.actions,
-                    events: values.filters.events,
-                    interval: values.filters.interval,
+                const currentParams = cleanFunnelParams(values.filters, true)
+                const paramsToCheck = cleanFunnelParams(searchParams, true)
 
-                    properties: values.filters.properties,
-                }
-                if (!objectsEqual(_filters, paramsToCheck)) {
+                if (!objectsEqual(currentParams, paramsToCheck)) {
                     const cleanedParams = cleanFunnelParams(searchParams)
                     if (isStepsEmpty(cleanedParams)) {
                         const event = eventDefinitionsModel.values.eventNames.includes(PathType.PageView)

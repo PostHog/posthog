@@ -39,13 +39,9 @@ interface Props {
 
 export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JSX.Element {
     const { people, loadingMorePeople, firstLoadedPeople, searchTerm, peopleLoading } = useValues(personsModalLogic)
-    const {
-        setShowingPeople,
-        loadMorePeople,
-        setFirstLoadedPeople,
-        setPersonsModalFilters,
-        setSearchTerm,
-    } = useActions(personsModalLogic)
+    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
+        personsModalLogic
+    )
     const { featureFlags } = useValues(featureFlagLogic)
     const title =
         filters.shown_as === 'Stickiness'
@@ -56,17 +52,12 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             ? `${people?.label}`
             : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
 
-    const closeModal = (): void => {
-        setShowingPeople(false)
-        setSearchTerm('')
-    }
-
     return (
         <Modal
             title={<strong>{title}</strong>}
             visible={visible}
-            onOk={closeModal}
-            onCancel={closeModal}
+            onOk={hidePeople}
+            onCancel={hidePeople}
             footer={
                 <Row style={{ justifyContent: 'space-between', alignItems: 'center', padding: '6px 0px' }}>
                     <Row style={{ alignItems: 'center' }}>
@@ -100,7 +91,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                             </>
                         )}
                     </Row>
-                    <Button onClick={closeModal}>Close</Button>
+                    <Button onClick={hidePeople}>Close</Button>
                 </Row>
             }
             width={600}

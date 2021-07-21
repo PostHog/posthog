@@ -31,7 +31,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
                         changeHistogramStep(from_step, from_step + 1)
                     }}
                     dropdownMatchSelectWidth={false}
-                    dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomLeft}
+                    dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
                     data-attr="funnel-bar-layout-selector"
                     optionLabelProp="label"
                 >
@@ -63,13 +63,13 @@ export function FunnelHistogramHeader(): JSX.Element | null {
 
 export function FunnelHistogram({ filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element {
     const logic = funnelLogic({ dashboardItemId, filters })
-    const { histogramGraphData, barGraphLayout } = useValues(logic)
+    const { histogramGraphData } = useValues(logic)
     const ref = useRef(null)
     const [width] = useSize(ref)
 
     return (
         <div ref={ref}>
-            <Histogram data={histogramGraphData} layout={barGraphLayout} width={width} />
+            <Histogram data={histogramGraphData} width={width} />
         </div>
     )
 }
