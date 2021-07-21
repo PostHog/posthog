@@ -16,6 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { InsightActionBar } from '../InsightActionBar'
+import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { BreakdownType } from '~/types'
@@ -74,7 +75,7 @@ export function FunnelTab(): JSX.Element {
                     sortable
                 />
                 <hr />
-                <h4 className="secondary">Filters</h4>
+                <GlobalFiltersTitle unit="steps" />
                 <PropertyFilters
                     pageKey={`EditFunnel-property`}
                     propertyFilters={filters.properties || []}

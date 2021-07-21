@@ -6,10 +6,13 @@ import {
     ShownAsValue,
     RETENTION_RECURRING,
     RETENTION_FIRST_TIME,
+    ENTITY_MATCH_TYPE,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { Dayjs } from 'dayjs'
+import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { UploadFile } from 'antd/lib/upload/interface'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -329,13 +332,22 @@ export interface PersonType {
 }
 
 export interface CohortGroupType {
+    id: string
     days?: string
     action_id?: number
-    properties?: Record<string, any>
+    event_id?: string
+    label?: string
+    count?: number
+    count_operator?: string
+    properties?: AnyPropertyFilter[]
+    matchType: MatchType
 }
+
+export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
 
 export interface CohortType {
     count?: number
+    description?: string
     created_by?: UserBasicType | null
     created_at?: string
     deleted?: boolean
@@ -344,7 +356,7 @@ export interface CohortType {
     last_calculation?: string
     is_static?: boolean
     name?: string
-    csv?: File
+    csv?: UploadFile
     groups: CohortGroupType[]
 }
 

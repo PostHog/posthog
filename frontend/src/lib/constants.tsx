@@ -232,6 +232,7 @@ export const FEATURE_FLAGS: Record<string, string> = {
     NPS_PROMPT: '4562-nps',
     INGESTION_TAXONOMY: '4267-event-property-taxonomy',
     NEW_TOOLTIPS: '4156-tooltips-legends',
+    ENGAGEMENT_COHORTS: 'engagement-cohorts-4349',
     PLUGIN_METRICS: '4871-plugin-metrics',
     FUNNEL_BAR_VIZ: '4535-funnel-bar-viz', // Nail Funnels #4785
     SESSIONS_TABLE: '4964-sessions-table', // Expand/collapse all in sessions table (performance consideration)
@@ -245,6 +246,9 @@ export enum Environments {
     PRODUCTION = 'production',
     TEST = 'test',
 }
+
+export const ENTITY_MATCH_TYPE = 'entities'
+export const PROPERTY_MATCH_TYPE = 'properties'
 
 export enum FunnelLayout {
     horizontal = 'horizontal',
