@@ -3,7 +3,7 @@ import api from './api'
 import { toast } from 'react-toastify'
 import { Button, Spin } from 'antd'
 import dayjs from 'dayjs'
-import { EventType, FilterType, ActionFilter } from '~/types'
+import { EventType, FilterType, ActionFilter, IntervalType } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './logic/featureFlagLogic'
@@ -814,7 +814,7 @@ export const disableHourFor: Record<string, boolean> = {
     other: false,
 }
 
-export function autocorrectInterval(filters: Partial<FilterType>): string {
+export function autocorrectInterval(filters: Partial<FilterType>): IntervalType {
     if (!filters.interval) {
         return 'day'
     } // undefined/uninitialized

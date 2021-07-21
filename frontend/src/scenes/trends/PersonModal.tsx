@@ -16,6 +16,7 @@ import './PersonModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { DateDisplay } from 'lib/components/DateDisplay'
 // Utility function to handle filter conversion required for deeplinking to person -> sessions
 const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
     if (!people?.action) {
@@ -58,7 +59,10 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                     {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />
                 </>
             ) : (
-                `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
+                <>
+                    <PropertyKeyInfo value={people?.label || ''} disablePopover /> on{' '}
+                    <DateDisplay interval={filters.interval || 'day'} date={people?.day.toString() || ''} />
+                </>
             ),
         [filters, people, peopleLoading]
     )
