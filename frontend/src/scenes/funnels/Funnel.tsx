@@ -11,14 +11,14 @@ import { FunnelViz } from 'scenes/funnels/FunnelViz'
 export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const logic = funnelLogic({ dashboardItemId: props.dashboardItemId, filters: props.filters })
-    const { isValidFunnel, filters } = useValues(logic)
+    const { filters } = useValues(logic)
     const { loadResults } = useActions(logic)
 
     useEffect(() => {
         loadResults()
     }, [])
 
-    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && isValidFunnel) {
+    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
         const funnel_viz_type = filters.funnel_viz_type || props.filters.funnel_viz_type
 
         if (funnel_viz_type == FunnelVizType.TimeToConvert) {
