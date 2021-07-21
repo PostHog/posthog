@@ -14,23 +14,54 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
-    onChange: (value: string, groupType: BreakdownType) => void
+    onChange: (value: string | number | number[], groupType: BreakdownType) => void
 }
 
 export interface TaxonomicBreakdownButtonProps {
-    breakdown?: string | null
+    breakdown?: string | number | null
     breakdownType?: TaxonomicFilterGroupType
     insight?: InsightType
-    onChange: (breakdown: string, groupType: TaxonomicFilterGroupType) => void
+    onChange: (breakdown: string | number, groupType: TaxonomicFilterGroupType) => void
+    onlyCohorts?: boolean
 }
 
 export function TaxonomicBreakdownFilter({ filters, onChange }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdown_type, insight } = filters
     const breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
 
+    if (breakdownType === TaxonomicFilterGroupType.Cohorts && breakdown) {
+        const breakdownParts = (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b) => b)
+
+        return (
+            <>
+                {[...breakdownParts, ''].map((breakdownPart, index) => (
+                    <TaxonomicBreakdownButton
+                        key={index}
+                        onlyCohorts={index > 0 || breakdownParts.length > 1}
+                        breakdown={breakdownPart}
+                        breakdownType={breakdownType}
+                        insight={insight}
+                        onChange={(changedBreakdown, groupType) => {
+                            const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(
+                                groupType
+                            ) as BreakdownType
+                            if (changedBreakdownType) {
+                                const fullChangedBreakdown = [...breakdownParts, '']
+                                    .map((b, i) => (i === index ? changedBreakdown : b))
+                                    .filter((b) => b)
+                                    .map((b) => parseInt(b.toString()))
+                                onChange(fullChangedBreakdown, changedBreakdownType)
+                            }
+                        }}
+                    />
+                ))}
+            </>
+        )
+    }
+
     return (
         <TaxonomicBreakdownButton
-            breakdown={breakdown}
+            breakdown={Array.isArray(breakdown) ? breakdown[0] : breakdown}
             breakdownType={breakdownType}
             insight={insight}
             onChange={(changedBreakdown, groupType) => {
@@ -48,11 +79,12 @@ export function TaxonomicBreakdownButton({
     breakdownType,
     insight,
     onChange,
+    onlyCohorts,
 }: TaxonomicBreakdownButtonProps): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
     const [open, setOpen] = useState(false)
 
-    let label = breakdown
+    let label = `${breakdown}`
     if (breakdownType === TaxonomicFilterGroupType.Cohorts && breakdown) {
         label = cohorts.filter((c) => c.id == breakdown)[0]?.name || `Cohort #${breakdown}`
     }
@@ -69,11 +101,15 @@ export function TaxonomicBreakdownButton({
                             setOpen(false)
                         }
                     }}
-                    groupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.Cohorts,
-                    ]}
+                    groupTypes={
+                        onlyCohorts
+                            ? [TaxonomicFilterGroupType.Cohorts]
+                            : [
+                                  TaxonomicFilterGroupType.EventProperties,
+                                  TaxonomicFilterGroupType.PersonProperties,
+                                  TaxonomicFilterGroupType.Cohorts,
+                              ]
+                    }
                 />
             }
             placement={'bottom-start'}
