@@ -70,7 +70,7 @@ class ClickhouseTrendsFormula:
                 [" CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
             ),
         )
-        print(self.ctes)  # type: ignore
+
         result = sync_execute(self._prefix_query_with_ctes(sql), params)  # type: ignore
         response = []
         for item in result:
