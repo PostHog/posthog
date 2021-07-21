@@ -34,6 +34,7 @@ $funnel_canvas_background: #fafafa;
     margin-bottom: -24px;
     padding: 12px 24px;
     border-top: 1px solid $border_light;
+    min-height: 100%;
 
     // Layout: horizontal bars
     .funnel-step {
@@ -85,7 +86,6 @@ $funnel_canvas_background: #fafafa;
         .funnel-step-metadata {
             // .funnel-step-metadata reusable class for components that contain metadata for the funnel (e.g. time to convert or conversion steps)
             display: flex;
-            flex-grow: 1;
             flex-wrap: wrap;
 
             .ant-btn.funnel-inspect-button {
@@ -217,11 +217,14 @@ $funnel_canvas_background: #fafafa;
 
         .funnel-step {
             width: 30%;
+            display: flex;
+            flex-direction: column;
 
             .funnel-inner-viz {
                 // Moves the series metadata (numbers) on top of the bars
                 display: flex;
                 flex-direction: column-reverse;
+                flex-grow: 1;
             }
 
             .funnel-series-container {
@@ -241,8 +244,8 @@ $funnel_canvas_background: #fafafa;
 
             .funnel-conversion-metadata {
                 font-size: 1rem;
-                height: 98px;
                 display: block;
+                margin-bottom: $default_spacing / 2;
 
                 .funnel-inspect-button {
                     font-size: 1.1rem;
@@ -291,7 +294,7 @@ $funnel_canvas_background: #fafafa;
         .funnel-bar-wrapper {
             width: 164px;
             max-width: 100%;
-            height: 300px;
+            flex-grow: 1;
             position: relative;
             flex-direction: column-reverse;
 
@@ -350,6 +353,89 @@ $funnel_canvas_background: #fafafa;
 
 .dashboard-item-content {
     .funnel-bar-graph {
+        margin: 0;
+        padding: 12px 0;
         background-color: unset;
+        font-size: 0.85em;
+
+        .funnel-conversion-metadata {
+            font-size: unset !important;
+            .funnel-inspect-button {
+                margin-left: -2.3em !important;
+            }
+        }
+        .funnel-inspect-button {
+            font-size: 0.8rem !important;
+            .value-inspector-button-icon {
+                background-color: white !important;
+            }
+        }
+
+        &.colored {
+            // Dashboard item is non-white, adjust stylings
+            color: white;
+
+            a,
+            .ant-btn {
+                color: var(--item-primary) !important;
+            }
+
+            .text-muted-alt {
+                color: rgba(white, 0.85);
+            }
+            .funnel-inspect-button {
+                .value-inspector-button-icon {
+                    background-color: var(--item-background) !important;
+                }
+                &:disabled {
+                    color: white !important;
+                }
+
+                .value-inspector-button-icon {
+                    .anticon {
+                        color: white !important;
+                    }
+                }
+            }
+
+            .funnel-series-container {
+                .funnel-series-linebox {
+                    border-right-color: rgba(white, 0.35);
+                }
+                .graph-series-glyph {
+                    background-color: var(--item-background);
+                    color: white;
+                    border-color: rgba(white, 0.35);
+                }
+            }
+
+            .funnel-bar-wrapper {
+                background-color: var(--item-darkest);
+                .funnel-bar {
+                    background: white;
+                    .funnel-bar-percentage {
+                        &.inside {
+                            color: $text_default !important;
+                        }
+                        &.outside {
+                            color: white !important;
+                        }
+                    }
+                }
+            }
+
+            &.black {
+                // Special styles for dark mode
+                .funnel-bar-wrapper {
+                    background-color: #32384c;
+                    .funnel-bar {
+                        background: $primary;
+                        .funnel-bar-percentage {
+                            color: white !important;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
