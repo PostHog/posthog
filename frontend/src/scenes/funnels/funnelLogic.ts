@@ -22,6 +22,9 @@ import {
     FunnelTimeConversionMetrics,
     FunnelRequestParams,
     LoadedRawFunnelResults,
+    BreakdownVisibilityMap,
+    FlattenedFunnelStep,
+    FunnelStepWithConversionMetrics,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
@@ -31,23 +34,6 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { calcPercentage, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
-
-// BreakdownVisibilityMap may toggle a whole step's visibility, or contain a record of toggles for each nested breakdown.
-export type BreakdownVisibilityMap = Record<string, boolean>
-
-type FunnelStepWithConversionMetrics = FunnelStep & {
-    droppedOffFromPrevious: number
-    conversionRates: {
-        fromPrevious: number
-        total: number
-    }
-    nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
-}
-
-export type FlattenedFunnelStep = FunnelStepWithConversionMetrics & {
-    isBreakdownParent?: boolean
-    breakdownIndex?: number
-}
 
 function aggregateBreakdownResult(
     breakdownList: FunnelStep[][],
@@ -134,9 +120,7 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
 const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
-export const funnelLogic = kea<
-    funnelLogicType<BreakdownVisibilityMap, FlattenedFunnelStep, FunnelStepWithConversionMetrics>
->({
+export const funnelLogic = kea<funnelLogicType>({
     key: (props) => {
         return props.dashboardItemId || 'some_funnel'
     },
@@ -523,12 +507,14 @@ export const funnelLogic = kea<
                 steps.forEach((step) => {
                     flattenedSteps.push({
                         ...step,
+                        rowKey: step.order,
                         isBreakdownParent: !!step.nested_breakdown?.length,
                     })
                     if (step.nested_breakdown?.length) {
                         step.nested_breakdown.forEach((breakdownStep, i) => {
                             flattenedSteps.push({
                                 ...breakdownStep,
+                                rowKey: `${step.order}-${i}`,
                                 breakdownIndex: i,
                             })
                         })

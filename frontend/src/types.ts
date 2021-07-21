@@ -780,6 +780,23 @@ export interface LoadedRawFunnelResults {
     timeConversionResults: FunnelsTimeConversionBins
 }
 
+export type BreakdownVisibilityMap = Record<string, boolean>
+
+export interface FunnelStepWithConversionMetrics extends FunnelStep {
+    droppedOffFromPrevious: number
+    conversionRates: {
+        fromPrevious: number
+        total: number
+    }
+    nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
+}
+
+export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
+    rowKey: number | string
+    isBreakdownParent?: boolean
+    breakdownIndex?: number
+}
+
 export interface ChartParams {
     dashboardItemId?: number
     color?: string

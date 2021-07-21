@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { FunnelLayout } from 'lib/constants'
-import { funnelLogic, FlattenedFunnelStep } from 'scenes/funnels/funnelLogic'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import Table, { ColumnsType } from 'antd/lib/table'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { SeriesToggleWrapper } from 'scenes/insights/InsightsTable/components/SeriesToggleWrapper'
@@ -12,6 +12,7 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
+import { FlattenedFunnelStep } from '~/types'
 
 interface FunnelStepTableProps {
     layout?: FunnelLayout
@@ -31,7 +32,7 @@ export function FunnelStepTable({ layout = FunnelLayout.horizontal }: FunnelStep
         columns.push({
             title: '',
             render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
-                if (step.isBreakdownParent) {
+                if (step.breakdownIndex === undefined) {
                     // Only allow toggling breakdowns
                     return null
                 }
@@ -147,7 +148,7 @@ export function FunnelStepTable({ layout = FunnelLayout.horizontal }: FunnelStep
             dataSource={flattenedSteps}
             columns={columns}
             size="small"
-            rowKey="order"
+            rowKey="rowKey"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
             data-attr="funnel-steps-table"
