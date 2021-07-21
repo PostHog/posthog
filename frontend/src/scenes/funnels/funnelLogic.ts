@@ -84,9 +84,9 @@ async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParams): Pro
     return result
 }
 
-export const cleanFunnelParams = (filters: Partial<FilterType>): FilterType => {
+export const cleanFunnelParams = (filters: Partial<FilterType>, returnOnlyFunnelParams = false): FilterType => {
     return {
-        ...filters,
+        ...(returnOnlyFunnelParams ? {} : filters),
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
         ...(filters.date_to ? { date_to: filters.date_to } : {}),
         ...(filters.actions ? { actions: filters.actions } : {}),
@@ -515,25 +515,10 @@ export const funnelLogic = kea<funnelLogicType>({
                 return
             }
             if (searchParams.insight === ViewType.FUNNELS) {
-                const paramsToCheck = {
-                    date_from: searchParams.date_from,
-                    date_to: searchParams.date_to,
-                    actions: searchParams.actions,
-                    events: searchParams.events,
-                    display: searchParams.display,
-                    interval: searchParams.interval,
-                    properties: searchParams.properties,
-                }
-                const _filters = {
-                    date_from: values.filters.date_from,
-                    date_to: values.filters.date_to,
-                    actions: values.filters.actions,
-                    events: values.filters.events,
-                    interval: values.filters.interval,
+                const currentParams = cleanFunnelParams(values.filters, true)
+                const paramsToCheck = cleanFunnelParams(searchParams, true)
 
-                    properties: values.filters.properties,
-                }
-                if (!objectsEqual(_filters, paramsToCheck)) {
+                if (!objectsEqual(currentParams, paramsToCheck)) {
                     const cleanedParams = cleanFunnelParams(searchParams)
                     if (isStepsEmpty(cleanedParams)) {
                         const event = eventDefinitionsModel.values.eventNames.includes(PathType.PageView)
