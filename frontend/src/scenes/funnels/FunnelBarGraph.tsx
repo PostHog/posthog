@@ -347,7 +347,9 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                 }
                                                 percentage={conversionRate}
                                                 name={breakdown.name}
-                                                onBarClick={() => openPersonsModal(step, i + 1, step.breakdown_value)}
+                                                onBarClick={() =>
+                                                    openPersonsModal(step, i + 1, step.count, step.breakdown_value)
+                                                }
                                                 layout={layout}
                                                 popoverTitle={
                                                     <div style={{ wordWrap: 'break-word' }}>
@@ -397,7 +399,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                     <Bar
                                         percentage={calcPercentage(step.count, basisStep.count)}
                                         name={step.name}
-                                        onBarClick={() => openPersonsModal(step, i + 1)}
+                                        onBarClick={() => openPersonsModal(step, i + 1, step.count)}
                                         layout={layout}
                                         popoverTitle={<PropertyKeyInfo value={step.name} />}
                                         popoverMetrics={[
@@ -446,7 +448,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                             <div className="funnel-conversion-metadata funnel-step-metadata">
                                 <div className="center-flex">
                                     <ValueInspectorButton
-                                        onClick={() => openPersonsModal(step, i + 1)}
+                                        onClick={() => openPersonsModal(step, i + 1, step.count)}
                                         disabled={!funnelPersonsEnabled}
                                     >
                                         <span className="value-inspector-button-icon">
@@ -467,7 +469,13 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                 </div>
                                 <div className="center-flex">
                                     <ValueInspectorButton
-                                        onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
+                                        onClick={() =>
+                                            openPersonsModal(
+                                                step,
+                                                -(i + 1),
+                                                step.order > 0 ? steps[i - 1].count - step.count : 0
+                                            )
+                                        } // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
                                         disabled={!funnelPersonsEnabled}
                                         style={{ paddingRight: '0.25em' }}
                                     >

@@ -131,10 +131,12 @@ export const funnelLogic = kea<funnelLogicType>({
         openPersonsModal: (
             step: FunnelStep | FunnelStepWithNestedBreakdown,
             stepNumber: number,
+            personsCount: number,
             breakdown_value?: string
         ) => ({
             step,
             stepNumber,
+            personsCount,
             breakdown_value,
         }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
@@ -481,7 +483,7 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.setConversionWindowInDays(days)
             actions.loadResults()
         },
-        openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
+        openPersonsModal: ({ step, stepNumber, personsCount, breakdown_value }) => {
             personsModalLogic.actions.loadPeople({
                 action: { id: step.action_id, name: step.name, properties: [], type: step.type },
                 breakdown_value: breakdown_value || '',
@@ -490,6 +492,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 )} - ${step.name}`,
                 date_from: '',
                 date_to: '',
+                count: personsCount,
                 filters: values.filters,
                 saveOriginal: true,
                 funnelStep: stepNumber,

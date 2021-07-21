@@ -15,6 +15,7 @@ interface PersonModalParams {
     date_from: string | number
     date_to: string | number
     filters: Partial<FilterType>
+    count: number
     breakdown_value?: string
     saveOriginal?: boolean
     searchTerm?: string
@@ -106,6 +107,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     filters,
                     date_from,
                     date_to,
+                    count,
                     breakdown_value,
                     saveOriginal,
                     searchTerm,
@@ -148,7 +150,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 breakpoint()
                 const peopleResult = {
                     people: people.results[0]?.people,
-                    count: people.results[0]?.count || 0,
+                    count: count || people.results[0]?.count || 0,
                     action,
                     label,
                     day: date_from,
@@ -224,6 +226,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 date_from,
                 date_to,
                 filters,
+                count,
                 breakdown_value,
                 saveOriginal,
                 searchTerm,
