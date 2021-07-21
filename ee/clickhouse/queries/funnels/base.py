@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple, cast
+from typing import Any, Dict, List, Tuple
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -9,14 +9,13 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
-    get_breakdown_event_prop_query,
-    get_breakdown_person_prop_query,
+    get_breakdown_event_prop_values,
+    get_breakdown_person_prop_values,
 )
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from posthog.constants import FUNNEL_WINDOW_DAYS, LIMIT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity, Filter, Team
-from posthog.queries.base import CTE
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
 
@@ -26,7 +25,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
     _team: Team
 
     def __init__(self, filter: Filter, team: Team) -> None:
-        super().__init__(filter, team)
         self._filter = filter
         self._team = team
         self.params = {
@@ -89,6 +87,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             return self._format_single_funnel(results[0])
 
     def _exec_query(self) -> List[Tuple]:
+
         # format default dates
         data: Dict[str, Any] = {}
         if not self._filter._date_from:
@@ -116,8 +115,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         self._filter = self._filter.with_data(data)
 
-        query = self._prefix_query_with_ctes(self.get_query())
-
+        query = self.get_query()
         return sync_execute(query, self.params)
 
     def _get_step_times(self, max_steps: int):
@@ -165,11 +163,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             exclusion_time = f"exclusion_latest_{exclusion.funnel_from_step}"
             condition = (
                 f"if( {exclusion_time} > {from_time} AND {exclusion_time} < "
-                f"""if(
-                    isNull({to_time}),
-                    {from_time} + INTERVAL {self._filter.funnel_window_days_or_default} DAY,
-                    {to_time}), 1, 0
-                )"""
+                f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_days} DAY, {to_time}), 1, 0)"
             )
             conditions.append(condition)
 
@@ -186,7 +180,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         conditions: List[str] = []
         for i in range(1, curr_index):
             conditions.append(f"latest_{i - 1} < latest_{i }")
-            conditions.append(f"latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days_or_default} DAY")
+            conditions.append(f"latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY")
 
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 
@@ -349,7 +343,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return f", {formatted}" if formatted else ""
 
     @abstractmethod
-    def get_query(self) -> str:
+    def get_query(self):
         pass
 
     def get_step_counts_query(self):
@@ -386,20 +380,14 @@ class ClickhouseFunnelBase(ABC, Funnel):
             first_entity = next(x for x in self._filter.entities if x.order == 0)
             if not first_entity:
                 ValidationError("An entity with order 0 was not provided")
-            query, params = "/* missing breakdown_values query! */", cast(Dict[str, Any], {})
+            values = []
             if self._filter.breakdown_type == "person":
-                query, params = get_breakdown_person_prop_query(
-                    self._filter, first_entity, "count(*)", self._team.pk, limit
-                )
+                values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
             elif self._filter.breakdown_type == "event":
-                query, params = get_breakdown_event_prop_query(
-                    self._filter, first_entity, "count(*)", self._team.pk, limit
-                )
-            else:
-                raise ValidationError(f'Breakdown type "{self._filter.breakdown_type}" is not supported.')
-            self.params.update(params)
-            self.ctes.append(CTE(query=query, alias="breakdown_values", is_scalar=False))
-            return "prop IN breakdown_values"
+                values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
+            self.params.update({"breakdown_values": values})
+
+            return "prop IN %(breakdown_values)s"
         else:
             return ""
 
