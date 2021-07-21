@@ -31,7 +31,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
                         changeHistogramStep(from_step, from_step + 1)
                     }}
                     dropdownMatchSelectWidth={false}
-                    dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomLeft}
+                    dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
                     data-attr="funnel-bar-layout-selector"
                     optionLabelProp="label"
                 >
