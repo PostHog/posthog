@@ -1,5 +1,6 @@
 import dayjs from 'dayjs'
 import { kea } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
 import { cleanFunnelParams } from 'scenes/funnels/funnelLogic'
@@ -39,6 +40,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         setFirstLoadedPeople: (firstLoadedPeople: TrendPeople | null) => ({ firstLoadedPeople }),
         refreshCohort: true,
         setPeopleLoading: (loading: boolean) => ({ loading }),
+        savePeopleParams: (peopleParams: PersonModalParams) => ({ peopleParams }),
     }),
     reducers: () => ({
         searchTerm: [
@@ -86,6 +88,12 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 setShowingPeople: ({}, { isShowing }) => isShowing,
             },
         ],
+        peopleParams: [
+            null as PersonModalParams | null,
+            {
+                savePeopleParams: (_, { peopleParams }) => peopleParams,
+            },
+        ],
     }),
     listeners: ({ actions, values }) => ({
         refreshCohort: () => {
@@ -121,6 +129,8 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             }
         },
         loadPeople: async ({ peopleParams }, breakpoint) => {
+            actions.savePeopleParams(peopleParams)
+            actions.setShowingPeople(true)
             actions.setPeopleLoading(true)
             let people = []
             const {
@@ -215,6 +225,28 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 saveOriginal,
                 searchTerm,
             })
+        },
+    }),
+    actionToUrl: ({ values }) => ({
+        setShowingPeople: ({ isShowing }) => {
+            const searchParams = router.values.searchParams
+            const pathname = router.values.location.pathname
+            if (isShowing && values.peopleParams) {
+                router.actions.replace(pathname, searchParams, { personModal: values.peopleParams })
+            } else {
+                router.actions.replace(pathname, searchParams)
+            }
+        },
+    }),
+    urlToAction: ({ actions, values }) => ({
+        '/insights': (_, {}, { personModal }) => {
+            if (personModal && !values.showingPeople) {
+                actions.setShowingPeople(true)
+                actions.loadPeople(personModal)
+            }
+            if (!personModal && values.showingPeople) {
+                actions.setShowingPeople(false)
+            }
         },
     }),
 })
