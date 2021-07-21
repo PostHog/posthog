@@ -56,6 +56,10 @@ class FunnelWindowDaysMixin(BaseParamMixin):
             return None
         return _days
 
+    @cached_property
+    def funnel_window_days_or_default(self) -> int:
+        return self.funnel_window_days if self.funnel_window_days is not None else 14
+
     @include_dict
     def funnel_window_days_to_dict(self):
         return {FUNNEL_WINDOW_DAYS: self.funnel_window_days} if self.funnel_window_days else {}

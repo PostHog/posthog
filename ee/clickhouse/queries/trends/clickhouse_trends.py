@@ -47,7 +47,7 @@ class ClickhouseTrends(
     def _run_query(self, filter: Filter, entity: Entity, team_id: int) -> List[Dict[str, Any]]:
         sql, params, parse_function = self._get_sql_for_entity(filter, entity, team_id)
         try:
-            result = sync_execute(sql, params)
+            result = sync_execute(self._prefix_query_with_ctes(sql), params)
         except Exception as e:
             capture_exception(e)
             if settings.TEST or settings.DEBUG:
