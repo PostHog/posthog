@@ -68,7 +68,7 @@ export function FunnelHistogram({ filters, dashboardItemId }: Omit<ChartParams, 
     const [width, height] = useSize(ref)
 
     return (
-        <div className="funnel-histogram-outer-container" ref={ref}>
+        <div className="funnel-histogram-outer-container" ref={ref} style={dashboardItemId ? {} : { maxHeight: 500 }}>
             <Histogram data={histogramGraphData} width={width} height={height} />
         </div>
     )
