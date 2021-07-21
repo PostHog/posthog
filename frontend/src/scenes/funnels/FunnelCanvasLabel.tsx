@@ -46,7 +46,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                 onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}
                 disabled={!clickhouseFeaturesEnabled || allFilters.funnel_viz_type === FunnelVizType.TimeToConvert}
             >
-                {humanFriendlyDuration(conversionMetrics.averageTime)}
+                {humanFriendlyDuration(conversionMetrics.averageTime, 2)}
             </Button>
         </div>
     )
