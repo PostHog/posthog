@@ -7,7 +7,7 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FilterType, FunnelVizType, PropertyFilter, ViewType } from '~/types'
+import { Entity, FilterType, FunnelVizType, PropertyFilter, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
@@ -28,6 +28,8 @@ interface UrlParams {
     filter_test_accounts: boolean
     funnel_viz_type?: string
     display?: string
+    events?: Entity[]
+    actions?: Entity[]
 }
 
 export const logicFromInsight = (insight: string, logicProps: Record<string, any>): Logic & BuiltLogic => {
@@ -240,6 +242,8 @@ export const insightLogic = kea<insightLogicType>({
                 insight: type,
                 properties: values.allFilters.properties,
                 filter_test_accounts: defaultFilterTestAccounts(),
+                events: (values.allFilters.events || []) as Entity[],
+                actions: (values.allFilters.actions || []) as Entity[],
             }
 
             if (type === ViewType.FUNNELS) {
