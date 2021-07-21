@@ -173,7 +173,7 @@ interface ValueInspectorButtonProps {
     innerRef?: React.MutableRefObject<HTMLElement | null>
 }
 
-function ValueInspectorButton({
+export function ValueInspectorButton({
     icon,
     onClick,
     children,

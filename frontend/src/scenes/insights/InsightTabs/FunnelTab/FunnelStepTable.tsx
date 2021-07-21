@@ -15,6 +15,8 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
+import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { humanFriendlyDuration } from 'lib/utils'
 
 interface FunnelStepTableProps {
     layout?: FunnelLayout
@@ -37,7 +39,7 @@ function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string 
 
 export function FunnelStepTable({ layout = FunnelLayout.horizontal }: FunnelStepTableProps): JSX.Element {
     const { flattenedSteps, visibilityMap, filters, steps } = useValues(funnelLogic)
-    const { setVisibilityByIndex } = useActions(funnelLogic)
+    const { setVisibilityByIndex, openPersonsModal } = useActions(funnelLogic)
     const { cohorts } = useValues(cohortsModel)
     const isStepVisible = stepVisibilityLookup(visibilityMap)
     const columns: ColumnsType<FlattenedFunnelStep> = []
@@ -100,6 +102,58 @@ export function FunnelStepTable({ layout = FunnelLayout.horizontal }: FunnelStep
         },
         fixed: 'left',
         width: 300,
+    })
+
+    columns.push({
+        title: 'Completed',
+        render: function RenderCompleted({}, step: FlattenedFunnelStep): JSX.Element {
+            return (
+                <ValueInspectorButton onClick={() => openPersonsModal(step, step.count + 1, step.breakdown_value)}>
+                    {step.count}
+                </ValueInspectorButton>
+            )
+        },
+        width: 30,
+    })
+
+    columns.push({
+        title: 'Conversion',
+        render: function RenderConversion({}, step: FlattenedFunnelStep): JSX.Element {
+            return <span>{step.conversionRates.total}%</span>
+        },
+        width: 30,
+    })
+
+    columns.push({
+        title: 'Dropped off',
+        render: function RenderDropoff({}, step: FlattenedFunnelStep): JSX.Element {
+            return (
+                <ValueInspectorButton
+                    onClick={() =>
+                        openPersonsModal(step, step.count + 1, step.breakdown_value)
+                    } /* TODO: does this modal support dropped off users? */
+                >
+                    {step.droppedOffFromPrevious}
+                </ValueInspectorButton>
+            )
+        },
+        width: 30,
+    })
+
+    columns.push({
+        title: 'From previous',
+        render: function RenderDropoffFromPrevious({}, step: FlattenedFunnelStep): JSX.Element {
+            return <span>{step.conversionRates.fromPrevious}%</span>
+        },
+        width: 30,
+    })
+
+    columns.push({
+        title: 'Mean time',
+        render: function RenderAverageTime({}, step: FlattenedFunnelStep): JSX.Element {
+            return <span>{humanFriendlyDuration(step.average_conversion_time, 2)}</span>
+        },
+        width: 30,
     })
 
     return (

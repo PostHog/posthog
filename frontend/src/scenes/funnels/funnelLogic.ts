@@ -34,10 +34,20 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 // StepVisibilityMap may toggle a whole step's visibility, or contain a record of toggles for each nested breakdown.
 export type StepVisibilityMap = Record<number, boolean | Record<string, boolean>>
 
-export type FlattenedFunnelStep = FunnelStep & {
+type FunnelStepWithConversionMetrics = FunnelStep & {
+    droppedOffFromPrevious: number
+    conversionRates: {
+        fromPrevious: number
+        total: number
+    }
+    nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
+}
+
+export type FlattenedFunnelStep = FunnelStepWithConversionMetrics & {
     isBreakdownParent?: boolean
     breakdownIndex?: number
 }
+
 export function isBreakdownVisibilityMap(map: any): map is Record<string, boolean> {
     return map instanceof Object && Object.values(map).every((v) => typeof v === 'boolean')
 }
@@ -124,7 +134,9 @@ export const cleanFunnelParams = (filters: Partial<FilterType>): FilterType => {
 const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
-export const funnelLogic = kea<funnelLogicType<FlattenedFunnelStep, StepVisibilityMap>>({
+export const funnelLogic = kea<
+    funnelLogicType<FlattenedFunnelStep, FunnelStepWithConversionMetrics, StepVisibilityMap>
+>({
     key: (props) => {
         return props.dashboardItemId || 'some_funnel'
     },
@@ -490,8 +502,43 @@ export const funnelLogic = kea<funnelLogicType<FlattenedFunnelStep, StepVisibili
             },
         ],
         stepsWithCount: [() => [selectors.steps], (steps) => steps.filter((step) => typeof step.count === 'number')],
-        flattenedSteps: [
+        stepsWithConversionMetrics: [
             () => [selectors.steps],
+            (steps): FunnelStepWithConversionMetrics[] => {
+                return steps.map((step, i) => {
+                    const previousCount = i > 0 ? steps[i - 1].count : 0
+                    const droppedOffFromPrevious = Math.max(previousCount - step.count, 0)
+                    const nestedBreakdown = step.nested_breakdown?.map((breakdown, breakdownIndex) => {
+                        const previousBreakdownCount =
+                            (i > 0 && steps[i - 1].nested_breakdown?.[breakdownIndex].count) || 0
+                        const firstBreakdownCount = steps[0].nested_breakdown?.[breakdownIndex].count || 0
+                        const _droppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
+                        return {
+                            ...breakdown,
+                            droppedOffFromPrevious: _droppedOffFromPrevious,
+                            conversionRates: {
+                                fromPrevious:
+                                    previousBreakdownCount === 0
+                                        ? 0
+                                        : calcPercentage(breakdown.count, previousBreakdownCount),
+                                total: calcPercentage(breakdown.count, firstBreakdownCount),
+                            },
+                        }
+                    })
+                    return {
+                        ...step,
+                        droppedOffFromPrevious,
+                        nested_breakdown: nestedBreakdown,
+                        conversionRates: {
+                            fromPrevious: previousCount === 0 ? 0 : calcPercentage(step.count, previousCount),
+                            total: calcPercentage(step.count, steps[0].count),
+                        },
+                    }
+                })
+            },
+        ],
+        flattenedSteps: [
+            () => [selectors.stepsWithConversionMetrics],
             (steps): FlattenedFunnelStep[] => {
                 const flattenedSteps: FlattenedFunnelStep[] = []
                 steps.forEach((step) => {
