@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { TrendPeople, parsePeopleParams } from 'scenes/trends/trendsLogic'
@@ -15,6 +15,8 @@ import { Link } from 'lib/components/Link'
 import './PersonModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { DateDisplay } from 'lib/components/DateDisplay'
 // Utility function to handle filter conversion required for deeplinking to person -> sessions
 const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
     if (!people?.action) {
@@ -43,14 +45,27 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
         personsModalLogic
     )
     const { featureFlags } = useValues(featureFlagLogic)
-    const title =
-        filters.shown_as === 'Stickiness'
-            ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
-            : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie'
-            ? `"${people?.label}"`
-            : filters.insight === ViewType.FUNNELS
-            ? `${people?.label}`
-            : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
+    const title = useMemo(
+        () =>
+            peopleLoading ? (
+                'Loading persons list...'
+            ) : filters.shown_as === 'Stickiness' ? (
+                `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
+            ) : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie' ? (
+                `"${people?.label}"`
+            ) : filters.insight === ViewType.FUNNELS ? (
+                <>
+                    Persons who {people?.funnelStep ?? 0 >= 0 ? 'completed' : 'dropped off at'} step #
+                    {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />
+                </>
+            ) : (
+                <>
+                    <PropertyKeyInfo value={people?.label || ''} disablePopover /> on{' '}
+                    <DateDisplay interval={filters.interval || 'day'} date={people?.day.toString() || ''} />
+                </>
+            ),
+        [filters, people, peopleLoading]
+    )
 
     return (
         <Modal
@@ -95,7 +110,6 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                 </Row>
             }
             width={600}
-            bodyStyle={{ padding: 0, maxHeight: 500, overflowY: 'scroll' }}
             className="person-modal"
         >
             {peopleLoading && (
