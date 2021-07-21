@@ -17,7 +17,6 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
-from posthog.settings import SHELL_PLUS_PRINT_SQL
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
