@@ -122,7 +122,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
                 FROM numbers({num_intervals}) AS period_offsets
                 {'CROSS JOIN breakdown_values' if breakdown_clause else ''}
             ) fill
-            USING (entrance_period_start, prop)
+            USING (entrance_period_start {breakdown_clause})
             ORDER BY entrance_period_start ASC
             SETTINGS allow_experimental_window_functions = 1"""
 
