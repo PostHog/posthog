@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { cohortsModel } from '~/models/cohortsModel'
 import React, { useState } from 'react'
-import { Button, Tooltip } from 'antd'
+import { Button, Row, Tooltip } from 'antd'
 import { BreakdownType, FilterType, InsightType, ViewType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -11,10 +11,11 @@ import {
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CloseButton } from 'lib/components/CloseButton'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
-    onChange: (value: string | number | number[], groupType: BreakdownType) => void
+    onChange: (value: string | number | number[] | null, groupType: BreakdownType | null) => void
 }
 
 export interface TaxonomicBreakdownButtonProps {
@@ -30,30 +31,41 @@ export function TaxonomicBreakdownFilter({ filters, onChange }: TaxonomicBreakdo
     const breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
 
     if (breakdownType === TaxonomicFilterGroupType.Cohorts && breakdown) {
-        const breakdownParts = (Array.isArray(breakdown) ? breakdown : [breakdown]).filter((b) => b)
+        const breakdownParts = (Array.isArray(breakdown) ? breakdown : [breakdown])
+            .filter((b) => !!b)
+            .map((b) => parseInt(`${b}`))
 
         return (
             <>
-                {[...breakdownParts, ''].map((breakdownPart, index) => (
-                    <TaxonomicBreakdownButton
-                        key={index}
-                        onlyCohorts={index > 0 || breakdownParts.length > 1}
-                        breakdown={breakdownPart}
-                        breakdownType={breakdownType}
-                        insight={insight}
-                        onChange={(changedBreakdown, groupType) => {
-                            const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(
-                                groupType
-                            ) as BreakdownType
-                            if (changedBreakdownType) {
+                {[...breakdownParts, 0].map((breakdownPart, index) => (
+                    <Row key={index} style={{ marginBottom: 8 }}>
+                        <TaxonomicBreakdownButton
+                            onlyCohorts={index > 0 || breakdownParts.length > 1}
+                            breakdown={breakdownPart}
+                            breakdownType={breakdownType}
+                            insight={insight}
+                            onChange={(changedBreakdown) => {
                                 const fullChangedBreakdown = [...breakdownParts, '']
                                     .map((b, i) => (i === index ? changedBreakdown : b))
-                                    .filter((b) => b)
-                                    .map((b) => parseInt(b.toString()))
-                                onChange(fullChangedBreakdown, changedBreakdownType)
-                            }
-                        }}
-                    />
+                                    .filter((b) => !!b)
+                                    .map((b) => parseInt(`${b}`))
+                                onChange(fullChangedBreakdown, 'cohort')
+                            }}
+                        />
+                        {breakdownPart ? (
+                            <CloseButton
+                                onClick={() => {
+                                    const newParts = breakdownParts.filter((_, i) => i !== index)
+                                    if (newParts.length === 0) {
+                                        onChange(null, null)
+                                    } else {
+                                        onChange(newParts, 'cohort')
+                                    }
+                                }}
+                                style={{ marginTop: 4, marginLeft: 5 }}
+                            />
+                        ) : null}
+                    </Row>
                 ))}
             </>
         )
@@ -84,7 +96,7 @@ export function TaxonomicBreakdownButton({
     const { cohorts } = useValues(cohortsModel)
     const [open, setOpen] = useState(false)
 
-    let label = `${breakdown}`
+    let label = breakdown ? breakdown.toString() : null
     if (breakdownType === TaxonomicFilterGroupType.Cohorts && breakdown) {
         label = cohorts.filter((c) => c.id == breakdown)[0]?.name || `Cohort #${breakdown}`
     }
@@ -133,7 +145,7 @@ export function TaxonomicBreakdownButton({
                         onClick={() => setOpen(!open)}
                         ref={setRef}
                     >
-                        <PropertyKeyInfo value={label || 'Add breakdown'} />
+                        <PropertyKeyInfo value={label || (onlyCohorts ? 'Add cohort' : 'Add breakdown')} />
                     </Button>
                 </Tooltip>
             )}
