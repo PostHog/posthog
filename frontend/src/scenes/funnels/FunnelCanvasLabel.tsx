@@ -33,12 +33,14 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                     <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                 </>
             )}
-            <span className="text-muted-alt">
-                <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
-                    <InfoCircleOutlined className="info-indicator left" />
-                </Tooltip>
-                Average time to convert:{' '}
-            </span>
+            {allFilters.funnel_viz_type !== FunnelVizType.Trends && (
+                <span className="text-muted-alt">
+                    <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
+                        <InfoCircleOutlined className="info-indicator left" />
+                    </Tooltip>
+                    Average time to convert:{' '}
+                </span>
+            )}
             <Button
                 type="link"
                 onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}
