@@ -31,8 +31,8 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { calcPercentage, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
-// StepVisibilityMap may toggle a whole step's visibility, or contain a record of toggles for each nested breakdown.
-export type StepVisibilityMap = Record<number, boolean | Record<string, boolean>>
+// BreakdownVisibilityMap may toggle a whole step's visibility, or contain a record of toggles for each nested breakdown.
+export type BreakdownVisibilityMap = Record<string, boolean>
 
 type FunnelStepWithConversionMetrics = FunnelStep & {
     droppedOffFromPrevious: number
@@ -46,10 +46,6 @@ type FunnelStepWithConversionMetrics = FunnelStep & {
 export type FlattenedFunnelStep = FunnelStepWithConversionMetrics & {
     isBreakdownParent?: boolean
     breakdownIndex?: number
-}
-
-export function isBreakdownVisibilityMap(map: any): map is Record<string, boolean> {
-    return map instanceof Object && Object.values(map).every((v) => typeof v === 'boolean')
 }
 
 function aggregateBreakdownResult(
@@ -135,7 +131,7 @@ const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
 export const funnelLogic = kea<
-    funnelLogicType<FlattenedFunnelStep, FunnelStepWithConversionMetrics, StepVisibilityMap>
+    funnelLogicType<BreakdownVisibilityMap, FlattenedFunnelStep, FunnelStepWithConversionMetrics>
 >({
     key: (props) => {
         return props.dashboardItemId || 'some_funnel'
@@ -164,11 +160,10 @@ export const funnelLogic = kea<
         setBarGraphLayout: (barGraphLayout: FunnelLayout) => ({ barGraphLayout }),
         changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
-        setVisibilityMap: (visibilityMap: StepVisibilityMap) => ({ visibilityMap }),
-        setVisibilityByIndex: (index: number, visible: boolean, breakdownValue?: string) => ({
-            index,
-            visible,
+        setVisibilityMap: (visibilityMap: BreakdownVisibilityMap) => ({ visibilityMap }),
+        setVisibility: (breakdownValue: string, visible: boolean) => ({
             breakdownValue,
+            visible,
         }),
         toggleVisibility: (index: number) => ({ index }),
     }),
@@ -310,29 +305,13 @@ export const funnelLogic = kea<
             },
         ],
         visibilityMap: [
-            {} as StepVisibilityMap,
+            {} as BreakdownVisibilityMap,
             {
                 setVisibilityMap: (_, { visibilityMap }) => visibilityMap,
-                setVisibilityByIndex: (state, { index, visible, breakdownValue }) => {
-                    if (breakdownValue) {
-                        const breakdownMap = state[index]
-                        if (isBreakdownVisibilityMap(breakdownMap)) {
-                            // state[index] has booleans for nested breakdown values
-                            return {
-                                ...state,
-                                [index]: { ...breakdownMap, [breakdownValue]: visible },
-                            }
-                        } else {
-                            // state[index] was a boolean for the whole step; set only the value we care about
-                            return {
-                                ...state,
-                                [index]: { [breakdownValue]: visible },
-                            }
-                        }
-                    }
+                setVisibility: (state, { breakdownValue, visible }) => {
                     return {
                         ...state,
-                        [index]: visible,
+                        [breakdownValue]: visible,
                     }
                 },
             },
@@ -568,13 +547,11 @@ export const funnelLogic = kea<
                     actions.loadPeople(values.stepsWithCount)
                 }
             }
-            // set visibility of all graph series
-            const visibilityMap: StepVisibilityMap = {}
-            values.steps.forEach((step) => {
-                visibilityMap[step.order] = true
-                if (step.nested_breakdown?.length) {
-                    const breakdownValues = step.nested_breakdown.map(({ breakdown }) => breakdown || 'none')
-                    visibilityMap[step.order] = Object.fromEntries(breakdownValues.map((key) => [key, true]))
+            // set visibility of all breakdown values
+            const visibilityMap: BreakdownVisibilityMap = {}
+            values.steps[0].nested_breakdown?.forEach(({ breakdown }) => {
+                if (breakdown) {
+                    visibilityMap[breakdown] = true
                 }
             })
             actions.setVisibilityMap(visibilityMap)

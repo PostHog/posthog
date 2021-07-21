@@ -1,12 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { FunnelLayout } from 'lib/constants'
-import {
-    funnelLogic,
-    isBreakdownVisibilityMap,
-    StepVisibilityMap,
-    FlattenedFunnelStep,
-} from 'scenes/funnels/funnelLogic'
+import { funnelLogic, FlattenedFunnelStep } from 'scenes/funnels/funnelLogic'
 import Table, { ColumnsType } from 'antd/lib/table'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { SeriesToggleWrapper } from 'scenes/insights/InsightsTable/components/SeriesToggleWrapper'
@@ -22,26 +17,14 @@ interface FunnelStepTableProps {
     layout?: FunnelLayout
 }
 
-// If kea selectors accepted params, this could be moved to funnelLogic
-const stepVisibilityLookup = (visibilityMap: StepVisibilityMap) => (index: number, breakdown?: string) => {
-    if (breakdown) {
-        const breakdownMap = visibilityMap[index]
-        if (isBreakdownVisibilityMap(breakdownMap)) {
-            return breakdownMap?.[breakdown] ?? true
-        }
-    }
-    return Boolean(visibilityMap[index] ?? true)
-}
-
 function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string {
     return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order) || 'var(--primary)'
 }
 
 export function FunnelStepTable({ layout = FunnelLayout.horizontal }: FunnelStepTableProps): JSX.Element {
     const { flattenedSteps, visibilityMap, filters, steps } = useValues(funnelLogic)
-    const { setVisibilityByIndex, openPersonsModal } = useActions(funnelLogic)
+    const { setVisibility, openPersonsModal } = useActions(funnelLogic)
     const { cohorts } = useValues(cohortsModel)
-    const isStepVisible = stepVisibilityLookup(visibilityMap)
     const columns: ColumnsType<FlattenedFunnelStep> = []
 
     if (layout === 'horizontal') {
@@ -52,13 +35,13 @@ export function FunnelStepTable({ layout = FunnelLayout.horizontal }: FunnelStep
                     // Only allow toggling breakdowns
                     return null
                 }
-                const isVisible = isStepVisible(step.order, step.breakdown)
+                const isVisible = !!(step.breakdown && visibilityMap[step.breakdown])
                 const color = getStepColor(step, !!filters.breakdown)
                 return (
                     <PHCheckbox
                         color={color}
                         checked={isVisible}
-                        onChange={() => setVisibilityByIndex(step.order, !isVisible, step.breakdown)}
+                        onChange={() => step.breakdown && setVisibility(step.breakdown, !isVisible)}
                     />
                 )
             },
@@ -70,13 +53,13 @@ export function FunnelStepTable({ layout = FunnelLayout.horizontal }: FunnelStep
     columns.push({
         title: 'Step',
         render: function RenderLabel({}, step: FlattenedFunnelStep): JSX.Element {
-            const isVisible = isStepVisible(step.order, step.breakdown)
+            const isVisible = !!(step.breakdown && visibilityMap[step.breakdown])
             const isBreakdownChild = !!filters.breakdown && !step.isBreakdownParent
             const color = getStepColor(step, !!filters.breakdown)
             return (
                 <SeriesToggleWrapper
                     id={step.order}
-                    toggleVisibility={() => setVisibilityByIndex(step.order, !isVisible, step.breakdown)}
+                    toggleVisibility={() => step.breakdown && setVisibility(step.breakdown, !isVisible)}
                     style={{ display: 'flex', alignItems: 'center' }}
                 >
                     {isBreakdownChild ? (
