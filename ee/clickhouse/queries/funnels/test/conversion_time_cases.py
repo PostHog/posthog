@@ -51,7 +51,6 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
 
             result = funnel.run()
 
-            print(result)
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[1]["name"], "$pageview")
             self.assertEqual(result[2]["name"], "something else")
@@ -61,7 +60,6 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )  # one hour to convert, disregard the incomplete tries
             self.assertEqual(result[1]["median_conversion_time"], 3600)
 
-            self.assertEqual(len(result[0]["people"]), 1)
             # check ordering of people in every step
             self.assertCountEqual(
                 self._get_people_at_step(filter, 1), [person1.uuid,],
