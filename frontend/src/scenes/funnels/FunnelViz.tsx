@@ -107,22 +107,24 @@ export function FunnelViz({
     if (filters.funnel_viz_type === FunnelVizType.Trends) {
         return steps && steps.length > 0 && steps[0].labels ? (
             <>
-                <Row style={{ marginTop: -16, justifyContent: 'center' }}>
-                    {preflight?.is_clickhouse_enabled && (
-                        <>
-                            converted within&nbsp;
-                            <InputNumber
-                                size="small"
-                                min={1}
-                                max={365}
-                                defaultValue={conversionWindowInDays}
-                                onChange={(days) => loadConversionWindow(Number(days))}
-                            />
-                            &nbsp;days =&nbsp;
-                        </>
-                    )}
-                    % converted from first to last step
-                </Row>
+                {!dashboardItemId ? (
+                    <Row style={{ marginTop: -16, justifyContent: 'center' }}>
+                        {preflight?.is_clickhouse_enabled && (
+                            <>
+                                converted within&nbsp;
+                                <InputNumber
+                                    size="small"
+                                    min={1}
+                                    max={365}
+                                    defaultValue={conversionWindowInDays}
+                                    onChange={(days) => loadConversionWindow(Number(days))}
+                                />
+                                &nbsp;days =&nbsp;
+                            </>
+                        )}
+                        % converted from first to last step
+                    </Row>
+                ) : null}
                 <LineGraph
                     data-attr="trend-line-graph-funnel"
                     type="line"
