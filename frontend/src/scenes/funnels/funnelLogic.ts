@@ -485,7 +485,9 @@ export const funnelLogic = kea<funnelLogicType>({
             personsModalLogic.actions.loadPeople({
                 action: { id: step.action_id, name: step.name, properties: [], type: step.type },
                 breakdown_value: breakdown_value || '',
-                label: `Persons who completed Step #${stepNumber} - "${step.name}"`,
+                label: `Persons who ${stepNumber >= 0 ? 'completed' : 'dropped off at'} Step #${Math.abs(
+                    stepNumber
+                )} - ${step.name}`,
                 date_from: '',
                 date_to: '',
                 filters: values.filters,
