@@ -37,7 +37,9 @@ function processCohortOnSet(cohort: CohortType): CohortType {
 }
 
 export const cohortLogic = kea<cohortLogicType>({
-    props: {} as { cohort: CohortType },
+    props: {} as {
+        cohort: CohortType
+    },
     key: (props) => props.cohort.id || 'new',
     connect: [cohortsModel],
 

@@ -8,7 +8,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { Environments, ENVIRONMENT_LOCAL_STORAGE_KEY } from 'lib/constants'
+import { Environments, ENVIRONMENT_LOCAL_STORAGE_KEY, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 type WarningType =
@@ -187,7 +187,7 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
     events: ({ actions }) => ({
         afterMount: () => {
             const notSharedDashboard = location.pathname.indexOf('shared_dashboard') > -1 ? false : true
-            if (notSharedDashboard && featureFlagLogic.values.featureFlags['test-environment-3149']) {
+            if (notSharedDashboard && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TEST_ENVIRONMENT]) {
                 const localStorageValue =
                     window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY) || Environments.PRODUCTION
                 actions.setFilteredEnvironment(localStorageValue, true)
