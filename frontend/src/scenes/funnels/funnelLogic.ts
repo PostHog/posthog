@@ -457,7 +457,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     const nestedBreakdown = step.nested_breakdown?.map((breakdown, breakdownIndex) => {
                         const previousBreakdownCount =
                             (i > 0 && steps[i - 1].nested_breakdown?.[breakdownIndex].count) || 0
-                        const firstBreakdownCount = steps[0].nested_breakdown?.[breakdownIndex].count || 0
+                        const firstBreakdownCount = steps[0]?.nested_breakdown?.[breakdownIndex].count || 0
                         const _droppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
                         const conversionRates = {
                             fromPrevious:
