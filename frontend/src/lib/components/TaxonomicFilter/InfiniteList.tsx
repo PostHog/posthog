@@ -212,7 +212,13 @@ export function InfiniteList(): JSX.Element {
                     <Empty
                         description={
                             <>
-                                No results for "<strong>{searchQuery}</strong>"
+                                {searchQuery ? (
+                                    <>
+                                        No results for "<strong>{searchQuery}</strong>"
+                                    </>
+                                ) : (
+                                    'No results'
+                                )}
                             </>
                         }
                     />
