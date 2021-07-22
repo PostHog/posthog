@@ -78,7 +78,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             FROM (
                 {steps_per_person_query}
             )
-            {"WHERE entrance_period_start = %(entrance_period_start)s" if specific_entrance_period_start else ""}
+            {"WHERE toDateTime(entrance_period_start) = %(entrance_period_start)s" if specific_entrance_period_start else ""}
             GROUP BY person_id, entrance_period_start"""
 
     def get_query(self) -> str:

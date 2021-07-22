@@ -40,12 +40,14 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
     }),
     urlToAction: ({ actions }) => ({
         '/insights': (_, { display, insight, funnel_viz_type }) => {
-            if (display && !funnel_viz_type) {
+            if (display === ChartDisplayType.FunnelViz && !funnel_viz_type) {
+                actions.setChartFilter(FunnelVizType.Steps)
+            } else if (display && !funnel_viz_type) {
                 actions.setChartFilter(display)
             } else if (insight === ViewType.RETENTION) {
                 actions.setChartFilter(ChartDisplayType.ActionsTable)
             } else if (insight === ViewType.FUNNELS) {
-                actions.setChartFilter(funnel_viz_type)
+                actions.setChartFilter(funnel_viz_type || FunnelVizType.Steps)
             }
         },
     }),

@@ -15,7 +15,6 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
-import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
@@ -430,7 +429,6 @@ function FunnelInsight(): JSX.Element {
         isLoading,
         filters: { funnel_viz_type },
         areFiltersValid,
-        showBarGraph,
     } = useValues(funnelLogic({}))
     const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
 
@@ -447,11 +445,7 @@ function FunnelInsight(): JSX.Element {
         >
             {isLoading && <Loading />}
             {isValidFunnel ? (
-                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && showBarGraph ? (
-                    <Funnel filters={{ funnel_viz_type }} />
-                ) : (
-                    <FunnelViz filters={{ funnel_viz_type }} />
-                )
+                <Funnel filters={{ funnel_viz_type }} />
             ) : (
                 !isLoading && (
                     <div

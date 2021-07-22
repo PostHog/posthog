@@ -7,6 +7,7 @@ import {
     RETENTION_RECURRING,
     RETENTION_FIRST_TIME,
     ENTITY_MATCH_TYPE,
+    FunnelLayout,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
@@ -606,14 +607,14 @@ export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
-    interval?: string // TODO: Move to IntervalType
+    interval?: IntervalType
     date_from?: string
     date_to?: string
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
-    breakdown?: string | null
+    breakdown?: string | number | number[] | null
     breakdown_value?: string
     shown_as?: ShownAsType
     session?: string
@@ -633,6 +634,7 @@ export interface FilterType {
     formula?: any
     filter_test_accounts?: boolean
     from_dashboard?: boolean
+    layout?: FunnelLayout // used only for funnels
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
@@ -972,6 +974,8 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus
+    default_event_name: string
+    persisted_feature_flags?: string[]
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

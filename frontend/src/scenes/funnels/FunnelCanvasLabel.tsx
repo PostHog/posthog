@@ -11,7 +11,7 @@ import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { FunnelVizType } from '~/types'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { stepsWithCount, histogramStep, conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)
+    const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { allFilters } = useValues(insightLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
 
@@ -25,7 +25,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                 <>
                     <span className="text-muted-alt">
                         <Tooltip title="Overall conversion rate for all users on the entire funnel.">
-                            <InfoCircleOutlined style={{ marginRight: 3 }} />
+                            <InfoCircleOutlined className="info-indicator left" />
                         </Tooltip>
                         Total conversion rate:{' '}
                     </span>
@@ -33,11 +33,11 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                     <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                 </>
             )}
-            {stepsWithCount[histogramStep.from_step]?.average_conversion_time !== null && (
+            {allFilters.funnel_viz_type !== FunnelVizType.Trends && (
                 <>
                     <span className="text-muted-alt">
-                        <Tooltip title="Average (arithmetic mean) of the total time each user spent in the enitre funnel.">
-                            <InfoCircleOutlined style={{ marginRight: 3 }} />
+                        <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
+                            <InfoCircleOutlined className="info-indicator left" />
                         </Tooltip>
                         Average time to convert:{' '}
                     </span>

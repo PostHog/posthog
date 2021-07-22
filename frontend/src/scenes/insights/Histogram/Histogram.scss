@@ -1,6 +1,5 @@
 .histogram-container {
     display: flex;
-    min-height: 600px;
     width: 100%;
 
     svg {
@@ -16,6 +15,11 @@
             .domain {
                 display: none; // hide axis line
             }
+        }
+
+        g#x-axis,
+        g#y-axis {
+            font-size: 14px;
         }
     }
 }
