@@ -40,9 +40,7 @@ interface Props {
 }
 
 export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JSX.Element {
-    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, peopleLoading, isInitialLoad } = useValues(
-        personsModalLogic
-    )
+    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, isInitialLoad } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
         personsModalLogic
     )
@@ -78,17 +76,19 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             footer={
                 <Row style={{ justifyContent: 'space-between', alignItems: 'center', padding: '6px 0px' }}>
                     <Row style={{ alignItems: 'center' }}>
-                        {featureFlags[FEATURE_FLAGS.SAVE_COHORT_ON_MODAL] &&
-                            (view === ViewType.TRENDS || view === ViewType.STICKINESS || view === ViewType.FUNNELS) && (
-                                <div style={{ paddingRight: 8 }}>
-                                    <Button onClick={onSaveCohort}>
-                                        <UsergroupAddOutlined />
-                                        Save as cohort
-                                    </Button>
-                                </div>
-                            )}
-                        {!peopleLoading && people && (
+                        {people && (
                             <>
+                                {featureFlags[FEATURE_FLAGS.SAVE_COHORT_ON_MODAL] &&
+                                    (view === ViewType.TRENDS ||
+                                        view === ViewType.STICKINESS ||
+                                        view === ViewType.FUNNELS) && (
+                                        <div style={{ paddingRight: 8 }}>
+                                            <Button onClick={onSaveCohort}>
+                                                <UsergroupAddOutlined />
+                                                Save as cohort
+                                            </Button>
+                                        </div>
+                                    )}
                                 <Button
                                     icon={<DownloadOutlined />}
                                     href={`/api/action/people.csv?/?${parsePeopleParams(
@@ -159,7 +159,12 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                                 />
                             )}
                             <span style={{ paddingTop: 9 }}>
-                                Showing <b>{people.count}</b> persons
+                                Found{' '}
+                                <b>
+                                    {people.count}
+                                    {people.next ? '+' : ''}
+                                </b>{' '}
+                                {people.count === 1 ? 'person' : 'persons'}
                             </span>
                         </div>
                     </div>
