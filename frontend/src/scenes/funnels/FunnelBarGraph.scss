@@ -42,10 +42,7 @@ $funnel_canvas_background: #fafafa;
         padding-left: $series_container_width;
 
         .graph-series-glyph {
-            border-color: $border;
-            background-color: white;
             z-index: 2;
-            color: $primary_alt;
         }
 
         .funnel-series-container {
