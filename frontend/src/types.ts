@@ -974,6 +974,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus
+    persisted_feature_flags?: string[]
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

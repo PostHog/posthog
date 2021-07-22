@@ -222,7 +222,11 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         from posthog.api.user import UserSerializer
         from posthog.views import preflight_check
 
-        posthog_app_context: Dict = {"current_user": None, "preflight": json.loads(preflight_check(request).getvalue())}
+        posthog_app_context: Dict = {
+            "current_user": None,
+            "preflight": json.loads(preflight_check(request).getvalue()),
+            "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        }
 
         if request.user.pk:
             user = UserSerializer(request.user, context={"request": request}, many=False)
