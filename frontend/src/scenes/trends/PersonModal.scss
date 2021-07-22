@@ -8,6 +8,16 @@
     .ant-btn {
         color: var(--primary);
     }
+
+    .ant-modal-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .ant-modal-header {
+        padding: 16px 16px;
+        width: 575px;
+    }
 }
 
 .person-modal-properties {
