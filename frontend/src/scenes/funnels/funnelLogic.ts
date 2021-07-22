@@ -99,7 +99,9 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
         ...(filters.properties ? { properties: filters.properties } : {}),
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
         ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
-        ...(filters.funnel_viz_type ? { funnel_viz_type: filters.funnel_viz_type } : {}),
+        ...(filters.funnel_viz_type
+            ? { funnel_viz_type: filters.funnel_viz_type }
+            : { funnel_viz_type: FunnelVizType.Steps }),
         ...(filters.funnel_step ? { funnel_to_step: filters.funnel_step } : {}),
         ...(filters.entrance_period_start ? { entrance_period_start: filters.entrance_period_start } : {}),
         ...(filters.drop_off ? { drop_off: filters.drop_off } : {}),
