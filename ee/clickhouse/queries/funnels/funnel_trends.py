@@ -118,7 +118,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
                     {interval_method}(toDateTime('{self._filter.date_from.strftime(TIMESTAMP_FORMAT)}') + number * {seconds_in_interval}) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
                 FROM numbers({num_intervals}) AS period_offsets
-                {'CROSS JOIN breakdown_values' if breakdown_clause else ''}
+                {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}
             ) fill
             USING (entrance_period_start {breakdown_clause})
             ORDER BY entrance_period_start ASC
