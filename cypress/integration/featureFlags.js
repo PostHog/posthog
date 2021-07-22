@@ -19,8 +19,8 @@ describe('Feature Flags', () => {
         // select the first property
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('is_demo')
-        cy.get('[data-attr=taxonomic-tab-person_properties]').type('is_demo')
-        cy.get('[data-attr=prop-filter-person-0]').click({ force: true })
+        cy.get('[data-attr=taxonomic-tab-person_properties]').click()
+        cy.get('[data-attr=prop-filter-person_properties-0]').click({ force: true })
 
         // selects the first value
         cy.get('[data-attr=prop-val]').click()
