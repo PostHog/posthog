@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import React, { useEffect } from 'react'
 import { ChartParams, FunnelVizType } from '~/types'
 import { FunnelBarGraph } from './FunnelBarGraph'
@@ -20,18 +20,7 @@ export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
     }, [])
 
     if (!areFiltersValid) {
-        return (
-            <BindLogic
-                logic={funnelLogic}
-                props={{
-                    dashboardItemId: props.dashboardItemId,
-                    cachedResults: props.cachedResults,
-                    filters: props.filters,
-                }}
-            >
-                <FunnelEmptyState />
-            </BindLogic>
-        )
+        return <FunnelEmptyState />
     }
 
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
