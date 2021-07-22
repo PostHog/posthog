@@ -21,7 +21,7 @@ describe('Cohorts', () => {
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('is_demo')
         cy.get('[data-attr=taxonomic-tab-person_properties]').click()
-        cy.get('[data-attr=prop-filter-pesron_properties-0]').click({ force: true })
+        cy.get('[data-attr=prop-filter-person_properties-0]').click({ force: true })
 
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
