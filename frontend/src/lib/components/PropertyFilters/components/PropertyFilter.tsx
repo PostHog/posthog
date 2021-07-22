@@ -3,6 +3,7 @@ import { SelectGradientOverflowProps } from 'lib/components/SelectGradientOverfl
 import { TabbedPropertyFilter } from './TabbedPropertyFilter'
 import { TaxonomicPropertyFilter } from './TaxonomicPropertyFilter'
 import { UnifiedPropertyFilter } from './UnifiedPropertyFilter'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export interface PropertyFilterInternalProps {
     pageKey?: string
@@ -10,6 +11,7 @@ export interface PropertyFilterInternalProps {
     selectProps: Partial<SelectGradientOverflowProps>
     onComplete: () => void
     disablePopover: boolean
+    groupTypes?: TaxonomicFilterGroupType[]
 }
 
 export interface PropertyFilterProps extends PropertyFilterInternalProps {

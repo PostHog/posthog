@@ -13,6 +13,7 @@ import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Popup } from 'lib/components/Popup/Popup'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 interface FilterRowProps {
     item: AnyPropertyFilter
@@ -23,6 +24,7 @@ interface FilterRowProps {
     totalCount: number
     disablePopover?: boolean
     popoverPlacement?: TooltipPlacement | null
+    groupTypes?: TaxonomicFilterGroupType[]
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -34,6 +36,7 @@ export const FilterRow = React.memo(function FilterRow({
     totalCount,
     disablePopover = false, // use bare PropertyFilter without popover
     popoverPlacement,
+    groupTypes,
 }: FilterRowProps) {
     const { remove } = useActions(propertyFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -54,6 +57,7 @@ export const FilterRow = React.memo(function FilterRow({
         index,
         onComplete: () => setOpen(false),
         selectProps: {},
+        groupTypes,
     }
 
     const filterVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER]
