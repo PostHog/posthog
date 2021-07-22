@@ -6,7 +6,7 @@ export interface TaxonomicFilterProps {
     value?: PropertyFilterValue
     onChange?: (groupType: TaxonomicFilterGroupType, value: PropertyFilterValue, item: any) => void
     onClose?: () => void
-    groupTypes?: string[]
+    groupTypes?: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
 }
 

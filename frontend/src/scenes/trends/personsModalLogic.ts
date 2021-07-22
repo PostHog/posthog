@@ -8,6 +8,7 @@ import { cleanFunnelParams } from 'scenes/funnels/funnelLogic'
 import { ActionFilter, FilterType, ViewType, FunnelVizType } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { parsePeopleParams, TrendPeople } from './trendsLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -96,6 +97,16 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             },
         ],
     }),
+    selectors: {
+        isInitialLoad: [
+            (s) => [s.peopleLoading, s.loadingMorePeople],
+            (peopleLoading, loadingMorePeople) => peopleLoading && !loadingMorePeople,
+        ],
+        clickhouseFeaturesEnabled: [
+            () => [preflightLogic.selectors.preflight],
+            (preflight) => !!preflight?.is_clickhouse_enabled,
+        ],
+    },
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {

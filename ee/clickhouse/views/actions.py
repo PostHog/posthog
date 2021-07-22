@@ -9,6 +9,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_csv import renderers as csvrenderers
+from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter, format_entity_filter
@@ -96,7 +97,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
         return Response(
             {
-                "results": [{"people": serialized_people[0:100], "count": len(serialized_people[0:99])}],
+                "results": [{"people": serialized_people[0:100], "count": len(serialized_people[0:100])}],
                 "next": next_url,
                 "previous": current_url[1:],
             }

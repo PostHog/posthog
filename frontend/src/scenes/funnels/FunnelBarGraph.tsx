@@ -28,6 +28,7 @@ interface BarProps {
     percentage: number
     name?: string
     onBarClick?: () => void
+    disabled?: boolean
     layout?: FunnelLayout
     isBreakdown?: boolean
     breakdownIndex?: number
@@ -43,6 +44,7 @@ function Bar({
     percentage,
     name,
     onBarClick,
+    disabled,
     layout = FunnelLayout.horizontal,
     isBreakdown = false,
     breakdownIndex,
@@ -56,9 +58,8 @@ function Bar({
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
     const [labelVisible, setLabelVisible] = useState(true)
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
-    const { funnelPersonsEnabled } = useValues(funnelLogic)
-    const dimensionProperty = layout === FunnelLayout.horizontal ? 'width' : 'height'
-    const cursorType = funnelPersonsEnabled ? 'pointer' : ''
+    const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
+    const cursorType = clickhouseFeaturesEnabled && !disabled ? 'pointer' : ''
     const hasBreakdownSum = isBreakdown && typeof breakdownSumPercentage === 'number'
     const shouldShowLabel = !isBreakdown || (hasBreakdownSum && labelVisible)
 
@@ -135,12 +136,12 @@ function Bar({
                 ref={barRef}
                 className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
                 style={{
-                    [dimensionProperty]: `${percentage}%`,
+                    flex: `${percentage} 100 0`,
                     cursor: cursorType,
                     backgroundColor: getSeriesColor(breakdownIndex),
                 }}
                 onClick={() => {
-                    if (funnelPersonsEnabled && onBarClick) {
+                    if (clickhouseFeaturesEnabled && !disabled && onBarClick) {
                         onBarClick()
                     }
                 }}
@@ -275,18 +276,20 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
 
 export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Omit<ChartParams, 'view'>): JSX.Element {
     const logic = funnelLogic({ dashboardItemId, filters })
-    const { steps, stepReference, barGraphLayout: layout, funnelPersonsEnabled } = useValues(logic)
+    const { steps, stepReference, barGraphLayout: layout, clickhouseFeaturesEnabled } = useValues(logic)
     const { openPersonsModal } = useActions(funnelLogic)
     const firstStep = getReferenceStep(steps, FunnelStepReference.total)
 
     return (
         <div
+            data-attr="funnel-bar-graph"
             className={`funnel-bar-graph ${layout}${color && color !== 'white' ? ' colored' : ''} ${color}`}
             style={dashboardItemId ? {} : { minHeight: 450 }}
         >
             {steps.map((step, i) => {
                 const basisStep = getReferenceStep(steps, stepReference, i)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, i)
+                const conversionRate = calcPercentage(step.count, basisStep.count)
                 const previousCount = previousStep?.count ?? 0
                 const dropoffCount = previousCount - step.count
                 const showLineBefore = layout === FunnelLayout.horizontal && i > 0
@@ -323,7 +326,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                             <div className="funnel-bar-wrapper">
                                 {Array.isArray(step.nested_breakdown) && step.nested_breakdown?.length ? (
                                     step.nested_breakdown.map((breakdown, index) => {
-                                        const conversionRate = calcPercentage(breakdown.count, basisStep.count)
+                                        const _conversionRate = calcPercentage(breakdown.count, basisStep.count)
                                         const _previousCount =
                                             (previousStep as FunnelStepWithNestedBreakdown)?.nested_breakdown?.[index]
                                                 ?.count ?? 0
@@ -345,9 +348,10 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                         ? calcPercentage(breakdownSum, basisStep.count)
                                                         : undefined
                                                 }
-                                                percentage={conversionRate}
+                                                percentage={_conversionRate}
                                                 name={breakdown.name}
                                                 onBarClick={() => openPersonsModal(step, i + 1, step.breakdown_value)}
+                                                disabled={!!dashboardItemId}
                                                 layout={layout}
                                                 popoverTitle={
                                                     <div style={{ wordWrap: 'break-word' }}>
@@ -398,6 +402,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                         percentage={calcPercentage(step.count, basisStep.count)}
                                         name={step.name}
                                         onBarClick={() => openPersonsModal(step, i + 1)}
+                                        disabled={!!dashboardItemId}
                                         layout={layout}
                                         popoverTitle={<PropertyKeyInfo value={step.name} />}
                                         popoverMetrics={[
@@ -442,12 +447,16 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                         ]}
                                     />
                                 )}
+                                <div
+                                    className="funnel-bar-empty-space"
+                                    style={{ flex: `${100 - conversionRate} 100 0` }}
+                                />
                             </div>
                             <div className="funnel-conversion-metadata funnel-step-metadata">
                                 <div className="center-flex">
                                     <ValueInspectorButton
                                         onClick={() => openPersonsModal(step, i + 1)}
-                                        disabled={!funnelPersonsEnabled}
+                                        disabled={!clickhouseFeaturesEnabled || !!dashboardItemId}
                                     >
                                         <span className="value-inspector-button-icon">
                                             <ArrowRightOutlined style={{ color: 'var(--success)' }} />
@@ -468,7 +477,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                 <div className="center-flex">
                                     <ValueInspectorButton
                                         onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
-                                        disabled={!funnelPersonsEnabled}
+                                        disabled={!clickhouseFeaturesEnabled || !!dashboardItemId}
                                         style={{ paddingRight: '0.25em' }}
                                     >
                                         <span

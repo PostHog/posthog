@@ -15,7 +15,6 @@ import {
     FunnelStep,
     FunnelsTimeConversionBins,
     FunnelTimeConversionStep,
-    PathType,
     PersonType,
     ViewType,
     FunnelStepWithNestedBreakdown,
@@ -27,10 +26,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { calcPercentage, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
 
 function aggregateBreakdownResult(breakdownList: FunnelStep[][]): FunnelStepWithNestedBreakdown[] {
     if (breakdownList.length) {
@@ -100,7 +99,9 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
         ...(filters.properties ? { properties: filters.properties } : {}),
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
         ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
-        ...(filters.funnel_viz_type ? { funnel_viz_type: filters.funnel_viz_type } : {}),
+        ...(filters.funnel_viz_type
+            ? { funnel_viz_type: filters.funnel_viz_type }
+            : { funnel_viz_type: FunnelVizType.Steps }),
         ...(filters.funnel_step ? { funnel_to_step: filters.funnel_step } : {}),
         ...(filters.entrance_period_start ? { entrance_period_start: filters.entrance_period_start } : {}),
         ...(filters.drop_off ? { drop_off: filters.drop_off } : {}),
@@ -156,7 +157,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         // TODO: cache timeConversionResults? how does this cachedResults work?
                         return {
                             results: props.cachedResults as FunnelStep[] | FunnelStep[][],
-                            timeConversionResults: EMPTY_FUNNEL_RESULTS.timeConversionResults,
+                            timeConversionResults: props.cachedResults as FunnelsTimeConversionBins,
                         }
                     }
 
@@ -315,11 +316,6 @@ export const funnelLogic = kea<funnelLogicType>({
         clickhouseFeaturesEnabled: [
             () => [featureFlagLogic.selectors.featureFlags, selectors.preflight],
             // Controls auto-calculation of results and ability to break down values
-            (featureFlags, preflight): boolean =>
-                !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled),
-        ],
-        funnelPersonsEnabled: [
-            () => [featureFlagLogic.selectors.featureFlags, selectors.preflight],
             (featureFlags, preflight): boolean =>
                 !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled),
         ],
@@ -521,9 +517,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 if (!objectsEqual(currentParams, paramsToCheck)) {
                     const cleanedParams = cleanFunnelParams(searchParams)
                     if (isStepsEmpty(cleanedParams)) {
-                        const event = eventDefinitionsModel.values.eventNames.includes(PathType.PageView)
-                            ? PathType.PageView
-                            : eventDefinitionsModel.values.eventNames[0]
+                        const event = getDefaultEventName()
                         cleanedParams.events = [
                             {
                                 id: event,

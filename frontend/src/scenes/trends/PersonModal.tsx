@@ -40,14 +40,21 @@ interface Props {
 }
 
 export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JSX.Element {
-    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, peopleLoading } = useValues(personsModalLogic)
+    const {
+        people,
+        loadingMorePeople,
+        firstLoadedPeople,
+        searchTerm,
+        isInitialLoad,
+        clickhouseFeaturesEnabled,
+    } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
         personsModalLogic
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const title = useMemo(
         () =>
-            peopleLoading ? (
+            isInitialLoad ? (
                 'Loading persons list...'
             ) : filters.shown_as === 'Stickiness' ? (
                 `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
@@ -64,8 +71,12 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                     <DateDisplay interval={filters.interval || 'day'} date={people?.day.toString() || ''} />
                 </>
             ),
-        [filters, people, peopleLoading]
+        [filters, people, isInitialLoad]
     )
+
+    const showSaveCohortButton =
+        clickhouseFeaturesEnabled &&
+        (view === ViewType.TRENDS || view === ViewType.STICKINESS || view === ViewType.FUNNELS)
 
     return (
         <Modal
@@ -76,17 +87,16 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             footer={
                 <Row style={{ justifyContent: 'space-between', alignItems: 'center', padding: '6px 0px' }}>
                     <Row style={{ alignItems: 'center' }}>
-                        {featureFlags['save-cohort-on-modal'] &&
-                            (view === ViewType.TRENDS || view === ViewType.STICKINESS || view === ViewType.FUNNELS) && (
-                                <div style={{ paddingRight: 8 }}>
-                                    <Button onClick={onSaveCohort}>
-                                        <UsergroupAddOutlined />
-                                        Save as cohort
-                                    </Button>
-                                </div>
-                            )}
-                        {!peopleLoading && people && (
+                        {people && people.count > 0 && (
                             <>
+                                {showSaveCohortButton ? (
+                                    <div style={{ paddingRight: 8 }}>
+                                        <Button onClick={onSaveCohort}>
+                                            <UsergroupAddOutlined />
+                                            Save as cohort
+                                        </Button>
+                                    </div>
+                                ) : null}
                                 <Button
                                     icon={<DownloadOutlined />}
                                     href={`/api/action/people.csv?/?${parsePeopleParams(
@@ -112,12 +122,12 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             width={600}
             className="person-modal"
         >
-            {peopleLoading && (
+            {isInitialLoad && (
                 <div style={{ padding: 16 }}>
                     <Skeleton active />
                 </div>
             )}
-            {!peopleLoading && people && (
+            {!isInitialLoad && people && (
                 <>
                     <div
                         style={{
@@ -157,11 +167,12 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                                 />
                             )}
                             <span style={{ paddingTop: 9 }}>
-                                Showing{' '}
+                                Found{' '}
                                 <b>
-                                    {people.count > 99 ? '99' : people.count} of {people.count}
+                                    {people.count}
+                                    {people.next ? '+' : ''}
                                 </b>{' '}
-                                persons
+                                {people.count === 1 ? 'person' : 'persons'}
                             </span>
                         </div>
                     </div>

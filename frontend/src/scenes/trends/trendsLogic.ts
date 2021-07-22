@@ -12,7 +12,6 @@ import {
     ChartDisplayType,
     EntityTypes,
     FilterType,
-    PathType,
     PersonType,
     PropertyFilter,
     TrendResult,
@@ -24,6 +23,7 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
 
 interface TrendResponse {
     result: TrendResult[]
@@ -121,16 +121,9 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     return toAPIParams({ ...params, ...restParams })
 }
 
-function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: string[]): Partial<FilterType> {
-    /* Opening /insights without any params, will set $pageview as the default event (or
-    the first random event). We load this default events when `currentTeam` is loaded (because that's when
-    `eventNames` become available) and on every view change (through the urlToAction map) */
-    if (!currentFilters.actions?.length && !currentFilters.events?.length && eventNames.length) {
-        const event = eventNames.includes(PathType.PageView)
-            ? PathType.PageView
-            : eventNames.includes(PathType.Screen)
-            ? PathType.Screen
-            : eventNames[0]
+function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterType> {
+    if (!currentFilters.actions?.length && !currentFilters.events?.length) {
+        const event = getDefaultEventName()
 
         const defaultFilters = {
             [EntityTypes.EVENTS]: [
@@ -386,7 +379,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
             actions.setBreakdownValuesLoading(false)
         },
         [eventDefinitionsModel.actionTypes.loadEventDefinitionsSuccess]: async () => {
-            const newFilter = getDefaultFilters(values.filters, eventDefinitionsModel.values.eventNames)
+            const newFilter = getDefaultFilters(values.filters)
             const mergedFilter: Partial<FilterType> = {
                 ...values.filters,
                 ...newFilter,
@@ -454,10 +447,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     cleanSearchParams['compare'] = false
                 }
 
-                Object.assign(
-                    cleanSearchParams,
-                    getDefaultFilters(cleanSearchParams, eventDefinitionsModel.values.eventNames)
-                )
+                Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams))
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)

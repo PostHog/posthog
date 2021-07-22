@@ -1,11 +1,12 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
-    get_breakdown_event_prop_query,
-    get_breakdown_person_prop_query,
+    get_breakdown_event_prop_values,
+    get_breakdown_person_prop_values,
 )
 from ee.clickhouse.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
@@ -27,7 +28,6 @@ from posthog.constants import MONTHLY_ACTIVE, TREND_FILTER_TYPE_ACTIONS, TRENDS_
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
-from posthog.queries.base import CTE
 
 
 class ClickhouseTrendsBreakdown:
@@ -102,6 +102,9 @@ class ClickhouseTrendsBreakdown:
                 "count(*)" if entity.math == "dau" else aggregate_operation, entity, filter, team_id
             )
 
+        if len(_params["values"]) == 0:
+            return "SELECT 1", {}, lambda _: []
+
         params = {**params, **_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
@@ -173,24 +176,21 @@ class ClickhouseTrendsBreakdown:
 
     def _breakdown_cohort_params(self, team_id: int, filter: Filter, entity: Entity):
         cohort_queries, cohort_ids, cohort_params = format_breakdown_cohort_join_query(team_id, filter, entity=entity)
-        params = {"breakdown_values": cohort_ids, **cohort_params}
-        self.ctes.append(  # type: ignore
-            CTE(
-                query="SELECT arrayJoin( %(breakdown_values)s ) AS breakdown_value",
-                alias="breakdown_values",
-                is_scalar=False,
-            )
-        )
+        params = {"values": cohort_ids, **cohort_params}
         breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL
         breakdown_filter_params = {"cohort_queries": cohort_queries}
+
         return params, breakdown_filter, breakdown_filter_params, "value"
 
     def _breakdown_person_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
-        query, params = get_breakdown_person_prop_query(filter, entity, aggregate_operation, team_id, include_none=True)
+        values_arr = get_breakdown_person_prop_values(filter, entity, aggregate_operation, team_id)
         breakdown_filter_params = {
             "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
         }
-        self.ctes.append(CTE(query=query, alias="breakdown_values", is_scalar=False))  # type: ignore
+        params = {
+            "values": [*values_arr, "none"],
+        }
+
         return (
             params,
             BREAKDOWN_PERSON_PROP_JOIN_SQL,
@@ -200,8 +200,10 @@ class ClickhouseTrendsBreakdown:
         )
 
     def _breakdown_prop_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
-        query, params = get_breakdown_event_prop_query(filter, entity, aggregate_operation, team_id, include_none=True)
-        self.ctes.append(CTE(query=query, alias="breakdown_values", is_scalar=False))  # type: ignore
+        values_arr = get_breakdown_event_prop_values(filter, entity, aggregate_operation, team_id)
+        params = {
+            "values": [*values_arr, "none"],
+        }
         return (
             params,
             BREAKDOWN_PROP_JOIN_SQL,
@@ -268,3 +270,15 @@ class ClickhouseTrendsBreakdown:
                 return Cohort.objects.get(pk=breakdown_value).name
         else:
             return str(value) or ""
+
+    def _get_top_elements(self, query: str, filter: Filter, team_id: int, params: Dict = {}) -> List:
+        # use limit of 25 to determine if there are more than 20
+        element_params = {"key": filter.breakdown, "limit": 25, "team_id": team_id, "offset": filter.offset, **params}
+
+        try:
+            top_elements_array_result = sync_execute(query, element_params)
+            top_elements_array = top_elements_array_result[0][0]
+        except:
+            top_elements_array = []
+
+        return top_elements_array

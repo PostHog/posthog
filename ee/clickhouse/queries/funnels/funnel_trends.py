@@ -64,8 +64,6 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     ) -> str:
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
 
-        self.ctes = self.funnel_order.ctes
-
         interval_method = get_trunc_func_ch(self._filter.interval)
 
         # This is used by funnel trends when we only need data for one period, e.g. person per data point
@@ -203,7 +201,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     def _is_period_final(self, timestamp: Union[datetime, date]):
         # difference between current date and timestamp greater than window
         now = datetime.utcnow().date()
-        days_to_subtract = self._filter.funnel_window_days_or_default * -1
+        days_to_subtract = self._filter.funnel_window_days * -1
         delta = timedelta(days=days_to_subtract)
         completed_end = now + delta
         compare_timestamp = timestamp.date() if isinstance(timestamp, datetime) else timestamp

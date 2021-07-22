@@ -24,6 +24,7 @@ export function TaxonomicPropertyFilter({
     index,
     onComplete,
     disablePopover, // inside a dropdown if this is false
+    groupTypes,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const { setFilter } = useActions(propertyFilterLogic)
@@ -45,12 +46,14 @@ export function TaxonomicPropertyFilter({
                     onComplete?.()
                 }
             }}
-            groupTypes={[
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.Cohorts,
-                TaxonomicFilterGroupType.Elements,
-            ]}
+            groupTypes={
+                groupTypes || [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.Elements,
+                ]
+            }
         />
     )
 
@@ -81,6 +84,7 @@ export function TaxonomicPropertyFilter({
                         onClickOutside={closeDropdown}
                     >
                         <Button
+                            data-attr={'property-select-toggle-' + index}
                             className={`taxonomic-button${!filter?.type && !filter?.key ? ' add-filter' : ''}`}
                             onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                         >
