@@ -66,9 +66,7 @@ if E2E_TESTING:
 # These flags will be force-enabled on the frontend **in addition to** flags from `/decide`
 # The features here are released, but the flags are just not yet removed from the code.
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) or [
-    "4267-taxonomic-property-filter",
-    "4535-funnel-bar-viz",
-    "save-cohort-on-modal",
+    # Add flags here
 ]
 
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
