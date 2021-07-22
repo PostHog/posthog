@@ -1,12 +1,13 @@
 import React, { useState } from 'react'
-import { Select, Row, Button, Input, Col } from 'antd'
+import { Button, Col, Input, Row, Select } from 'antd'
 import { CohortEntityFilterBox } from './CohortEntityFilterBox'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectDownIcon } from 'lib/components/SelectDownIcon'
 import { CohortGroupType, MatchType } from '~/types'
-import { ACTION_TYPE, EVENT_TYPE, ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { ACTION_TYPE, ENTITY_MATCH_TYPE, EVENT_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { DeleteOutlined } from '@ant-design/icons'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 const { Option } = Select
 
@@ -103,6 +104,7 @@ function PropertyCriteriaRow({
                     propertyFilters={group.properties}
                     style={{ margin: '1rem 0 0' }}
                     popoverPlacement="bottomRight"
+                    groupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
                 />
             </div>
         </div>

@@ -59,6 +59,7 @@ export function TaxonomicFilter({
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <div className={`taxonomic-filter${groupTypes.length === 1 ? ' one-taxonomic-tab' : ''}`}>
                 <Input
+                    data-attr="taxonomic-filter-searchfield"
                     placeholder={`Search ${placeholder}`}
                     value={searchQuery}
                     ref={(ref) => (searchInputRef.current = ref)}

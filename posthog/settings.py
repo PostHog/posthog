@@ -67,6 +67,8 @@ if E2E_TESTING:
 # The features here are released, but the flags are just not yet removed from the code.
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) or [
     # Add flags here
+    "4267-taxonomic-property-filter",
+    "4535-funnel-bar-viz",
 ]
 
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
