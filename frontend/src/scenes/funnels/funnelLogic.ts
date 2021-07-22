@@ -318,11 +318,6 @@ export const funnelLogic = kea<funnelLogicType>({
             (featureFlags, preflight): boolean =>
                 !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled),
         ],
-        funnelPersonsEnabled: [
-            () => [featureFlagLogic.selectors.featureFlags, selectors.preflight],
-            (featureFlags, preflight): boolean =>
-                !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled),
-        ],
         histogramGraphData: [
             () => [selectors.timeConversionBins],
             (timeConversionBins: FunnelsTimeConversionBins) => {
