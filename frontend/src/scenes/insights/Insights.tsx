@@ -399,7 +399,7 @@ export function Insights(): JSX.Element {
                             {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] &&
                                 preflight?.is_clickhouse_enabled &&
                                 activeView === ViewType.FUNNELS &&
-                                allFilters.display === FUNNEL_VIZ && <FunnelStepTable />}
+                                allFilters.funnel_viz_type === FunnelVizType.Steps && <FunnelStepTable />}
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&
                                     allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
