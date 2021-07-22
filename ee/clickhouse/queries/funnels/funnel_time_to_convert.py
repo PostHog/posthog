@@ -63,9 +63,9 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
         steps_average_conditional_for_invalid_values = [
             f"{identifier} >= 0" for identifier in steps_average_conversion_time_identifiers
         ]
-        # this is protection against the CH bug: https://github.com/ClickHouse/ClickHouse/issues/26580
-        #  once the issue is resolved, stop skipping the test: test_auto_bin_count_single_step_duplicate_events
-        # and remove this comment
+        # :HACK: Protect against CH bug https://github.com/ClickHouse/ClickHouse/issues/26580
+        #   once the issue is resolved, stop skipping the test: test_auto_bin_count_single_step_duplicate_events
+        #   and remove this comment
 
         query = f"""
             WITH
