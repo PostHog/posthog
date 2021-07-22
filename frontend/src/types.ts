@@ -974,7 +974,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus
-    default_event: string
+    default_event_name: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

@@ -5,5 +5,5 @@ export function getAppContext(): AppContext | undefined {
 }
 
 export function getDefaultEventName(): string {
-    return getAppContext()?.default_event || PathType.PageView
+    return getAppContext()?.default_event_name || PathType.PageView
 }
