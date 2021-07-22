@@ -156,7 +156,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         // TODO: cache timeConversionResults? how does this cachedResults work?
                         return {
                             results: props.cachedResults as FunnelStep[] | FunnelStep[][],
-                            timeConversionResults: EMPTY_FUNNEL_RESULTS.timeConversionResults,
+                            timeConversionResults: props.cachedResults as FunnelsTimeConversionBins,
                         }
                     }
 
