@@ -318,6 +318,14 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         return ", ".join(cols)
 
+    def _get_step_time_names(self, max_steps: int):
+        names = []
+        for i in range(1, max_steps):
+            names.append(f"step_{i}_conversion_time")
+
+        formatted = ",".join(names)
+        return f", {formatted}" if formatted else ""
+
     def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False):
         conditions: List[str] = []
         for i in range(1, max_steps):

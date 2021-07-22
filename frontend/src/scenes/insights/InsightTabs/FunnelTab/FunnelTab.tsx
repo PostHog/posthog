@@ -50,12 +50,7 @@ export function FunnelTab(): JSX.Element {
                     ) : undefined
                 }
             />
-            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && (
-                <div style={{ paddingBottom: '1rem' }}>
-                    <h4 className="secondary">Graph Type</h4>
-                    <ToggleButtonChartFilter />
-                </div>
-            )}
+            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && <ToggleButtonChartFilter />}
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
@@ -98,20 +93,29 @@ export function FunnelTab(): JSX.Element {
                                 <InfoCircleOutlined className="info-indicator" />
                             </Tooltip>
                         </h4>
-                        <Row align="middle">
+                        {filters.breakdown_type === 'cohort' && filters.breakdown ? (
                             <BreakdownFilter
                                 filters={filters}
                                 onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
                                     setFilters({ breakdown, breakdown_type })
                                 }
                             />
-                            {filters.breakdown && (
-                                <CloseButton
-                                    onClick={(): void => setFilters({ breakdown: null, breakdown_type: null })}
-                                    style={{ marginTop: 1, marginLeft: 5 }}
+                        ) : (
+                            <Row align="middle">
+                                <BreakdownFilter
+                                    filters={filters}
+                                    onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
+                                        setFilters({ breakdown, breakdown_type })
+                                    }
                                 />
-                            )}
-                        </Row>
+                                {filters.breakdown && (
+                                    <CloseButton
+                                        onClick={(): void => setFilters({ breakdown: null, breakdown_type: null })}
+                                        style={{ marginTop: 1, marginLeft: 5 }}
+                                    />
+                                )}
+                            </Row>
+                        )}
                     </>
                 )}
                 {!clickhouseFeaturesEnabled && (

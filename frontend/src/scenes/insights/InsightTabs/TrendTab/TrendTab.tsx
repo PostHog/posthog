@@ -8,7 +8,7 @@ import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FilterType, ViewType } from '~/types'
+import { BreakdownType, FilterType, ViewType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -184,6 +184,13 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                             </h4>
                             {filtersLoading ? (
                                 <Skeleton paragraph={{ rows: 0 }} active />
+                            ) : filters.breakdown_type === 'cohort' && filters.breakdown ? (
+                                <BreakdownFilter
+                                    filters={filters}
+                                    onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
+                                        setFilters({ breakdown, breakdown_type })
+                                    }
+                                />
                             ) : (
                                 <Row align="middle">
                                     <BreakdownFilter

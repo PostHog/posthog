@@ -607,14 +607,14 @@ export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
-    interval?: string // TODO: Move to IntervalType
+    interval?: IntervalType
     date_from?: string
     date_to?: string
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
-    breakdown?: string | null
+    breakdown?: string | number | number[] | null
     breakdown_value?: string
     shown_as?: ShownAsType
     session?: string

@@ -11,7 +11,7 @@ import { parsePeopleParams, TrendPeople } from './trendsLogic'
 
 interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
-    label: string
+    label: string // Contains the step name
     date_from: string | number
     date_to: string | number
     filters: Partial<FilterType>
@@ -96,6 +96,12 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             },
         ],
     }),
+    selectors: {
+        isInitialLoad: [
+            (s) => [s.peopleLoading, s.loadingMorePeople],
+            (peopleLoading, loadingMorePeople) => peopleLoading && !loadingMorePeople,
+        ],
+    },
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
@@ -154,6 +160,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     day: date_from,
                     breakdown_value,
                     next: people.next,
+                    funnelStep,
                 } as TrendPeople
                 if (saveOriginal) {
                     actions.saveFirstLoadedPeople(peopleResult)

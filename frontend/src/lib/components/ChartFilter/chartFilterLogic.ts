@@ -45,7 +45,7 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
             } else if (insight === ViewType.RETENTION) {
                 actions.setChartFilter(ChartDisplayType.ActionsTable)
             } else if (insight === ViewType.FUNNELS) {
-                actions.setChartFilter(funnel_viz_type)
+                actions.setChartFilter(funnel_viz_type || FunnelVizType.Steps)
             }
         },
     }),

@@ -30,6 +30,10 @@ def _create_event(**kwargs):
 class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
+    def _get_people_at_step(self, filter, entrance_period_start, drop_off, funnel_class=ClickhouseFunnel):
+        person_filter = filter.with_data({"entrance_period_start": entrance_period_start, "drop_off": drop_off})
+        return ClickhouseFunnelTrendsPersons(person_filter, self.team, funnel_class).run()
+
     def _create_sample_data(self):
         # five people, three steps
         _create_person(distinct_ids=["user_one"], team=self.team)
@@ -177,11 +181,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         # 1 user who dropped off starting 2021-06-07
-        funnel_trends_persons_existent_dropped_off_results, _ = ClickhouseFunnelTrendsPersons(
-            Filter({**filter._data, "entrance_period_start": "2021-06-07 00:00:00", "drop_off": True}),
-            self.team,
-            ClickhouseFunnel,
-        ).run()
+        funnel_trends_persons_existent_dropped_off_results, _ = self._get_people_at_step(
+            filter, "2021-06-07 00:00:00", True
+        )
 
         self.assertEqual(
             len(funnel_trends_persons_existent_dropped_off_results), 1,
@@ -191,22 +193,18 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         # No users converted 2021-06-07
-        funnel_trends_persons_nonexistent_converted_results, _ = ClickhouseFunnelTrendsPersons(
-            Filter({**filter._data, "entrance_period_start": "2021-06-07 00:00:00", "drop_off": False}),
-            self.team,
-            ClickhouseFunnel,
-        ).run()
+        funnel_trends_persons_nonexistent_converted_results, _ = self._get_people_at_step(
+            filter, "2021-06-07 00:00:00", False
+        )
 
         self.assertEqual(
             len(funnel_trends_persons_nonexistent_converted_results), 0,
         )
 
         # No users dropped off 2021-06-08
-        funnel_trends_persons_nonexistent_converted_results, _ = ClickhouseFunnelTrendsPersons(
-            Filter({**filter._data, "entrance_period_start": "2021-06-08 00:00:00", "drop_off": True}),
-            self.team,
-            ClickhouseFunnel,
-        ).run()
+        funnel_trends_persons_nonexistent_converted_results, _ = self._get_people_at_step(
+            filter, "2021-06-08 00:00:00", True
+        )
 
         self.assertEqual(
             len(funnel_trends_persons_nonexistent_converted_results), 0,
@@ -248,8 +246,21 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
+        _create_person(distinct_ids=["user_one"], team=self.team)
+
+        # full run
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
+
         results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
-        self.assertEqual(len(results), 7)
+        self.assertEqual(7, len(results))
+
+        persons, _ = self._get_people_at_step(filter, "2021-05-01 00:00:00", False)
+
+        self.assertEqual(
+            [person["distinct_ids"] for person in persons], [["user_one"]],
+        )
 
     def test_week_interval(self):
         filter = Filter(
@@ -267,8 +278,21 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
+
+        _create_person(distinct_ids=["user_one"], team=self.team)
+
+        # full run
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
+
         results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
+        persons, _ = self._get_people_at_step(filter, "2021-04-25 00:00:00", False)
+
         self.assertEqual(2, len(results))
+        self.assertEqual(
+            [person["distinct_ids"] for person in persons], [["user_one"]],
+        )
 
     def test_month_interval(self):
         filter = Filter(
@@ -286,8 +310,21 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
+        _create_person(distinct_ids=["user_one"], team=self.team)
+
+        # full run
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
+
         results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
-        self.assertEqual(len(results), 1)
+        self.assertEqual(1, len(results))
+
+        persons, _ = self._get_people_at_step(filter, "2021-05-01 00:00:00", False)
+
+        self.assertEqual(
+            [person["distinct_ids"] for person in persons], [["user_one"]],
+        )
 
     def test_all_results_for_day_interval(self):
         self._create_sample_data()
@@ -604,11 +641,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_4["is_period_final"], True)
 
         # 1 user who dropped off starting # 2021-05-04
-        funnel_trends_persons_existent_dropped_off_results, _ = ClickhouseFunnelTrendsPersons(
-            Filter({**filter._data, "entrance_period_start": "2021-05-04 00:00:00", "drop_off": True}),
-            self.team,
-            ClickhouseFunnel,
-        ).run()
+        funnel_trends_persons_existent_dropped_off_results, _ = self._get_people_at_step(
+            filter, "2021-05-04 00:00:00", True
+        )
 
         self.assertEqual(
             len(funnel_trends_persons_existent_dropped_off_results), 1,
@@ -618,11 +653,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         # 1 user who converted starting # 2021-05-04
-        funnel_trends_persons_existent_dropped_off_results, _ = ClickhouseFunnelTrendsPersons(
-            Filter({**filter._data, "entrance_period_start": "2021-05-04 00:00:00", "drop_off": False}),
-            self.team,
-            ClickhouseFunnel,
-        ).run()
+        funnel_trends_persons_existent_dropped_off_results, _ = self._get_people_at_step(
+            filter, "2021-05-04 00:00:00", False
+        )
 
         self.assertEqual(
             len(funnel_trends_persons_existent_dropped_off_results), 1,
@@ -845,11 +878,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_4["is_period_final"], True)
 
         # 1 user who dropped off starting # 2021-05-04
-        funnel_trends_persons_existent_dropped_off_results, _ = ClickhouseFunnelTrendsPersons(
-            Filter({**filter._data, "entrance_period_start": "2021-05-04 00:00:00", "drop_off": True}),
-            self.team,
-            ClickhouseFunnelUnordered,
-        ).run()
+        funnel_trends_persons_existent_dropped_off_results, _ = self._get_people_at_step(
+            filter, "2021-05-04 00:00:00", True, ClickhouseFunnelUnordered
+        )
 
         self.assertEqual(
             len(funnel_trends_persons_existent_dropped_off_results), 1,
@@ -859,11 +890,9 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         # 1 user who converted starting # 2021-05-04
-        funnel_trends_persons_existent_dropped_off_results, _ = ClickhouseFunnelTrendsPersons(
-            Filter({**filter._data, "entrance_period_start": "2021-05-04 00:00:00", "drop_off": False}),
-            self.team,
-            ClickhouseFunnelUnordered,
-        ).run()
+        funnel_trends_persons_existent_dropped_off_results, _ = self._get_people_at_step(
+            filter, "2021-05-04 00:00:00", False, ClickhouseFunnelUnordered
+        )
 
         self.assertEqual(
             len(funnel_trends_persons_existent_dropped_off_results), 1,

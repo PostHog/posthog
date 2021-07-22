@@ -169,7 +169,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         // TODO: cache timeConversionResults? how does this cachedResults work?
                         return {
                             results: props.cachedResults as FunnelStep[] | FunnelStep[][],
-                            timeConversionResults: EMPTY_FUNNEL_RESULTS.timeConversionResults,
+                            timeConversionResults: props.cachedResults as FunnelsTimeConversionBins,
                         }
                     }
 
@@ -239,7 +239,7 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         people: [
-            [] as any[],
+            [] as any[], // TODO: Type properly
             {
                 loadPeople: async (steps) => {
                     return (await api.get('api/person/?uuid=' + steps[0].people.join(','))).results
@@ -373,7 +373,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
                 if (stepsWithCount.length > 1) {
                     stepsDropdown.push({
-                        label: `All steps`,
+                        label: 'All steps',
                         from_step: -1,
                         to_step: -1,
                         count: stepsWithCount[stepsWithCount.length - 1].count,
@@ -528,7 +528,7 @@ export const funnelLogic = kea<funnelLogicType>({
     listeners: ({ actions, values, props }) => ({
         loadResultsSuccess: async () => {
             // load the old people table
-            if (!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
+            if (!values.clickhouseFeaturesEnabled) {
                 if ((values.stepsWithCount[0]?.people?.length ?? 0) > 0) {
                     actions.loadPeople(values.stepsWithCount)
                 }
@@ -578,9 +578,7 @@ export const funnelLogic = kea<funnelLogicType>({
             personsModalLogic.actions.loadPeople({
                 action: { id: step.action_id, name: step.name, properties: [], type: step.type },
                 breakdown_value: breakdown_value || '',
-                label: `Persons who ${stepNumber >= 0 ? 'completed' : 'dropped off at'} Step #${Math.abs(
-                    stepNumber
-                )} - ${step.name}`,
+                label: step.name,
                 date_from: '',
                 date_to: '',
                 filters: values.filters,

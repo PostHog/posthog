@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { TrendPeople, parsePeopleParams } from 'scenes/trends/trendsLogic'
@@ -15,6 +15,8 @@ import { Link } from 'lib/components/Link'
 import './PersonModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { DateDisplay } from 'lib/components/DateDisplay'
 // Utility function to handle filter conversion required for deeplinking to person -> sessions
 const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
     if (!people?.action) {
@@ -38,19 +40,32 @@ interface Props {
 }
 
 export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JSX.Element {
-    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, peopleLoading } = useValues(personsModalLogic)
+    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, isInitialLoad } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
         personsModalLogic
     )
     const { featureFlags } = useValues(featureFlagLogic)
-    const title =
-        filters.shown_as === 'Stickiness'
-            ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
-            : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie'
-            ? `"${people?.label}"`
-            : filters.insight === ViewType.FUNNELS
-            ? `${people?.label}`
-            : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
+    const title = useMemo(
+        () =>
+            isInitialLoad ? (
+                'Loading persons list...'
+            ) : filters.shown_as === 'Stickiness' ? (
+                `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
+            ) : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie' ? (
+                `"${people?.label}"`
+            ) : filters.insight === ViewType.FUNNELS ? (
+                <>
+                    Persons who {people?.funnelStep ?? 0 >= 0 ? 'completed' : 'dropped off at'} step #
+                    {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />
+                </>
+            ) : (
+                <>
+                    <PropertyKeyInfo value={people?.label || ''} disablePopover /> on{' '}
+                    <DateDisplay interval={filters.interval || 'day'} date={people?.day.toString() || ''} />
+                </>
+            ),
+        [filters, people, isInitialLoad]
+    )
 
     return (
         <Modal
@@ -61,17 +76,19 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             footer={
                 <Row style={{ justifyContent: 'space-between', alignItems: 'center', padding: '6px 0px' }}>
                     <Row style={{ alignItems: 'center' }}>
-                        {featureFlags['save-cohort-on-modal'] &&
-                            (view === ViewType.TRENDS || view === ViewType.STICKINESS || view === ViewType.FUNNELS) && (
-                                <div style={{ paddingRight: 8 }}>
-                                    <Button onClick={onSaveCohort}>
-                                        <UsergroupAddOutlined />
-                                        Save as cohort
-                                    </Button>
-                                </div>
-                            )}
-                        {!peopleLoading && people && (
+                        {people && (
                             <>
+                                {featureFlags[FEATURE_FLAGS.SAVE_COHORT_ON_MODAL] &&
+                                    (view === ViewType.TRENDS ||
+                                        view === ViewType.STICKINESS ||
+                                        view === ViewType.FUNNELS) && (
+                                        <div style={{ paddingRight: 8 }}>
+                                            <Button onClick={onSaveCohort}>
+                                                <UsergroupAddOutlined />
+                                                Save as cohort
+                                            </Button>
+                                        </div>
+                                    )}
                                 <Button
                                     icon={<DownloadOutlined />}
                                     href={`/api/action/people.csv?/?${parsePeopleParams(
@@ -95,15 +112,14 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                 </Row>
             }
             width={600}
-            bodyStyle={{ padding: 0, maxHeight: 500, overflowY: 'scroll' }}
             className="person-modal"
         >
-            {peopleLoading && (
+            {isInitialLoad && (
                 <div style={{ padding: 16 }}>
                     <Skeleton active />
                 </div>
             )}
-            {!peopleLoading && people && (
+            {!isInitialLoad && people && (
                 <>
                     <div
                         style={{
@@ -143,11 +159,12 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                                 />
                             )}
                             <span style={{ paddingTop: 9 }}>
-                                Showing{' '}
+                                Found{' '}
                                 <b>
-                                    {people.count > 99 ? '99' : people.count} of {people.count}
+                                    {people.count}
+                                    {people.next ? '+' : ''}
                                 </b>{' '}
-                                persons
+                                {people.count === 1 ? 'person' : 'persons'}
                             </span>
                         </div>
                     </div>

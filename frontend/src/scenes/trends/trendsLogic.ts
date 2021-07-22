@@ -43,6 +43,7 @@ export interface TrendPeople {
     breakdown_value?: string
     next?: string
     loadingMore?: boolean
+    funnelStep?: number
 }
 
 interface PeopleParamType {
