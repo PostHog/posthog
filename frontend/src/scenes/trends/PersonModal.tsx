@@ -40,7 +40,14 @@ interface Props {
 }
 
 export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JSX.Element {
-    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, isInitialLoad } = useValues(personsModalLogic)
+    const {
+        people,
+        loadingMorePeople,
+        firstLoadedPeople,
+        searchTerm,
+        isInitialLoad,
+        clickhouseFeaturesEnabled,
+    } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
         personsModalLogic
     )
@@ -67,6 +74,10 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
         [filters, people, isInitialLoad]
     )
 
+    const showSaveCohortButton =
+        clickhouseFeaturesEnabled &&
+        (view === ViewType.TRENDS || view === ViewType.STICKINESS || view === ViewType.FUNNELS)
+
     return (
         <Modal
             title={<strong>{title}</strong>}
@@ -76,19 +87,16 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             footer={
                 <Row style={{ justifyContent: 'space-between', alignItems: 'center', padding: '6px 0px' }}>
                     <Row style={{ alignItems: 'center' }}>
-                        {people && (
+                        {people && people.count > 0 && (
                             <>
-                                {featureFlags[FEATURE_FLAGS.SAVE_COHORT_ON_MODAL] &&
-                                    (view === ViewType.TRENDS ||
-                                        view === ViewType.STICKINESS ||
-                                        view === ViewType.FUNNELS) && (
-                                        <div style={{ paddingRight: 8 }}>
-                                            <Button onClick={onSaveCohort}>
-                                                <UsergroupAddOutlined />
-                                                Save as cohort
-                                            </Button>
-                                        </div>
-                                    )}
+                                {showSaveCohortButton ? (
+                                    <div style={{ paddingRight: 8 }}>
+                                        <Button onClick={onSaveCohort}>
+                                            <UsergroupAddOutlined />
+                                            Save as cohort
+                                        </Button>
+                                    </div>
+                                ) : null}
                                 <Button
                                     icon={<DownloadOutlined />}
                                     href={`/api/action/people.csv?/?${parsePeopleParams(

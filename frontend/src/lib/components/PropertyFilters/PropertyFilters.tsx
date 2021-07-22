@@ -5,6 +5,7 @@ import { FilterRow } from './components/FilterRow'
 import 'scenes/actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { AnyPropertyFilter } from '~/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -15,6 +16,7 @@ interface PropertyFiltersProps {
     disablePopover?: boolean
     popoverPlacement?: TooltipPlacement | null
     style?: CSSProperties
+    groupTypes?: TaxonomicFilterGroupType[]
 }
 
 export function PropertyFilters({
@@ -24,6 +26,7 @@ export function PropertyFilters({
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
     popoverPlacement = null,
+    groupTypes,
     style = {},
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
@@ -45,6 +48,7 @@ export function PropertyFilters({
                                 showConditionBadge={showConditionBadge}
                                 disablePopover={disablePopover}
                                 popoverPlacement={popoverPlacement}
+                                groupTypes={groupTypes}
                             />
                         )
                     })}

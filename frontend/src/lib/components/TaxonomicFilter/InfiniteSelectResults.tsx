@@ -24,9 +24,9 @@ function TabTitle({
 
     const group = groups.find((g) => g.type === groupType)
     return (
-        <>
+        <div data-attr={`taxonomic-tab-${groupType}`}>
             {group?.name} {totalCount != null && <Tag>{totalCount}</Tag>}
-        </>
+        </div>
     )
 }
 
