@@ -22,9 +22,13 @@ function notifyFlagIfNeeded(flag: string, flagState: boolean): void {
     }
 }
 
-function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
+function getPersistedFeatureFlags(): FeatureFlagsSet {
     const persistedFeatureFlags = getAppContext()?.persist_feature_flags || []
-    const combinedFlags = { ...featureFlags, ...Object.fromEntries(persistedFeatureFlags.map((f) => [f, true])) }
+    return Object.fromEntries(persistedFeatureFlags.map((f) => [f, true]))
+}
+
+function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
+    const combinedFlags = { ...featureFlags, ...getPersistedFeatureFlags() }
 
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(
@@ -32,7 +36,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             {
                 get(_, flag) {
                     if (flag === 'toJSON') {
-                        return JSON.stringify(combinedFlags)
+                        return () => combinedFlags
                     }
                     const flagString = flag.toString()
                     const flagState = !!combinedFlags[flagString]
@@ -48,7 +52,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             Object.defineProperty(flags, flag, {
                 get: function () {
                     if (flag === 'toJSON') {
-                        return JSON.stringify(combinedFlags)
+                        return () => combinedFlags
                     }
                     notifyFlagIfNeeded(flag, true)
                     return true
@@ -66,7 +70,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
 
     reducers: {
         featureFlags: [
-            {} as FeatureFlagsSet,
+            getPersistedFeatureFlags(),
             { persist: true },
             {
                 setFeatureFlags: (_, { featureFlags }) => {
