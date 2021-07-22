@@ -780,8 +780,6 @@ export interface LoadedRawFunnelResults {
     timeConversionResults: FunnelsTimeConversionBins
 }
 
-export type BreakdownVisibilityMap = Record<string, boolean>
-
 export interface FunnelStepWithConversionMetrics extends FunnelStep {
     droppedOffFromPrevious: number
     conversionRates: {
