@@ -21,7 +21,6 @@ import {
     FunnelTimeConversionMetrics,
     FunnelRequestParams,
     LoadedRawFunnelResults,
-    BreakdownVisibilityMap,
     FlattenedFunnelStep,
     FunnelStepWithConversionMetrics,
 } from '~/types'
@@ -154,11 +153,6 @@ export const funnelLogic = kea<funnelLogicType>({
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
-        setVisibilityMap: (visibilityMap: BreakdownVisibilityMap) => ({ visibilityMap }),
-        setVisibility: (breakdownValue: string, visible: boolean) => ({
-            breakdownValue,
-            visible,
-        }),
     }),
 
     connect: {
@@ -290,18 +284,6 @@ export const funnelLogic = kea<funnelLogicType>({
             true,
             {
                 setIsGroupingOutliers: (_, { isGroupingOutliers }) => isGroupingOutliers,
-            },
-        ],
-        visibilityMap: [
-            {} as BreakdownVisibilityMap, // A map of breakdown values to shown/hidden states, set via checkboxes
-            {
-                setVisibilityMap: (_, { visibilityMap }) => visibilityMap,
-                setVisibility: (state, { breakdownValue, visible }) => {
-                    return {
-                        ...state,
-                        [breakdownValue]: visible,
-                    }
-                },
             },
         ],
     }),
@@ -548,14 +530,6 @@ export const funnelLogic = kea<funnelLogicType>({
                     actions.loadPeople(values.stepsWithCount)
                 }
             }
-            // set visibility of all breakdown values
-            const visibilityMap: BreakdownVisibilityMap = {}
-            values.steps[0].nested_breakdown?.forEach(({ breakdown }) => {
-                if (breakdown) {
-                    visibilityMap[breakdown] = true
-                }
-            })
-            actions.setVisibilityMap(visibilityMap)
         },
         setFilters: ({ refresh }) => {
             // FUNNEL_BAR_VIZ removes the calculate button on Clickhouse

@@ -281,7 +281,6 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
         stepReference,
         barGraphLayout: layout,
         clickhouseFeaturesEnabled,
-        visibilityMap,
     } = useValues(logic)
     const { openPersonsModal } = useActions(funnelLogic)
 
@@ -329,9 +328,6 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                 {Array.isArray(step.nested_breakdown) && step.nested_breakdown?.length ? (
                                     <>
                                         {step.nested_breakdown.map((breakdown, index) => {
-                                            if (breakdown.breakdown && !visibilityMap[breakdown.breakdown]) {
-                                                return null
-                                            }
                                             const barSizePercentage = calcPercentage(breakdown.count, basisStep.count)
                                             return (
                                                 <Bar

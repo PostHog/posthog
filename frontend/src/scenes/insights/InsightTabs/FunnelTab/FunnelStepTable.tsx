@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { FunnelLayout } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import Table, { ColumnsType } from 'antd/lib/table'
-import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { SeriesToggleWrapper } from 'scenes/insights/InsightsTable/components/SeriesToggleWrapper'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -27,35 +26,21 @@ function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string 
     return getColor(step, 'var(--text-default)', isBreakdown)
 }
 
-function getCheckboxColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string {
-    return getColor(step, 'var(--primary)', isBreakdown)
-}
-
 export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
-    const { stepsWithCount, flattenedSteps, visibilityMap, filters, steps } = useValues(funnelLogic)
-    const { setVisibility, openPersonsModal } = useActions(funnelLogic)
+    const { stepsWithCount, flattenedSteps, filters, steps } = useValues(funnelLogic)
+    const { openPersonsModal } = useActions(funnelLogic)
     const { cohorts } = useValues(cohortsModel)
     const tableScrollBreakpoint = getBreakpoint('lg')
     const columns: ColumnsType<FlattenedFunnelStep> = []
 
     columns.push({
         title: '',
-        render: function RenderCheckboxOrGlyph({}, step: FlattenedFunnelStep): JSX.Element {
+        render: function RenderSeriesGlyph({}, step: FlattenedFunnelStep): JSX.Element | null {
             if (step.breakdownIndex === undefined) {
                 // Not a breakdown value; show a step-order glyph
                 return <SeriesGlyph variant="funnel-step-glyph">{humanizeOrder(step.order)}</SeriesGlyph>
             }
-            const isVisible = !!(step.breakdown && visibilityMap[step.breakdown])
-            const color = getCheckboxColor(step, !!filters.breakdown)
-            return (
-                <div style={{ marginLeft: '0.15em' }}>
-                    <PHCheckbox
-                        color={color}
-                        checked={isVisible}
-                        onChange={() => step.breakdown && setVisibility(step.breakdown, !isVisible)}
-                    />
-                </div>
-            )
+            return null
         },
         fixed: 'left',
         width: 30,
@@ -64,31 +49,21 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
     columns.push({
         title: 'Step',
         render: function RenderLabel({}, step: FlattenedFunnelStep): JSX.Element {
-            const isVisible = !!(step.breakdown && visibilityMap[step.breakdown])
             const isBreakdownChild = !!filters.breakdown && !step.isBreakdownParent
             const color = getStepColor(step, !!filters.breakdown)
             return (
-                <SeriesToggleWrapper
-                    id={step.order}
-                    toggleVisibility={() => step.breakdown && setVisibility(step.breakdown, !isVisible)}
-                    style={{ display: 'flex', alignItems: 'center' }}
-                >
-                    {isBreakdownChild ? (
-                        <div style={{ maxWidth: 270, wordBreak: 'break-word' }}>
-                            {formatBreakdownLabel(step.breakdown, cohorts)}
-                        </div>
-                    ) : (
-                        <div style={{ flexGrow: 1 }}>
-                            <InsightLabel
-                                seriesColor={color}
-                                fallbackName={step.name}
-                                hasMultipleSeries={steps.length > 1}
-                                breakdownValue={step.breakdown}
-                                hideBreakdown
-                                hideIcon
-                            />
-                        </div>
-                    )}
+                <SeriesToggleWrapper id={step.order} style={{ display: 'flex', alignItems: 'center' }}>
+                    <div style={{ flexGrow: 1, maxWidth: 270, wordBreak: 'break-word' }}>
+                        <InsightLabel
+                            seriesColor={color}
+                            fallbackName={isBreakdownChild ? formatBreakdownLabel(step.breakdown, cohorts) : step.name}
+                            hasMultipleSeries={steps.length > 1}
+                            breakdownValue={step.breakdown}
+                            hideBreakdown
+                            hideIcon={!isBreakdownChild}
+                            allowWrap
+                        />
+                    </div>
                 </SeriesToggleWrapper>
             )
         },
