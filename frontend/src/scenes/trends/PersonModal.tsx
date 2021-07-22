@@ -74,9 +74,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
         [filters, people, isInitialLoad]
     )
 
-    const showSaveCohortButton =
-        clickhouseFeaturesEnabled &&
-        (view === ViewType.TRENDS || view === ViewType.STICKINESS || view === ViewType.FUNNELS)
+    const showModalActions = clickhouseFeaturesEnabled && (view === ViewType.TRENDS || view === ViewType.STICKINESS)
 
     return (
         <Modal
@@ -87,16 +85,14 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             footer={
                 <Row style={{ justifyContent: 'space-between', alignItems: 'center', padding: '6px 0px' }}>
                     <Row style={{ alignItems: 'center' }}>
-                        {people && people.count > 0 && (
+                        {people && people.count > 0 && showModalActions && (
                             <>
-                                {showSaveCohortButton ? (
-                                    <div style={{ paddingRight: 8 }}>
-                                        <Button onClick={onSaveCohort}>
-                                            <UsergroupAddOutlined />
-                                            Save as cohort
-                                        </Button>
-                                    </div>
-                                ) : null}
+                                <div style={{ paddingRight: 8 }}>
+                                    <Button onClick={onSaveCohort}>
+                                        <UsergroupAddOutlined />
+                                        Save as cohort
+                                    </Button>
+                                </div>
                                 <Button
                                     icon={<DownloadOutlined />}
                                     href={`/api/action/people.csv?/?${parsePeopleParams(
