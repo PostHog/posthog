@@ -48,11 +48,18 @@ export function TaxonomicFilter({
         window.setTimeout(() => focusInput(), 1)
     }, [])
 
+    const placeholder = groupTypes
+        .map(
+            (type, index) =>
+                `${index !== 0 ? (index === groupTypes.length - 1 ? ' or ' : ', ') : ''}${type.split('_').join(' ')}`
+        )
+        .join('')
+
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
-            <div className="taxonomic-filter">
+            <div className={`taxonomic-filter${groupTypes.length === 1 ? ' one-taxonomic-tab' : ''}`}>
                 <Input
-                    placeholder="Search cohorts, event or person properties"
+                    placeholder={`Search ${placeholder}`}
                     value={searchQuery}
                     ref={(ref) => (searchInputRef.current = ref)}
                     onChange={(e) => setSearchQuery(e.target.value)}
