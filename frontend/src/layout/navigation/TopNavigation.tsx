@@ -33,7 +33,7 @@ import { CreateInviteModalWithButton } from 'scenes/organization/Settings/Create
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Environments } from 'lib/constants'
+import { Environments, FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
@@ -294,7 +294,7 @@ export function TopNavigation(): JSX.Element {
                 </div>
                 {user && (
                     <div>
-                        {featureFlags['test-environment-3149'] && (
+                        {featureFlags[FEATURE_FLAGS.TEST_ENVIRONMENT] && (
                             <div className="global-environment-switch">
                                 <label
                                     htmlFor="global-environment-switch"
