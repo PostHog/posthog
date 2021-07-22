@@ -465,8 +465,8 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         stepsWithCount: [() => [selectors.steps], (steps) => steps.filter((step) => typeof step.count === 'number')],
         stepsWithConversionMetrics: [
-            () => [selectors.steps],
-            (steps): FunnelStepWithConversionMetrics[] => {
+            () => [selectors.steps, selectors.stepReference],
+            (steps, stepReference): FunnelStepWithConversionMetrics[] => {
                 return steps.map((step, i) => {
                     const previousCount = i > 0 ? steps[i - 1].count : 0
                     const droppedOffFromPrevious = Math.max(previousCount - step.count, 0)
@@ -475,25 +475,39 @@ export const funnelLogic = kea<funnelLogicType>({
                             (i > 0 && steps[i - 1].nested_breakdown?.[breakdownIndex].count) || 0
                         const firstBreakdownCount = steps[0].nested_breakdown?.[breakdownIndex].count || 0
                         const _droppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
+                        const conversionRates = {
+                            fromPrevious:
+                                previousBreakdownCount === 0
+                                    ? 0
+                                    : calcPercentage(breakdown.count, previousBreakdownCount),
+                            total: calcPercentage(breakdown.count, firstBreakdownCount),
+                        }
                         return {
                             ...breakdown,
                             droppedOffFromPrevious: _droppedOffFromPrevious,
                             conversionRates: {
-                                fromPrevious:
-                                    previousBreakdownCount === 0
-                                        ? 0
-                                        : calcPercentage(breakdown.count, previousBreakdownCount),
-                                total: calcPercentage(breakdown.count, firstBreakdownCount),
+                                ...conversionRates,
+                                fromBasisStep:
+                                    stepReference === FunnelStepReference.total
+                                        ? conversionRates.total
+                                        : conversionRates.fromPrevious,
                             },
                         }
                     })
+                    const conversionRates = {
+                        fromPrevious: previousCount === 0 ? 0 : calcPercentage(step.count, previousCount),
+                        total: calcPercentage(step.count, steps[0].count),
+                    }
                     return {
                         ...step,
                         droppedOffFromPrevious,
                         nested_breakdown: nestedBreakdown,
                         conversionRates: {
-                            fromPrevious: previousCount === 0 ? 0 : calcPercentage(step.count, previousCount),
-                            total: calcPercentage(step.count, steps[0].count),
+                            ...conversionRates,
+                            fromBasisStep:
+                                stepReference === FunnelStepReference.total
+                                    ? conversionRates.total
+                                    : conversionRates.fromPrevious,
                         },
                     }
                 })

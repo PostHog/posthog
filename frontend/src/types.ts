@@ -787,6 +787,7 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
     conversionRates: {
         fromPrevious: number
         total: number
+        fromBasisStep: number // either fromPrevious or total, depending on FunnelStepReference
     }
     nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
 }
