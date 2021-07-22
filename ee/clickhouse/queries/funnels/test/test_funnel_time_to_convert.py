@@ -79,7 +79,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    @unittest.skip
+    @unittest.skip("Wait for bug to be resolved")
     def test_auto_bin_count_single_step_duplicate_events(self):
         # demonstrates existing CH bug. Current patch is to remove negative times from consideration
         # Reference on what happens: https://github.com/ClickHouse/ClickHouse/issues/26580
