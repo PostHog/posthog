@@ -92,7 +92,7 @@ class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
         return self._data.get(FUNNEL_STEP_BREAKDOWN)
 
     @include_dict
-    def funnel_step_to_dict(self):
+    def funnel_person_breakdown_to_dict(self):
         return {FUNNEL_STEP_BREAKDOWN: self.funnel_step_breakdown} if self.funnel_step_breakdown else {}
 
 
