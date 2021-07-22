@@ -22,7 +22,7 @@ import {
     getSeriesPositionName,
     humanizeStepCount,
 } from './funnelUtils'
-import { ChartParams, FunnelStepWithNestedBreakdown } from '~/types'
+import { ChartParams } from '~/types'
 
 interface BarProps {
     percentage: number
@@ -174,7 +174,7 @@ interface ValueInspectorButtonProps {
     innerRef?: React.MutableRefObject<HTMLElement | null>
 }
 
-function ValueInspectorButton({
+export function ValueInspectorButton({
     icon,
     onClick,
     children,
@@ -276,9 +276,14 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
 
 export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Omit<ChartParams, 'view'>): JSX.Element {
     const logic = funnelLogic({ dashboardItemId, filters })
-    const { steps, stepReference, barGraphLayout: layout, clickhouseFeaturesEnabled } = useValues(logic)
+    const {
+        stepsWithConversionMetrics: steps,
+        stepReference,
+        barGraphLayout: layout,
+        clickhouseFeaturesEnabled,
+        visibilityMap,
+    } = useValues(logic)
     const { openPersonsModal } = useActions(funnelLogic)
-    const firstStep = getReferenceStep(steps, FunnelStepReference.total)
 
     return (
         <div
@@ -289,9 +294,6 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
             {steps.map((step, i) => {
                 const basisStep = getReferenceStep(steps, stepReference, i)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, i)
-                const conversionRate = calcPercentage(step.count, basisStep.count)
-                const previousCount = previousStep?.count ?? 0
-                const dropoffCount = previousCount - step.count
                 const showLineBefore = layout === FunnelLayout.horizontal && i > 0
                 const showLineAfter = layout === FunnelLayout.vertical || i < steps.length - 1
                 const breakdownMaxIndex = getBreakdownMaxIndex(
@@ -305,7 +307,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
                             <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
-                            <SeriesGlyph>{humanizeOrder(step.order)}</SeriesGlyph>
+                            <SeriesGlyph variant="funnel-step-glyph">{humanizeOrder(step.order)}</SeriesGlyph>
                             <div className={`funnel-series-linebox ${showLineAfter ? 'after' : ''}`} />
                         </div>
                         <header>
@@ -325,132 +327,149 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                         <div className="funnel-inner-viz">
                             <div className="funnel-bar-wrapper">
                                 {Array.isArray(step.nested_breakdown) && step.nested_breakdown?.length ? (
-                                    step.nested_breakdown.map((breakdown, index) => {
-                                        const _conversionRate = calcPercentage(breakdown.count, basisStep.count)
-                                        const _previousCount =
-                                            (previousStep as FunnelStepWithNestedBreakdown)?.nested_breakdown?.[index]
-                                                ?.count ?? 0
-                                        const _dropoffCount = _previousCount - breakdown.count
-                                        const conversionRateFromPrevious = calcPercentage(
-                                            breakdown.count,
-                                            _previousCount
-                                        )
-                                        const totalConversionRate = calcPercentage(breakdown.count, firstStep.count)
-                                        const dropoffRateFromPrevious = 100 - conversionRateFromPrevious
-                                        return (
-                                            <Bar
-                                                key={`${breakdown.action_id}-${step.breakdown_value}-${index}`}
-                                                isBreakdown={true}
-                                                breakdownIndex={index}
-                                                breakdownMaxIndex={breakdownMaxIndex}
-                                                breakdownSumPercentage={
-                                                    index === breakdownMaxIndex && breakdownSum
-                                                        ? calcPercentage(breakdownSum, basisStep.count)
-                                                        : undefined
-                                                }
-                                                percentage={_conversionRate}
-                                                name={breakdown.name}
-                                                onBarClick={() => openPersonsModal(step, i + 1, step.breakdown_value)}
-                                                disabled={!!dashboardItemId}
-                                                layout={layout}
-                                                popoverTitle={
-                                                    <div style={{ wordWrap: 'break-word' }}>
-                                                        <PropertyKeyInfo value={step.name} />
-                                                        {' • '}
-                                                        {breakdown.breakdown}
-                                                    </div>
-                                                }
-                                                popoverMetrics={[
-                                                    {
-                                                        title: 'Completed step',
-                                                        value: breakdown.count,
-                                                    },
-                                                    {
-                                                        title: 'Conversion rate (total)',
-                                                        value: humanizeNumber(totalConversionRate, 2) + '%',
-                                                    },
-                                                    {
-                                                        title: `Conversion rate (from step ${humanizeOrder(
-                                                            previousStep.order
-                                                        )})`,
-                                                        value: humanizeNumber(conversionRateFromPrevious, 2) + '%',
-                                                        visible: step.order !== 0,
-                                                    },
-                                                    {
-                                                        title: 'Dropped off',
-                                                        value: _dropoffCount,
-                                                        visible: step.order !== 0 && _dropoffCount > 0,
-                                                    },
-                                                    {
-                                                        title: `Dropoff rate (from step ${humanizeOrder(
-                                                            previousStep.order
-                                                        )})`,
-                                                        value: humanizeNumber(dropoffRateFromPrevious, 2) + '%',
-                                                        visible: step.order !== 0 && _dropoffCount > 0,
-                                                    },
-                                                    {
-                                                        title: 'Average time on step',
-                                                        value: humanFriendlyDuration(breakdown.average_conversion_time),
-                                                        visible: !!breakdown.average_conversion_time,
-                                                    },
-                                                ]}
-                                            />
-                                        )
-                                    })
+                                    <>
+                                        {step.nested_breakdown.map((breakdown, index) => {
+                                            if (breakdown.breakdown && !visibilityMap[breakdown.breakdown]) {
+                                                return null
+                                            }
+                                            const barSizePercentage = calcPercentage(breakdown.count, basisStep.count)
+                                            return (
+                                                <Bar
+                                                    key={`${breakdown.action_id}-${step.breakdown_value}-${index}`}
+                                                    isBreakdown={true}
+                                                    breakdownIndex={index}
+                                                    breakdownMaxIndex={breakdownMaxIndex}
+                                                    breakdownSumPercentage={
+                                                        index === breakdownMaxIndex && breakdownSum
+                                                            ? calcPercentage(breakdownSum, basisStep.count)
+                                                            : undefined
+                                                    }
+                                                    percentage={barSizePercentage}
+                                                    name={breakdown.name}
+                                                    onBarClick={() =>
+                                                        openPersonsModal(step, i + 1, step.breakdown_value)
+                                                    }
+                                                    disabled={!!dashboardItemId}
+                                                    layout={layout}
+                                                    popoverTitle={
+                                                        <div style={{ wordWrap: 'break-word' }}>
+                                                            <PropertyKeyInfo value={step.name} />
+                                                            {' • '}
+                                                            {breakdown.breakdown}
+                                                        </div>
+                                                    }
+                                                    popoverMetrics={[
+                                                        {
+                                                            title: 'Completed step',
+                                                            value: breakdown.count,
+                                                        },
+                                                        {
+                                                            title: 'Conversion rate (total)',
+                                                            value:
+                                                                humanizeNumber(breakdown.conversionRates.total, 2) +
+                                                                '%',
+                                                        },
+                                                        {
+                                                            title: `Conversion rate (from step ${humanizeOrder(
+                                                                previousStep.order
+                                                            )})`,
+                                                            value:
+                                                                humanizeNumber(
+                                                                    breakdown.conversionRates.fromPrevious,
+                                                                    2
+                                                                ) + '%',
+                                                            visible: step.order !== 0,
+                                                        },
+                                                        {
+                                                            title: 'Dropped off',
+                                                            value: breakdown.droppedOffFromPrevious,
+                                                            visible:
+                                                                step.order !== 0 &&
+                                                                breakdown.droppedOffFromPrevious > 0,
+                                                        },
+                                                        {
+                                                            title: `Dropoff rate (from step ${humanizeOrder(
+                                                                previousStep.order
+                                                            )})`,
+                                                            value:
+                                                                humanizeNumber(
+                                                                    100 - breakdown.conversionRates.fromPrevious,
+                                                                    2
+                                                                ) + '%',
+                                                            visible:
+                                                                step.order !== 0 &&
+                                                                breakdown.droppedOffFromPrevious > 0,
+                                                        },
+                                                        {
+                                                            title: 'Average time on step',
+                                                            value: humanFriendlyDuration(
+                                                                breakdown.average_conversion_time
+                                                            ),
+                                                            visible: !!breakdown.average_conversion_time,
+                                                        },
+                                                    ]}
+                                                />
+                                            )
+                                        })}
+                                        <div
+                                            className="funnel-bar-empty-space"
+                                            style={{
+                                                flex: `${100 - calcPercentage(breakdownSum, basisStep.count)} 100 0`,
+                                            }}
+                                        />
+                                    </>
                                 ) : (
-                                    <Bar
-                                        percentage={calcPercentage(step.count, basisStep.count)}
-                                        name={step.name}
-                                        onBarClick={() => openPersonsModal(step, i + 1)}
-                                        disabled={!!dashboardItemId}
-                                        layout={layout}
-                                        popoverTitle={<PropertyKeyInfo value={step.name} />}
-                                        popoverMetrics={[
-                                            {
-                                                title: 'Completed step',
-                                                value: step.count,
-                                            },
-                                            {
-                                                title: 'Conversion rate (total)',
-                                                value:
-                                                    humanizeNumber(calcPercentage(step.count, firstStep.count), 2) +
-                                                    '%',
-                                            },
-                                            {
-                                                title: `Conversion rate (from step ${humanizeOrder(
-                                                    previousStep.order
-                                                )})`,
-                                                value:
-                                                    humanizeNumber(calcPercentage(step.count, previousStep.count), 2) +
-                                                    '%',
-                                                visible: step.order !== 0,
-                                            },
-                                            {
-                                                title: 'Dropped off',
-                                                value: dropoffCount,
-                                                visible: step.order !== 0 && dropoffCount > 0,
-                                            },
-                                            {
-                                                title: `Dropoff rate (from step ${humanizeOrder(previousStep.order)})`,
-                                                value:
-                                                    humanizeNumber(
-                                                        100 - calcPercentage(step.count, previousStep.count),
-                                                        2
-                                                    ) + '%',
-                                                visible: step.order !== 0 && dropoffCount > 0,
-                                            },
-                                            {
-                                                title: 'Average time on step',
-                                                value: humanFriendlyDuration(step.average_conversion_time),
-                                                visible: !!step.average_conversion_time,
-                                            },
-                                        ]}
-                                    />
+                                    <>
+                                        <Bar
+                                            percentage={step.conversionRates.fromBasisStep}
+                                            name={step.name}
+                                            onBarClick={() => openPersonsModal(step, i + 1)}
+                                            disabled={!!dashboardItemId}
+                                            layout={layout}
+                                            popoverTitle={<PropertyKeyInfo value={step.name} />}
+                                            popoverMetrics={[
+                                                {
+                                                    title: 'Completed step',
+                                                    value: step.count,
+                                                },
+                                                {
+                                                    title: 'Conversion rate (total)',
+                                                    value: humanizeNumber(step.conversionRates.total, 2) + '%',
+                                                },
+                                                {
+                                                    title: `Conversion rate (from step ${humanizeOrder(
+                                                        previousStep.order
+                                                    )})`,
+                                                    value: humanizeNumber(step.conversionRates.fromPrevious, 2) + '%',
+                                                    visible: step.order !== 0,
+                                                },
+                                                {
+                                                    title: 'Dropped off',
+                                                    value: step.droppedOffFromPrevious,
+                                                    visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
+                                                },
+                                                {
+                                                    title: `Dropoff rate (from step ${humanizeOrder(
+                                                        previousStep.order
+                                                    )})`,
+                                                    value:
+                                                        humanizeNumber(100 - step.conversionRates.fromPrevious, 2) +
+                                                        '%',
+                                                    visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
+                                                },
+                                                {
+                                                    title: 'Average time on step',
+                                                    value: humanFriendlyDuration(step.average_conversion_time),
+                                                    visible: !!step.average_conversion_time,
+                                                },
+                                            ]}
+                                        />
+                                        <div
+                                            className="funnel-bar-empty-space"
+                                            style={{ flex: `${100 - step.conversionRates.fromBasisStep} 100 0` }}
+                                        />
+                                    </>
                                 )}
-                                <div
-                                    className="funnel-bar-empty-space"
-                                    style={{ flex: `${100 - conversionRate} 100 0` }}
-                                />
                             </div>
                             <div className="funnel-conversion-metadata funnel-step-metadata">
                                 <div className="center-flex">

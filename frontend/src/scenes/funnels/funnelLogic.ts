@@ -21,6 +21,9 @@ import {
     FunnelTimeConversionMetrics,
     FunnelRequestParams,
     LoadedRawFunnelResults,
+    BreakdownVisibilityMap,
+    FlattenedFunnelStep,
+    FunnelStepWithConversionMetrics,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
@@ -31,11 +34,15 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 
-function aggregateBreakdownResult(breakdownList: FunnelStep[][]): FunnelStepWithNestedBreakdown[] {
+function aggregateBreakdownResult(
+    breakdownList: FunnelStep[][],
+    breakdownProperty?: string
+): FunnelStepWithNestedBreakdown[] {
     if (breakdownList.length) {
         return breakdownList[0].map((step, i) => ({
             ...step,
             count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
+            breakdown: breakdownProperty,
             nested_breakdown: breakdownList.reduce(
                 (allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]],
                 []
@@ -49,6 +56,12 @@ function aggregateBreakdownResult(breakdownList: FunnelStep[][]): FunnelStepWith
 
 function isBreakdownFunnelResults(results: FunnelStep[] | FunnelStep[][]): results is FunnelStep[][] {
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
+}
+
+function isValidBreakdownParameter(
+    breakdown: FunnelRequestParams['breakdown']
+): breakdown is string | null | undefined {
+    return ['string', 'null', 'undefined'].includes(typeof breakdown)
 }
 
 function wait(ms = 1000): Promise<any> {
@@ -141,6 +154,11 @@ export const funnelLogic = kea<funnelLogicType>({
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
+        setVisibilityMap: (visibilityMap: BreakdownVisibilityMap) => ({ visibilityMap }),
+        setVisibility: (breakdownValue: string, visible: boolean) => ({
+            breakdownValue,
+            visible,
+        }),
     }),
 
     connect: {
@@ -272,6 +290,18 @@ export const funnelLogic = kea<funnelLogicType>({
             true,
             {
                 setIsGroupingOutliers: (_, { isGroupingOutliers }) => isGroupingOutliers,
+            },
+        ],
+        visibilityMap: [
+            {} as BreakdownVisibilityMap, // A map of breakdown values to shown/hidden states, set via checkboxes
+            {
+                setVisibilityMap: (_, { visibilityMap }) => visibilityMap,
+                setVisibility: (state, { breakdownValue, visible }) => {
+                    return {
+                        ...state,
+                        [breakdownValue]: visible,
+                    }
+                },
             },
         ],
     }),
@@ -414,10 +444,12 @@ export const funnelLogic = kea<funnelLogicType>({
         actionCount: [() => [selectors.apiParams], (apiParams) => apiParams.actions?.length || 0],
         interval: [() => [selectors.apiParams], (apiParams) => apiParams.interval || ''],
         stepsWithNestedBreakdown: [
-            () => [selectors.results],
-            (results) => {
-                if (isBreakdownFunnelResults(results)) {
-                    return aggregateBreakdownResult(results).sort((a, b) => a.order - b.order)
+            () => [selectors.results, selectors.apiParams],
+            (results, params) => {
+                if (isBreakdownFunnelResults(results) && isValidBreakdownParameter(params.breakdown)) {
+                    return aggregateBreakdownResult(results, params.breakdown ?? undefined).sort(
+                        (a, b) => a.order - b.order
+                    )
                 }
                 return []
             },
@@ -434,6 +466,78 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         stepsWithCount: [() => [selectors.steps], (steps) => steps.filter((step) => typeof step.count === 'number')],
+        stepsWithConversionMetrics: [
+            () => [selectors.steps, selectors.stepReference],
+            (steps, stepReference): FunnelStepWithConversionMetrics[] => {
+                return steps.map((step, i) => {
+                    const previousCount = i > 0 ? steps[i - 1].count : 0
+                    const droppedOffFromPrevious = Math.max(previousCount - step.count, 0)
+                    const nestedBreakdown = step.nested_breakdown?.map((breakdown, breakdownIndex) => {
+                        const previousBreakdownCount =
+                            (i > 0 && steps[i - 1].nested_breakdown?.[breakdownIndex].count) || 0
+                        const firstBreakdownCount = steps[0].nested_breakdown?.[breakdownIndex].count || 0
+                        const _droppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
+                        const conversionRates = {
+                            fromPrevious:
+                                previousBreakdownCount === 0
+                                    ? 0
+                                    : calcPercentage(breakdown.count, previousBreakdownCount),
+                            total: calcPercentage(breakdown.count, firstBreakdownCount),
+                        }
+                        return {
+                            ...breakdown,
+                            droppedOffFromPrevious: _droppedOffFromPrevious,
+                            conversionRates: {
+                                ...conversionRates,
+                                fromBasisStep:
+                                    stepReference === FunnelStepReference.total
+                                        ? conversionRates.total
+                                        : conversionRates.fromPrevious,
+                            },
+                        }
+                    })
+                    const conversionRates = {
+                        fromPrevious: previousCount === 0 ? 0 : calcPercentage(step.count, previousCount),
+                        total: calcPercentage(step.count, steps[0].count),
+                    }
+                    return {
+                        ...step,
+                        droppedOffFromPrevious,
+                        nested_breakdown: nestedBreakdown,
+                        conversionRates: {
+                            ...conversionRates,
+                            fromBasisStep:
+                                stepReference === FunnelStepReference.total
+                                    ? conversionRates.total
+                                    : conversionRates.fromPrevious,
+                        },
+                    }
+                })
+            },
+        ],
+        flattenedSteps: [
+            () => [selectors.stepsWithConversionMetrics],
+            (steps): FlattenedFunnelStep[] => {
+                const flattenedSteps: FlattenedFunnelStep[] = []
+                steps.forEach((step) => {
+                    flattenedSteps.push({
+                        ...step,
+                        rowKey: step.order,
+                        isBreakdownParent: !!step.nested_breakdown?.length,
+                    })
+                    if (step.nested_breakdown?.length) {
+                        step.nested_breakdown.forEach((breakdownStep, i) => {
+                            flattenedSteps.push({
+                                ...breakdownStep,
+                                rowKey: `${step.order}-${i}`,
+                                breakdownIndex: i,
+                            })
+                        })
+                    }
+                })
+                return flattenedSteps
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -444,6 +548,14 @@ export const funnelLogic = kea<funnelLogicType>({
                     actions.loadPeople(values.stepsWithCount)
                 }
             }
+            // set visibility of all breakdown values
+            const visibilityMap: BreakdownVisibilityMap = {}
+            values.steps[0].nested_breakdown?.forEach(({ breakdown }) => {
+                if (breakdown) {
+                    visibilityMap[breakdown] = true
+                }
+            })
+            actions.setVisibilityMap(visibilityMap)
         },
         setFilters: ({ refresh }) => {
             // FUNNEL_BAR_VIZ removes the calculate button on Clickhouse
