@@ -323,6 +323,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                             <div className="funnel-bar-wrapper">
                                 {Array.isArray(step.nested_breakdown) && step.nested_breakdown?.length ? (
                                     step.nested_breakdown.map((breakdown, index) => {
+                                        const _conversionRate = calcPercentage(breakdown.count, basisStep.count)
                                         const _previousCount =
                                             (previousStep as FunnelStepWithNestedBreakdown)?.nested_breakdown?.[index]
                                                 ?.count ?? 0
@@ -344,7 +345,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                         ? calcPercentage(breakdownSum, basisStep.count)
                                                         : undefined
                                                 }
-                                                percentage={conversionRate}
+                                                percentage={_conversionRate}
                                                 name={breakdown.name}
                                                 onBarClick={() => openPersonsModal(step, i + 1, step.breakdown_value)}
                                                 layout={layout}
