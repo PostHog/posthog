@@ -103,6 +103,7 @@ function PropertyCriteriaRow({
                     propertyFilters={group.properties}
                     style={{ margin: '1rem 0 0' }}
                     popoverPlacement="bottomRight"
+                    groupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.CohortsWithAll]}
                 />
             </div>
         </div>

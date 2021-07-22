@@ -63,4 +63,12 @@ export const groups: TaxonomicFilterGroup[] = [
         getName: (cohort: CohortType): string => cohort.name || `Cohort #${cohort.id}`,
         getValue: (cohort: CohortType): PropertyFilterValue => cohort.id,
     },
+    {
+        name: 'Cohorts',
+        type: TaxonomicFilterGroupType.CohortsWithAll,
+        logic: cohortsModel,
+        value: 'cohortsForFilter',
+        getName: (cohort: CohortType): string => cohort.name || `Cohort #${cohort.id}`,
+        getValue: (cohort: CohortType): PropertyFilterValue => cohort.id,
+    },
 ]

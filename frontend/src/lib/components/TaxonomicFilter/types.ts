@@ -28,6 +28,7 @@ export interface TaxonomicFilterGroup {
 export enum TaxonomicFilterGroupType {
     Actions = 'actions',
     Cohorts = 'cohorts',
+    CohortsWithAll = 'cohorts_with_all',
     Elements = 'elements',
     Events = 'events',
     EventProperties = 'event_properties',

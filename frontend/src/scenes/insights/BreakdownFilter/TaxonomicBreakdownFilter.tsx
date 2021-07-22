@@ -15,7 +15,7 @@ import { CloseButton } from 'lib/components/CloseButton'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
-    onChange: (value: string | number | number[] | null, groupType: BreakdownType | null) => void
+    onChange: (value: string | number | (string | number)[] | null, groupType: BreakdownType | null) => void
 }
 
 export interface TaxonomicBreakdownButtonProps {
@@ -28,9 +28,12 @@ export interface TaxonomicBreakdownButtonProps {
 
 export function TaxonomicBreakdownFilter({ filters, onChange }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdown_type, insight } = filters
-    const breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
+    let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
+    if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
+        breakdownType = TaxonomicFilterGroupType.CohortsWithAll
+    }
 
-    if (breakdownType === TaxonomicFilterGroupType.Cohorts && breakdown) {
+    if (breakdownType === TaxonomicFilterGroupType.CohortsWithAll && breakdown) {
         const breakdownParts = (Array.isArray(breakdown) ? breakdown : [breakdown])
             .filter((b) => !!b)
             .map((b) => parseInt(`${b}`))
@@ -48,7 +51,8 @@ export function TaxonomicBreakdownFilter({ filters, onChange }: TaxonomicBreakdo
                                 const fullChangedBreakdown = [...breakdownParts, '']
                                     .map((b, i) => (i === index ? changedBreakdown : b))
                                     .filter((b) => !!b)
-                                    .map((b) => parseInt(`${b}`))
+                                    .map((b) => (typeof b === 'string' && b.startsWith('new') ? b : parseInt(`${b}`)))
+
                                 onChange(fullChangedBreakdown, 'cohort')
                             }}
                         />
@@ -97,7 +101,7 @@ export function TaxonomicBreakdownButton({
     const [open, setOpen] = useState(false)
 
     let label = breakdown ? breakdown.toString() : null
-    if (breakdownType === TaxonomicFilterGroupType.Cohorts && breakdown) {
+    if (breakdownType === TaxonomicFilterGroupType.CohortsWithAll && breakdown) {
         label = cohorts.filter((c) => c.id == breakdown)[0]?.name || `Cohort #${breakdown}`
     }
 
@@ -115,11 +119,11 @@ export function TaxonomicBreakdownButton({
                     }}
                     groupTypes={
                         onlyCohorts
-                            ? [TaxonomicFilterGroupType.Cohorts]
+                            ? [TaxonomicFilterGroupType.CohortsWithAll]
                             : [
                                   TaxonomicFilterGroupType.EventProperties,
                                   TaxonomicFilterGroupType.PersonProperties,
-                                  TaxonomicFilterGroupType.Cohorts,
+                                  TaxonomicFilterGroupType.CohortsWithAll,
                               ]
                     }
                 />
