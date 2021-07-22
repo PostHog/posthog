@@ -76,7 +76,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             footer={
                 <Row style={{ justifyContent: 'space-between', alignItems: 'center', padding: '6px 0px' }}>
                     <Row style={{ alignItems: 'center' }}>
-                        {featureFlags['save-cohort-on-modal'] &&
+                        {featureFlags[FEATURE_FLAGS.SAVE_COHORT_ON_MODAL] &&
                             (view === ViewType.TRENDS || view === ViewType.STICKINESS || view === ViewType.FUNNELS) && (
                                 <div style={{ paddingRight: 8 }}>
                                     <Button onClick={onSaveCohort}>
