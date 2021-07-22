@@ -13,6 +13,7 @@ import { getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { FlattenedFunnelStep } from '~/types'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
 
 interface FunnelStepTableProps {
     layout?: FunnelLayout // Not yet implemented
@@ -34,6 +35,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
     const { flattenedSteps, visibilityMap, filters, steps } = useValues(funnelLogic)
     const { setVisibility, openPersonsModal } = useActions(funnelLogic)
     const { cohorts } = useValues(cohortsModel)
+    const tableScrollBreakpoint = getBreakpoint('lg')
     const columns: ColumnsType<FlattenedFunnelStep> = []
 
     columns.push({
@@ -91,7 +93,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
             )
         },
         fixed: 'left',
-        width: 300,
+        width: 120,
     })
 
     columns.push({
@@ -103,7 +105,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
                 </ValueInspectorButton>
             )
         },
-        width: 30,
+        width: 80,
     })
 
     columns.push({
@@ -111,7 +113,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
         render: function RenderConversion({}, step: FlattenedFunnelStep): JSX.Element | null {
             return step.order === 0 ? null : <span>{step.conversionRates.total}%</span>
         },
-        width: 30,
+        width: 80,
     })
 
     columns.push({
@@ -127,7 +129,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
                 </ValueInspectorButton>
             )
         },
-        width: 30,
+        width: 80,
     })
 
     columns.push({
@@ -135,7 +137,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
         render: function RenderDropoffFromPrevious({}, step: FlattenedFunnelStep): JSX.Element | null {
             return step.order === 0 ? null : <span>{humanizeNumber(100 - step.conversionRates.fromPrevious, 2)}%</span>
         },
-        width: 30,
+        width: 80,
     })
 
     columns.push({
@@ -143,13 +145,14 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
         render: function RenderAverageTime({}, step: FlattenedFunnelStep): JSX.Element {
             return <span>{humanFriendlyDuration(step.average_conversion_time, 2)}</span>
         },
-        width: 30,
+        width: 80,
     })
 
     return (
         <Table
             dataSource={flattenedSteps}
             columns={columns}
+            scroll={{ x: `${tableScrollBreakpoint}px` }}
             size="small"
             rowKey="rowKey"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
