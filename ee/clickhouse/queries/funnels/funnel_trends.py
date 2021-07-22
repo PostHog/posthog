@@ -3,7 +3,7 @@ from typing import Optional, Tuple, Type, Union
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
-from ee.clickhouse.queries.util import PERIOD_TRUNC_MONTH, PERIOD_TRUNC_WEEK, get_time_diff, get_trunc_func_ch
+from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
 from posthog.constants import BREAKDOWN
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -69,11 +69,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
 
         # This is used by funnel trends when we only need data for one period, e.g. person per data point
         if specific_entrance_period_start:
-            self.params["entrance_period_start"] = (
-                specific_entrance_period_start.strftime(DATE_FORMAT)
-                if interval_method in [PERIOD_TRUNC_WEEK, PERIOD_TRUNC_MONTH]
-                else specific_entrance_period_start.strftime(TIMESTAMP_FORMAT)
-            )
+            self.params["entrance_period_start"] = specific_entrance_period_start.strftime(TIMESTAMP_FORMAT)
 
         return f"""
             SELECT
@@ -83,7 +79,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             FROM (
                 {steps_per_person_query}
             )
-            {"WHERE entrance_period_start = %(entrance_period_start)s" if specific_entrance_period_start else ""}
+            {"WHERE toDateTime(entrance_period_start) = %(entrance_period_start)s" if specific_entrance_period_start else ""}
             GROUP BY person_id, entrance_period_start"""
 
     def get_query(self) -> str:

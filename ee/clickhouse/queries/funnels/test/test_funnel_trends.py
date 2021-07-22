@@ -259,9 +259,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         persons, _ = self._get_people_at_step(filter, "2021-05-01 00:00:00", False)
 
         self.assertEqual(
-            len(persons), 1,
-        )
-        self.assertEqual(
             [person["distinct_ids"] for person in persons], [["user_one"]],
         )
 
@@ -294,9 +291,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(2, len(results))
         self.assertEqual(
-            len(persons), 1,
-        )
-        self.assertEqual(
             [person["distinct_ids"] for person in persons], [["user_one"]],
         )
 
@@ -328,9 +322,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         persons, _ = self._get_people_at_step(filter, "2021-05-01 00:00:00", False)
 
-        self.assertEqual(
-            len(persons), 1,
-        )
         self.assertEqual(
             [person["distinct_ids"] for person in persons], [["user_one"]],
         )
