@@ -40,14 +40,16 @@ interface Props {
 }
 
 export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JSX.Element {
-    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, peopleLoading } = useValues(personsModalLogic)
+    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, peopleLoading, isInitialLoad } = useValues(
+        personsModalLogic
+    )
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
         personsModalLogic
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const title = useMemo(
         () =>
-            peopleLoading ? (
+            isInitialLoad ? (
                 'Loading persons list...'
             ) : filters.shown_as === 'Stickiness' ? (
                 `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
@@ -64,7 +66,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                     <DateDisplay interval={filters.interval || 'day'} date={people?.day.toString() || ''} />
                 </>
             ),
-        [filters, people, peopleLoading]
+        [filters, people, isInitialLoad]
     )
 
     return (
@@ -112,12 +114,12 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             width={600}
             className="person-modal"
         >
-            {peopleLoading && (
+            {isInitialLoad && (
                 <div style={{ padding: 16 }}>
                     <Skeleton active />
                 </div>
             )}
-            {!peopleLoading && people && (
+            {!isInitialLoad && people && (
                 <>
                     <div
                         style={{
