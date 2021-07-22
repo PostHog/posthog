@@ -9,8 +9,9 @@ import './FunnelPeople.scss'
 import { Card } from 'antd'
 
 export function People(): JSX.Element | null {
-    const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic({}))
-    if (!stepsWithCount) {
+    const { stepsWithCount, peopleSorted, peopleLoading, areFiltersValid } = useValues(funnelLogic({}))
+
+    if (!stepsWithCount && !areFiltersValid) {
         return null
     }
 
