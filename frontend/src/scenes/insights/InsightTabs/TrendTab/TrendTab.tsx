@@ -18,6 +18,7 @@ import { InsightTitle } from '../InsightTitle'
 import { InsightActionBar } from '../InsightActionBar'
 import { BaseTabProps } from 'scenes/insights/Insights'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface TrendTabProps extends BaseTabProps {
     view: string
@@ -40,7 +41,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
     const formulaAvailable =
         (!filters.insight || filters.insight === ViewType.TRENDS) &&
-        featureFlags['3275-formulas'] &&
+        featureFlags[FEATURE_FLAGS.FORMULAS] &&
         preflight?.is_clickhouse_enabled
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
 
