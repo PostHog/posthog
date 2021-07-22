@@ -281,6 +281,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
 
     return (
         <div
+            data-attr="funnel-viz"
             className={`funnel-bar-graph ${layout}${color && color !== 'white' ? ' colored' : ''} ${color}`}
             style={dashboardItemId ? {} : { minHeight: 450 }}
         >
