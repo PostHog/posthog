@@ -343,7 +343,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                     percentage={barSizePercentage}
                                                     name={breakdown.name}
                                                     onBarClick={() =>
-                                                        openPersonsModal(step, i + 1, step.breakdown_value)
+                                                        openPersonsModal(step, i + 1, breakdown.breakdown)
                                                     }
                                                     disabled={!!dashboardItemId}
                                                     layout={layout}
@@ -409,8 +409,16 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                         })}
                                         <div
                                             className="funnel-bar-empty-space"
+                                            onClick={() =>
+                                                clickhouseFeaturesEnabled &&
+                                                !dashboardItemId &&
+                                                openPersonsModal(step, -(i + 1))
+                                            } // dropoff value for steps is negative
                                             style={{
                                                 flex: `${100 - calcPercentage(breakdownSum, basisStep.count)} 100 0`,
+                                                cursor: `${
+                                                    clickhouseFeaturesEnabled && !dashboardItemId ? 'pointer' : ''
+                                                }`,
                                             }}
                                         />
                                     </>
@@ -462,7 +470,17 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                         />
                                         <div
                                             className="funnel-bar-empty-space"
-                                            style={{ flex: `${100 - step.conversionRates.fromBasisStep} 100 0` }}
+                                            onClick={() =>
+                                                clickhouseFeaturesEnabled &&
+                                                !dashboardItemId &&
+                                                openPersonsModal(step, -(i + 1))
+                                            } // dropoff value for steps is negative
+                                            style={{
+                                                flex: `${100 - step.conversionRates.fromBasisStep} 100 0`,
+                                                cursor: `${
+                                                    clickhouseFeaturesEnabled && !dashboardItemId ? 'pointer' : ''
+                                                }`,
+                                            }}
                                         />
                                     </>
                                 )}

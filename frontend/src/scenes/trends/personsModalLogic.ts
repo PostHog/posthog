@@ -144,7 +144,11 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                         params = { ...filters, entrance_period_start, drop_off: false }
                     } else {
                         // regular funnel steps
-                        params = { ...filters, funnel_step: funnelStep }
+                        params = {
+                            ...filters,
+                            funnel_step: funnelStep,
+                            ...(breakdown_value && { funnel_step_breakdown: breakdown_value }),
+                        }
                     }
                     const cleanedParams = cleanFunnelParams(params)
                     const funnelParams = toParams(cleanedParams)
@@ -174,7 +178,16 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             },
             loadMorePeople: async ({}, breakpoint) => {
                 if (values.people) {
-                    const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
+                    const {
+                        people: currPeople,
+                        count,
+                        action,
+                        label,
+                        day,
+                        breakdown_value,
+                        next,
+                        funnelStep,
+                    } = values.people
                     const people = await api.get(next)
                     breakpoint()
 
@@ -186,6 +199,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                         day,
                         breakdown_value,
                         next: people.next,
+                        funnelStep,
                     }
                 }
                 return null

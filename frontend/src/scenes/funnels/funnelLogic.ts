@@ -117,6 +117,7 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
         ...(filters.funnel_step ? { funnel_to_step: filters.funnel_step } : {}),
         ...(filters.entrance_period_start ? { entrance_period_start: filters.entrance_period_start } : {}),
         ...(filters.drop_off ? { drop_off: filters.drop_off } : {}),
+        ...(filters.funnel_step_breakdown ? { funnel_step_breakdown: filters.funnel_step_breakdown } : {}),
         interval: autocorrectInterval(filters),
         breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
         breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,

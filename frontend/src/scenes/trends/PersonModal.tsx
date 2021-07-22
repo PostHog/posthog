@@ -61,10 +61,14 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             ) : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie' ? (
                 `"${people?.label}"`
             ) : filters.insight === ViewType.FUNNELS ? (
-                <>
-                    Persons who {people?.funnelStep ?? 0 >= 0 ? 'completed' : 'dropped off at'} step #
-                    {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />
-                </>
+                <span style={{ whiteSpace: 'nowrap' }}>
+                    <strong>
+                        Persons who {(people?.funnelStep ?? 0) >= 0 ? 'completed' : 'dropped off at'} step #
+                        {Math.abs(people?.funnelStep ?? 0)} -{' '}
+                        <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
+                        {people?.breakdown_value && `- ${people.breakdown_value}`}
+                    </strong>
+                </span>
             ) : (
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> on{' '}
@@ -78,7 +82,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
 
     return (
         <Modal
-            title={<strong>{title}</strong>}
+            title={title}
             visible={visible}
             onOk={hidePeople}
             onCancel={hidePeople}
