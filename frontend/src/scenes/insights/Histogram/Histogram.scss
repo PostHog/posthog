@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .histogram-container {
     display: flex;
     width: 100%;
@@ -9,6 +11,10 @@
         left: 0;
         margin-left: 0;
         margin-right: 0;
+
+        g#bars {
+            fill: $funnel_alt;
+        }
 
         g#y-gridlines,
         g#y-axis {
