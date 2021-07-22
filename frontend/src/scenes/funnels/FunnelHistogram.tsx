@@ -72,7 +72,12 @@ export function FunnelHistogram({ filters, dashboardItemId }: Omit<ChartParams, 
     const key = dashboardItemId ? hashCodeForString(JSON.stringify(histogramGraphData)) : 'staticGraph'
 
     return (
-        <div className="funnel-histogram-outer-container" style={dashboardItemId ? {} : { maxHeight: 500 }} ref={ref}>
+        <div
+            className="funnel-histogram-outer-container"
+            style={dashboardItemId ? {} : { maxHeight: 500 }}
+            ref={ref}
+            data-attr="funnel-histogram"
+        >
             {!dashboardItemId || (width && height) ? (
                 <Histogram key={key} data={histogramGraphData} width={width} height={height} />
             ) : null}
