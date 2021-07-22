@@ -44,9 +44,9 @@ def get_breakdown_person_prop_values(
     person_prop_filters, person_prop_params = parse_prop_clauses(
         [prop for prop in filter.properties if prop.type == "person"],
         team_id,
-        table_name="e",
         filter_test_accounts=filter.filter_test_accounts,
         is_person_query=True,
+        prepend="person",
     )
 
     entity_params, entity_format_params = populate_entity_params(entity)
