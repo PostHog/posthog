@@ -65,11 +65,15 @@ if E2E_TESTING:
 
 # These flags will be force-enabled on the frontend **in addition to** flags from `/decide`
 # The features here are released, but the flags are just not yet removed from the code.
-PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) or [
-    # Add flags here
-    "4267-taxonomic-property-filter",
-    "4535-funnel-bar-viz",
-]
+# To ignore this persisted feature flag behavior, set `PERSISTED_FEATURE_FLAGS = 0`
+env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
+PERSISTED_FEATURE_FLAGS = []
+if env_feature_flags != "0" and env_feature_flags.lower() != "false":
+    PERSISTED_FEATURE_FLAGS = get_list(env_feature_flags) or [
+        # Add hard-coded feature flags for static releases here
+        "4267-taxonomic-property-filter",
+        "4535-funnel-bar-viz",
+    ]
 
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
 SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
