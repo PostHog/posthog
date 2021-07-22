@@ -81,6 +81,7 @@ export function TaxonomicPropertyFilter({
                         onClickOutside={closeDropdown}
                     >
                         <Button
+                            data-attr={'property-select-toggle-' + index}
                             className={`taxonomic-button${!filter?.type && !filter?.key ? ' add-filter' : ''}`}
                             onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                         >

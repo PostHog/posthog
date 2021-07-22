@@ -187,7 +187,7 @@ export function InfiniteList(): JSX.Element {
                 onClick={() => selectItem(listGroupType, itemValue ?? null, item)}
                 onMouseOver={() => (mouseInteractionsEnabled ? setIndex(rowIndex) : null)}
                 style={style}
-                data-attr={`prop-filter-${groupType}-${rowIndex}`}
+                data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
                 ref={isHighlighted ? setReferenceElement : null}
             >
                 {renderItemContents({ item, listGroupType })}
@@ -198,7 +198,7 @@ export function InfiniteList(): JSX.Element {
                 className={`taxonomic-list-row skeleton-row${rowIndex === index ? ' hover' : ''}`}
                 onMouseOver={() => mouseInteractionsEnabled && setIndex(rowIndex)}
                 style={style}
-                data-attr={`prop-filter-${groupType}-${rowIndex}`}
+                data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
             >
                 <Skeleton active title={false} paragraph={{ rows: 1 }} />
             </div>
