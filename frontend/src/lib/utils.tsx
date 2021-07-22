@@ -9,7 +9,7 @@ import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/
 import { featureFlagLogic } from './logic/featureFlagLogic'
 import { open } from '@papercups-io/chat-widget'
 import posthog from 'posthog-js'
-import { WEBHOOK_SERVICES } from 'lib/constants'
+import { FEATURE_FLAGS, WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 
@@ -121,7 +121,7 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
      */
 
     const handleHelp = (): void => {
-        const papercupsOn = featureFlagLogic.values.featureFlags['papercups-enabled']
+        const papercupsOn = featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PAPERCUPS_ENABLED]
         if (papercupsOn) {
             open()
         } else {

@@ -156,7 +156,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         // TODO: cache timeConversionResults? how does this cachedResults work?
                         return {
                             results: props.cachedResults as FunnelStep[] | FunnelStep[][],
-                            timeConversionResults: EMPTY_FUNNEL_RESULTS.timeConversionResults,
+                            timeConversionResults: props.cachedResults as FunnelsTimeConversionBins,
                         }
                     }
 
@@ -315,11 +315,6 @@ export const funnelLogic = kea<funnelLogicType>({
         clickhouseFeaturesEnabled: [
             () => [featureFlagLogic.selectors.featureFlags, selectors.preflight],
             // Controls auto-calculation of results and ability to break down values
-            (featureFlags, preflight): boolean =>
-                !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled),
-        ],
-        funnelPersonsEnabled: [
-            () => [featureFlagLogic.selectors.featureFlags, selectors.preflight],
             (featureFlags, preflight): boolean =>
                 !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled),
         ],

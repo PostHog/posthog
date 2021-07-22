@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
@@ -81,14 +81,6 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
         return " UNION ALL ".join(union_queries)
 
-    def _get_step_time_names(self, max_steps: int):
-        names = []
-        for i in range(1, max_steps):
-            names.append(f"step_{i}_conversion_time")
-
-        formatted = ",".join(names)
-        return f", {formatted}" if formatted else ""
-
     def _get_step_times(self, max_steps: int):
         conditions: List[str] = []
 
@@ -112,7 +104,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         basic_conditions: List[str] = []
         for i in range(1, max_steps):
             basic_conditions.append(
-                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days_or_default} DAY, 1, 0)"
+                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY, 1, 0)"
             )
 
         if basic_conditions:

@@ -78,7 +78,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             FROM (
                 {steps_per_person_query}
             )
-            {"WHERE entrance_period_start = %(entrance_period_start)s" if specific_entrance_period_start else ""}
+            {"WHERE toDateTime(entrance_period_start) = %(entrance_period_start)s" if specific_entrance_period_start else ""}
             GROUP BY person_id, entrance_period_start"""
 
     def get_query(self) -> str:
@@ -162,7 +162,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     def _is_period_final(self, timestamp: Union[datetime, date]):
         # difference between current date and timestamp greater than window
         now = datetime.utcnow().date()
-        days_to_subtract = self._filter.funnel_window_days_or_default * -1
+        days_to_subtract = self._filter.funnel_window_days * -1
         delta = timedelta(days=days_to_subtract)
         completed_end = now + delta
         compare_timestamp = timestamp.date() if isinstance(timestamp, datetime) else timestamp

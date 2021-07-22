@@ -63,6 +63,12 @@ if E2E_TESTING:
         ("️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests.")
     )
 
+# These flags will be force-enabled on the frontend **in addition to** flags from `/decide`
+# The features here are released, but the flags are just not yet removed from the code.
+PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) or [
+    # Add flags here
+]
+
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
 SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST

@@ -6,6 +6,7 @@
 import { kea } from 'kea'
 import { featureFlagLogicType } from './featureFlagLogicType'
 import posthog from 'posthog-js'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 type FeatureFlagsSet = {
     [flag: string]: boolean
@@ -21,17 +22,24 @@ function notifyFlagIfNeeded(flag: string, flagState: boolean): void {
     }
 }
 
+function getPersistedFeatureFlags(): FeatureFlagsSet {
+    const persistedFeatureFlags = getAppContext()?.persisted_feature_flags || []
+    return Object.fromEntries(persistedFeatureFlags.map((f) => [f, true]))
+}
+
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
+    const combinedFlags = { ...featureFlags, ...getPersistedFeatureFlags() }
+
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(
             {},
             {
                 get(_, flag) {
                     if (flag === 'toJSON') {
-                        return JSON.stringify(featureFlags)
+                        return () => combinedFlags
                     }
                     const flagString = flag.toString()
-                    const flagState = !!featureFlags[flagString]
+                    const flagState = !!combinedFlags[flagString]
                     notifyFlagIfNeeded(flagString, flagState)
                     return flagState
                 },
@@ -40,11 +48,11 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     } else {
         // Fallback for IE11. Won't track "false" results. ¯\_(ツ)_/¯
         const flags: FeatureFlagsSet = {}
-        for (const flag of Object.keys(featureFlags)) {
+        for (const flag of Object.keys(combinedFlags)) {
             Object.defineProperty(flags, flag, {
                 get: function () {
                     if (flag === 'toJSON') {
-                        return JSON.stringify(featureFlags)
+                        return () => combinedFlags
                     }
                     notifyFlagIfNeeded(flag, true)
                     return true
@@ -62,7 +70,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
 
     reducers: {
         featureFlags: [
-            {} as FeatureFlagsSet,
+            getPersistedFeatureFlags(),
             { persist: true },
             {
                 setFeatureFlags: (_, { featureFlags }) => {

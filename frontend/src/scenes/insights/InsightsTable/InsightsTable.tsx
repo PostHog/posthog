@@ -27,7 +27,7 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     median: 'Median',
 }
 
-export function InsightsTableV2({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
+export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
     const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
@@ -98,7 +98,9 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
 
     if (filters.breakdown) {
         columns.push({
-            title: <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown || 'Breakdown Value'} />,
+            title: (
+                <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
+            ),
             render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
                 return (
                     <SeriesToggleWrapper id={item.id}>

@@ -96,6 +96,12 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             },
         ],
     }),
+    selectors: {
+        isInitialLoad: [
+            (s) => [s.peopleLoading, s.loadingMorePeople],
+            (peopleLoading, loadingMorePeople) => peopleLoading && !loadingMorePeople,
+        ],
+    },
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
