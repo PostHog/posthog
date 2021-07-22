@@ -466,6 +466,11 @@ export interface Person extends BasePerson {
     created_at: DateTime
 }
 
+/** Returned by fetchPerson */
+export interface PersonWithDistinctIds extends Person {
+    distinct_ids: string[]
+}
+
 /** Clickhouse Person model. */
 export interface ClickHousePerson {
     id: string
@@ -475,6 +480,7 @@ export interface ClickHousePerson {
     is_identified: number
     is_deleted: number
     timestamp: string
+    distinct_ids: string[]
 }
 
 /** Usable PersonDistinctId model. */

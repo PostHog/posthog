@@ -1,7 +1,6 @@
 import { Hub, PropertyOperator } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
-import { ActionManager } from '../../src/worker/ingestion/action-manager'
 import { resetTestDatabase } from '../helpers/sql'
 
 describe('DB', () => {
