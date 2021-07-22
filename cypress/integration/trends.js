@@ -116,7 +116,7 @@ describe('Trends', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    it.only('Apply all users cohort breakdown', () => {
+    it.skip('Apply all users cohort breakdown', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
         cy.get('[data-attr=taxonomic-tab-cohorts]').click()
         cy.get('[data-attr=prop-filter-cohorts-0]').click()
