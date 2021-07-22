@@ -5,8 +5,8 @@ describe('Retention', () => {
 
     it('should apply filter and navigate to persons', () => {
         cy.get('[data-attr=new-prop-filter-insight-retention]').click()
-        cy.get('[data-attr=property-filter-dropdown]').click()
-        cy.get('[data-attr=property-filter-dropdown] input').type('is_demo')
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield] input').type('is_demo')
         cy.get('[data-attr=prop-filter-person-0]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })

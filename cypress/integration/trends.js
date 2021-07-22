@@ -67,7 +67,7 @@ describe('Trends', () => {
         cy.get('.property-key-info').contains('Pageview').click()
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
-        cy.get('[data-attr=property-filter-dropdown]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })

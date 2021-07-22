@@ -25,7 +25,7 @@ describe('Events', () => {
 
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
-        cy.get('[data-attr=property-filter-dropdown]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=prop-filter-events-0]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
