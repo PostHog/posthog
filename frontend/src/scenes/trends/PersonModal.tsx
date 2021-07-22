@@ -55,8 +55,9 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                 `"${people?.label}"`
             ) : filters.insight === ViewType.FUNNELS ? (
                 <>
-                    Persons who {people?.funnelStep ?? 0 >= 0 ? 'completed' : 'dropped off at'} step #
-                    {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />
+                    Persons who {(people?.funnelStep ?? 0) >= 0 ? 'completed' : 'dropped off at'} step #
+                    {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
+                    - {people?.breakdown_value && people.breakdown_value}
                 </>
             ) : (
                 <>

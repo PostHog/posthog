@@ -173,7 +173,16 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             },
             loadMorePeople: async ({}, breakpoint) => {
                 if (values.people) {
-                    const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
+                    const {
+                        people: currPeople,
+                        count,
+                        action,
+                        label,
+                        day,
+                        breakdown_value,
+                        next,
+                        funnelStep,
+                    } = values.people
                     const people = await api.get(next)
                     breakpoint()
 
@@ -185,6 +194,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                         day,
                         breakdown_value,
                         next: people.next,
+                        funnelStep,
                     }
                 }
                 return null
