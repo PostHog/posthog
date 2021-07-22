@@ -97,7 +97,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
         return Response(
             {
-                "results": [{"people": serialized_people[0:100], "count": len(serialized_people[0:99])}],
+                "results": [{"people": serialized_people[0:100], "count": len(serialized_people[0:100])}],
                 "next": next_url,
                 "previous": current_url[1:],
             }
