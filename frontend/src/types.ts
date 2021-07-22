@@ -974,6 +974,7 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus
+    default_event_name: string
     persisted_feature_flags?: string[]
 }
 

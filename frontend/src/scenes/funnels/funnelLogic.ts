@@ -15,7 +15,6 @@ import {
     FunnelStep,
     FunnelsTimeConversionBins,
     FunnelTimeConversionStep,
-    PathType,
     PersonType,
     ViewType,
     FunnelStepWithNestedBreakdown,
@@ -27,10 +26,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { calcPercentage, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
 
 function aggregateBreakdownResult(breakdownList: FunnelStep[][]): FunnelStepWithNestedBreakdown[] {
     if (breakdownList.length) {
@@ -516,9 +515,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 if (!objectsEqual(currentParams, paramsToCheck)) {
                     const cleanedParams = cleanFunnelParams(searchParams)
                     if (isStepsEmpty(cleanedParams)) {
-                        const event = eventDefinitionsModel.values.eventNames.includes(PathType.PageView)
-                            ? PathType.PageView
-                            : eventDefinitionsModel.values.eventNames[0]
+                        const event = getDefaultEventName()
                         cleanedParams.events = [
                             {
                                 id: event,

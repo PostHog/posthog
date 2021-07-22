@@ -220,11 +220,13 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.user import UserSerializer
+        from posthog.models import EventDefinition
         from posthog.views import preflight_check
 
         posthog_app_context: Dict = {
             "current_user": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
+            "default_event_name": get_default_event_name(),
             "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         }
 
@@ -238,6 +240,16 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     html = template.render(context, request=request)
     return HttpResponse(html)
+
+
+def get_default_event_name():
+    from posthog.models import EventDefinition
+
+    if EventDefinition.objects.filter(name="$pageview").exists():
+        return "$pageview"
+    elif EventDefinition.objects.filter(name="$screen").exists():
+        return "$screen"
+    return "$pageview"
 
 
 def json_uuid_convert(o):
