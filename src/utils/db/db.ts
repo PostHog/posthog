@@ -26,6 +26,7 @@ import {
     Hook,
     Person,
     PersonDistinctId,
+    PersonWithDistinctIds,
     PluginConfig,
     PluginLogEntry,
     PluginLogEntrySource,
@@ -339,24 +340,36 @@ export class DB {
         }
     }
 
-    public async fetchPerson(teamId: number, distinctId: string): Promise<Person | undefined> {
+    public async fetchPerson(teamId: number, distinctId: string): Promise<PersonWithDistinctIds | undefined> {
         const selectResult = await this.postgresQuery(
-            `SELECT
-                posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
-                posthog_person.is_user_id, posthog_person.is_identified, posthog_person.uuid,
-                posthog_persondistinctid.team_id AS persondistinctid__team_id,
-                posthog_persondistinctid.distinct_id AS persondistinctid__distinct_id
-            FROM posthog_person
-            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
-            WHERE
-                posthog_person.team_id = $1
-                AND posthog_persondistinctid.team_id = $1
-                AND posthog_persondistinctid.distinct_id = $2`,
+            `
+            WITH person_id_cte AS (
+                SELECT person_id
+                FROM posthog_persondistinctid
+                WHERE team_id = $1 AND distinct_id = $2
+            )
+            SELECT
+                id,
+                created_at,
+                team_id,
+                properties,
+                is_user_id,
+                is_identified,
+                uuid,
+                array(
+                    SELECT distinct_id
+                    FROM posthog_persondistinctid t
+                    WHERE t.team_id = $1 AND t.person_id = p.id
+                ) AS distinct_ids
+            FROM posthog_person p
+            JOIN person_id_cte ON (person_id_cte.person_id = p.id)
+            WHERE team_id = $1
+            `,
             [teamId, distinctId],
             'fetchPerson'
         )
         if (selectResult.rows.length > 0) {
-            const rawPerson: RawPerson = selectResult.rows[0]
+            const rawPerson: RawPerson & { distinct_ids: string[] } = selectResult.rows[0]
             return { ...rawPerson, created_at: DateTime.fromISO(rawPerson.created_at).toUTC() }
         }
     }
@@ -368,8 +381,8 @@ export class DB {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: string[]
-    ): Promise<Person> {
+        distinctIds: string[]
+    ): Promise<PersonWithDistinctIds> {
         const kafkaMessages: ProducerRecord[] = []
 
         const person = await this.postgresTransaction(async (client) => {
@@ -381,7 +394,8 @@ export class DB {
             const person = {
                 ...personCreated,
                 created_at: DateTime.fromISO(personCreated.created_at).toUTC(),
-            } as Person
+                distinct_ids: distinctIds,
+            } as PersonWithDistinctIds
 
             if (this.kafkaProducer) {
                 kafkaMessages.push({
@@ -399,6 +413,7 @@ export class DB {
                                     is_identified: isIdentified,
                                     id: uuid,
                                     is_deleted: 0,
+                                    distinct_ids: distinctIds,
                                 })
                             ),
                         },
@@ -425,16 +440,23 @@ export class DB {
         return person
     }
 
-    public async updatePerson(person: Person, update: Partial<Person>): Promise<Person> {
-        const updatedPerson: Person = { ...person, ...update }
-        const values = [...Object.values(unparsePersonPartial(update)), person.id]
-        await this.postgresQuery(
-            `UPDATE posthog_person SET ${Object.keys(update).map(
-                (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-            )} WHERE id = $${Object.values(update).length + 1}`,
-            values,
-            'updatePerson'
-        )
+    public async updatePerson(
+        person: PersonWithDistinctIds,
+        update: Partial<Person> | undefined,
+        updatedDistinctIds?: string[]
+    ): Promise<PersonWithDistinctIds> {
+        const updatedPerson: PersonWithDistinctIds = { ...person, ...update }
+        if (update) {
+            // :TODO: Avoid this when only updating distinct_ids
+            const values = [...Object.values(unparsePersonPartial(update)), person.id]
+            await this.postgresQuery(
+                `UPDATE posthog_person SET ${Object.keys(update).map(
+                    (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
+                )} WHERE id = $${Object.values(update).length + 1}`,
+                values,
+                'updatePerson'
+            )
+        }
 
         if (this.kafkaProducer) {
             await this.kafkaProducer.queueMessage({
@@ -451,6 +473,7 @@ export class DB {
                                 team_id: updatedPerson.team_id,
                                 is_identified: updatedPerson.is_identified,
                                 id: updatedPerson.uuid,
+                                distinct_ids: updatedDistinctIds || person.distinct_ids,
                             })
                         ),
                     },
@@ -491,7 +514,7 @@ export class DB {
         return newProperties
     }
 
-    public async deletePerson(person: Person): Promise<void> {
+    public async deletePerson(person: PersonWithDistinctIds): Promise<void> {
         await this.postgresTransaction(async (client) => {
             await client.query('DELETE FROM posthog_person WHERE team_id = $1 AND id = $2', [person.team_id, person.id])
         })
@@ -511,6 +534,7 @@ export class DB {
                                 is_identified: person.is_identified,
                                 id: person.uuid,
                                 is_deleted: 1,
+                                distinct_ids: person.distinct_ids,
                             })
                         ),
                     },
@@ -557,16 +581,13 @@ export class DB {
         return personDistinctIds.map((pdi) => pdi.distinct_id)
     }
 
-    public async addDistinctId(person: Person, distinctId: string): Promise<void> {
-        const kafkaMessage = await this.addDistinctIdPooled(this.postgres, person, distinctId)
-        if (this.kafkaProducer && kafkaMessage) {
-            await this.kafkaProducer.queueMessage(kafkaMessage)
-        }
+    public async addDistinctId(person: PersonWithDistinctIds, distinctId: string): Promise<void> {
+        await this.addDistinctIdPooled(this.postgres, person, distinctId)
     }
 
     public async addDistinctIdPooled(
         client: PoolClient | Pool,
-        person: Person,
+        person: PersonWithDistinctIds,
         distinctId: string
     ): Promise<ProducerRecord | void> {
         const insertResult = await client.query(
@@ -576,7 +597,7 @@ export class DB {
 
         const personDistinctIdCreated = insertResult.rows[0] as PersonDistinctId
         if (this.kafkaProducer) {
-            return {
+            await this.kafkaProducer.queueMessage({
                 topic: KAFKA_PERSON_UNIQUE_ID,
                 messages: [
                     {
@@ -585,11 +606,12 @@ export class DB {
                         ),
                     },
                 ],
-            }
+            })
+            await this.updatePerson(person, undefined, [...person.distinct_ids, personDistinctIdCreated.distinct_id])
         }
     }
 
-    public async moveDistinctIds(source: Person, target: Person): Promise<void> {
+    public async moveDistinctIds(source: PersonWithDistinctIds, target: PersonWithDistinctIds): Promise<void> {
         const movedDistinctIdResult = await this.postgresQuery(
             `
                 UPDATE posthog_persondistinctid
@@ -603,6 +625,8 @@ export class DB {
         )
 
         if (this.kafkaProducer) {
+            const distinctIds = [...source.distinct_ids, ...target.distinct_ids]
+            await this.updatePerson(target, undefined, distinctIds)
             for (const row of movedDistinctIdResult.rows) {
                 await this.kafkaProducer.queueMessage({
                     topic: KAFKA_PERSON_UNIQUE_ID,
