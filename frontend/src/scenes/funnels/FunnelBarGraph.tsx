@@ -349,7 +349,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                 }
                                                 percentage={_conversionRate}
                                                 name={breakdown.name}
-                                                onBarClick={() => openPersonsModal(step, i + 1, step.breakdown_value)}
+                                                onBarClick={() => openPersonsModal(step, i + 1, breakdown.breakdown)}
                                                 disabled={!!dashboardItemId}
                                                 layout={layout}
                                                 popoverTitle={
