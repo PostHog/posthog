@@ -448,7 +448,11 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                 )}
                                 <div
                                     className="funnel-bar-empty-space"
-                                    style={{ flex: `${100 - conversionRate} 100 0` }}
+                                    onClick={() => openPersonsModal(step, -(i + 1))} // dropoff value for steps is negative
+                                    style={{
+                                        flex: `${100 - conversionRate} 100 0`,
+                                        cursor: `${clickhouseFeaturesEnabled && !dashboardItemId ? 'pointer' : ''}`,
+                                    }}
                                 />
                             </div>
                             <div className="funnel-conversion-metadata funnel-step-metadata">
