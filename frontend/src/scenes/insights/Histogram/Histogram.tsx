@@ -6,7 +6,6 @@ import { createRoundedRectPath, getConfig, INITIAL_CONFIG } from './histogramUti
 import { getOrCreateEl, animate, wrap } from 'lib/utils/d3Utils'
 
 import './Histogram.scss'
-import { humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { histogramLogic } from 'scenes/insights/Histogram/histogramLogic'
 
@@ -23,6 +22,7 @@ interface HistogramProps {
     isAnimated?: boolean
     width?: number
     height?: number
+    formatXTickLabel?: (value: number) => number | string
 }
 
 export function Histogram({
@@ -31,6 +31,7 @@ export function Histogram({
     width = INITIAL_CONFIG.width,
     height = INITIAL_CONFIG.height,
     isAnimated = false,
+    formatXTickLabel = (value: number) => value,
 }: HistogramProps): JSX.Element {
     const { config } = useValues(histogramLogic)
     const { setConfig } = useActions(histogramLogic)
@@ -49,7 +50,7 @@ export function Histogram({
         // v === -2 || v === -1 represent bins that catch grouped outliers.
         // TODO: (-2, -1) are temporary placeholders for (-inf, +inf) and should be changed when backend specs are finalized
         .tickFormat((v: number) => {
-            const label = humanFriendlyDuration(v, 2)
+            const label = formatXTickLabel(v)
             if (v === -2) {
                 return `<${label}`
             }
