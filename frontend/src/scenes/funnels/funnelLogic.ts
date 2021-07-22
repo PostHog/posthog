@@ -59,6 +59,12 @@ function isBreakdownFunnelResults(results: FunnelStep[] | FunnelStep[][]): resul
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
 }
 
+function isValidBreakdownParameter(
+    breakdown: FunnelRequestParams['breakdown']
+): breakdown is string | null | undefined {
+    return ['string', 'null', 'undefined'].includes(typeof breakdown)
+}
+
 function wait(ms = 1000): Promise<any> {
     return new Promise((resolve) => {
         setTimeout(resolve, ms)
@@ -152,7 +158,6 @@ export const funnelLogic = kea<funnelLogicType>({
             breakdownValue,
             visible,
         }),
-        toggleVisibility: (index: number) => ({ index }),
     }),
 
     connect: {
@@ -287,7 +292,7 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         visibilityMap: [
-            {} as BreakdownVisibilityMap,
+            {} as BreakdownVisibilityMap, // A map of breakdown values to shown/hidden states, set via checkboxes
             {
                 setVisibilityMap: (_, { visibilityMap }) => visibilityMap,
                 setVisibility: (state, { breakdownValue, visible }) => {
@@ -445,7 +450,7 @@ export const funnelLogic = kea<funnelLogicType>({
         stepsWithNestedBreakdown: [
             () => [selectors.results, selectors.apiParams],
             (results, params) => {
-                if (isBreakdownFunnelResults(results)) {
+                if (isBreakdownFunnelResults(results) && isValidBreakdownParameter(params.breakdown)) {
                     return aggregateBreakdownResult(results, params.breakdown ?? undefined).sort(
                         (a, b) => a.order - b.order
                     )

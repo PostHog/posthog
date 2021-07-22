@@ -5,7 +5,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import Table, { ColumnsType } from 'antd/lib/table'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { SeriesToggleWrapper } from 'scenes/insights/InsightsTable/components/SeriesToggleWrapper'
-import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTableV2'
+import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 import { cohortsModel } from '~/models/cohortsModel'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
@@ -18,8 +18,16 @@ interface FunnelStepTableProps {
     layout?: FunnelLayout // Not yet implemented
 }
 
+function getColor(step: FlattenedFunnelStep, fallbackColor: string, isBreakdown?: boolean): string {
+    return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order) || fallbackColor
+}
+
 function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string {
-    return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order) || 'var(--primary)'
+    return getColor(step, 'var(--text-default)', isBreakdown)
+}
+
+function getCheckboxColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string {
+    return getColor(step, 'var(--primary)', isBreakdown)
 }
 
 export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
@@ -36,7 +44,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
                 return <SeriesGlyph variant="funnel-step-glyph">{humanizeOrder(step.order)}</SeriesGlyph>
             }
             const isVisible = !!(step.breakdown && visibilityMap[step.breakdown])
-            const color = getStepColor(step, !!filters.breakdown)
+            const color = getCheckboxColor(step, !!filters.breakdown)
             return (
                 <div style={{ marginLeft: '0.15em' }}>
                     <PHCheckbox
@@ -123,7 +131,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
     })
 
     columns.push({
-        title: 'From previous',
+        title: 'From previous step',
         render: function RenderDropoffFromPrevious({}, step: FlattenedFunnelStep): JSX.Element | null {
             return step.order === 0 ? null : <span>{humanizeNumber(100 - step.conversionRates.fromPrevious, 2)}%</span>
         },
@@ -131,7 +139,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
     })
 
     columns.push({
-        title: 'Mean time',
+        title: 'Average time',
         render: function RenderAverageTime({}, step: FlattenedFunnelStep): JSX.Element {
             return <span>{humanFriendlyDuration(step.average_conversion_time, 2)}</span>
         },
