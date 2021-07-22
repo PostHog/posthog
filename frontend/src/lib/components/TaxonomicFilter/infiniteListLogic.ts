@@ -170,7 +170,9 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
             actions.setIndex((index + 1) % totalCount)
         },
         selectSelected: () => {
-            actions.selectItem(props.listGroupType, values.selectedItemValue, values.selectedItem)
+            if (values.selectedItemValue) {
+                actions.selectItem(props.listGroupType, values.selectedItemValue, values.selectedItem)
+            }
         },
     }),
 
