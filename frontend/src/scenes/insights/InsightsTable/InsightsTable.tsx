@@ -98,7 +98,9 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
 
     if (filters.breakdown) {
         columns.push({
-            title: <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown || 'Breakdown Value'} />,
+            title: (
+                <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
+            ),
             render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
                 return (
                     <SeriesToggleWrapper id={item.id}>

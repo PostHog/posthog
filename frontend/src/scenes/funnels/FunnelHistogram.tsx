@@ -2,7 +2,7 @@ import React, { useRef } from 'react'
 import { Col, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import useSize from '@react-hook/size'
-import { ANTD_TOOLTIP_PLACEMENTS, humanFriendlyDuration, humanizeNumber } from 'lib/utils'
+import { ANTD_TOOLTIP_PLACEMENTS, hashCodeForString, humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { calcPercentage, getReferenceStep } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/Histogram'
@@ -65,11 +65,17 @@ export function FunnelHistogram({ filters, dashboardItemId }: Omit<ChartParams, 
     const logic = funnelLogic({ dashboardItemId, filters })
     const { histogramGraphData } = useValues(logic)
     const ref = useRef(null)
-    const [width] = useSize(ref)
+    const [width, height] = useSize(ref)
+
+    // Must reload the entire graph on a dashboard when values change, otherwise will run into random d3 bugs
+    // See: https://github.com/PostHog/posthog/pull/5259
+    const key = dashboardItemId ? hashCodeForString(JSON.stringify(histogramGraphData)) : 'staticGraph'
 
     return (
-        <div className="funnel-histogram-outer-container" ref={ref}>
-            <Histogram data={histogramGraphData} width={width} />
+        <div className="funnel-histogram-outer-container" style={dashboardItemId ? {} : { maxHeight: 500 }} ref={ref}>
+            {!dashboardItemId || (width && height) ? (
+                <Histogram key={key} data={histogramGraphData} width={width} height={height} />
+            ) : null}
         </div>
     )
 }

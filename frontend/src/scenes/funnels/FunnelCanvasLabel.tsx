@@ -34,20 +34,24 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                 </>
             )}
             {allFilters.funnel_viz_type !== FunnelVizType.Trends && (
-                <span className="text-muted-alt">
-                    <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
-                        <InfoCircleOutlined className="info-indicator left" />
-                    </Tooltip>
-                    Average time to convert:{' '}
-                </span>
+                <>
+                    <span className="text-muted-alt">
+                        <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
+                            <InfoCircleOutlined className="info-indicator left" />
+                        </Tooltip>
+                        Average time to convert:{' '}
+                    </span>
+                    <Button
+                        type="link"
+                        onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}
+                        disabled={
+                            !clickhouseFeaturesEnabled || allFilters.funnel_viz_type === FunnelVizType.TimeToConvert
+                        }
+                    >
+                        {humanFriendlyDuration(conversionMetrics.averageTime)}
+                    </Button>
+                </>
             )}
-            <Button
-                type="link"
-                onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}
-                disabled={!clickhouseFeaturesEnabled || allFilters.funnel_viz_type === FunnelVizType.TimeToConvert}
-            >
-                {humanFriendlyDuration(conversionMetrics.averageTime, 2)}
-            </Button>
         </div>
     )
 }

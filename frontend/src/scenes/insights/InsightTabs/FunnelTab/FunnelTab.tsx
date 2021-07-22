@@ -93,20 +93,29 @@ export function FunnelTab(): JSX.Element {
                                 <InfoCircleOutlined className="info-indicator" />
                             </Tooltip>
                         </h4>
-                        <Row align="middle">
+                        {filters.breakdown_type === 'cohort' && filters.breakdown ? (
                             <BreakdownFilter
                                 filters={filters}
                                 onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
                                     setFilters({ breakdown, breakdown_type })
                                 }
                             />
-                            {filters.breakdown && (
-                                <CloseButton
-                                    onClick={(): void => setFilters({ breakdown: null, breakdown_type: null })}
-                                    style={{ marginTop: 1, marginLeft: 5 }}
+                        ) : (
+                            <Row align="middle">
+                                <BreakdownFilter
+                                    filters={filters}
+                                    onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
+                                        setFilters({ breakdown, breakdown_type })
+                                    }
                                 />
-                            )}
-                        </Row>
+                                {filters.breakdown && (
+                                    <CloseButton
+                                        onClick={(): void => setFilters({ breakdown: null, breakdown_type: null })}
+                                        style={{ marginTop: 1, marginLeft: 5 }}
+                                    />
+                                )}
+                            </Row>
+                        )}
                     </>
                 )}
                 {!clickhouseFeaturesEnabled && (
