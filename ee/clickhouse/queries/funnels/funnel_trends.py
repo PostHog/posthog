@@ -9,7 +9,6 @@ from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
-DATE_FORMAT = "%Y-%m-%d"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%a. %-d %b"
 
 
