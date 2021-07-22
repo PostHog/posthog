@@ -23,7 +23,7 @@ function notifyFlagIfNeeded(flag: string, flagState: boolean): void {
 }
 
 function getPersistedFeatureFlags(): FeatureFlagsSet {
-    const persistedFeatureFlags = getAppContext()?.persist_feature_flags || []
+    const persistedFeatureFlags = getAppContext()?.persisted_feature_flags || []
     return Object.fromEntries(persistedFeatureFlags.map((f) => [f, true]))
 }
 
