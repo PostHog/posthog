@@ -87,7 +87,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             footer={
                 <Row style={{ justifyContent: 'space-between', alignItems: 'center', padding: '6px 0px' }}>
                     <Row style={{ alignItems: 'center' }}>
-                        {people && (
+                        {people && people.count > 0 && (
                             <>
                                 {showSaveCohortButton ? (
                                     <div style={{ paddingRight: 8 }}>
