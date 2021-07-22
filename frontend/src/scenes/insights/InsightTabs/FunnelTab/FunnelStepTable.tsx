@@ -31,8 +31,8 @@ function getCheckboxColor(step: FlattenedFunnelStep, isBreakdown?: boolean): str
     return getColor(step, 'var(--primary)', isBreakdown)
 }
 
-export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
-    const { flattenedSteps, visibilityMap, filters, steps } = useValues(funnelLogic)
+export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
+    const { stepsWithCount, flattenedSteps, visibilityMap, filters, steps } = useValues(funnelLogic)
     const { setVisibility, openPersonsModal } = useActions(funnelLogic)
     const { cohorts } = useValues(cohortsModel)
     const tableScrollBreakpoint = getBreakpoint('lg')
@@ -100,7 +100,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
         title: 'Completed',
         render: function RenderCompleted({}, step: FlattenedFunnelStep): JSX.Element {
             return (
-                <ValueInspectorButton onClick={() => openPersonsModal(step, step.count + 1, step.breakdown_value)}>
+                <ValueInspectorButton onClick={() => openPersonsModal(step, step.order + 1, step.breakdown)}>
                     {step.count}
                 </ValueInspectorButton>
             )
@@ -122,7 +122,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
             return step.order === 0 ? null : (
                 <ValueInspectorButton
                     onClick={() =>
-                        openPersonsModal(step, step.count + 1, step.breakdown_value)
+                        openPersonsModal(step, step.order + 1, step.breakdown)
                     } /* TODO: does this modal support dropped off users? */
                 >
                     {step.droppedOffFromPrevious}
@@ -148,7 +148,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
         width: 80,
     })
 
-    return (
+    return stepsWithCount.length > 1 ? (
         <Table
             dataSource={flattenedSteps}
             columns={columns}
@@ -159,5 +159,5 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element {
             style={{ marginTop: '1rem' }}
             data-attr="funnel-steps-table"
         />
-    )
+    ) : null
 }
