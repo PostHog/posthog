@@ -59,7 +59,6 @@ function Bar({
     const [labelVisible, setLabelVisible] = useState(true)
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
     const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
-    const dimensionProperty = layout === FunnelLayout.horizontal ? 'width' : 'height'
     const cursorType = clickhouseFeaturesEnabled && !disabled ? 'pointer' : ''
     const hasBreakdownSum = isBreakdown && typeof breakdownSumPercentage === 'number'
     const shouldShowLabel = !isBreakdown || (hasBreakdownSum && labelVisible)
@@ -137,7 +136,7 @@ function Bar({
                 ref={barRef}
                 className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
                 style={{
-                    [dimensionProperty]: `${percentage}%`,
+                    flex: `${percentage} 100 0`,
                     cursor: cursorType,
                     backgroundColor: getSeriesColor(breakdownIndex),
                 }}
@@ -289,6 +288,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
             {steps.map((step, i) => {
                 const basisStep = getReferenceStep(steps, stepReference, i)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, i)
+                const conversionRate = calcPercentage(step.count, basisStep.count)
                 const previousCount = previousStep?.count ?? 0
                 const dropoffCount = previousCount - step.count
                 const showLineBefore = layout === FunnelLayout.horizontal && i > 0
@@ -325,7 +325,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                             <div className="funnel-bar-wrapper">
                                 {Array.isArray(step.nested_breakdown) && step.nested_breakdown?.length ? (
                                     step.nested_breakdown.map((breakdown, index) => {
-                                        const conversionRate = calcPercentage(breakdown.count, basisStep.count)
+                                        const _conversionRate = calcPercentage(breakdown.count, basisStep.count)
                                         const _previousCount =
                                             (previousStep as FunnelStepWithNestedBreakdown)?.nested_breakdown?.[index]
                                                 ?.count ?? 0
@@ -347,7 +347,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                         ? calcPercentage(breakdownSum, basisStep.count)
                                                         : undefined
                                                 }
-                                                percentage={conversionRate}
+                                                percentage={_conversionRate}
                                                 name={breakdown.name}
                                                 onBarClick={() => openPersonsModal(step, i + 1, step.breakdown_value)}
                                                 disabled={!!dashboardItemId}
@@ -446,6 +446,10 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                         ]}
                                     />
                                 )}
+                                <div
+                                    className="funnel-bar-empty-space"
+                                    style={{ flex: `${100 - conversionRate} 100 0` }}
+                                />
                             </div>
                             <div className="funnel-conversion-metadata funnel-step-metadata">
                                 <div className="center-flex">
