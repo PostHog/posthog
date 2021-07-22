@@ -7,6 +7,7 @@ import { CohortGroupType, MatchType } from '~/types'
 import { ACTION_TYPE, EVENT_TYPE, ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { DeleteOutlined } from '@ant-design/icons'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 const { Option } = Select
 
@@ -103,7 +104,10 @@ function PropertyCriteriaRow({
                     propertyFilters={group.properties}
                     style={{ margin: '1rem 0 0' }}
                     popoverPlacement="bottomRight"
-                    groupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.CohortsWithAll]}
+                    groupTypes={[
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.CohortsWithAllUsers,
+                    ]}
                 />
             </div>
         </div>

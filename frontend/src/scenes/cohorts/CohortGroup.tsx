@@ -87,7 +87,7 @@ export function CohortGroup({
                             propertyFilters={group.properties || {}}
                             groupTypes={[
                                 TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.CohortsWithAll,
+                                TaxonomicFilterGroupType.CohortsWithAllUsers,
                             ]}
                             style={{ margin: '1rem 0 0' }}
                             popoverPlacement="bottomRight"

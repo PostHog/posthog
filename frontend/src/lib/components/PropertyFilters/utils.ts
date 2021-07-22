@@ -53,7 +53,7 @@ export function propertyFilterTypeToTaxonomicFilterType(
 }
 
 export function taxonomicFilterTypeToPropertyFilterType(filterType?: TaxonomicFilterGroupType): string | undefined {
-    if (filterType === TaxonomicFilterGroupType.CohortsWithAll) {
+    if (filterType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         return 'cohort'
     }
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0]

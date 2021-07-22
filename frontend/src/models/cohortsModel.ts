@@ -53,7 +53,7 @@ export const cohortsModel = kea<cohortsModelType>({
     },
 
     selectors: {
-        cohortsForFilter: [(s) => [s.cohorts], (cohorts) => [{ id: 'new', name: 'All Users' }, ...cohorts]],
+        cohortsWithAllUsers: [(s) => [s.cohorts], (cohorts) => [{ id: 'all', name: 'All Users*' }, ...cohorts]],
     },
 
     listeners: ({ actions }) => ({
