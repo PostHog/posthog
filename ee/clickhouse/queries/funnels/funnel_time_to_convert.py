@@ -60,10 +60,19 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
         ]
         steps_average_conversion_time_expression_sum = " + ".join(steps_average_conversion_time_identifiers)
 
+        steps_average_conditional_for_invalid_values = [
+            f"{identifier} >= 0" for identifier in steps_average_conversion_time_identifiers
+        ]
+        # :HACK: Protect against CH bug https://github.com/ClickHouse/ClickHouse/issues/26580
+        #   once the issue is resolved, stop skipping the test: test_auto_bin_count_single_step_duplicate_events
+        #   and remove this comment
+
         query = f"""
             WITH
                 step_runs AS (
-                    {steps_per_person_query}
+                    SELECT * FROM (
+                        {steps_per_person_query}
+                    ) WHERE {" AND ".join(steps_average_conditional_for_invalid_values)}
                 ),
                 histogram_params AS (
                     -- Binning ensures that each sample belongs to a bin in results
@@ -98,8 +107,6 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
                     histogram_from_seconds + floor(({steps_average_conversion_time_expression_sum} - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_from_seconds,
                     count() AS person_count
                 FROM step_runs
-                -- We only need to check step to_step here, because it depends on all the other ones being NOT NULL too
-                WHERE step_{to_step}_average_conversion_time_inner IS NOT NULL
                 GROUP BY bin_from_seconds
             ) results
             FULL OUTER JOIN (
