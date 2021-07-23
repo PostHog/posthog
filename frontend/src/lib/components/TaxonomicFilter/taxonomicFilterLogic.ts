@@ -20,7 +20,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
-        selectItem: (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue, item: any) => ({
+        selectItem: (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue | null, item: any) => ({
             groupType,
             value,
             item,
@@ -75,7 +75,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
 
     listeners: ({ actions, values, props }) => ({
         selectItem: ({ groupType, value, item }) => {
-            props.onChange?.(groupType, value, item)
+            if (item && value) {
+                props.onChange?.(groupType, value, item)
+            }
         },
 
         moveUp: async (_, breakpoint) => {

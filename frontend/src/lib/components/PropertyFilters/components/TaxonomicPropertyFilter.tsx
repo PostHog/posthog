@@ -37,6 +37,7 @@ export function TaxonomicPropertyFilter({
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
+    // This is mostly to make TypeScript happy.
     const cohortOrOtherValue =
         filter?.type === 'cohort' ? (!Array.isArray(filter?.value) && filter?.value) || undefined : filter?.key
 

@@ -184,7 +184,7 @@ export function InfiniteList(): JSX.Element {
             <div
                 key={`item_${rowIndex}`}
                 className={`taxonomic-list-row${rowIndex === index ? ' hover' : ''}${isSelected ? ' selected' : ''}`}
-                onClick={() => itemValue && selectItem(listGroupType, itemValue, item)}
+                onClick={() => selectItem(listGroupType, itemValue ?? null, item)}
                 onMouseOver={() => (mouseInteractionsEnabled ? setIndex(rowIndex) : null)}
                 style={style}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
