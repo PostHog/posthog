@@ -34,7 +34,6 @@ export const wrap = (
     const maxWidth = width - 6 // same as padding-{left|right}: 3px;
     text.each(function () {
         const _text = d3.select(this)
-        console.log(_text)
         const words: string[] = _text.text().split(/\s+/)
         const y = _text.attr('y'),
             dy = parseFloat(_text.attr('dy'))
