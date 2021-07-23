@@ -27,7 +27,7 @@
         g#y-axis {
             font-size: 14px;
 
-            @media (max-width: 767px) {
+            @media (max-width: $md) {
                 font-size: 12px;
             }
         }
