@@ -36,10 +36,15 @@ export function TaxonomicPropertyFilter({
     const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
 
+    // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
+    // This is mostly to make TypeScript happy.
+    const cohortOrOtherValue =
+        filter?.type === 'cohort' ? (!Array.isArray(filter?.value) && filter?.value) || undefined : filter?.key
+
     const taxonomicFilter = (
         <TaxonomicFilter
             groupType={propertyFilterTypeToTaxonomicFilterType(filter?.type)}
-            value={filter?.type === 'cohort' ? filter?.value : filter?.key}
+            value={cohortOrOtherValue}
             onChange={(groupType, value) => {
                 selectItem(taxonomicFilterTypeToPropertyFilterType(groupType), value)
                 if (groupType === TaxonomicFilterGroupType.Cohorts) {

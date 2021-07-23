@@ -1,14 +1,15 @@
 import { LogicWrapper } from 'kea'
-import { PropertyFilterValue } from '~/types'
 
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
-    value?: PropertyFilterValue
-    onChange?: (groupType: TaxonomicFilterGroupType, value: PropertyFilterValue, item: any) => void
+    value?: TaxonomicFilterValue
+    onChange?: (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue, item: any) => void
     onClose?: () => void
     groupTypes?: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
 }
+
+export type TaxonomicFilterValue = string | number
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
     taxonomicFilterLogicKey: string
@@ -22,12 +23,13 @@ export interface TaxonomicFilterGroup {
     logic?: LogicWrapper
     value?: string
     getName: (object: any) => string
-    getValue: (object: any) => PropertyFilterValue
+    getValue: (object: any) => TaxonomicFilterValue
 }
 
 export enum TaxonomicFilterGroupType {
     Actions = 'actions',
     Cohorts = 'cohorts',
+    CohortsWithAllUsers = 'cohorts_with_all',
     Elements = 'elements',
     Events = 'events',
     EventProperties = 'event_properties',

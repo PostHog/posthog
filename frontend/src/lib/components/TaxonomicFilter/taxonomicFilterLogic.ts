@@ -1,7 +1,10 @@
 import { kea } from 'kea'
-import { PropertyFilterValue } from '~/types'
 import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
@@ -17,7 +20,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
-        selectItem: (groupType: TaxonomicFilterGroupType, value: PropertyFilterValue, item: any) => ({
+        selectItem: (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue | null, item: any) => ({
             groupType,
             value,
             item,
@@ -72,7 +75,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
 
     listeners: ({ actions, values, props }) => ({
         selectItem: ({ groupType, value, item }) => {
-            props.onChange?.(groupType, value, item)
+            if (item && value) {
+                props.onChange?.(groupType, value, item)
+            }
         },
 
         moveUp: async (_, breakpoint) => {

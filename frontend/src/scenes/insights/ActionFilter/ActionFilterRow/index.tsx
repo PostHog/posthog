@@ -166,7 +166,9 @@ export function ActionFilterRow({
                                 <TaxonomicFilter
                                     groupType={filter.type as TaxonomicFilterGroupType}
                                     value={
-                                        filter.type === 'actions' && typeof value === 'string' ? parseInt(value) : value
+                                        filter.type === 'actions' && typeof value === 'string'
+                                            ? parseInt(value)
+                                            : value || undefined
                                     }
                                     onChange={(groupType, changedValue, item) => {
                                         updateFilter({
