@@ -4,7 +4,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Button, Popover, Row, Tooltip } from 'antd'
+import { Button, Row, Tooltip } from 'antd'
 import { useState } from 'react'
 import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
@@ -23,15 +23,9 @@ import { BreakdownType, FunnelVizType } from '~/types'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const {
-        isStepsEmpty,
-        areFiltersValid,
-        filters,
-        lastAppliedFilters,
-        stepsWithCount,
-        clickhouseFeaturesEnabled,
-        filtersDirty,
-    } = useValues(funnelLogic())
+    const { isStepsEmpty, areFiltersValid, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(
+        funnelLogic()
+    )
     const { featureFlags } = useValues(featureFlagLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
     const [savingModal, setSavingModal] = useState<boolean>(false)
@@ -42,8 +36,6 @@ export function FunnelTab(): JSX.Element {
         saveFunnelInsight(input)
         closeModal()
     }
-
-    console.log('FILTERS DIRTY', filtersDirty, lastAppliedFilters, filters)
 
     return (
         <div data-attr="funnel-tab">
@@ -144,29 +136,16 @@ export function FunnelTab(): JSX.Element {
                                     Clear
                                 </Button>
                             )}
-                            <Popover
-                                placement="right"
-                                overlayClassName="funnel-tab-btn-popover"
-                                content={
-                                    <span className="text-muted-alt">
-                                        Ready for an update?
-                                        <Button type="link" onClick={loadResults}>
-                                            Calculate changes
-                                        </Button>
-                                    </span>
-                                }
-                                visible={areFiltersValid && filtersDirty}
+
+                            <Button
+                                style={{ marginLeft: 4 }}
+                                type="primary"
+                                htmlType="submit"
+                                disabled={!areFiltersValid}
+                                data-attr="save-funnel-button"
                             >
-                                <Button
-                                    style={{ marginLeft: 4 }}
-                                    type="primary"
-                                    htmlType="submit"
-                                    disabled={!areFiltersValid}
-                                    data-attr="save-funnel-button"
-                                >
-                                    Calculate
-                                </Button>
-                            </Popover>
+                                Calculate
+                            </Button>
                         </Row>
                     </>
                 )}

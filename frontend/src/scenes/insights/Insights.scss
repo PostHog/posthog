@@ -191,6 +191,19 @@
         position: relative;
         margin-bottom: 0;
     }
+    &.dirty-state {
+        position: relative;
+        .dirty-label {
+            position: absolute;
+            width: 100%;
+            top: 10px;
+            z-index: 2;
+        }
+        .funnel-bar-graph {
+            z-index: 1;
+            opacity: 0.5;
+        }
+    }
 }
 
 .funnel-tab-btn-popover {
