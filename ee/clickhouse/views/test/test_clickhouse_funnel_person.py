@@ -26,9 +26,27 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data(self, num, delete=False):
         for i in range(num):
             person = _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
-            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+            _create_event(
+                event="step one",
+                distinct_id=f"user_{i}",
+                team=self.team,
+                timestamp="2021-05-01 00:00:00",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                event="step two",
+                distinct_id=f"user_{i}",
+                team=self.team,
+                timestamp="2021-05-03 00:00:00",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                event="step three",
+                distinct_id=f"user_{i}",
+                team=self.team,
+                timestamp="2021-05-05 00:00:00",
+                properties={"$browser": "Chrome"},
+            )
             if delete:
                 person.delete()
 
@@ -75,6 +93,50 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
             "new_entity": json.dumps([]),
             "date_from": "2021-05-01",
             "date_to": "2021-05-10",
+        }
+
+        response = self.client.get("/api/person/funnel/", data=request_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        j = response.json()
+        people = j["results"][0]["people"]
+        next = j["next"]
+        self.assertEqual(100, len(people))
+
+        response = self.client.get(next)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        j = response.json()
+        people = j["results"][0]["people"]
+        next = j["next"]
+        self.assertEqual(100, len(people))
+        self.assertNotEqual(None, next)
+
+        response = self.client.get(next)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        j = response.json()
+        people = j["results"][0]["people"]
+        self.assertEqual(50, len(people))
+        self.assertEqual(None, j["next"])
+
+    def test_breakdown_basic_pagination(self):
+        cache.clear()
+        self._create_sample_data(250)
+        request_data = {
+            "insight": INSIGHT_FUNNELS,
+            "interval": "day",
+            "actions": json.dumps([]),
+            "events": json.dumps(
+                [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}, {"id": "step three", "order": 2},]
+            ),
+            "properties": json.dumps([]),
+            "funnel_window_days": 14,
+            "funnel_step": 1,
+            "filter_test_accounts": "false",
+            "new_entity": json.dumps([]),
+            "date_from": "2021-05-01",
+            "date_to": "2021-05-10",
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+            "funnel_step_breakdown": "Chrome",
         }
 
         response = self.client.get("/api/person/funnel/", data=request_data)
