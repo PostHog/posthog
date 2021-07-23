@@ -1,11 +1,11 @@
 import React, { useEffect } from 'react'
 import * as d3 from 'd3'
-import { D3Selector, useD3, getOrCreateEl, animate, D3Transition } from 'lib/hooks/useD3'
+import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'
 import { FunnelLayout } from 'lib/constants'
 import { createRoundedRectPath, getConfig, INITIAL_CONFIG } from './histogramUtils'
+import { getOrCreateEl, animate, wrap } from 'lib/utils/d3Utils'
 
 import './Histogram.scss'
-import { humanFriendlyDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { histogramLogic } from 'scenes/insights/Histogram/histogramLogic'
 
@@ -22,6 +22,7 @@ interface HistogramProps {
     isAnimated?: boolean
     width?: number
     height?: number
+    formatXTickLabel?: (value: number) => number | string
 }
 
 export function Histogram({
@@ -30,6 +31,7 @@ export function Histogram({
     width = INITIAL_CONFIG.width,
     height = INITIAL_CONFIG.height,
     isAnimated = false,
+    formatXTickLabel = (value: number) => value,
 }: HistogramProps): JSX.Element {
     const { config } = useValues(histogramLogic)
     const { setConfig } = useActions(histogramLogic)
@@ -40,6 +42,7 @@ export function Histogram({
     // Initialize x-axis and y-axis scales
     const xMin = data?.[0]?.bin0 || 0
     const xMax = data?.[data.length - 1]?.bin1 || 1
+    const xSecond = data?.[0]?.bin1 || xMax
     const x = d3.scaleLinear().domain([xMin, xMax]).range(config.ranges.x).nice()
     const xAxis = config.axisFn
         .x(x)
@@ -47,7 +50,7 @@ export function Histogram({
         // v === -2 || v === -1 represent bins that catch grouped outliers.
         // TODO: (-2, -1) are temporary placeholders for (-inf, +inf) and should be changed when backend specs are finalized
         .tickFormat((v: number) => {
-            const label = humanFriendlyDuration(v)
+            const label = formatXTickLabel(v)
             if (v === -2) {
                 return `<${label}`
             }
@@ -71,7 +74,7 @@ export function Histogram({
     // Update config to new values if dimensions change
     useEffect(() => {
         setConfig(getConfig(layout, width, height))
-    }, [width, height])
+    }, [layout, width, height])
 
     const ref = useD3(
         (container) => {
@@ -110,6 +113,7 @@ export function Histogram({
                 _xAxis.call(animate, !layoutChanged ? config.transitionDuration : 0, isAnimated, (it: D3Transition) =>
                     it.call(xAxis).attr('transform', config.transforms.x)
                 )
+                _xAxis.selectAll('.tick text').call(wrap, x(xSecond) - x(0), config.spacing.labelLineHeight)
 
                 // Don't draw y-axis or y-gridline if the data is empty
                 if (!isEmpty) {

@@ -12,7 +12,7 @@ export interface HistogramConfig {
     transforms: { x: string; y: string; yGrid: string }
     axisFn: { x: any; y: any }
     transitionDuration: number
-    spacing: { btwnBins: number; yLabel: number }
+    spacing: { btwnBins: number; yLabel: number; labelLineHeight: number }
 }
 
 export const INITIAL_CONFIG = {
@@ -24,6 +24,7 @@ export const INITIAL_CONFIG = {
     spacing: {
         btwnBins: 6, // spacing between bins
         yLabel: 5, // y-axis label xOffset in vertical position
+        labelLineHeight: 1.2, // line height of wrapped label text in em's
     },
 }
 
@@ -142,12 +143,3 @@ export const createRoundedRectPath = (
         'z'
     )
 }
-
-export const HISTOGRAM_WIDTH_BREAKPOINTS = [
-    { width: 400, value: 1 },
-    {
-        width: 700,
-        value: 4 / 3,
-    },
-    { width: 1000, value: 5 / 3 },
-]

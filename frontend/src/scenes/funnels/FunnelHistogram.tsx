@@ -79,7 +79,13 @@ export function FunnelHistogram({ filters, dashboardItemId }: Omit<ChartParams, 
             data-attr="funnel-histogram"
         >
             {!dashboardItemId || (width && height) ? (
-                <Histogram key={key} data={histogramGraphData} width={width} height={height} />
+                <Histogram
+                    key={key}
+                    data={histogramGraphData}
+                    width={width}
+                    height={height}
+                    formatXTickLabel={(v) => humanFriendlyDuration(v, 2)}
+                />
             ) : null}
         </div>
     )
