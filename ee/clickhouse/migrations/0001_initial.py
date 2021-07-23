@@ -1,7 +1,5 @@
 from infi.clickhouse_orm import migrations
 
-from ee.clickhouse.sql.events import EVENTS_TABLE_SQL
+from ee.clickhouse.sql.events import Events
 
-operations = [
-    migrations.RunSQL(EVENTS_TABLE_SQL),
-]
+operations = [migrations.migrations.CreateTable(Events)]

@@ -4,6 +4,7 @@ from infi.clickhouse_orm import Database
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.plugin_log_entries import DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL, PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.settings import (
+    CLICKHOUSE_CLUSTER,
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
     CLICKHOUSE_PASSWORD,
@@ -21,6 +22,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
         username=CLICKHOUSE_USER,
         password=CLICKHOUSE_PASSWORD,
         verify_ssl_cert=CLICKHOUSE_VERIFY,
+        cluster=CLICKHOUSE_CLUSTER,
     )
 
     if not django_db_keepdb:

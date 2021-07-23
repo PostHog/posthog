@@ -7,6 +7,7 @@ from infi.clickhouse_orm.migrations import MigrationHistory  # type: ignore
 from infi.clickhouse_orm.utils import import_submodules  # type: ignore
 
 from posthog.settings import (
+    CLICKHOUSE_CLUSTER,
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
     CLICKHOUSE_PASSWORD,
@@ -44,6 +45,7 @@ class Command(BaseCommand):
             username=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,
             verify_ssl_cert=False,
+            cluster=CLICKHOUSE_CLUSTER,
         )
 
         if options["plan"]:

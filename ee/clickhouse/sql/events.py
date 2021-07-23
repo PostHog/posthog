@@ -1,8 +1,31 @@
+from infi.clickhouse_orm import DateTime64Field, Int64Field, Model, ReplacingMergeTree, StringField, UUIDField
+
 from ee.kafka_client.topics import KAFKA_EVENTS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
 from .person import GET_TEAM_PERSON_DISTINCT_IDS
+
+
+class Events(Model):
+    uuid = UUIDField()
+    event = StringField()
+    properties = StringField()
+    timestamp = DateTime64Field()
+    team_id = Int64Field()
+    distinct_id = StringField()
+    elements_chain = StringField()
+    created_at = DateTime64Field()
+
+    engine = ReplacingMergeTree(
+        ver_col="_timestamp",
+        order_by=("team_id", "toDate(timestamp)", "distinct_id", "uuid"),
+        sampling_expr="uuid",
+        partition_key=("toYYYYMM(timestamp)",),
+        replica_table_path="/clickhouse/tables/{{shard}}/posthog.events",
+        replica_name="{{replica}}",
+    )
+
 
 EVENTS_TABLE = "events"
 
