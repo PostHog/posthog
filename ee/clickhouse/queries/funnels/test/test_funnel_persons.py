@@ -213,7 +213,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         results = ClickhouseFunnelPersons(
             filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team
         )._exec_query()
-        print(results)
+
         self.assertCountEqual([val[0] for val in results], [person1.uuid])
 
         results = ClickhouseFunnelPersons(

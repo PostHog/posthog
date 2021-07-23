@@ -300,15 +300,19 @@ class ClickhouseFunnelBase(ABC, Funnel):
             conditions.append("steps = %(step_num)s")
 
         if self._filter.funnel_step_breakdown:
-            prop_vals = (
-                [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]
-                if isinstance(self._filter.funnel_step_breakdown, str)
-                else [self._filter.funnel_step_breakdown]
-            )
+            prop_vals = self._parse_breakdown_prop_value()
             self.params.update({"breakdown_prop_value": prop_vals})
             conditions.append("prop IN %(breakdown_prop_value)s")
 
         return " AND ".join(conditions)
+
+    def _parse_breakdown_prop_value(self):
+        prop_vals = (
+            [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]
+            if isinstance(self._filter.funnel_step_breakdown, str)
+            else [self._filter.funnel_step_breakdown]
+        )
+        return prop_vals
 
     def _get_count_columns(self, max_steps: int):
         cols: List[str] = []
@@ -384,17 +388,24 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _get_breakdown_conditions(self) -> str:
         if self._filter.breakdown:
-            limit = 5
-            first_entity = next(x for x in self._filter.entities if x.order == 0)
-            if not first_entity:
-                ValidationError("An entity with order 0 was not provided")
-            values = []
-            if self._filter.breakdown_type == "person":
-                values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
-            elif self._filter.breakdown_type == "event":
-                values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
-            self.params.update({"breakdown_values": values})
+            if self._filter.funnel_step_breakdown:
+                values = self._parse_breakdown_prop_value()
+            else:
+                limit = 5
+                first_entity = next(x for x in self._filter.entities if x.order == 0)
+                if not first_entity:
+                    ValidationError("An entity with order 0 was not provided")
+                values = []
+                if self._filter.breakdown_type == "person":
+                    values = get_breakdown_person_prop_values(
+                        self._filter, first_entity, "count(*)", self._team.pk, limit
+                    )
+                elif self._filter.breakdown_type == "event":
+                    values = get_breakdown_event_prop_values(
+                        self._filter, first_entity, "count(*)", self._team.pk, limit
+                    )
 
+            self.params.update({"breakdown_values": values})
             return "prop IN %(breakdown_values)s"
         else:
             return ""
