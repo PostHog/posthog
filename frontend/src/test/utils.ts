@@ -1,3 +1,4 @@
+// Utilities for frontend logic tests
 import { BuiltLogic, Logic, LogicWrapper } from 'kea'
 import { initKea } from '~/initKea'
 import { waitForAction } from 'kea-waitfor'

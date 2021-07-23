@@ -4,7 +4,7 @@ import { waitForAction } from 'kea-waitfor'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { mockAPIGet } from 'lib/api.mock'
-import { initKeaTestLogic } from '~/test/test-utils'
+import { initKeaTestLogic } from '~/test/utils'
 import { mockEventDefinitions } from '~/test/mocks'
 
 jest.mock('lib/api')
