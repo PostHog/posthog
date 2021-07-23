@@ -15,7 +15,7 @@ import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_TABLE } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -159,7 +159,9 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                     return median(item.data).toLocaleString()
                 } else if (
                     calcColumnState === 'total' &&
-                    (filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE || filters.display === ACTIONS_TABLE)
+                    (filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
+                        filters.display === ACTIONS_TABLE ||
+                        filters.display === ACTIONS_PIE_CHART)
                 ) {
                     // Special handling because `count` will contain the last amount, instead of the cumulative sum.
                     return (
