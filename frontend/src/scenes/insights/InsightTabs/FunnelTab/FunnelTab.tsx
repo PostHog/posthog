@@ -23,7 +23,9 @@ import { BreakdownType, FunnelVizType } from '~/types'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(funnelLogic())
+    const { isStepsEmpty, areFiltersValid, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(
+        funnelLogic()
+    )
     const { featureFlags } = useValues(featureFlagLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
     const [savingModal, setSavingModal] = useState<boolean>(false)
@@ -134,11 +136,12 @@ export function FunnelTab(): JSX.Element {
                                     Clear
                                 </Button>
                             )}
+
                             <Button
                                 style={{ marginLeft: 4 }}
                                 type="primary"
                                 htmlType="submit"
-                                disabled={isStepsEmpty}
+                                disabled={!areFiltersValid}
                                 data-attr="save-funnel-button"
                             >
                                 Calculate

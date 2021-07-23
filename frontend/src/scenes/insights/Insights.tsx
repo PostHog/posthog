@@ -5,7 +5,7 @@ import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
+import { Tabs, Row, Col, Card, Button, Tooltip, Alert } from 'antd'
 import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -73,6 +73,7 @@ export function Insights(): JSX.Element {
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
+    const { areFiltersValid } = useValues(funnelLogic)
     const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
@@ -394,6 +395,7 @@ export function Insights(): JSX.Element {
                                 (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && !preflight?.is_clickhouse_enabled)) &&
                                 !showErrorMessage &&
                                 !showTimeoutMessage &&
+                                areFiltersValid &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && <People />}
                             {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] &&
@@ -434,9 +436,10 @@ function FunnelInsight(): JSX.Element {
         isLoading,
         filters: { funnel_viz_type },
         areFiltersValid,
+        filtersDirty,
+        clickhouseFeaturesEnabled,
     } = useValues(funnelLogic({}))
-    const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
-
+    const { loadResults } = useActions(funnelLogic({}))
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -446,8 +449,23 @@ function FunnelInsight(): JSX.Element {
                     isValidFunnel &&
                     areFiltersValid &&
                     (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || funnel_viz_type === FunnelVizType.Trends),
+                'dirty-state': filtersDirty && !clickhouseFeaturesEnabled,
             })}
         >
+            {filtersDirty && !isLoading && !clickhouseFeaturesEnabled ? (
+                <div className="dirty-label">
+                    <Alert
+                        message={
+                            <>
+                                The filters have changed.{' '}
+                                <Button onClick={loadResults}>Click to recalculate the funnel.</Button>
+                            </>
+                        }
+                        type="warning"
+                        showIcon
+                    />
+                </div>
+            ) : null}
             {isLoading && <Loading />}
             {isValidFunnel ? (
                 <Funnel filters={{ funnel_viz_type }} />

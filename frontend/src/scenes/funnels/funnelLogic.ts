@@ -32,6 +32,7 @@ import { calcPercentage, cleanBinResult, getLastFilledStep, getReferenceStep } f
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
+import equal from 'fast-deep-equal'
 
 function aggregateBreakdownResult(
     breakdownList: FunnelStep[][],
@@ -154,6 +155,7 @@ export const funnelLogic = kea<funnelLogicType>({
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
         changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
+        setLastAppliedFilters: (filters: FilterType) => ({ filters }),
     }),
 
     connect: {
@@ -287,6 +289,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 setIsGroupingOutliers: (_, { isGroupingOutliers }) => isGroupingOutliers,
             },
         ],
+        lastAppliedFilters: [
+            (props.filters || {}) as FilterType,
+            {
+                setLastAppliedFilters: (_, { filters }) => filters,
+            },
+        ],
     }),
 
     selectors: ({ props, selectors }) => ({
@@ -324,6 +332,11 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
                 return false
             },
+        ],
+        filtersDirty: [
+            () => [selectors.filters, selectors.lastAppliedFilters],
+            (filters, lastFilters): boolean =>
+                !equal(cleanFunnelParams(filters, true), cleanFunnelParams(lastFilters, true)),
         ],
         barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
         clickhouseFeaturesEnabled: [
@@ -525,6 +538,8 @@ export const funnelLogic = kea<funnelLogicType>({
 
     listeners: ({ actions, values, props }) => ({
         loadResultsSuccess: async () => {
+            actions.setLastAppliedFilters(values.filters)
+
             // load the old people table
             if (!values.clickhouseFeaturesEnabled) {
                 if ((values.stepsWithCount[0]?.people?.length ?? 0) > 0) {
@@ -536,7 +551,11 @@ export const funnelLogic = kea<funnelLogicType>({
             // FUNNEL_BAR_VIZ removes the calculate button on Clickhouse
             // Query performance is suboptimal on psql
             const { clickhouseFeaturesEnabled } = values
-            if (refresh || clickhouseFeaturesEnabled) {
+            // If user started from empty state (<2 steps) and added a new step
+            const shouldRefresh =
+                values.filters?.events?.length === 2 && values.lastAppliedFilters?.events?.length === 1
+
+            if (refresh || shouldRefresh || clickhouseFeaturesEnabled) {
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
