@@ -43,7 +43,7 @@ describe('infiniteListLogic verbose version', () => {
     describe('loaders', () => {
         describe('remoteItems', () => {
             it('loads initial items on mount', async () => {
-                expect(logic.values.remoteItems.results.length).toEqual(206)
+                expect(logic.values.remoteItems.results.length).toEqual(56)
             })
 
             it('setting search query filters events', async () => {
@@ -66,16 +66,16 @@ describe('infiniteListLogic verbose version', () => {
             })
 
             it('can go up and down', async () => {
-                expect(logic.values.remoteItems.results.length).toEqual(206)
+                expect(logic.values.remoteItems.results.length).toEqual(56)
 
                 logic.actions.moveUp()
-                expect(logic.values.index).toEqual(205)
+                expect(logic.values.index).toEqual(55)
 
                 logic.actions.moveUp()
-                expect(logic.values.index).toEqual(204)
+                expect(logic.values.index).toEqual(54)
 
                 logic.actions.moveDown()
-                expect(logic.values.index).toEqual(205)
+                expect(logic.values.index).toEqual(55)
 
                 logic.actions.moveDown()
                 expect(logic.values.index).toEqual(0)

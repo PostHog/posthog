@@ -7,7 +7,7 @@ export const mockEventDefinitions: EventDefinition[] = [
     '$autocapture',
     'search',
     'other event',
-    ...Array(200),
+    ...Array(50),
 ].map((name, index) => ({
     id: `uuid-${index}-foobar`,
     name: name || `misc-${index}-generated`,
