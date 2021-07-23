@@ -109,7 +109,7 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
                 FROM step_runs
                 GROUP BY bin_from_seconds
             ) results
-            FULL OUTER JOIN (
+            RIGHT OUTER JOIN (
                 /* Making sure bin_count bins are returned */
                 /* Those not present in the results query due to lack of data simply get person_count 0 */
                 SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds FROM system.numbers LIMIT {bin_count_identifier} + 1
