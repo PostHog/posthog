@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
@@ -35,7 +35,6 @@ export function FunnelTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
     const [savingModal, setSavingModal] = useState<boolean>(false)
-    const [isCalcModalOpen, setIsCalcModalOpen] = useState<boolean>(false)
 
     const showModal = (): void => setSavingModal(true)
     const closeModal = (): void => setSavingModal(false)
@@ -43,10 +42,6 @@ export function FunnelTab(): JSX.Element {
         saveFunnelInsight(input)
         closeModal()
     }
-
-    useEffect(() => {
-        setIsCalcModalOpen(areFiltersValid && filtersDirty)
-    }, [areFiltersValid, filtersDirty])
 
     console.log('FILTERS DIRTY', filtersDirty, lastAppliedFilters, filters)
 
@@ -160,8 +155,7 @@ export function FunnelTab(): JSX.Element {
                                         </Button>
                                     </span>
                                 }
-                                visible={isCalcModalOpen}
-                                onVisibleChange={(visible) => setIsCalcModalOpen(visible)}
+                                visible={areFiltersValid && filtersDirty}
                             >
                                 <Button
                                     style={{ marginLeft: 4 }}
