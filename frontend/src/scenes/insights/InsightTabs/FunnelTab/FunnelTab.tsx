@@ -161,7 +161,7 @@ export function FunnelTab(): JSX.Element {
                                     </span>
                                 }
                                 visible={isCalcModalOpen}
-                                handleVisibleChange={(visible) => setIsCalcModalOpen(visible)}
+                                onVisibleChange={(visible) => setIsCalcModalOpen(visible)}
                             >
                                 <Button
                                     style={{ marginLeft: 4 }}
