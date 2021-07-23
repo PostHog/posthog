@@ -95,11 +95,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
         title: 'Dropped off',
         render: function RenderDropoff({}, step: FlattenedFunnelStep): JSX.Element | null {
             return step.order === 0 ? null : (
-                <ValueInspectorButton
-                    onClick={() =>
-                        openPersonsModal(step, step.order + 1, step.breakdown)
-                    } /* TODO: does this modal support dropped off users? */
-                >
+                <ValueInspectorButton onClick={() => openPersonsModal(step, -(step.order + 1), step.breakdown)}>
                     {step.droppedOffFromPrevious}
                 </ValueInspectorButton>
             )
