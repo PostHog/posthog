@@ -24,6 +24,7 @@ export function TaxonomicPropertyFilter({
     index,
     onComplete,
     disablePopover, // inside a dropdown if this is false
+    groupTypes,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const { setFilter } = useActions(propertyFilterLogic)
@@ -35,22 +36,29 @@ export function TaxonomicPropertyFilter({
     const showInitialSearchInline = !disablePopover && ((!filter?.type && !filter?.key) || filter?.type === 'cohort')
     const showOperatorValueSelect = filter?.type && filter?.key && filter?.type !== 'cohort'
 
+    // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
+    // This is mostly to make TypeScript happy.
+    const cohortOrOtherValue =
+        filter?.type === 'cohort' ? (!Array.isArray(filter?.value) && filter?.value) || undefined : filter?.key
+
     const taxonomicFilter = (
         <TaxonomicFilter
             groupType={propertyFilterTypeToTaxonomicFilterType(filter?.type)}
-            value={filter?.type === 'cohort' ? filter?.value : filter?.key}
+            value={cohortOrOtherValue}
             onChange={(groupType, value) => {
                 selectItem(taxonomicFilterTypeToPropertyFilterType(groupType), value)
                 if (groupType === TaxonomicFilterGroupType.Cohorts) {
                     onComplete?.()
                 }
             }}
-            groupTypes={[
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.Cohorts,
-                TaxonomicFilterGroupType.Elements,
-            ]}
+            groupTypes={
+                groupTypes || [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.Elements,
+                ]
+            }
         />
     )
 
@@ -81,6 +89,7 @@ export function TaxonomicPropertyFilter({
                         onClickOutside={closeDropdown}
                     >
                         <Button
+                            data-attr={'property-select-toggle-' + index}
                             className={`taxonomic-button${!filter?.type && !filter?.key ? ' add-filter' : ''}`}
                             onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                         >

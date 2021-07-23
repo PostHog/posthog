@@ -5,11 +5,12 @@ import React from 'react'
 interface SeriesGlyphProps {
     children: React.ReactNode
     style?: React.CSSProperties
+    variant?: 'funnel-step-glyph' // Built-in styling defaults
 }
 
-export function SeriesGlyph({ style, children }: SeriesGlyphProps): JSX.Element {
+export function SeriesGlyph({ style, children, variant }: SeriesGlyphProps): JSX.Element {
     return (
-        <span className="graph-series-glyph" style={style}>
+        <span className={`graph-series-glyph ${variant || ''}`} style={style}>
             {children}
         </span>
     )

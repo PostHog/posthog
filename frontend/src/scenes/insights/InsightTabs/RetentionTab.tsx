@@ -23,6 +23,7 @@ import { IconExternalLink } from 'lib/components/icons'
 import { BaseTabProps } from '../Insights'
 import { InsightTitle } from './InsightTitle'
 import { InsightActionBar } from './InsightActionBar'
+import { GlobalFiltersTitle } from '../common'
 
 export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
@@ -189,7 +190,7 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                     </Row>
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
-                    <h4 className="secondary">Global Filters</h4>
+                    <GlobalFiltersTitle unit="actions/events" />
                     {filtersLoading ? (
                         <Skeleton active paragraph={{ rows: 1 }} />
                     ) : (

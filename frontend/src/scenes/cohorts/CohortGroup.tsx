@@ -5,6 +5,7 @@ import { Select, Card, Radio } from 'antd'
 
 import { actionsModel } from '~/models/actionsModel'
 import { useValues } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function CohortGroup({
     onChange,
@@ -84,6 +85,10 @@ export function CohortGroup({
                                 )
                             }}
                             propertyFilters={group.properties || {}}
+                            groupTypes={[
+                                TaxonomicFilterGroupType.PersonProperties,
+                                TaxonomicFilterGroupType.CohortsWithAllUsers,
+                            ]}
                             style={{ margin: '1rem 0 0' }}
                             popoverPlacement="bottomRight"
                         />

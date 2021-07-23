@@ -438,6 +438,10 @@ code.code {
 
 // Button styles
 
+button.ant-btn {
+    border-radius: $button_radius;
+}
+
 .btn-close {
     color: $text_muted;
 }
@@ -457,6 +461,11 @@ code.code {
     color: $primary !important;
     cursor: pointer;
     margin-left: 5px;
+
+    &.left {
+        margin-left: 0;
+        margin-right: 5px;
+    }
 }
 
 .btn-lg-2x {
@@ -493,6 +502,13 @@ code.code {
     align-items: center;
     justify-content: center;
     pointer-events: none;
+
+    // variants
+    &.funnel-step-glyph {
+        border-color: $border;
+        background-color: white;
+        color: $primary_alt;
+    }
 }
 
 // Overlays styles
@@ -609,6 +625,8 @@ code.code {
 
     &.or {
         background-color: $blue_300;
+        text-align: center;
+        max-width: 50px;
     }
 
     &.width-locked {

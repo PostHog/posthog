@@ -29,7 +29,7 @@ export function InsightTooltip({
     children,
 }: InsightTooltipProps): JSX.Element {
     return (
-        <div className={`inner-tooltip${bodyLines.length > 1 ? ' multiple' : ''}`}>
+        <div className={`inner-tooltip${bodyLines.length > 1 ? ' multiple' : ''}`} style={{ maxWidth: 300 }}>
             {chartType !== 'horizontalBar' && (
                 <header>
                     {referenceDate && interval ? <DateDisplay interval={interval} date={referenceDate} /> : altTitle}

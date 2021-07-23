@@ -165,7 +165,7 @@ export function ErrorMessage(): JSX.Element {
 }
 
 export function FunnelEmptyState(): JSX.Element {
-    const { filters } = useValues(funnelLogic)
+    const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { setFilters } = useActions(funnelLogic)
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
@@ -177,8 +177,10 @@ export function FunnelEmptyState(): JSX.Element {
                 </div>
                 <h2 className="funnels-empty-state__title">Add another step!</h2>
                 <p className="funnels-empty-state__description">
-                    You’re almost there! Funnels require at least two steps before calculating. Once you have two steps
-                    defined, additional steps will automatically recalculate and update the funnel.
+                    You’re almost there! Funnels require at least two steps before calculating.
+                    {clickhouseFeaturesEnabled
+                        ? ' Once you have two steps defined, additional steps will automatically recalculate and update the funnel.'
+                        : ''}
                 </p>
                 <Button
                     size="large"

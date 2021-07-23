@@ -4,6 +4,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
+from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
@@ -78,6 +79,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
+                    "median_conversion_time": None,
                     "breakdown": "Chrome",
                 },
                 {
@@ -88,6 +90,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "count": 0,
                     "type": "events",
                     "average_conversion_time": None,
+                    "median_conversion_time": None,
                     "breakdown": "Chrome",
                 },
             ],
@@ -106,6 +109,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": None,
+                    "median_conversion_time": None,
                     "breakdown": "Safari",
                 },
                 {
@@ -116,12 +120,18 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "count": 1,
                     "type": "events",
                     "average_conversion_time": 3600,
+                    "median_conversion_time": 3600,
                     "breakdown": "Safari",
                 },
             ],
         )
         self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person1.uuid])
         self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person1.uuid])
+
+
+class TestFunnelUnorderedStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedPersons, _create_event, _create_person)):  # type: ignore
+    maxDiff = None
+    pass
 
 
 class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):

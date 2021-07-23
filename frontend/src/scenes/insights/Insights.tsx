@@ -5,14 +5,8 @@ import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import {
-    FUNNEL_VIZ,
-    ACTIONS_TABLE,
-    ACTIONS_BAR_CHART_VALUE,
-    FEATURE_FLAGS,
-    ACTIONS_LINE_GRAPH_LINEAR,
-} from 'lib/constants'
+import { Tabs, Row, Col, Card, Button, Tooltip, Alert } from 'antd'
+import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -21,7 +15,6 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
-import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
@@ -35,7 +28,7 @@ import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { HotKeys, ViewType } from '~/types'
+import { FunnelVizType, HotKeys, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
@@ -50,6 +43,7 @@ import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 import clsx from 'clsx'
 import { Funnel } from 'scenes/funnels/Funnel'
+import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -79,6 +73,7 @@ export function Insights(): JSX.Element {
     const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
+    const { areFiltersValid } = useValues(funnelLogic)
     const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
@@ -400,8 +395,13 @@ export function Insights(): JSX.Element {
                                 (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && !preflight?.is_clickhouse_enabled)) &&
                                 !showErrorMessage &&
                                 !showTimeoutMessage &&
+                                areFiltersValid &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && <People />}
+                            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] &&
+                                preflight?.is_clickhouse_enabled &&
+                                activeView === ViewType.FUNNELS &&
+                                allFilters.funnel_viz_type === FunnelVizType.Steps && <FunnelStepTable />}
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&
                                     allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
@@ -434,12 +434,12 @@ function FunnelInsight(): JSX.Element {
     const {
         isValidFunnel,
         isLoading,
+        filters: { funnel_viz_type },
         areFiltersValid,
-        filters: { display },
-        showBarGraph,
+        filtersDirty,
+        clickhouseFeaturesEnabled,
     } = useValues(funnelLogic({}))
-    const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
-
+    const { loadResults } = useActions(funnelLogic({}))
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -448,16 +448,27 @@ function FunnelInsight(): JSX.Element {
                 'non-empty-state':
                     isValidFunnel &&
                     areFiltersValid &&
-                    (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || display === ACTIONS_LINE_GRAPH_LINEAR),
+                    (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || funnel_viz_type === FunnelVizType.Trends),
+                'dirty-state': filtersDirty && !clickhouseFeaturesEnabled,
             })}
         >
+            {filtersDirty && !isLoading && !clickhouseFeaturesEnabled ? (
+                <div className="dirty-label">
+                    <Alert
+                        message={
+                            <>
+                                The filters have changed.{' '}
+                                <Button onClick={loadResults}>Click to recalculate the funnel.</Button>
+                            </>
+                        }
+                        type="warning"
+                        showIcon
+                    />
+                </div>
+            ) : null}
             {isLoading && <Loading />}
             {isValidFunnel ? (
-                featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && showBarGraph ? (
-                    <Funnel filters={{ display }} />
-                ) : (
-                    <FunnelViz filters={{ display }} />
-                )
+                <Funnel filters={{ funnel_viz_type }} />
             ) : (
                 !isLoading && (
                     <div

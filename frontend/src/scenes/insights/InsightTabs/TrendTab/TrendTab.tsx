@@ -8,7 +8,7 @@ import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FilterType, ViewType } from '~/types'
+import { BreakdownType, FilterType, ViewType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -17,6 +17,8 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { InsightTitle } from '../InsightTitle'
 import { InsightActionBar } from '../InsightActionBar'
 import { BaseTabProps } from 'scenes/insights/Insights'
+import { GlobalFiltersTitle } from 'scenes/insights/common'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface TrendTabProps extends BaseTabProps {
     view: string
@@ -39,7 +41,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
     const formulaAvailable =
         (!filters.insight || filters.insight === ViewType.TRENDS) &&
-        featureFlags['3275-formulas'] &&
+        featureFlags[FEATURE_FLAGS.FORMULAS] &&
         preflight?.is_clickhouse_enabled
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
 
@@ -83,7 +85,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     {filters.insight === ViewType.LIFECYCLE && (
                         <>
-                            <h4 className="secondary">Global Filters</h4>
+                            <GlobalFiltersTitle unit="actions/events" />
                             <TestAccountFilter filters={filters} onChange={setFilters} />
                             <hr />
                             <h4 className="secondary">Lifecycle Toggles</h4>
@@ -114,7 +116,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                     )}
                     {filters.insight !== ViewType.LIFECYCLE && (
                         <>
-                            <h4 className="secondary">Global Filters</h4>
+                            <GlobalFiltersTitle />
                             {filtersLoading ? (
                                 <Skeleton active paragraph={{ rows: 2 }} />
                             ) : (
@@ -183,6 +185,13 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                             </h4>
                             {filtersLoading ? (
                                 <Skeleton paragraph={{ rows: 0 }} active />
+                            ) : filters.breakdown_type === 'cohort' && filters.breakdown ? (
+                                <BreakdownFilter
+                                    filters={filters}
+                                    onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
+                                        setFilters({ breakdown, breakdown_type })
+                                    }
+                                />
                             ) : (
                                 <Row align="middle">
                                     <BreakdownFilter

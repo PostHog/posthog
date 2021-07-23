@@ -20,6 +20,7 @@ from posthog.models.filters.mixins.common import (
     FormulaMixin,
     InsightMixin,
     IntervalMixin,
+    LimitMixin,
     OffsetMixin,
     SelectorMixin,
     SessionMixin,
@@ -27,6 +28,7 @@ from posthog.models.filters.mixins.common import (
 )
 from posthog.models.filters.mixins.funnel import (
     FunnelFromToStepsMixin,
+    FunnelLayoutMixin,
     FunnelPersonsStepBreakdownMixin,
     FunnelPersonsStepMixin,
     FunnelTrendsPersonsMixin,
@@ -54,6 +56,7 @@ class Filter(
     InsightMixin,
     SessionMixin,
     OffsetMixin,
+    LimitMixin,
     DateMixin,
     FormulaMixin,
     FunnelWindowDaysMixin,
@@ -61,6 +64,7 @@ class Filter(
     FunnelPersonsStepMixin,
     FunnelTrendsPersonsMixin,
     FunnelPersonsStepBreakdownMixin,
+    FunnelLayoutMixin,
     FunnelTypeMixin,
     HistogramMixin,
     BaseFilter,

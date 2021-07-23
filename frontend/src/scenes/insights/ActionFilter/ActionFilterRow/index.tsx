@@ -166,7 +166,9 @@ export function ActionFilterRow({
                                 <TaxonomicFilter
                                     groupType={filter.type as TaxonomicFilterGroupType}
                                     value={
-                                        filter.type === 'actions' && typeof value === 'string' ? parseInt(value) : value
+                                        filter.type === 'actions' && typeof value === 'string'
+                                            ? parseInt(value)
+                                            : value || undefined
                                     }
                                     onChange={(groupType, changedValue, item) => {
                                         updateFilter({
@@ -351,7 +353,7 @@ function MathSelector({
 
     let math_entries = EVENT_MATH_ENTRIES
 
-    if (!featureFlags['3638-trailing-wau-mau'] || !preflight?.is_clickhouse_enabled) {
+    if (!featureFlags[FEATURE_FLAGS.TRAILING_WAU_MAU] || !preflight?.is_clickhouse_enabled) {
         math_entries = math_entries.filter((item) => item[0] !== 'weekly_active' && item[0] !== 'monthly_active')
     }
 
