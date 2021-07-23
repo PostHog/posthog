@@ -5,19 +5,17 @@ import React, { lazy, Suspense } from 'react'
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
 interface PasswordInputProps extends FormItemProps {
+    ref?: React.MutableRefObject<Input | null>
     showStrengthIndicator?: boolean
     label?: string
     style?: React.CSSProperties
     validateMinLength?: boolean
 }
 
-export function PasswordInput({
-    label = 'Password',
-    showStrengthIndicator,
-    validateMinLength,
-    style,
-    ...props
-}: PasswordInputProps): JSX.Element {
+export const PasswordInput = React.forwardRef(function PasswordInputInternal(
+    { label = 'Password', showStrengthIndicator, validateMinLength, style, ...props }: PasswordInputProps,
+    ref
+): JSX.Element {
     return (
         <div style={style}>
             <Form.Item
@@ -36,7 +34,13 @@ export function PasswordInput({
                 style={showStrengthIndicator ? { marginBottom: 0 } : undefined}
                 {...props}
             >
-                <Input className="ph-ignore-input" type="password" data-attr="password" placeholder="********" />
+                <Input
+                    ref={ref}
+                    className="ph-ignore-input"
+                    type="password"
+                    data-attr="password"
+                    placeholder="********"
+                />
             </Form.Item>
             {showStrengthIndicator && (
                 <Form.Item shouldUpdate={(prevValues, currentValues) => prevValues.password !== currentValues.password}>
@@ -49,4 +53,4 @@ export function PasswordInput({
             )}
         </div>
     )
-}
+})
