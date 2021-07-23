@@ -192,3 +192,14 @@
         margin-bottom: 0;
     }
 }
+
+.funnel-tab-btn-popover {
+    .ant-popover-inner-content {
+        padding: 4px 15px; // same as antd button padding
+
+        button.ant-btn-link {
+            padding: 0;
+            margin: 0 0 0 4px;
+        }
+    }
+}

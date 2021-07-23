@@ -1,10 +1,10 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Button, Row, Tooltip } from 'antd'
+import { Button, Popover, Row, Tooltip } from 'antd'
 import { useState } from 'react'
 import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
@@ -23,10 +23,19 @@ import { BreakdownType, FunnelVizType } from '~/types'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(funnelLogic())
+    const {
+        isStepsEmpty,
+        areFiltersValid,
+        filters,
+        lastAppliedFilters,
+        stepsWithCount,
+        clickhouseFeaturesEnabled,
+        filtersDirty,
+    } = useValues(funnelLogic())
     const { featureFlags } = useValues(featureFlagLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
     const [savingModal, setSavingModal] = useState<boolean>(false)
+    const [isCalcModalOpen, setIsCalcModalOpen] = useState<boolean>(false)
 
     const showModal = (): void => setSavingModal(true)
     const closeModal = (): void => setSavingModal(false)
@@ -34,6 +43,12 @@ export function FunnelTab(): JSX.Element {
         saveFunnelInsight(input)
         closeModal()
     }
+
+    useEffect(() => {
+        setIsCalcModalOpen(areFiltersValid && filtersDirty)
+    }, [areFiltersValid, filtersDirty])
+
+    console.log('FILTERS DIRTY', filtersDirty, lastAppliedFilters, filters)
 
     return (
         <div data-attr="funnel-tab">
@@ -134,15 +149,30 @@ export function FunnelTab(): JSX.Element {
                                     Clear
                                 </Button>
                             )}
-                            <Button
-                                style={{ marginLeft: 4 }}
-                                type="primary"
-                                htmlType="submit"
-                                disabled={isStepsEmpty}
-                                data-attr="save-funnel-button"
+                            <Popover
+                                placement="right"
+                                overlayClassName="funnel-tab-btn-popover"
+                                content={
+                                    <span className="text-muted-alt">
+                                        Ready for an update?
+                                        <Button type="link" onClick={loadResults}>
+                                            Calculate changes
+                                        </Button>
+                                    </span>
+                                }
+                                visible={isCalcModalOpen}
+                                handleVisibleChange={(visible) => setIsCalcModalOpen(visible)}
                             >
-                                Calculate
-                            </Button>
+                                <Button
+                                    style={{ marginLeft: 4 }}
+                                    type="primary"
+                                    htmlType="submit"
+                                    disabled={!areFiltersValid}
+                                    data-attr="save-funnel-button"
+                                >
+                                    Calculate
+                                </Button>
+                            </Popover>
                         </Row>
                     </>
                 )}
