@@ -79,6 +79,99 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    def test_clickhouse_bug(self):
+        person1 = _create_person(distinct_ids=["user a"], team=self.team)
+        person2 = _create_person(distinct_ids=["user b"], team=self.team)
+        person3 = _create_person(distinct_ids=["user c"], team=self.team)
+
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 18:00:00")
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 19:00:00")
+        # Converted from 0 to 1 in 3600 s
+        _create_event(event="step one", distinct_id="user a", team=self.team, timestamp="2021-06-08 21:00:00")
+
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:00:00")
+        _create_event(event="step one", distinct_id="user b", team=self.team, timestamp="2021-06-09 13:37:00")
+        # Converted from 0 to 1 in 2200 s
+
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-11 07:00:00")
+        _create_event(event="step one", distinct_id="user c", team=self.team, timestamp="2021-06-12 06:00:00")
+        # Converted from 0 to 1 in 82_800 s
+
+        from ee.clickhouse.client import sync_execute
+
+        query = f"""
+        SELECT
+            groupArray(person_id) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+        FROM (
+                SELECT person_id,
+                    timestamp,
+                    if(event = 'step one', 1, 0) as step_0,
+                    if(event = 'step one', 1, 0) as step_1,
+                    if(event = 'step one', 1, 0) as step_2
+                FROM (
+                        SELECT e.event as event,
+                            e.team_id as team_id,
+                            e.distinct_id as person_id,
+                            e.timestamp as timestamp,
+                            e.properties as properties,
+                            e.elements_chain as elements_chain
+                            
+                        FROM posthog_test.events e
+                        WHERE team_id = {self.team.pk}
+                        AND event IN ['step one']
+                        AND timestamp >= '2021-06-08 00:00:00'
+                        AND timestamp <= '2021-06-13 23:59:59'
+                    )
+                WHERE (step_0 = 1 OR step_1 = 1 OR step_2 = 1)
+            )
+            order by timestamp desc SETTINGS allow_experimental_window_functions = 1;
+            """
+
+        result = sync_execute(query)
+        print(result)
+
+        query2 = f"""
+        SELECT *
+        FROM
+        (
+            SELECT
+                uniq(person_id) OVER w AS unique
+            FROM
+            (
+                SELECT
+                    person_id,
+                    timestamp,
+                    if(event = 'step one', 1, 0) AS step_0,
+                    if(event = 'step one', 1, 0) AS step_1,
+                    if(event = 'step one', 1, 0) AS step_2
+                FROM
+                (
+                    SELECT
+                        e.event AS event,
+                        e.team_id AS team_id,
+                        e.distinct_id AS person_id,
+                        e.timestamp AS timestamp
+                    FROM posthog_test.events AS e
+                    WHERE (team_id = {self.team.pk}) AND (event IN ['step one'])
+                      AND (timestamp >= '2021-06-07 00:00:00')
+                      AND (timestamp <= '2021-06-13 23:59:59')
+                ) AS events
+                WHERE (step_0 = 1) OR (step_1 = 1) OR (step_2 = 1)
+            )
+            WINDOW w AS (PARTITION BY person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+        )
+        WHERE unique > 1
+        SETTINGS allow_experimental_window_functions = 1
+        """
+
+        result2 = sync_execute(query2)
+        print(result2)
+
+        self.assertEqual(result2, [])
+
+        for i in range(6):
+            self.assertTrue(len(list(set(result[i][0]))) <= 1)
+
     @unittest.skip("Wait for bug to be resolved")
     def test_auto_bin_count_single_step_duplicate_events(self):
         # demonstrates existing CH bug. Current patch is to remove negative times from consideration
