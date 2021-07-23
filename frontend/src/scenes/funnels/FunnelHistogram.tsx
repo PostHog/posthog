@@ -13,11 +13,11 @@ import { FunnelVizType } from '~/types'
 import { ChartParams } from '~/types'
 
 export function FunnelHistogramHeader(): JSX.Element | null {
-    const { stepsWithCount, stepReference, histogramStepsDropdown } = useValues(funnelLogic)
+    const { stepsWithCount, stepReference, histogramStepsDropdown, areFiltersValid } = useValues(funnelLogic)
     const { changeHistogramStep } = useActions(funnelLogic)
     const { allFilters } = useValues(insightLogic)
 
-    if (allFilters.funnel_viz_type !== FunnelVizType.TimeToConvert) {
+    if (allFilters.funnel_viz_type !== FunnelVizType.TimeToConvert || !areFiltersValid) {
         return null
     }
 

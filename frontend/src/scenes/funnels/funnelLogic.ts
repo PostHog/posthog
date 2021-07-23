@@ -176,6 +176,11 @@ export const funnelLogic = kea<funnelLogicType>({
                         }
                     }
 
+                    // Don't bother making any requests if filters aren't valid
+                    if (!values.areFiltersValid) {
+                        return EMPTY_FUNNEL_RESULTS
+                    }
+
                     const { apiParams, eventCount, actionCount, interval, histogramStep, filters } = values
 
                     async function loadFunnelResults(): Promise<FunnelResult<FunnelStep[] | FunnelStep[][]>> {
