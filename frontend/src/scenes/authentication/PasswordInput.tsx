@@ -5,7 +5,6 @@ import React, { lazy, Suspense } from 'react'
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
 interface PasswordInputProps extends FormItemProps {
-    ref?: React.MutableRefObject<Input | null>
     showStrengthIndicator?: boolean
     label?: string
     style?: React.CSSProperties
@@ -14,7 +13,7 @@ interface PasswordInputProps extends FormItemProps {
 
 export const PasswordInput = React.forwardRef(function PasswordInputInternal(
     { label = 'Password', showStrengthIndicator, validateMinLength, style, ...props }: PasswordInputProps,
-    ref
+    ref: React.LegacyRef<Input>
 ): JSX.Element {
     return (
         <div style={style}>
