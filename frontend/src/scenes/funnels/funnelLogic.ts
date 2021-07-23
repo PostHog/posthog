@@ -335,7 +335,8 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         filtersDirty: [
             () => [selectors.filters, selectors.lastAppliedFilters],
-            (filters, lastFilters): boolean => !equal(filters, lastFilters),
+            (filters, lastFilters): boolean =>
+                !equal(cleanFunnelParams(filters, true), cleanFunnelParams(lastFilters, true)),
         ],
         barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
         clickhouseFeaturesEnabled: [
