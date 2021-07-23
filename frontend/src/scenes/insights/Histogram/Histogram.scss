@@ -26,6 +26,10 @@
         g#x-axis,
         g#y-axis {
             font-size: 14px;
+
+            @media (max-width: $md) {
+                font-size: 12px;
+            }
         }
     }
 }
