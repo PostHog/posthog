@@ -1,5 +1,11 @@
 # Changelog
 
+
+### 1.27.0 - Monday 26 July 2021
+
+- New Funnels Experience
+Pending
+
 ### 1.26.0 - Tuesday 15 June 2021
 
 - Feature flags for Node.js and Go
