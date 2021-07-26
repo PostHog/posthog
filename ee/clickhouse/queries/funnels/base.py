@@ -40,11 +40,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window:
-            self._filter = self._filter.with_data({FUNNEL_WINDOW: 14, FUNNEL_WINDOW_INTERVAL: "DAY"})
+            self._filter = self._filter.with_data({FUNNEL_WINDOW: 14, FUNNEL_WINDOW_INTERVAL: "day"})
 
         if self._filter.funnel_window_days:
             self._filter = self._filter.with_data(
-                {FUNNEL_WINDOW: self._filter.funnel_window_days, FUNNEL_WINDOW_INTERVAL: "DAY"}
+                {FUNNEL_WINDOW: self._filter.funnel_window_days, FUNNEL_WINDOW_INTERVAL: "day"}
             )
 
         if not self._filter.limit:
