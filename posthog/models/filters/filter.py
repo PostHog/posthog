@@ -34,6 +34,7 @@ from posthog.models.filters.mixins.funnel import (
     FunnelTrendsPersonsMixin,
     FunnelTypeMixin,
     FunnelWindowDaysMixin,
+    FunnelWindowMixin,
     HistogramMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
@@ -60,6 +61,7 @@ class Filter(
     DateMixin,
     FormulaMixin,
     FunnelWindowDaysMixin,
+    FunnelWindowMixin,
     FunnelFromToStepsMixin,
     FunnelPersonsStepMixin,
     FunnelTrendsPersonsMixin,

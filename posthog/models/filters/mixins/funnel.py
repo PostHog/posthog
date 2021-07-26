@@ -1,6 +1,8 @@
 import datetime
 from typing import Optional, Union
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.constants import (
     BIN_COUNT,
     DISPLAY,
@@ -13,7 +15,9 @@ from posthog.constants import (
     FUNNEL_STEP_BREAKDOWN,
     FUNNEL_TO_STEP,
     FUNNEL_VIZ_TYPE,
+    FUNNEL_WINDOW,
     FUNNEL_WINDOW_DAYS,
+    FUNNEL_WINDOW_INTERVAL,
     INSIGHT,
     INSIGHT_FUNNELS,
     TRENDS_LINEAR,
@@ -69,6 +73,42 @@ class FunnelWindowDaysMixin(BaseParamMixin):
     def microseconds_from_days(days):
         microseconds = 1000
         return microseconds * FunnelWindowDaysMixin.milliseconds_from_days(days)
+
+
+class FunnelWindowMixin(BaseParamMixin):
+    @cached_property
+    def funnel_window(self) -> Optional[int]:
+        _amt = int(self._data.get(FUNNEL_WINDOW, "0"))
+        if _amt == 0:
+            return None
+        return _amt
+
+    @cached_property
+    def funnel_window_interval(self) -> Optional[str]:
+        _interval = self._data.get(FUNNEL_WINDOW_INTERVAL, None)
+        return _interval
+
+    @include_dict
+    def funnel_window_to_dict(self):
+        return {FUNNEL_WINDOW: self.funnel_window} if self.funnel_window else {}
+
+    @include_dict
+    def funnel_window_interval_to_dict(self):
+        return {FUNNEL_WINDOW_INTERVAL: self.funnel_window_interval} if self.funnel_window_interval else {}
+
+    def funnel_window_interval_ch(self) -> str:
+        if self.funnel_window_interval == "minute":
+            return "MINUTE"
+        elif self.funnel_window_interval == "hour":
+            return "HOUR"
+        elif self.funnel_window_interval == "week":
+            return "WEEK"
+        elif self.funnel_window_interval == "month":
+            return "MONTH"
+        elif self.funnel_window_interval == "day" or self.funnel_window_interval is None:
+            return "DAY"
+        else:
+            raise ValidationError("{interval} not supported")
 
 
 class FunnelPersonsStepMixin(BaseParamMixin):
