@@ -471,7 +471,7 @@ export const funnelLogic = kea<funnelLogicType>({
             () => [selectors.steps, selectors.stepReference],
             (steps, stepReference): FunnelStepWithConversionMetrics[] => {
                 return steps.map((step, i) => {
-                    const previousCount = i > 0 ? steps[i - 1].count : 0
+                    const previousCount = i > 0 ? steps[i - 1].count : step.count // previous is faked for the first step
                     const droppedOffFromPrevious = Math.max(previousCount - step.count, 0)
                     const nestedBreakdown = step.nested_breakdown?.map((breakdown, breakdownIndex) => {
                         const previousBreakdownCount =
