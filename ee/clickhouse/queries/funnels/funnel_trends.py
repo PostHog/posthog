@@ -9,7 +9,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
-HUMAN_READABLE_TIMESTAMP_FORMAT = "%a. %-d %b"
+HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
 class ClickhouseFunnelTrends(ClickhouseFunnelBase):

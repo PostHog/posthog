@@ -4,7 +4,7 @@ import { decodeParams } from 'kea-router'
 import { Button, Spin, Space, Tooltip, Badge, Switch, Row } from 'antd'
 import { Link } from 'lib/components/Link'
 import { ExpandState, sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
-import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP, pluralize } from '~/lib/utils'
+import { humanFriendlyDetailedTime, stripHTTP, pluralize, colonDelimitedDuration } from '~/lib/utils'
 import { SessionDetails } from './SessionDetails'
 import dayjs from 'dayjs'
 import { SessionType } from '~/types'
@@ -15,6 +15,7 @@ import {
     QuestionCircleOutlined,
     ArrowLeftOutlined,
     PlaySquareOutlined,
+    InfoCircleOutlined,
 } from '@ant-design/icons'
 import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
 import { SessionsPlay } from './SessionsPlay'
@@ -121,13 +122,20 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             span: 3,
         },
         {
-            title: 'Session duration',
+            title: (
+                <span>
+                    Session Duration
+                    <Tooltip title="Session duration is formatted as HH:MM:SS.">
+                        <InfoCircleOutlined className="info-indicator" />
+                    </Tooltip>
+                </span>
+            ),
             render: function RenderDuration(session: SessionType) {
                 if (session.session_recordings.length > 0) {
                     const seconds = getSessionRecordingsDurationSum(session)
-                    return <span>{humanFriendlyDuration(Math.max(seconds, session.length))}</span>
+                    return <span>{colonDelimitedDuration(Math.max(seconds, session.length))}</span>
                 }
-                return <span>{humanFriendlyDuration(session.length)}</span>
+                return <span>{colonDelimitedDuration(session.length)}</span>
             },
             span: 3,
         },
