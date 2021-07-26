@@ -240,7 +240,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             }
         },
         setPersonsModalFilters: async ({ searchTerm, people, filters }) => {
-            const { label, action, day, breakdown_value } = people
+            const { label, action, day, breakdown_value, funnelStep } = people
             const date_from = day
             const date_to = day
             const saveOriginal = false
@@ -253,6 +253,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 breakdown_value,
                 saveOriginal,
                 searchTerm,
+                funnelStep,
             })
         },
     }),
