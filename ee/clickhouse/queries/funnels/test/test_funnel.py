@@ -181,8 +181,8 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                 {"id": "user signed up", "type": "events", "order": 1},
             ],
             "insight": INSIGHT_FUNNELS,
-            "funnel_window": 14,
-            "funnel_window_interval": "day",
+            "funnel_window_interval": 14,
+            "funnel_window_interval_unit": "day",
         }
 
         filter = Filter(data=filters)
@@ -218,8 +218,8 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                 {"id": "user signed up", "type": "events", "order": 1},
             ],
             "insight": INSIGHT_FUNNELS,
-            "funnel_window": 2,
-            "funnel_window_interval": "week",
+            "funnel_window_interval": 2,
+            "funnel_window_interval_unit": "week",
         }
 
         filter = Filter(data=filters)
@@ -234,8 +234,8 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             ],
             "insight": INSIGHT_FUNNELS,
             "funnel_window_days": 14,
-            "funnel_window": 1,
-            "funnel_window_interval": "hour",
+            "funnel_window_interval": 1,
+            "funnel_window_interval_unit": "hour",
         }
 
         filter = Filter(data=filters)

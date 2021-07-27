@@ -128,7 +128,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         basic_conditions: List[str] = []
         for i in range(1, max_steps):
             basic_conditions.append(
-                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window} {self._filter.funnel_window_interval_ch()}, 1, 0)"
+                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, 1, 0)"
             )
 
         conditions.append(f"arraySum([{','.join(basic_conditions)}, 1])")

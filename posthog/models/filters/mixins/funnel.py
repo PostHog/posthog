@@ -15,9 +15,9 @@ from posthog.constants import (
     FUNNEL_STEP_BREAKDOWN,
     FUNNEL_TO_STEP,
     FUNNEL_VIZ_TYPE,
-    FUNNEL_WINDOW,
     FUNNEL_WINDOW_DAYS,
     FUNNEL_WINDOW_INTERVAL,
+    FUNNEL_WINDOW_INTERVAL_UNIT,
     INSIGHT,
     INSIGHT_FUNNELS,
     TRENDS_LINEAR,
@@ -77,39 +77,39 @@ class FunnelWindowDaysMixin(BaseParamMixin):
 
 class FunnelWindowMixin(BaseParamMixin):
     @cached_property
-    def funnel_window(self) -> Optional[int]:
-        _amt = int(self._data.get(FUNNEL_WINDOW, "0"))
+    def funnel_window_interval(self) -> Optional[int]:
+        _amt = int(self._data.get(FUNNEL_WINDOW_INTERVAL, "0"))
         if _amt == 0:
             return None
         return _amt
 
     @cached_property
-    def funnel_window_interval(self) -> Optional[str]:
-        _interval = self._data.get(FUNNEL_WINDOW_INTERVAL, None)
-        return _interval
+    def funnel_window_interval_unit(self) -> Optional[str]:
+        _unit = self._data.get(FUNNEL_WINDOW_INTERVAL_UNIT, None)
+        return _unit
 
     @include_dict
     def funnel_window_to_dict(self):
         dict_part = {}
-        if self.funnel_window is not None:
-            dict_part[FUNNEL_WINDOW] = self.funnel_window
         if self.funnel_window_interval is not None:
             dict_part[FUNNEL_WINDOW_INTERVAL] = self.funnel_window_interval
+        if self.funnel_window_interval_unit is not None:
+            dict_part[FUNNEL_WINDOW_INTERVAL_UNIT] = self.funnel_window_interval_unit
         return dict_part
 
-    def funnel_window_interval_ch(self) -> str:
-        if self.funnel_window_interval is None:
+    def funnel_window_interval_unit_ch(self) -> str:
+        if self.funnel_window_interval_unit is None:
             return "DAY"
 
-        if self.funnel_window_interval.lower() == "minute":
+        if self.funnel_window_interval_unit.lower() == "minute":
             return "MINUTE"
-        elif self.funnel_window_interval.lower() == "hour":
+        elif self.funnel_window_interval_unit.lower() == "hour":
             return "HOUR"
-        elif self.funnel_window_interval.lower() == "week":
+        elif self.funnel_window_interval_unit.lower() == "week":
             return "WEEK"
-        elif self.funnel_window_interval.lower() == "month":
+        elif self.funnel_window_interval_unit.lower() == "month":
             return "MONTH"
-        elif self.funnel_window_interval.lower() == "day":
+        elif self.funnel_window_interval_unit.lower() == "day":
             return "DAY"
         else:
             raise ValidationError("{interval} not supported")
