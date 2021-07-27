@@ -195,12 +195,5 @@ class TestUpdateCache(APIBaseTest):
         )
         self.assertEqual(
             get_safe_cache(item_key)["result"][0]["labels"],
-            [
-                "Tue. 10 January",
-                "Wed. 11 January",
-                "Thu. 12 January",
-                "Fri. 13 January",
-                "Sat. 14 January",
-                "Sun. 15 January",
-            ],
+            ["10-Jan-2012", "11-Jan-2012", "12-Jan-2012", "13-Jan-2012", "14-Jan-2012", "15-Jan-2012",],
         )

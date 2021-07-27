@@ -55,8 +55,8 @@ def sessions_test_factory(sessions, event_factory, person_factory):
             # time series
             self.assertEqual(response[0]["data"][0], 4.0)
             self.assertEqual(response[0]["data"][1], 2.0)
-            self.assertEqual(response[0]["labels"][0], "Sat. 14 January")
-            self.assertEqual(response[0]["labels"][1], "Sun. 15 January")
+            self.assertEqual(response[0]["labels"][0], "14-Jan-2012")
+            self.assertEqual(response[0]["labels"][1], "15-Jan-2012")
             self.assertEqual(response[0]["days"][0], "2012-01-14")
             self.assertEqual(response[0]["days"][1], "2012-01-15")
             self.assertEqual(response[0]["chartLabel"], "Average Session Length (minutes)")
@@ -106,8 +106,8 @@ def sessions_test_factory(sessions, event_factory, person_factory):
 
             self.assertEqual(month_response[0]["data"][0], 3.0)
             self.assertEqual(month_response[0]["data"][2], 3.0)
-            self.assertEqual(month_response[0]["labels"][0], "Tue. 31 January")
-            self.assertEqual(month_response[0]["labels"][1], "Wed. 29 February")
+            self.assertEqual(month_response[0]["labels"][0], "31-Jan-2012")
+            self.assertEqual(month_response[0]["labels"][1], "29-Feb-2012")
             self.assertEqual(month_response[0]["days"][0], "2012-01-31")
             self.assertEqual(month_response[0]["days"][1], "2012-02-29")
 
@@ -131,8 +131,8 @@ def sessions_test_factory(sessions, event_factory, person_factory):
             )
             self.assertEqual(week_response[0]["data"][2], 4.0)
             self.assertEqual(week_response[0]["data"][4], 2.0)
-            self.assertEqual(week_response[0]["labels"][0], "Sun. 25 December")
-            self.assertEqual(week_response[0]["labels"][2], "Sun. 8 January")
+            self.assertEqual(week_response[0]["labels"][0], "25-Dec-2011")
+            self.assertEqual(week_response[0]["labels"][2], "8-Jan-2012")
             self.assertEqual(week_response[0]["days"][1], "2012-01-01")
             self.assertEqual(week_response[0]["days"][2], "2012-01-08")
 
@@ -156,8 +156,8 @@ def sessions_test_factory(sessions, event_factory, person_factory):
             )
             self.assertEqual(hour_response[0]["data"][3], 4.0)
             self.assertEqual(hour_response[0]["data"][27], 2.0)
-            self.assertEqual(hour_response[0]["labels"][0], "Wed. 14 March, 00:00")
-            self.assertEqual(hour_response[0]["labels"][1], "Wed. 14 March, 01:00")
+            self.assertEqual(hour_response[0]["labels"][0], "14-Mar-2012 00:00")
+            self.assertEqual(hour_response[0]["labels"][1], "14-Mar-2012 01:00")
             self.assertEqual(hour_response[0]["days"][0], "2012-03-14 00:00:00")
             self.assertEqual(hour_response[0]["days"][1], "2012-03-14 01:00:00")
 
