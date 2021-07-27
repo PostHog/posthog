@@ -23,7 +23,7 @@ import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
-import { ErrorMessage, TimeOut } from './EmptyStates'
+import { ErrorMessage, FunnelEmptyState, TimeOut } from './EmptyStates'
 import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
@@ -467,22 +467,7 @@ function FunnelInsight(): JSX.Element {
                 </div>
             ) : null}
             {isLoading && <Loading />}
-            {isValidFunnel ? (
-                <Funnel filters={{ funnel_viz_type }} />
-            ) : (
-                !isLoading && (
-                    <div
-                        style={{
-                            textAlign: 'center',
-                        }}
-                    >
-                        <span>
-                            Enter your funnel details {!clickhouseFeaturesEnabled && `and click 'calculate'`} to create
-                            a funnel visualization
-                        </span>
-                    </div>
-                )
-            )}
+            {isValidFunnel ? <Funnel filters={{ funnel_viz_type }} /> : !isLoading && <FunnelEmptyState />}
         </div>
     )
 }

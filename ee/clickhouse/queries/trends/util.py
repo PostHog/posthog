@@ -48,7 +48,7 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     ]
     labels = [
         item.strftime(
-            "%a. %-d %B{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
+            "%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
         )
         for item in stats[0]
     ]

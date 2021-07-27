@@ -6,7 +6,9 @@
     }
 
     .ant-btn {
-        color: var(--primary);
+        a {
+            color: var(--primary);
+        }
     }
 
     .ant-modal-title {
