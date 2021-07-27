@@ -9,6 +9,7 @@ from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsPersons
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR
+from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
@@ -772,47 +773,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_2["conversion_rate"], 100)
         self.assertEqual(day_2["is_period_final"], True)
 
-    def test_window_size_one_day_not_broken_by_breakdown(self):
-        self._create_sample_data()
-
-        filter = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "display": TRENDS_LINEAR,
-                "interval": "day",
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
-                "funnel_window_days": 1,
-                "events": [
-                    {"id": "step one", "order": 0},
-                    {"id": "step two", "order": 1},
-                    {"id": "step three", "order": 2},
-                ],
-            }
-        )
-        results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
-
-        filter_breakdown = Filter(
-            data={
-                "insight": INSIGHT_FUNNELS,
-                "display": TRENDS_LINEAR,
-                "interval": "day",
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
-                "funnel_window_days": 1,
-                "breakdown": "x",
-                "breakdown_type": "event",
-                "events": [
-                    {"id": "step one", "order": 0},
-                    {"id": "step two", "order": 1},
-                    {"id": "step three", "order": 2},
-                ],
-            }
-        )
-        results_breakdown = ClickhouseFunnelTrends(filter_breakdown, self.team, ClickhouseFunnel)._exec_query()
-
-        self.assertEqual(results_breakdown, results)
-
     def test_one_person_in_multiple_periods_and_windows_in_unordered_funnel(self):
         _create_person(distinct_ids=["user_one"], team=self.team)
         _create_person(distinct_ids=["user_two"], team=self.team)
@@ -970,3 +930,309 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_4["reached_to_step_count"], 1)
         self.assertEqual(day_4["conversion_rate"], 50)
         self.assertEqual(day_4["is_period_final"], True)
+
+    def test_funnel_step_breakdown_event(self):
+        _create_person(distinct_ids=["user_one"], team=self.team)
+        _create_event(
+            event="step one",
+            distinct_id="user_one",
+            team=self.team,
+            timestamp="2021-05-01 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_one",
+            team=self.team,
+            timestamp="2021-05-03 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step three",
+            distinct_id="user_one",
+            team=self.team,
+            timestamp="2021-05-05 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+
+        _create_person(distinct_ids=["user_two"], team=self.team)
+        _create_event(
+            event="step one",
+            distinct_id="user_two",
+            team=self.team,
+            timestamp="2021-05-02 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_two",
+            team=self.team,
+            timestamp="2021-05-03 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step three",
+            distinct_id="user_two",
+            team=self.team,
+            timestamp="2021-05-05 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+
+        _create_person(distinct_ids=["user_three"], team=self.team)
+        _create_event(
+            event="step one",
+            distinct_id="user_three",
+            team=self.team,
+            timestamp="2021-05-03 00:00:00",
+            properties={"$browser": "Safari"},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_three",
+            team=self.team,
+            timestamp="2021-05-04 00:00:00",
+            properties={"$browser": "Safari"},
+        )
+        _create_event(
+            event="step three",
+            distinct_id="user_three",
+            team=self.team,
+            timestamp="2021-05-05 00:00:00",
+            properties={"$browser": "Safari"},
+        )
+
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+                "breakdown_type": "event",
+                "breakdown": "$browser",
+            }
+        )
+        funnel_trends = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)
+        result = funnel_trends.run()
+
+        self.assertEqual(len(result), 2)
+
+        for res in result:
+            if res["breakdown_value"] == "Chrome":
+                self.assertEqual(res["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            elif res["breakdown_value"] == "Safari":
+                self.assertEqual(res["data"], [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            else:
+                self.fail(msg="Invalid breakdown value")
+
+    def test_funnel_step_breakdown_person(self):
+        _create_person(
+            distinct_ids=["user_one"], team=self.team, properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step one",
+            distinct_id="user_one",
+            team=self.team,
+            timestamp="2021-05-01 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_one",
+            team=self.team,
+            timestamp="2021-05-03 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step three",
+            distinct_id="user_one",
+            team=self.team,
+            timestamp="2021-05-05 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+
+        _create_person(
+            distinct_ids=["user_two"], team=self.team, properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step one",
+            distinct_id="user_two",
+            team=self.team,
+            timestamp="2021-05-02 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_two",
+            team=self.team,
+            timestamp="2021-05-03 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step three",
+            distinct_id="user_two",
+            team=self.team,
+            timestamp="2021-05-05 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+
+        _create_person(
+            distinct_ids=["user_three"], team=self.team, properties={"$browser": "Safari"},
+        )
+        _create_event(
+            event="step one",
+            distinct_id="user_three",
+            team=self.team,
+            timestamp="2021-05-03 00:00:00",
+            properties={"$browser": "Safari"},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_three",
+            team=self.team,
+            timestamp="2021-05-04 00:00:00",
+            properties={"$browser": "Safari"},
+        )
+        _create_event(
+            event="step three",
+            distinct_id="user_three",
+            team=self.team,
+            timestamp="2021-05-05 00:00:00",
+            properties={"$browser": "Safari"},
+        )
+
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+                "breakdown_type": "person",
+                "breakdown": "$browser",
+            }
+        )
+        funnel_trends = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)
+        result = funnel_trends.run()
+
+        self.assertEqual(len(result), 2)
+
+        for res in result:
+            if res["breakdown_value"] == "Chrome":
+                self.assertEqual(res["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            elif res["breakdown_value"] == "Safari":
+                self.assertEqual(res["data"], [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            else:
+                self.fail(msg="Invalid breakdown value")
+
+    def test_funnel_trend_cohort_breakdown(self):
+        _create_person(
+            distinct_ids=["user_one"], team=self.team, properties={"key": "value"},
+        )
+        _create_event(
+            event="step one",
+            distinct_id="user_one",
+            team=self.team,
+            timestamp="2021-05-01 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_one",
+            team=self.team,
+            timestamp="2021-05-03 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step three",
+            distinct_id="user_one",
+            team=self.team,
+            timestamp="2021-05-05 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+
+        _create_person(
+            distinct_ids=["user_two"], team=self.team, properties={"key": "value"},
+        )
+        _create_event(
+            event="step one",
+            distinct_id="user_two",
+            team=self.team,
+            timestamp="2021-05-02 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_two",
+            team=self.team,
+            timestamp="2021-05-03 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="step three",
+            distinct_id="user_two",
+            team=self.team,
+            timestamp="2021-05-05 00:00:00",
+            properties={"$browser": "Chrome"},
+        )
+
+        _create_person(
+            distinct_ids=["user_three"], team=self.team, properties={"$browser": "Safari"},
+        )
+        _create_event(
+            event="step one",
+            distinct_id="user_three",
+            team=self.team,
+            timestamp="2021-05-03 00:00:00",
+            properties={"$browser": "Safari"},
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_three",
+            team=self.team,
+            timestamp="2021-05-04 00:00:00",
+            properties={"$browser": "Safari"},
+        )
+        _create_event(
+            event="step three",
+            distinct_id="user_three",
+            team=self.team,
+            timestamp="2021-05-05 00:00:00",
+            properties={"$browser": "Safari"},
+        )
+
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", groups=[{"properties": {"key": "value"}}])
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+                "breakdown_type": "cohort",
+                "breakdown": [cohort.pk],
+            }
+        )
+        funnel_trends = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)
+
+        result = funnel_trends.run()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
