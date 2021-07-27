@@ -1297,3 +1297,41 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person4.uuid],
         )
+
+    def test_basic_funnel_count_all(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_count_all": True,
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        # event
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="user_1", timestamp="2020-01-03T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
+        )
+
+        with self.assertNumQueries(1):
+            result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 2)
+        self.assertEqual(len(result[0]["people"]), 1)
+
+        self.assertEqual(result[1]["name"], "paid")
+        self.assertEqual(result[1]["count"], 2)
+        self.assertEqual(len(result[1]["people"]), 1)

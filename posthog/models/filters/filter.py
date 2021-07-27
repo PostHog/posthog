@@ -27,6 +27,7 @@ from posthog.models.filters.mixins.common import (
     ShownAsMixin,
 )
 from posthog.models.filters.mixins.funnel import (
+    FunnelCountAllMixin,
     FunnelFromToStepsMixin,
     FunnelLayoutMixin,
     FunnelPersonsStepBreakdownMixin,
@@ -68,6 +69,7 @@ class Filter(
     FunnelPersonsStepBreakdownMixin,
     FunnelLayoutMixin,
     FunnelTypeMixin,
+    FunnelCountAllMixin,
     HistogramMixin,
     BaseFilter,
 ):

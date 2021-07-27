@@ -31,10 +31,10 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         max_steps = len(self._filter.entities)
 
         breakdown_clause = self._get_breakdown_prop()
-
+        count_all = bool(self._filter.funnel_count_all)
         return f"""
-        SELECT {self._get_count_columns(max_steps)} {self._get_people_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
-                {self.get_step_counts_query()}
+        SELECT {self._get_count_columns(max_steps)} {self._get_people_columns(max_steps)} {self._get_step_time_avgs(max_steps, inner_query=count_all)} {self._get_step_time_median(max_steps, inner_query=count_all)} {breakdown_clause} FROM (
+                {self.get_max_step_counts() if count_all else self.get_step_counts_query()}
         ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
 
@@ -48,18 +48,26 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         return f", {formatted}" if formatted else ""
 
     def get_step_counts_query(self):
-        steps_per_person_query = self.get_step_counts_without_aggregation_query()
         max_steps = len(self._filter.entities)
         breakdown_clause = self._get_breakdown_prop()
 
         return f"""
             SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} FROM (
-                SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} FROM (
-                        {steps_per_person_query}
-                )
+                {self.get_max_step_counts()}
             ) GROUP BY person_id, steps {breakdown_clause}
             HAVING steps = max_steps
             SETTINGS allow_experimental_window_functions = 1
+        """
+
+    def get_max_step_counts(self):
+        steps_per_person_query = self.get_step_counts_without_aggregation_query()
+        max_steps = len(self._filter.entities)
+        breakdown_clause = self._get_breakdown_prop()
+
+        return f"""
+            SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} FROM (
+                    {steps_per_person_query}
+            )
         """
 
     def _format_results(self, results):

@@ -8,6 +8,7 @@ from posthog.constants import (
     DISPLAY,
     DROP_OFF,
     ENTRANCE_PERIOD_START,
+    FUNNEL_COUNT_ALL,
     FUNNEL_FROM_STEP,
     FUNNEL_LAYOUT,
     FUNNEL_ORDER_TYPE,
@@ -208,3 +209,14 @@ class FunnelTrendsPersonsMixin(BaseParamMixin):
         if self.drop_off is not None:
             result_dict[DROP_OFF] = self.drop_off
         return result_dict
+
+
+class FunnelCountAllMixin(BaseParamMixin):
+    @cached_property
+    def funnel_count_all(self) -> Optional[bool]:
+        _count_all = self._data.get(FUNNEL_COUNT_ALL)
+        return str_to_bool(str(_count_all)) if _count_all is not None else None
+
+    @include_dict
+    def funnel_count_all_to_dict(self):
+        return {"funnel_count_all": self.funnel_count_all} if self.funnel_count_all else {}
