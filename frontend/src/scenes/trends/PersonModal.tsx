@@ -5,9 +5,8 @@ import { TrendPeople, parsePeopleParams } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input, Row, Col, Skeleton } from 'antd'
 import { deepLinkToPersonSessions } from 'scenes/persons/PersonsTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter, ViewType } from '~/types'
-import { ACTION_TYPE, EVENT_TYPE, FEATURE_FLAGS } from 'lib/constants'
+import { ACTION_TYPE, EVENT_TYPE } from 'lib/constants'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
@@ -17,6 +16,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 // Utility function to handle filter conversion required for deeplinking to person -> sessions
 const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
     if (!people?.action) {
@@ -51,7 +51,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
         personsModalLogic
     )
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
     const title = useMemo(
         () =>
             isInitialLoad ? (
@@ -146,7 +146,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                                 padding: '0px 16px',
                             }}
                         >
-                            {featureFlags[FEATURE_FLAGS.PERSONS_MODAL_SEARCH] && (
+                            {!preflight?.is_clickhouse_enabled && (
                                 <Input.Search
                                     allowClear
                                     enterButton
