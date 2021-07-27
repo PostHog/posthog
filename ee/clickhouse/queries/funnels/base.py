@@ -134,9 +134,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
-                for exclusion in self._filter.exclusions:
+                for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     if exclusion.funnel_from_step + 1 == i:
-                        cols.append(f"exclusion_latest_{exclusion.funnel_from_step}")
+                        cols.append(f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}")
             else:
                 duplicate_event = 0
                 if i > 0 and self._filter.entities[i].equals(self._filter.entities[i - 1]):
@@ -144,11 +144,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 cols.append(
                     f"min(latest_{i}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
-                for exclusion in self._filter.exclusions:
+                for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
                     if exclusion.funnel_from_step + 1 == i:
                         cols.append(
-                            f"min(exclusion_latest_{exclusion.funnel_from_step}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_latest_{exclusion.funnel_from_step}"
+                            f"min(exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
                         )
         return ", ".join(cols)
 
@@ -157,10 +157,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
             return ""
 
         conditions = []
-        for exclusion in self._filter.exclusions:
+        for exclusion_id, exclusion in enumerate(self._filter.exclusions):
             from_time = f"latest_{exclusion.funnel_from_step}"
             to_time = f"latest_{exclusion.funnel_to_step}"
-            exclusion_time = f"exclusion_latest_{exclusion.funnel_from_step}"
+            exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
             condition = (
                 f"if( {exclusion_time} > {from_time} AND {exclusion_time} < "
                 f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_days} DAY, {to_time}), 1, 0)"
@@ -205,9 +205,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
             step_cols = self._get_step_col(entity, index, entity_name)
             all_step_cols.extend(step_cols)
 
-        for entity in self._filter.exclusions:
-            step_cols = self._get_step_col(entity, entity.funnel_from_step, entity_name, "exclusion_")
-            # every exclusion entity has the form: exclusion_step_i & timestamp exclusion_latest_i
+        for exclusion_id, entity in enumerate(self._filter.exclusions):
+            step_cols = self._get_step_col(entity, entity.funnel_from_step, entity_name, f"exclusion_{exclusion_id}_")
+            # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
             # where i is the starting step for exclusion on that entity
             all_step_cols.extend(step_cols)
 
@@ -241,8 +241,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
         for index in range(length):
             step_conditions.append(f"step_{index} = 1")
 
-        for entity in self._filter.exclusions:
-            step_conditions.append(f"exclusion_step_{entity.funnel_from_step} = 1")
+        for exclusion_id, entity in enumerate(self._filter.exclusions):
+            step_conditions.append(f"exclusion_{exclusion_id}_step_{entity.funnel_from_step} = 1")
 
         return " OR ".join(step_conditions)
 
