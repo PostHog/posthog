@@ -18,14 +18,19 @@ import { userLogic } from '../userLogic'
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
 function FormStepOne(): JSX.Element {
-    const { formStep, signupResponse } = useValues(signupLogic)
+    const { formStep, signupResponse, initialEmail } = useValues(signupLogic)
     const emailInputRef = useRef<Input | null>(null)
+    const passwordInputRef = useRef<Input | null>(null)
 
     useEffect(() => {
         if (formStep === 1) {
-            emailInputRef?.current?.focus()
+            if (initialEmail) {
+                passwordInputRef?.current?.focus()
+            } else {
+                emailInputRef?.current?.focus()
+            }
         }
-    }, [formStep])
+    }, [formStep, initialEmail])
 
     return (
         <div className={`form-step form-step-one${formStep !== 1 ? ' hide' : ''}`}>
@@ -51,6 +56,7 @@ function FormStepOne(): JSX.Element {
                 />
             </Form.Item>
             <PasswordInput
+                ref={passwordInputRef}
                 label="Create a password"
                 showStrengthIndicator
                 validateStatus={signupResponse?.errorAttribute === 'password' ? 'error' : undefined}
@@ -166,7 +172,7 @@ export function Signup(): JSX.Element | false {
     const { useBreakpoint } = Grid
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    const { formStep, signupResponse, signupResponseLoading } = useValues(signupLogic)
+    const { formStep, signupResponse, signupResponseLoading, initialEmail } = useValues(signupLogic)
     const { setFormStep, signup } = useActions(signupLogic)
     const screens = useBreakpoint()
     const isSmallScreen = (Object.keys(screens) as Breakpoint[]).filter((key) => screens[key]).length <= 2 // xs; sm
@@ -233,7 +239,13 @@ export function Signup(): JSX.Element | false {
                                         style={{ marginBottom: 16 }}
                                     />
                                 )}
-                            <Form layout="vertical" form={form} onFinish={handleFormSubmit} requiredMark={false}>
+                            <Form
+                                layout="vertical"
+                                form={form}
+                                onFinish={handleFormSubmit}
+                                requiredMark={false}
+                                initialValues={{ email: initialEmail }}
+                            >
                                 <FormStepOne />
                                 <FormStepTwo />
                             </Form>

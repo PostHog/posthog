@@ -6,27 +6,9 @@ import { EventDefinitionStorage } from '~/models/eventDefinitionsModel'
 import { infiniteListLogicType } from './infiniteListLogicType'
 import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
-import { InfiniteListLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { InfiniteListLogicProps, ListFuse, ListStorage, LoaderOptions } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { groups } from 'lib/components/TaxonomicFilter/groups'
-
-interface ListStorage {
-    results: (EventDefinition | CohortType)[]
-    searchQuery?: string // Query used for the results currently in state
-    count: number
-    queryChanged?: boolean
-    first?: boolean
-}
-
-interface LoaderOptions {
-    offset: number
-    limit: number
-}
-
-type ListFuse = Fuse<{
-    name: string
-    item: EventDefinition | CohortType
-}> // local alias for typegen
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {
@@ -51,7 +33,7 @@ const API_CACHE_TIMEOUT = 60000
 const apiCache: Record<string, EventDefinitionStorage> = {}
 const apiCacheTimers: Record<string, number> = {}
 
-export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage, LoaderOptions>>({
+export const infiniteListLogic = kea<infiniteListLogicType>({
     props: {} as InfiniteListLogicProps,
 
     key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,
@@ -235,7 +217,7 @@ export const infiniteListLogic = kea<infiniteListLogicType<ListFuse, ListStorage
         selectedItem: [(s) => [s.index, s.items], (index, items) => (index >= 0 ? items.results[index] : undefined)],
         selectedItemValue: [
             (s) => [s.selectedItem, s.group],
-            (selectedItem, group) => group?.getValue?.(selectedItem) || null,
+            (selectedItem, group) => (selectedItem ? group?.getValue?.(selectedItem) || null : null),
         ],
         selectedItemInView: [
             (s) => [s.index, s.startIndex, s.stopIndex],

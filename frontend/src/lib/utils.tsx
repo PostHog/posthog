@@ -435,8 +435,8 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
     const s = Math.floor((d % 3600) % 60)
 
     const dayDisplay = days > 0 ? days + 'd' : ''
-    const hDisplay = h > 0 ? h + (h == 1 ? 'hr' : 'hrs') : ''
-    const mDisplay = m > 0 ? m + (m == 1 ? 'min' : 'mins') : ''
+    const hDisplay = h > 0 ? h + 'h' : ''
+    const mDisplay = m > 0 ? m + 'min' : ''
     const sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
 
     let units: string[] = []
@@ -475,6 +475,51 @@ export function humanFriendlyDetailedTime(date: dayjs.Dayjs | string | null, wit
         formatString += ' a'
     }
     return parsedDate.format(formatString)
+}
+
+// Pad numbers with leading zeros
+export const zeroPad = (num: number, places: number): string => String(num).padStart(places, '0')
+
+export function colonDelimitedDuration(d: string | number | null | undefined, numUnits: number = 3): string {
+    // Convert `d` (seconds) to a colon delimited duration. includes `numUnits` no. of units starting from right
+    // Example: `01:10:09:08 = 1d 10hrs 9mins 8s`
+    if (d === '' || d === null || d === undefined) {
+        return ''
+    }
+    d = Number(d)
+
+    let s = d
+    let weeks = 0,
+        days = 0,
+        h = 0,
+        m = 0
+
+    if (numUnits >= 5) {
+        weeks = Math.floor(s / 604800)
+        s -= weeks * 604800
+    }
+    if (numUnits >= 4) {
+        days = Math.floor(s / 86400)
+        s -= days * 86400
+    }
+    if (numUnits >= 3) {
+        h = Math.floor(s / 3600)
+        s -= h * 3600
+    }
+    if (numUnits >= 2) {
+        m = Math.floor(s / 60)
+        s -= m * 60
+    }
+
+    const units = [zeroPad(weeks, 2), zeroPad(days, 2), zeroPad(h, 2), zeroPad(m, 2), zeroPad(s, 2)]
+
+    // get the last `numUnits` elements
+    return units.slice(0).slice(-Math.min(numUnits, 5)).join(':')
+}
+
+export function colonDelimitedDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string, maxUnits?: number): string {
+    const diff = dayjs(to).diff(dayjs(from), 'seconds')
+    return colonDelimitedDuration(diff, maxUnits)
 }
 
 export function stripHTTP(url: string): string {

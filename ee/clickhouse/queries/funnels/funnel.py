@@ -142,17 +142,18 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
-                for exclusion in self._filter.exclusions:
+                for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     if exclusion.funnel_from_step + 1 == i:
-                        cols.append(f"exclusion_latest_{exclusion.funnel_from_step}")
+                        cols.append(f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}")
             else:
                 comparison = self._get_comparison_at_step(i, level_index)
                 cols.append(f"if({comparison}, NULL, latest_{i}) as latest_{i}")
 
-                for exclusion in self._filter.exclusions:
+                for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     if exclusion.funnel_from_step + 1 == i:
+                        exclusion_identifier = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
                         cols.append(
-                            f"if(exclusion_latest_{exclusion.funnel_from_step} < latest_{exclusion.funnel_from_step}, NULL, exclusion_latest_{exclusion.funnel_from_step}) as exclusion_latest_{exclusion.funnel_from_step}"
+                            f"if({exclusion_identifier} < latest_{exclusion.funnel_from_step}, NULL, {exclusion_identifier}) as {exclusion_identifier}"
                         )
 
         return ", ".join(cols)

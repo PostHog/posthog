@@ -56,10 +56,10 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 
 
 def format_label_date(date: datetime.datetime, interval: str) -> str:
-    labels_format = "%a. {day} %B"
+    labels_format = "%-d-%b-%Y"
     if interval == "hour" or interval == "minute":
-        labels_format += ", %H:%M"
-    return date.strftime(labels_format.format(day=date.day))
+        labels_format += " %H:%M"
+    return date.strftime(labels_format)
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
