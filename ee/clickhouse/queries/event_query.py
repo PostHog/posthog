@@ -64,19 +64,22 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return ""
 
     def _determine_should_join_persons(self) -> None:
-        for prop in self._filter.properties:
-            if prop.type == "person":
-                self._should_join_distinct_ids = True
-                self._should_join_persons = True
-                return
-            if prop.type == "cohort" and self._does_cohort_need_persons(prop):
-                self._should_join_distinct_ids = True
-                self._should_join_persons = True
-                return
+        if any(self._should_property_join_persons(prop) for prop in self._filter.properties):
+            self._should_join_distinct_ids = True
+            self._should_join_persons = True
+            return
+
+        if any(
+            self._should_property_join_persons(prop) for entity in self._filter.entities for prop in entity.properties
+        ):
+            self._should_join_distinct_ids = True
+            self._should_join_persons = True
+            return
 
         if self._filter.breakdown_type == "person":
             self._should_join_distinct_ids = True
             self._should_join_persons = True
+            return
 
         if self._filter.filter_test_accounts:
             test_account_filters = Team.objects.only("test_account_filters").get(id=self._team_id).test_account_filters
@@ -86,6 +89,12 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     self._should_join_distinct_ids = True
                     self._should_join_persons = True
                     return
+
+    def _should_property_join_persons(self, prop: Property) -> bool:
+        if prop.type == "person":
+            return True
+
+        return prop.type == "cohort" and self._does_cohort_need_persons(prop)
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
         try:
