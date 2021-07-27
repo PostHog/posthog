@@ -124,11 +124,10 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
         conditions.append(f"arraySort([{','.join(event_times_elements)}]) as event_times")
         # replacement of latest_i for whatever query part requires it, just like conversion_times
-
         basic_conditions: List[str] = []
         for i in range(1, max_steps):
             basic_conditions.append(
-                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY, 1, 0)"
+                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, 1, 0)"
             )
 
         conditions.append(f"arraySum([{','.join(basic_conditions)}, 1])")
@@ -149,7 +148,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
             condition = (
                 f"if( {exclusion_time} > {from_time} AND {exclusion_time} < "
-                f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_days} DAY, {to_time}), 1, 0)"
+                f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_interval} DAY, {to_time}), 1, 0)"
             )
             conditions.append(condition)
 

@@ -14,7 +14,7 @@ from ee.clickhouse.queries.breakdown_props import (
 )
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
-from posthog.constants import FUNNEL_WINDOW_DAYS, LIMIT, TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import FUNNEL_WINDOW_INTERVAL, FUNNEL_WINDOW_INTERVAL_UNIT, LIMIT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity, Filter, Team
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
@@ -33,8 +33,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
         }
 
         # handle default if window isn't provided
-        if not self._filter.funnel_window_days:
-            self._filter = self._filter.with_data({FUNNEL_WINDOW_DAYS: 14})
+        if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
+            self._filter = self._filter.with_data({FUNNEL_WINDOW_INTERVAL: 14, FUNNEL_WINDOW_INTERVAL_UNIT: "day"})
+
+        if self._filter.funnel_window_days:
+            self._filter = self._filter.with_data(
+                {FUNNEL_WINDOW_INTERVAL: self._filter.funnel_window_days, FUNNEL_WINDOW_INTERVAL_UNIT: "day"}
+            )
 
         if not self._filter.limit:
             new_limit = {LIMIT: 100}
@@ -166,7 +171,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
             condition = (
                 f"if( {exclusion_time} > {from_time} AND {exclusion_time} < "
-                f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_days} DAY, {to_time}), 1, 0)"
+                f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, {to_time}), 1, 0)"
             )
             conditions.append(condition)
 
@@ -183,7 +188,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
         conditions: List[str] = []
         for i in range(1, curr_index):
             conditions.append(f"latest_{i - 1} < latest_{i }")
-            conditions.append(f"latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY")
+            conditions.append(
+                f"latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}"
+            )
 
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 

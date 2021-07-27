@@ -2,6 +2,8 @@ from datetime import date, datetime, timedelta
 from itertools import groupby
 from typing import Optional, Tuple, Type, Union
 
+from dateutil.relativedelta import relativedelta
+
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
@@ -31,7 +33,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
 
     ### What is {conversion_rate}?
 
-    Each time a funnel is entered by a person, they have exactly {funnel_window_days} days to go
+    Each time a funnel is entered by a person, they have exactly {funnel_window_interval} {funnel_window_interval_unit} to go
     through the funnel's steps. Later events are just not taken into account.
 
     For {conversion_rate}, we need to know reference steps: {from_step} and {to_step}.
@@ -201,8 +203,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     def _is_period_final(self, timestamp: Union[datetime, date]):
         # difference between current date and timestamp greater than window
         now = datetime.utcnow().date()
-        days_to_subtract = self._filter.funnel_window_days * -1
-        delta = timedelta(days=days_to_subtract)
+        intervals_to_subtract = self._filter.funnel_window_interval * -1
+        interval_unit = (
+            "day" if self._filter.funnel_window_interval_unit is None else self._filter.funnel_window_interval_unit
+        )
+        delta = relativedelta(**{f"{interval_unit}s": intervals_to_subtract})
         completed_end = now + delta
         compare_timestamp = timestamp.date() if isinstance(timestamp, datetime) else timestamp
         is_final = compare_timestamp <= completed_end

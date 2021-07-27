@@ -1,6 +1,8 @@
 import datetime
 from typing import Optional, Union
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.constants import (
     BIN_COUNT,
     DISPLAY,
@@ -14,6 +16,8 @@ from posthog.constants import (
     FUNNEL_TO_STEP,
     FUNNEL_VIZ_TYPE,
     FUNNEL_WINDOW_DAYS,
+    FUNNEL_WINDOW_INTERVAL,
+    FUNNEL_WINDOW_INTERVAL_UNIT,
     INSIGHT,
     INSIGHT_FUNNELS,
     TRENDS_LINEAR,
@@ -69,6 +73,46 @@ class FunnelWindowDaysMixin(BaseParamMixin):
     def microseconds_from_days(days):
         microseconds = 1000
         return microseconds * FunnelWindowDaysMixin.milliseconds_from_days(days)
+
+
+class FunnelWindowMixin(BaseParamMixin):
+    @cached_property
+    def funnel_window_interval(self) -> Optional[int]:
+        _amt = int(self._data.get(FUNNEL_WINDOW_INTERVAL, "0"))
+        if _amt == 0:
+            return None
+        return _amt
+
+    @cached_property
+    def funnel_window_interval_unit(self) -> Optional[str]:
+        _unit = self._data.get(FUNNEL_WINDOW_INTERVAL_UNIT, None)
+        return _unit.lower() if _unit is not None else _unit
+
+    @include_dict
+    def funnel_window_to_dict(self):
+        dict_part = {}
+        if self.funnel_window_interval is not None:
+            dict_part[FUNNEL_WINDOW_INTERVAL] = self.funnel_window_interval
+        if self.funnel_window_interval_unit is not None:
+            dict_part[FUNNEL_WINDOW_INTERVAL_UNIT] = self.funnel_window_interval_unit
+        return dict_part
+
+    def funnel_window_interval_unit_ch(self) -> str:
+        if self.funnel_window_interval_unit is None:
+            return "DAY"
+
+        if self.funnel_window_interval_unit == "minute":
+            return "MINUTE"
+        elif self.funnel_window_interval_unit == "hour":
+            return "HOUR"
+        elif self.funnel_window_interval_unit == "week":
+            return "WEEK"
+        elif self.funnel_window_interval_unit == "month":
+            return "MONTH"
+        elif self.funnel_window_interval_unit == "day":
+            return "DAY"
+        else:
+            raise ValidationError("{interval} not supported")
 
 
 class FunnelPersonsStepMixin(BaseParamMixin):
