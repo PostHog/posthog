@@ -69,18 +69,11 @@ class Entity(PropertyMixin):
 
         return True
 
-    """ Checks if this entity is a generalized version of other"""
-
     def includes(self, other) -> bool:
-        self_properties = sorted([str(prop) for prop in self.properties])
-        other_properties = sorted([str(prop) for prop in other.properties])
-
-        num_matched_props = sum([1 for x, y in zip(self_properties, other_properties) if x == y])
-
-        if self.id == other.id and num_matched_props == len(self_properties):
-            return True
-        else:
-            return False
+        """ Checks if this entity is a generalized version of other"""
+        return self.id == other.id and all(
+            str(self_prop) == str(other_prop) for self_prop, other_prop in zip(self.properties, other.properties)
+        )
 
     def get_action(self) -> Action:
         if self.type != TREND_FILTER_TYPE_ACTIONS:
