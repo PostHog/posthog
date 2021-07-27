@@ -166,9 +166,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         now = datetime.utcnow().date()
         intervals_to_subtract = self._filter.funnel_window_interval * -1
         interval_unit = (
-            "day"
-            if self._filter.funnel_window_interval_unit is None
-            else self._filter.funnel_window_interval_unit.lower()
+            "day" if self._filter.funnel_window_interval_unit is None else self._filter.funnel_window_interval_unit
         )
         delta = relativedelta(**{f"{interval_unit}s": intervals_to_subtract})
         completed_end = now + delta

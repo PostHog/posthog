@@ -86,7 +86,7 @@ class FunnelWindowMixin(BaseParamMixin):
     @cached_property
     def funnel_window_interval_unit(self) -> Optional[str]:
         _unit = self._data.get(FUNNEL_WINDOW_INTERVAL_UNIT, None)
-        return _unit
+        return _unit.lower() if _unit is not None else _unit
 
     @include_dict
     def funnel_window_to_dict(self):
@@ -101,15 +101,15 @@ class FunnelWindowMixin(BaseParamMixin):
         if self.funnel_window_interval_unit is None:
             return "DAY"
 
-        if self.funnel_window_interval_unit.lower() == "minute":
+        if self.funnel_window_interval_unit == "minute":
             return "MINUTE"
-        elif self.funnel_window_interval_unit.lower() == "hour":
+        elif self.funnel_window_interval_unit == "hour":
             return "HOUR"
-        elif self.funnel_window_interval_unit.lower() == "week":
+        elif self.funnel_window_interval_unit == "week":
             return "WEEK"
-        elif self.funnel_window_interval_unit.lower() == "month":
+        elif self.funnel_window_interval_unit == "month":
             return "MONTH"
-        elif self.funnel_window_interval_unit.lower() == "day":
+        elif self.funnel_window_interval_unit == "day":
             return "DAY"
         else:
             raise ValidationError("{interval} not supported")
