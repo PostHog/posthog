@@ -141,7 +141,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 duplicate_event = 0
                 if i > 0 and (
                     self._filter.entities[i].equals(self._filter.entities[i - 1])
-                    or self._filter.entities[i].includes(self._filter.entities[i - 1])
+                    or self._filter.entities[i].is_superset(self._filter.entities[i - 1])
                 ):
                     duplicate_event = 1
                 cols.append(

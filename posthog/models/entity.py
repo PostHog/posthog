@@ -69,8 +69,8 @@ class Entity(PropertyMixin):
 
         return True
 
-    def includes(self, other) -> bool:
-        """ Checks if this entity is a generalized version of other. The ids match and the properties of (this) is a subset of the properties of (other)"""
+    def is_superset(self, other) -> bool:
+        """ Checks if this entity is a superset version of other. The ids match and the properties of (this) is a subset of the properties of (other)"""
 
         self_properties = sorted([str(prop) for prop in self.properties])
         other_properties = sorted([str(prop) for prop in other.properties])

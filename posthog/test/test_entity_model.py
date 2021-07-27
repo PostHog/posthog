@@ -23,8 +23,8 @@ class TestEntity(TestCase):
             }
         )
 
-        self.assertTrue(entity2.includes(entity1))
-        self.assertFalse(entity1.includes(entity2))
+        self.assertTrue(entity2.is_superset(entity1))
+        self.assertFalse(entity1.is_superset(entity2))
 
     def test_inclusion_unordered(self):
         entity1 = Entity(
@@ -46,8 +46,8 @@ class TestEntity(TestCase):
             }
         )
 
-        self.assertTrue(entity2.includes(entity1))
-        self.assertFalse(entity1.includes(entity2))
+        self.assertTrue(entity2.is_superset(entity1))
+        self.assertFalse(entity1.is_superset(entity2))
 
     def test_equality_with_ids(self):
 
