@@ -133,6 +133,116 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             self._get_people_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
         )
 
+    def test_basic_funnel_with_derivative_steps(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0, "properties": {"key": "val"}},
+                {"id": "user signed up", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_window_days": 14,
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        # event
+        person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="stopped_after_signup1", properties={"key": "val"}
+        )
+        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
+
+        person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="stopped_after_signup2", properties={"key": "val"}
+        )
+
+        result = funnel.run()
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 2)
+        self.assertEqual(len(result[0]["people"]), 2)
+        self.assertEqual(result[1]["count"], 1)
+        self.assertEqual(len(result[1]["people"]), 1)
+
+        self.assertCountEqual(
+            self._get_people_at_step(filter, 1),
+            [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
+        )
+
+        self.assertCountEqual(
+            self._get_people_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
+        )
+
+    def test_basic_funnel_with_repeat_step_updated_param(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "user signed up", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_window": 14,
+            "funnel_window_interval": "day",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        # event
+        person1_stopped_after_two_signups = _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
+        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
+        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup1")
+
+        person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
+        _create_event(team=self.team, event="user signed up", distinct_id="stopped_after_signup2")
+
+        result = funnel.run()
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 2)
+        self.assertEqual(len(result[0]["people"]), 2)
+        self.assertEqual(result[1]["count"], 1)
+        self.assertEqual(len(result[1]["people"]), 1)
+
+        self.assertCountEqual(
+            self._get_people_at_step(filter, 1),
+            [person1_stopped_after_two_signups.uuid, person2_stopped_after_signup.uuid],
+        )
+
+        self.assertCountEqual(
+            self._get_people_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
+        )
+
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "user signed up", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_window": 2,
+            "funnel_window_interval": "week",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+        result2 = funnel.run()
+        self.assertEqual(result, result2)
+
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "user signed up", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_window_days": 14,
+            "funnel_window": 1,
+            "funnel_window_interval": "hour",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+        result3 = funnel.run()
+        self.assertEqual(result, result3)
+
     def test_funnel_exclusions_full_window(self):
         filters = {
             "events": [
