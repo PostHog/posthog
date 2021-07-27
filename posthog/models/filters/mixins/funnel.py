@@ -90,22 +90,26 @@ class FunnelWindowMixin(BaseParamMixin):
 
     @include_dict
     def funnel_window_to_dict(self):
-        return {FUNNEL_WINDOW: self.funnel_window} if self.funnel_window else {}
-
-    @include_dict
-    def funnel_window_interval_to_dict(self):
-        return {FUNNEL_WINDOW_INTERVAL: self.funnel_window_interval} if self.funnel_window_interval else {}
+        dict_part = {}
+        if self.funnel_window is not None:
+            dict_part[FUNNEL_WINDOW] = self.funnel_window
+        if self.funnel_window_interval is not None:
+            dict_part[FUNNEL_WINDOW_INTERVAL] = self.funnel_window_interval
+        return dict_part
 
     def funnel_window_interval_ch(self) -> str:
-        if self.funnel_window_interval == "minute":
+        if self.funnel_window_interval is None:
+            return "DAY"
+
+        if self.funnel_window_interval.lower() == "minute":
             return "MINUTE"
-        elif self.funnel_window_interval == "hour":
+        elif self.funnel_window_interval.lower() == "hour":
             return "HOUR"
-        elif self.funnel_window_interval == "week":
+        elif self.funnel_window_interval.lower() == "week":
             return "WEEK"
-        elif self.funnel_window_interval == "month":
+        elif self.funnel_window_interval.lower() == "month":
             return "MONTH"
-        elif self.funnel_window_interval == "day" or self.funnel_window_interval is None:
+        elif self.funnel_window_interval.lower() == "day":
             return "DAY"
         else:
             raise ValidationError("{interval} not supported")
