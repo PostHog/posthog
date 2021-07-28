@@ -233,8 +233,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 extra_join = self._get_cohort_breakdown_join()
             else:
                 breakdown_conditions = self._get_breakdown_conditions()
-                extra_conditions = "AND prop != ''" if select_prop else ""
-                extra_conditions += f"AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
+                extra_conditions = f" AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
 
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
@@ -416,8 +415,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
                         self._filter, first_entity, "count(*)", self._team.pk, limit
                     )
 
-            self.params.update({"breakdown_values": [*values, ""]})
-            # '' is for events/persons that don't have this value set
+            if len(values) < limit:
+                # '' is for events/persons that don't have this value set
+                values.append("")
+
+            self.params.update({"breakdown_values": values})
             return "prop IN %(breakdown_values)s"
         else:
             return ""
