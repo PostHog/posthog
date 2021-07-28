@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
@@ -197,5 +198,9 @@ class TestClickhouseCalculateCohort(calculate_cohort_test_factory(_create_event,
             },
         )
         cohort = Cohort.objects.get(pk=cohort_id)
+        res = sync_execute(f"SELECT * FROM person WHERE team_id = {self.team.pk}")
+        for row in res:
+            print(row)
+
         people = Person.objects.filter(cohort__id=cohort.pk)
         self.assertEqual(len(people), 1)
