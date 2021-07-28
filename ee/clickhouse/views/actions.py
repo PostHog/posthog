@@ -23,7 +23,7 @@ from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_SQL,
     GET_TEAM_PERSON_DISTINCT_IDS,
-    INSERT_COHORT_ALL_PEOPLE_SQL,
+    INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL,
     PEOPLE_SQL,
     PEOPLE_THROUGH_DISTINCT_SQL,
     PERSON_STATIC_COHORT_TABLE,
@@ -204,7 +204,7 @@ def insert_entity_people_into_cohort(cohort: Cohort, entity: Entity, filter: Fil
     content_sql, params = _process_content_sql(cohort.team, entity, filter)
     try:
         sync_execute(
-            INSERT_COHORT_ALL_PEOPLE_SQL.format(
+            INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL.format(
                 cohort_table=PERSON_STATIC_COHORT_TABLE,
                 content_sql=content_sql,
                 latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
