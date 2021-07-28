@@ -23,7 +23,7 @@
             }
 
             .domain,
-            g:first-child {
+            g.tick:nth-of-type(1) {
                 display: none; // hide axis line
             }
         }
