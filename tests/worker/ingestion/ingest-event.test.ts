@@ -112,7 +112,8 @@ describe('ingestEvent', () => {
                     is_user_id: null,
                     is_identified: false,
                     uuid: expect.any(String),
-                    distinct_ids: ['abc'],
+                    persondistinctid__team_id: 2,
+                    persondistinctid__distinct_id: 'abc',
                 },
             },
         }

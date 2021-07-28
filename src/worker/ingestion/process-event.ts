@@ -13,7 +13,6 @@ import {
     Hub,
     Person,
     PersonDistinctId,
-    PersonWithDistinctIds,
     PostgresSessionRecordingEvent,
     SessionRecordingEvent,
     TeamId,
@@ -335,7 +334,7 @@ export class EventsProcessor {
         }
     }
 
-    public async mergePeople(mergeInto: PersonWithDistinctIds, otherPerson: PersonWithDistinctIds): Promise<void> {
+    public async mergePeople(mergeInto: Person, otherPerson: Person): Promise<void> {
         let firstSeen = mergeInto.created_at
 
         // Merge properties
