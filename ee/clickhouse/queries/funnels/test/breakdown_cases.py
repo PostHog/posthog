@@ -493,6 +493,78 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
             breakdown_vals = sorted([res[0]["breakdown"] for res in result])
             self.assertEqual(["5", "6", "7", "8", "9"], breakdown_vals)
 
+        def test_funnel_step_custom_breakdown_limit_with_nulls(self):
+
+            filters = {
+                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2},],
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-08",
+                "funnel_window_days": 7,
+                "breakdown_type": "event",
+                "breakdown_limit": 4,
+                "breakdown": "some_breakdown_val",
+            }
+
+            filter = Filter(data=filters)
+            funnel = Funnel(filter, self.team)
+
+            for num in range(5):
+                for i in range(num):
+                    _create_person(distinct_ids=[f"person_{num}_{i}"], team_id=self.team.pk)
+                    _create_event(
+                        team=self.team,
+                        event="sign up",
+                        distinct_id=f"person_{num}_{i}",
+                        properties={"key": "val", "some_breakdown_val": num},
+                        timestamp="2020-01-01T12:00:00Z",
+                    )
+                    _create_event(
+                        team=self.team,
+                        event="play movie",
+                        distinct_id=f"person_{num}_{i}",
+                        properties={"key": "val", "some_breakdown_val": num},
+                        timestamp="2020-01-01T13:00:00Z",
+                    )
+                    _create_event(
+                        team=self.team,
+                        event="buy",
+                        distinct_id=f"person_{num}_{i}",
+                        properties={"key": "val", "some_breakdown_val": num},
+                        timestamp="2020-01-01T15:00:00Z",
+                    )
+
+            # no breakdown value for this guy
+            _create_person(distinct_ids=[f"person_null"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id=f"person_null",
+                properties={"key": "val"},
+                timestamp="2020-01-01T12:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="play movie",
+                distinct_id=f"person_null",
+                properties={"key": "val"},
+                timestamp="2020-01-01T13:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="buy",
+                distinct_id=f"person_null",
+                properties={"key": "val"},
+                timestamp="2020-01-01T15:00:00Z",
+            )
+
+            result = funnel.run()
+
+            # assert that we give 5 at a time at most and that those values are the most popular ones
+            print(result)
+            breakdown_vals = sorted([res[0]["breakdown"] for res in result])
+            self.assertEqual(["", "1", "2", "3", "4"], breakdown_vals)
+
         def test_funnel_step_breakdown_event_single_person_multiple_breakdowns(self):
 
             filters = {
