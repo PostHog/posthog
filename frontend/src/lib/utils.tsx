@@ -1032,3 +1032,7 @@ export function median(input: number[]): number {
     }
     return average([sorted[half - 1], sorted[half]])
 }
+
+export function sum(input: number[]): number {
+    return input.reduce((a, b) => a + b, 0)
+}

@@ -7,10 +7,9 @@ import { calcPercentage, getReferenceStep } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/Histogram'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { ChartParams, FunnelVizType } from '~/types'
 
 import './FunnelHistogram.scss'
-import { FunnelVizType } from '~/types'
-import { ChartParams } from '~/types'
 
 export function FunnelHistogramHeader(): JSX.Element | null {
     const { stepsWithCount, stepReference, histogramStepsDropdown, areFiltersValid } = useValues(funnelLogic)
