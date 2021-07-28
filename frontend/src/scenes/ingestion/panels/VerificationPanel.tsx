@@ -118,7 +118,7 @@ export function VerificationPanel(): JSX.Element {
                         Once you have integrated the snippet and sent an event, we will verify it sent properly and
                         continue
                     </p>
-                    {featureFlags[FEATURE_FLAGS.INGESTION_HELPER_ROW] ? <HelperButtonRow /> : <DefaultSkipCta />}
+                    {featureFlags[FEATURE_FLAGS.INGESTION_HELP_BUTTON] ? <HelperButtonRow /> : <DefaultSkipCta />}
                 </>
             ) : (
                 <>
