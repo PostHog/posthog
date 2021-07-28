@@ -117,7 +117,12 @@ export class ActionStep extends Component {
                     item="selector"
                     label="HTML selector matches"
                     selector={step.selector}
-                    caption="CSS selector that ideally uniquely identifies your element"
+                    caption={
+                        <>
+                            <p>CSS selector or an HTML attribute that ideally uniquely identifies your element.</p>
+                            <p>Use the following syntax to specify: [data-attr-key="data-attr-value"]</p>
+                        </>
+                    }
                 />
                 <div style={{ marginBottom: 18 }}>
                     <AndC />
