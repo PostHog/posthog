@@ -632,13 +632,19 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                     """
                 SELECT distinct_id
                 FROM
-                (
-                    SELECT person_id, distinct_id
+                (SELECT distinct_id,
+                        argMax(person_id, _timestamp) as person_id
+                FROM
+                    (SELECT distinct_id,
+                            person_id,
+                            max(_timestamp) as _timestamp
                     FROM person_distinct_id
                     WHERE team_id = %(team_id)s
-                    GROUP BY person_id, distinct_id, team_id
-                    HAVING max(is_deleted) = 0
-                )
+                    GROUP BY person_id,
+                            distinct_id,
+                            team_id
+                    HAVING max(is_deleted) = 0)
+                GROUP BY distinct_id)
                 where person_id IN
                     (SELECT person_id
                     FROM person_static_cohort

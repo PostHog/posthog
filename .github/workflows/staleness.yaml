@@ -9,13 +9,10 @@ jobs:
         steps:
             - uses: actions/stale@v4
               with:
-                  stale-issue-message: "This issue hasn't seen activity in 6 months. Is it still relevant?"
+                  only: pulls
                   stale-pr-message: "This PR hasn't seen activity in a week! Should it be merged, closed, or further worked on? If you want to keep it open, post a comment or remove the `stale` label – otherwise this will be closed in another week."
-                  close-issue-message: 'This issue was closed due to 12 months of inactivity. Feel free to reopen it if still relevant.'
                   close-pr-message: 'This PR was closed due to 2 weeks of inactivity. Feel free to reopen it if still relevant.'
-                  days-before-issue-stale: 183
                   days-before-pr-stale: 7
-                  days-before-issue-close: 365
                   days-before-pr-close: 14
                   stale-issue-label: stale
                   stale-pr-label: stale
