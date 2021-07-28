@@ -70,7 +70,7 @@ export function Histogram({
         .y(y)
         .tickSize(0)
         .tickFormat((v: number) => {
-            const count = formatYTickLabel(v) * 10000
+            const count = formatYTickLabel(v)
             // SI-prefix with trailing zeroes trimmed off
             return d3.format('~s')(count)
         })
