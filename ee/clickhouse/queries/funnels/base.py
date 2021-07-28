@@ -415,10 +415,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
                         self._filter, first_entity, "count(*)", self._team.pk, limit
                     )
 
-                if len(values) < limit:
-                    # '' is for events/persons that don't have this value set
-                    values.append("")
-
             self.params.update({"breakdown_values": values})
             return "prop IN %(breakdown_values)s"
         else:
