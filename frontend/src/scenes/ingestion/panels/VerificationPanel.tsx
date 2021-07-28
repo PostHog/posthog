@@ -18,13 +18,14 @@ export function VerificationPanel(): JSX.Element {
     const { setVerify, completeOnboarding } = useActions(ingestionLogic)
     const { index, totalSteps } = useValues(ingestionLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const [isMenuOpen, setIsMenuOpen] = useState(false)
+    const [isPopConfirmShowing, setPopConfirmShowing] = useState(false)
+    const [isHelpMenuShowing, setHelpMenuShowing] = useState(false)
 
     useInterval(() => {
-        if (!user?.team?.ingested_event && !isMenuOpen) {
+        if (!user?.team?.ingested_event && !isPopConfirmShowing && !isHelpMenuShowing) {
             loadUser()
         }
-    }, 1500)
+    }, 2000)
 
     function HelperButtonRow(): JSX.Element {
         function HelpButton(): JSX.Element {
@@ -47,21 +48,18 @@ export function VerificationPanel(): JSX.Element {
                 </Menu>
             )
             return (
-                <div
-                    onMouseLeave={() => {
-                        setIsMenuOpen(false)
+                <Dropdown
+                    overlay={menu}
+                    trigger={['click']}
+                    visible={isHelpMenuShowing}
+                    onVisibleChange={(v) => {
+                        setHelpMenuShowing(v)
                     }}
                 >
-                    <Dropdown overlay={menu} trigger={['click']}>
-                        <Button
-                            type="primary"
-                            data-attr="ingestion-help-button"
-                            onMouseEnter={() => setIsMenuOpen(true)}
-                        >
-                            Need help? <DownOutlined />
-                        </Button>
-                    </Dropdown>
-                </div>
+                    <Button type="primary" data-attr="ingestion-help-button" onClick={() => setHelpMenuShowing(true)}>
+                        Need help? <DownOutlined />
+                    </Button>
+                </Dropdown>
             )
         }
 
@@ -80,15 +78,22 @@ export function VerificationPanel(): JSX.Element {
                     okType="danger"
                     cancelText="No, go back."
                     onVisibleChange={(v) => {
-                        setIsMenuOpen(v)
+                        setPopConfirmShowing(v)
                     }}
                     onCancel={() => {
-                        setIsMenuOpen(false)
+                        setPopConfirmShowing(false)
                     }}
+                    visible={isPopConfirmShowing}
                     onConfirm={completeOnboarding}
                     cancelButtonProps={{ type: 'primary' }}
                 >
-                    <Button type="dashed" data-attr="ingestion-continue-anyway">
+                    <Button
+                        type="dashed"
+                        data-attr="ingestion-continue-anyway"
+                        onClick={() => {
+                            setPopConfirmShowing(true)
+                        }}
+                    >
                         Continue without verifying
                     </Button>
                 </Popconfirm>
