@@ -14,7 +14,14 @@ export interface HistogramConfig {
     transforms: { x: string; y: string; yGrid: string }
     axisFn: { x: any; y: any }
     transitionDuration: number
-    spacing: { btwnBins: number; yLabel: number; xLabel: number; labelLineHeight: number; barLabelPadding: number }
+    spacing: {
+        btwnBins: number
+        yLabel: number
+        xLabel: number
+        labelLineHeight: number
+        barLabelPadding: number
+        minBarWidth: number
+    }
 }
 
 export const INITIAL_CONFIG = {
@@ -29,7 +36,8 @@ export const INITIAL_CONFIG = {
         yLabel: 5, // y-axis label xOffset in vertical position
         xLabel: 8, // x-axis label xOffset in horizontal position
         labelLineHeight: 1.2, // line height of wrapped label text in em's,
-        barLabelPadding: 8, // padding between bar and bar label
+        barLabelPadding: 8, // padding between bar and bar label,
+        minBarWidth: 95, // minimum bar width
     },
 }
 

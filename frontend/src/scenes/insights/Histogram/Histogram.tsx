@@ -21,6 +21,7 @@ interface HistogramProps {
     data: HistogramDatum[]
     layout?: FunnelLayout
     isAnimated?: boolean
+    isDashboardItem?: boolean
     width?: number
     height?: number
     formatXTickLabel?: (value: number) => number | string
@@ -33,6 +34,7 @@ export function Histogram({
     width = INITIAL_CONFIG.width,
     height = INITIAL_CONFIG.height,
     isAnimated = false,
+    isDashboardItem = false,
     formatXTickLabel = (value: number) => value,
     formatYTickLabel = (value: number) => value,
 }: HistogramProps): JSX.Element {
@@ -80,8 +82,23 @@ export function Histogram({
 
     // Update config to new values if dimensions change
     useEffect(() => {
-        setConfig(getConfig(layout, width, height))
-    }, [layout, width, height])
+        const minWidth = Math.max(
+            width,
+            data.length * (config.spacing.minBarWidth + config.spacing.btwnBins) +
+                config.margin.left +
+                config.margin.right
+        )
+        console.log(
+            'widths',
+            minWidth,
+            width,
+            data.length * (config.spacing.minBarWidth + config.spacing.btwnBins) +
+                config.margin.left +
+                config.margin.right,
+            data.length
+        )
+        setConfig(getConfig(layout, isDashboardItem ? width : minWidth, height))
+    }, [data.length, layout, width, height])
 
     const ref = useD3(
         (container) => {
@@ -197,46 +214,48 @@ export function Histogram({
                     })
 
                 // text labels
-                const _labels = getOrCreateEl(_svg, 'g#labels', () => _svg.append('svg:g').attr('id', 'labels'))
-                _labels
-                    .selectAll('text')
-                    .data(d3Data)
-                    .join('text')
-                    .text((d) => d.label)
-                    .classed('bar-label', true)
-                    .each(function (this: any, d) {
-                        const { width: labelWidth, height: labelHeight } = this.getBBox()
-                        d.labelWidth = labelWidth
-                        d.labelHeight = labelHeight
-                        d.shouldShowInBar = false
-                    })
-                    .attr('x', (d) => {
-                        if (!isVertical) {
-                            const labelWidth = (d.labelWidth || 0) + 2 * config.spacing.barLabelPadding
-                            const shouldShowInBar = labelWidth <= y(d.count) - y(0)
-                            const labelDx = shouldShowInBar
-                                ? -(labelWidth - config.spacing.barLabelPadding)
-                                : config.spacing.barLabelPadding
+                if (!isDashboardItem) {
+                    const _labels = getOrCreateEl(_svg, 'g#labels', () => _svg.append('svg:g').attr('id', 'labels'))
+                    _labels
+                        .selectAll('text')
+                        .data(d3Data)
+                        .join('text')
+                        .text((d) => d.label)
+                        .classed('bar-label', true)
+                        .each(function (this: any, d) {
+                            const { width: labelWidth, height: labelHeight } = this.getBBox()
+                            d.labelWidth = labelWidth
+                            d.labelHeight = labelHeight
+                            d.shouldShowInBar = false
+                        })
+                        .attr('x', (d) => {
+                            if (!isVertical) {
+                                const labelWidth = (d.labelWidth || 0) + 2 * config.spacing.barLabelPadding
+                                const shouldShowInBar = labelWidth <= y(d.count) - y(0)
+                                const labelDx = shouldShowInBar
+                                    ? -(labelWidth - config.spacing.barLabelPadding)
+                                    : config.spacing.barLabelPadding
+                                d.shouldShowInBar = shouldShowInBar
+                                return y(d.count) + labelDx
+                            }
+                            // x + bin width + dx + dy
+                            return x(d.bin0) + binWidth / 2 - (d.labelWidth || 0) / 2
+                        })
+                        .attr('y', (d) => {
+                            if (!isVertical) {
+                                return x(d.bin0) + binWidth / 2
+                            }
+                            // determine if label should be in the bar or above it.
+                            const labelHeight = (d.labelHeight || 0) + 2 * config.spacing.barLabelPadding
+                            const shouldShowInBar = labelHeight <= y(0) - y(d.count)
+                            const labelDy = shouldShowInBar
+                                ? labelHeight - config.spacing.barLabelPadding
+                                : -config.spacing.barLabelPadding
                             d.shouldShowInBar = shouldShowInBar
-                            return y(d.count) + labelDx
-                        }
-                        // x + bin width + dx + dy
-                        return x(d.bin0) + binWidth / 2 - (d.labelWidth || 0) / 2
-                    })
-                    .attr('y', (d) => {
-                        if (!isVertical) {
-                            return x(d.bin0) + binWidth / 2
-                        }
-                        // determine if label should be in the bar or above it.
-                        const labelHeight = (d.labelHeight || 0) + 2 * config.spacing.barLabelPadding
-                        const shouldShowInBar = labelHeight <= y(0) - y(d.count)
-                        const labelDy = shouldShowInBar
-                            ? labelHeight - config.spacing.barLabelPadding
-                            : -config.spacing.barLabelPadding
-                        d.shouldShowInBar = shouldShowInBar
-                        return y(d.count) + labelDy
-                    })
-                    .classed('outside', (d) => !d.shouldShowInBar)
+                            return y(d.count) + labelDy
+                        })
+                        .classed('outside', (d) => !d.shouldShowInBar)
+                }
 
                 return _svg
             }
@@ -246,5 +265,5 @@ export function Histogram({
         [data, config]
     )
 
-    return <div className="histogram-container" ref={ref} />
+    return <div className="histogram-container" ref={ref} style={{ minWidth: config.width }} />
 }

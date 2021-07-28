@@ -1,6 +1,7 @@
 import React, { useRef } from 'react'
 import { Col, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
+import clsx from 'clsx'
 import useSize from '@react-hook/size'
 import { ANTD_TOOLTIP_PLACEMENTS, hashCodeForString, humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { calcPercentage, getReferenceStep } from './funnelUtils'
@@ -72,8 +73,7 @@ export function FunnelHistogram({ filters, dashboardItemId }: Omit<ChartParams, 
 
     return (
         <div
-            className="funnel-histogram-outer-container"
-            style={dashboardItemId ? {} : { maxHeight: 500 }}
+            className={clsx('funnel-histogram-outer-container', { scrollable: !dashboardItemId })}
             ref={ref}
             data-attr="funnel-histogram"
         >
@@ -82,7 +82,8 @@ export function FunnelHistogram({ filters, dashboardItemId }: Omit<ChartParams, 
                     key={key}
                     data={histogramGraphData}
                     width={width}
-                    height={height}
+                    isDashboardItem={!!dashboardItemId}
+                    height={dashboardItemId ? height : undefined}
                     formatXTickLabel={(v) => humanFriendlyDuration(v, 2)}
                 />
             ) : null}
