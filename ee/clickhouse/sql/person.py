@@ -17,7 +17,6 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     team_id Int64,
     properties VARCHAR,
     is_identified Boolean,
-    distinct_ids Array(VARCHAR),
     is_deleted Boolean DEFAULT 0
     {extra_fields}
 ) ENGINE = {engine}
@@ -51,7 +50,6 @@ created_at,
 team_id,
 properties,
 is_identified,
-distinct_ids,
 is_deleted,
 _timestamp,
 _offset
