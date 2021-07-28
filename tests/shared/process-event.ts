@@ -3,16 +3,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 import { performance } from 'perf_hooks'
 
-import {
-    Database,
-    Event,
-    Hub,
-    LogLevel,
-    Person,
-    PersonWithDistinctIds,
-    PluginsServerConfig,
-    Team,
-} from '../../src/types'
+import { Database, Event, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { hashElements } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
@@ -52,7 +43,7 @@ async function createPerson(
     team: Team,
     distinctIds: string[],
     properties: Record<string, any> = {}
-): Promise<PersonWithDistinctIds> {
+): Promise<Person> {
     return server.db.createPerson(DateTime.utc(), properties, team.id, null, false, new UUIDT().toString(), distinctIds)
 }
 
@@ -180,8 +171,7 @@ export const createProcessEventTests = (
         }
 
         expect((await hub.db.fetchPersons()).length).toEqual(2)
-        const person0 = (await hub.db.fetchPerson(team.id, 'person_0'))!
-        const person1 = (await hub.db.fetchPerson(team.id, 'person_1'))!
+        const [person0, person1] = await hub.db.fetchPersons()
 
         await eventsProcessor.mergePeople(person0, person1)
 

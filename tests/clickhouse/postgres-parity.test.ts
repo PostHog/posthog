@@ -1,15 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import {
-    Database,
-    Hub,
-    LogLevel,
-    PersonWithDistinctIds,
-    PluginsServerConfig,
-    Team,
-    TimestampFormat,
-} from '../../src/types'
+import { Database, Hub, LogLevel, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
 import { castTimestampOrNow, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
@@ -59,36 +51,6 @@ describe('postgres parity', () => {
         await stopServer()
     })
 
-    test('fetchPerson', async () => {
-        const uuid = new UUIDT().toString()
-        const person = await hub.db.createPerson(
-            DateTime.utc(),
-            { userProp: 'propValue' },
-            team.id,
-            null,
-            false,
-            uuid,
-            ['distinct1', 'distinct2']
-        )
-        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
-        await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
-
-        const fetchedPerson = await hub.db.fetchPerson(team.id, 'distinct2')
-
-        expect(fetchedPerson).toEqual({
-            id: expect.any(Number),
-            created_at: expect.any(DateTime),
-            properties: {
-                userProp: 'propValue',
-            },
-            team_id: 2,
-            is_user_id: null,
-            is_identified: false,
-            uuid: uuid,
-            distinct_ids: ['distinct1', 'distinct2'],
-        })
-    })
-
     test('createPerson', async () => {
         const uuid = new UUIDT().toString()
         const person = await hub.db.createPerson(DateTime.utc(), { userProp: 'propValue' }, team.id, null, true, uuid, [
@@ -107,7 +69,6 @@ describe('postgres parity', () => {
                 properties: '{"userProp":"propValue"}',
                 is_identified: 1,
                 is_deleted: 0,
-                distinct_ids: expect.arrayContaining(['distinct1', 'distinct2']),
                 _timestamp: expect.any(String),
                 _offset: expect.any(Number),
             },
@@ -115,21 +76,24 @@ describe('postgres parity', () => {
         const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(person, Database.ClickHouse)
         expect(clickHouseDistinctIds).toEqual(['distinct1', 'distinct2'])
 
-        const postgresPerson = await hub.db.fetchPerson(team.id, 'distinct1')
-        expect(postgresPerson).toEqual({
-            id: expect.any(Number),
-            created_at: expect.any(DateTime),
-            properties: {
-                userProp: 'propValue',
+        const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
+        expect(postgresPersons).toEqual([
+            {
+                id: expect.any(Number),
+                created_at: expect.any(DateTime),
+                properties: {
+                    userProp: 'propValue',
+                },
+                team_id: 2,
+                is_user_id: null,
+                is_identified: true,
+                uuid: uuid,
             },
-            team_id: 2,
-            is_user_id: null,
-            is_identified: true,
-            uuid: uuid,
-            distinct_ids: expect.arrayContaining(['distinct1', 'distinct2']),
-        })
+        ])
+        const postgresDistinctIds = await hub.db.fetchDistinctIdValues(person, Database.Postgres)
+        expect(postgresDistinctIds).toEqual(['distinct1', 'distinct2'])
 
-        expect(person).toEqual(postgresPerson)
+        expect(person).toEqual(postgresPersons[0])
     })
 
     test('updatePerson', async () => {
@@ -166,16 +130,11 @@ describe('postgres parity', () => {
         expect(clickHousePersons[0].is_identified).toEqual(1)
         expect(clickHousePersons[0].is_deleted).toEqual(0)
         expect(clickHousePersons[0].properties).toEqual('{"replacedUserProp":"propValue"}')
-        expect(clickHousePersons[0].distinct_ids).toEqual(expect.arrayContaining(['distinct1', 'distinct2']))
 
         // update date and boolean to false
 
         const randomDate = DateTime.utc().minus(100000).setZone('UTC')
-        await hub.db.updatePerson(person, { created_at: randomDate, is_identified: false }, [
-            'distinct1',
-            'distinct2',
-            'distinct3',
-        ])
+        await hub.db.updatePerson(person, { created_at: randomDate, is_identified: false })
 
         await delayUntilEventIngested(async () =>
             (await hub.db.fetchPersons(Database.ClickHouse)).filter((p) => !p.is_identified)
@@ -195,9 +154,6 @@ describe('postgres parity', () => {
             // TODO: get rid of `+ '.000'` by removing the need for ClickHouseSecondPrecision on CH persons
             castTimestampOrNow(randomDate, TimestampFormat.ClickHouseSecondPrecision) + '.000'
         )
-        expect(clickHousePersons2[0].distinct_ids).toEqual(
-            expect.arrayContaining(['distinct1', 'distinct2', 'distinct3'])
-        )
     })
 
     test('addDistinctId', async () => {
@@ -216,7 +172,7 @@ describe('postgres parity', () => {
             ['another_distinct_id']
         )
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
-        const postgresPerson = (await hub.db.fetchPerson(team.id, 'distinct1'))!
+        const [postgresPerson] = await hub.db.fetchPersons(Database.Postgres)
 
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse), 1)
         const clickHouseDistinctIdValues = await hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse)
