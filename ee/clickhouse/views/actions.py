@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
+from django.db.models.expressions import F
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.decorators import action
@@ -21,7 +23,7 @@ from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_SQL,
     GET_TEAM_PERSON_DISTINCT_IDS,
-    INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL,
+    INSERT_COHORT_ALL_PEOPLE_SQL,
     PEOPLE_SQL,
     PEOPLE_THROUGH_DISTINCT_SQL,
     PERSON_STATIC_COHORT_TABLE,
@@ -200,15 +202,23 @@ def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
 
 def insert_entity_people_into_cohort(cohort: Cohort, entity: Entity, filter: Filter):
     content_sql, params = _process_content_sql(cohort.team, entity, filter)
-    sync_execute(
-        INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL.format(
-            cohort_table=PERSON_STATIC_COHORT_TABLE,
-            content_sql=content_sql,
-            latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-        ),
-        {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
-    )
+    try:
+        sync_execute(
+            INSERT_COHORT_ALL_PEOPLE_SQL.format(
+                cohort_table=PERSON_STATIC_COHORT_TABLE,
+                content_sql=content_sql,
+                latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+            ),
+            {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
+        )
+    except Exception as err:
+        if settings.DEBUG:
+            raise err
+        cohort.is_calculating = False
+        cohort.errors_calculating = F("errors_calculating") + 1
+        cohort.save()
+        capture_exception(err)
 
 
 class LegacyClickhouseActionsViewSet(ClickhouseActionsViewSet):
