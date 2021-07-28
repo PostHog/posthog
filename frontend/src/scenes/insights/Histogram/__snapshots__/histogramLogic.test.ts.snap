@@ -35,6 +35,7 @@ Object {
       "barLabelPadding": 8,
       "btwnBins": 6,
       "labelLineHeight": 1.2,
+      "minBarWidth": 95,
       "xLabel": 8,
       "yLabel": 5,
     },
