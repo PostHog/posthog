@@ -3,7 +3,6 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
@@ -108,23 +107,26 @@ class TestClickhouseCalculateCohort(calculate_cohort_test_factory(_create_event,
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay")
     def test_create_trends_cohort(self, _insert_cohort_from_query):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"])
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="blabla",
-            properties={"$math_prop": 1},
-            timestamp="2021-01-01 00:06:34",
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="blabla",
-            properties={"$math_prop": 4},
-            timestamp="2021-01-01T12:00:00Z",
-        )
+        with freeze_time("2021-01-01 00:06:34"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="blabla",
+                properties={"$math_prop": 1},
+                timestamp="2021-01-01T12:00:00Z",
+            )
+
+        with freeze_time("2021-01-02 00:06:34"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="blabla",
+                properties={"$math_prop": 4},
+                timestamp="2021-01-01T12:00:00Z",
+            )
 
         response = self.client.post(
-            "/api/cohort/?interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=%5B%5D&entity_id=%24pageview&entity_type=events&date_from=2021-01-01&label=%24pageview",
+            "/api/cohort/?interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=%5B%5D&entity_id=%24pageview&entity_type=events&date_from=2021-01-01&date_to=2021-01-01&label=%24pageview",
             {"name": "test", "is_static": True},
         ).json()
         cohort_id = response["id"]
@@ -133,6 +135,7 @@ class TestClickhouseCalculateCohort(calculate_cohort_test_factory(_create_event,
             "TRENDS",
             {
                 "date_from": "2021-01-01",
+                "date_to": "2021-01-01",
                 "display": "ActionsLineGraph",
                 "events": [
                     {
@@ -165,6 +168,7 @@ class TestClickhouseCalculateCohort(calculate_cohort_test_factory(_create_event,
             "TRENDS",
             {
                 "date_from": "2021-01-01",
+                "date_to": "2021-01-01",
                 "display": "ActionsLineGraph",
                 "events": [
                     {
