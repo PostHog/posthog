@@ -88,15 +88,6 @@ export function Histogram({
                 config.margin.left +
                 config.margin.right
         )
-        console.log(
-            'widths',
-            minWidth,
-            width,
-            data.length * (config.spacing.minBarWidth + config.spacing.btwnBins) +
-                config.margin.left +
-                config.margin.right,
-            data.length
-        )
         setConfig(getConfig(layout, isDashboardItem ? width : minWidth, height))
     }, [data.length, layout, width, height])
 
