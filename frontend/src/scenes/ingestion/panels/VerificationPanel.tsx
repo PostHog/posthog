@@ -21,10 +21,8 @@ export function VerificationPanel(): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
 
     useInterval(() => {
-        if (!user?.team?.ingested_event) {
-            if (!isMenuOpen) {
-                loadUser()
-            }
+        if (!user?.team?.ingested_event && !isMenuOpen) {
+            loadUser()
         }
     }, 1500)
 
