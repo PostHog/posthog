@@ -139,7 +139,6 @@ def insert_stickiness_people_into_cohort(cohort: Cohort, target_entity: Entity, 
         sync_execute(
             INSERT_COHORT_ALL_PEOPLE_SQL.format(
                 content_sql=content_sql,
-                query="",
                 latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
                 cohort_table=PERSON_STATIC_COHORT_TABLE,
                 GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
