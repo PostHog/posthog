@@ -32,10 +32,10 @@ export function VerificationPanel(): JSX.Element {
         function HelpButton(): JSX.Element {
             const menu = (
                 <Menu selectable>
-                    <Menu.Item key="1">
+                    <Menu.Item key="1" data-attr="ingestion-help-item-invite">
                         <CreateInviteModalWithButton type="link" />
                     </Menu.Item>
-                    <Menu.Item key="2">
+                    <Menu.Item key="2" data-attr="ingestion-help-item-slack">
                         <Button
                             type="link"
                             onClick={() => {
@@ -55,7 +55,11 @@ export function VerificationPanel(): JSX.Element {
                     }}
                 >
                     <Dropdown overlay={menu} trigger={['click']}>
-                        <Button type="primary" onMouseEnter={() => setIsMenuOpen(true)}>
+                        <Button
+                            type="primary"
+                            data-attr="ingestion-help-button"
+                            onMouseEnter={() => setIsMenuOpen(true)}
+                        >
                             Need help? <DownOutlined />
                         </Button>
                     </Dropdown>
@@ -65,8 +69,9 @@ export function VerificationPanel(): JSX.Element {
 
         const popoverTitle = (
             <Space direction="vertical">
-                <Text strong>Are you sure you want to continue without event data?</Text>
-                <Text>For the best experience, we strongly recommend adding event data before continuing.</Text>
+                <Text strong>Are you sure you want to continue without data?</Text>
+                <Text>You won't be able to conduct analysis or use most tools without event data.</Text>
+                <Text>For the best experience, we recommend adding event data before continuing.</Text>
             </Space>
         )
         return (
@@ -85,7 +90,9 @@ export function VerificationPanel(): JSX.Element {
                     onConfirm={completeOnboarding}
                     cancelButtonProps={{ type: 'primary' }}
                 >
-                    <Button type="dashed">Continue without verifying</Button>
+                    <Button type="dashed" data-attr="ingestion-continue-anyway">
+                        Continue without verifying
+                    </Button>
                 </Popconfirm>
                 <HelpButton />
             </Space>
@@ -116,7 +123,7 @@ export function VerificationPanel(): JSX.Element {
                     <p className="prompt-text">
                         {' '}
                         Once you have integrated the snippet and sent an event, we will verify it sent properly and
-                        continue
+                        continue.
                     </p>
                     {featureFlags[FEATURE_FLAGS.INGESTION_HELP_BUTTON] ? <HelperButtonRow /> : <DefaultSkipCta />}
                 </>
