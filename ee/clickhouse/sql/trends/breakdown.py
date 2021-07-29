@@ -73,7 +73,7 @@ INNER JOIN (
         SELECT
             id,
             trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
-        FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s /* :TODO: should this have person_prop_filters ?? */
+        FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s
     )
 ) ep
 ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}

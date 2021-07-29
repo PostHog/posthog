@@ -160,7 +160,6 @@ class ClickhouseTrendsBreakdown:
 
     def _breakdown_person_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
         values_arr = get_breakdown_person_prop_values(filter, entity, aggregate_operation, team_id)
-        print(values_arr)
         breakdown_filter_params = {
             "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
         }
@@ -214,12 +213,8 @@ class ClickhouseTrendsBreakdown:
         return _parse
 
     def _breakdown_result_descriptors(self, breakdown_value, filter: Filter, entity: Entity):
-        stripped_value = (
-            breakdown_value  # breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
-        )
-
         extra_label = self._determine_breakdown_label(
-            breakdown_value, filter.breakdown_type, filter.breakdown, stripped_value
+            breakdown_value, filter.breakdown_type, filter.breakdown, breakdown_value
         )
         label = "{} - {}".format(entity.name, extra_label)
         additional_values = {
@@ -228,7 +223,7 @@ class ClickhouseTrendsBreakdown:
         if filter.breakdown_type == "cohort":
             additional_values["breakdown_value"] = "all" if breakdown_value == 0 else breakdown_value
         else:
-            additional_values["breakdown_value"] = stripped_value
+            additional_values["breakdown_value"] = breakdown_value
 
         return additional_values
 
