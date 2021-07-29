@@ -1,7 +1,7 @@
 import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { autocorrectInterval, objectsEqual, uuid } from 'lib/utils'
+import { autocorrectInterval, objectsEqual, sum, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -357,13 +357,16 @@ export const funnelLogic = kea<funnelLogicType>({
                     return []
                 }
                 const binSize = timeConversionBins.bins[1][0] - timeConversionBins.bins[0][0]
+                const totalCount = sum(timeConversionBins.bins.map(([, count]) => count))
                 return timeConversionBins.bins.map(([id, count]: [id: number, count: number]) => {
                     const value = Math.max(0, id)
+                    const percent = calcPercentage(count, totalCount)
                     return {
                         id: value,
                         bin0: value,
                         bin1: value + binSize,
                         count,
+                        label: percent === 0 ? '' : `${percent}%`,
                     }
                 })
             },
@@ -381,6 +384,11 @@ export const funnelLogic = kea<funnelLogicType>({
                         count: stepsWithCount[stepsWithCount.length - 1].count,
                         average_conversion_time: conversionMetrics.averageTime,
                     })
+                }
+
+                // Don't show steps 1 -> 2 if there's only two steps
+                if (stepsWithCount.length === 2) {
+                    return stepsDropdown
                 }
 
                 stepsWithCount.forEach((_, idx) => {

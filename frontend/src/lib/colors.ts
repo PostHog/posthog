@@ -129,3 +129,17 @@ export function getBarColorFromStatus(status: string, hover?: boolean): string {
             return 'black'
     }
 }
+
+export function getGraphColors(isLightTheme: boolean = true): Record<string, string | null> {
+    return {
+        axisLabel: isLightTheme ? '#333' : 'rgba(255,255,255,0.8)',
+        axisLine: isLightTheme ? '#ddd' : 'rgba(255,255,255,0.2)',
+        axis: isLightTheme ? '#999' : 'rgba(255,255,255,0.6)',
+        crosshair: 'rgba(0,0,0,0.2)',
+        tooltipBackground: '#1dc9b7',
+        tooltipTitle: '#fff',
+        tooltipBody: '#fff',
+        annotationColor: isLightTheme ? null : 'white',
+        annotationAccessoryColor: isLightTheme ? null : 'black',
+    }
+}
