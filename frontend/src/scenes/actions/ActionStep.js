@@ -4,7 +4,8 @@ import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Card, Col, Input, Radio } from 'antd'
+import { Card, Col, Input, Radio, Typography, Space } from 'antd'
+const { Text } = Typography
 import { ExportOutlined } from '@ant-design/icons'
 
 export class ActionStep extends Component {
@@ -118,10 +119,15 @@ export class ActionStep extends Component {
                     label="HTML selector matches"
                     selector={step.selector}
                     caption={
-                        <>
-                            <p>CSS selector or an HTML attribute that ideally uniquely identifies your element.</p>
-                            <p>Use the following syntax to specify: [data-attr-key="data-attr-value"]</p>
-                        </>
+                        <Space direction="vertical">
+                            <Text>
+                                CSS selector or an HTML attribute that ideally uniquely identifies your element.
+                            </Text>
+                            <Text>As an example, if the following was your HTML code:</Text>
+                            <Text code> {'<Button data-attr="signup"> Signup </Button>'}</Text>
+                            <Text>You'd use the following syntax to specify this element:</Text>
+                            <Text code>[data-attr="signup"]</Text>
+                        </Space>
                     }
                 />
                 <div style={{ marginBottom: 18 }}>
