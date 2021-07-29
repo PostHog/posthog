@@ -262,3 +262,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
     no_new_organizations:
         'Your email address is not associated with an account. Please ask your administrator for an invite.',
 }
+
+// Cohort types
+export const COHORT_STATIC = 'static'
+export const COHORT_DYNAMIC = 'dynamic'

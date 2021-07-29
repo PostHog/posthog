@@ -2,17 +2,19 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { CohortNameInput } from './CohortNameInput'
 import { CohortDescriptionInput } from './CohortDescriptionInput'
-import { CohortTypeSelector, DYNAMIC, STATIC } from './CohortTypeSelector'
 import { Button, Col, Divider, Row, Spin } from 'antd'
 import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
 import { CohortGroupType, CohortType } from '~/types'
-import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { COHORT_DYNAMIC, COHORT_STATIC, ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { InboxOutlined, DeleteOutlined, SaveOutlined, LoadingOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { CohortDetailsRow } from './CohortDetailsRow'
 import { Persons } from 'scenes/persons/Persons'
 import { cohortLogic } from './cohortLogic'
 import { UploadFile } from 'antd/lib/upload/interface'
+
+import { CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
+import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 
 export function CohortV2(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
@@ -68,12 +70,12 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
     }
 
     const onTypeChange = (type: string): void => {
-        if (type === STATIC) {
+        if (type === COHORT_STATIC) {
             setCohort({
                 ...cohort,
                 is_static: true,
             })
-        } else if (type === DYNAMIC) {
+        } else if (type === COHORT_DYNAMIC) {
             setCohort({
                 ...cohort,
                 is_static: false,
@@ -93,6 +95,21 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
         accept: '.csv',
     }
 
+    const COHORT_TYPE_OPTIONS = [
+        {
+            key: COHORT_STATIC,
+            label: 'Static',
+            description: 'Upload a list of users. Updates manually',
+            icon: <OrderedListOutlined />,
+        },
+        {
+            key: COHORT_DYNAMIC,
+            label: 'Dynamic',
+            description: 'Cohort updates dynamically based on properties',
+            icon: <CalculatorOutlined />,
+        },
+    ]
+
     return (
         <div className="mb">
             <Row gutter={16}>
@@ -105,7 +122,11 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
                     <CohortNameInput input={cohort.name} onChange={onNameChange} />
                 </Col>
                 <Col md={10}>
-                    <CohortTypeSelector type={cohort.is_static ? STATIC : DYNAMIC} onTypeChange={onTypeChange} />
+                    <DropdownSelector
+                        options={COHORT_TYPE_OPTIONS}
+                        value={cohort.is_static ? COHORT_STATIC : COHORT_DYNAMIC}
+                        onValueChange={(_val) => _val && onTypeChange(_val)}
+                    />
                 </Col>
             </Row>
             <Row gutter={16} className="mt">
