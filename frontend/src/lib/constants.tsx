@@ -257,6 +257,11 @@ export enum FunnelLayout {
     vertical = 'vertical',
 }
 
+export enum BinCountPresets {
+    auto = 'auto',
+    custom = 'custom',
+}
+
 export const ERROR_MESSAGES: Record<string, string> = {
     no_new_organizations:
         'Your email address is not associated with an account. Please ask your administrator for an invite.',
