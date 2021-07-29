@@ -29,7 +29,9 @@ export const animate = (
 export const wrap = (
     text: D3Selector,
     width: number,
-    lineHeight: number = INITIAL_CONFIG.spacing.labelLineHeight
+    lineHeight: number = INITIAL_CONFIG.spacing.labelLineHeight,
+    isVertical: boolean = true,
+    dx: number = INITIAL_CONFIG.spacing.xLabel
 ): D3Selector => {
     const maxWidth = width - 6 // same as padding-{left|right}: 3px;
     text.each(function () {
@@ -45,6 +47,7 @@ export const wrap = (
                 .append('tspan')
                 .attr('x', 0)
                 .attr('y', y)
+                .attr('dx', isVertical ? 0 : -dx + 'px')
                 .attr('dy', dy + 'em')
 
         words.forEach((word) => {
@@ -59,6 +62,7 @@ export const wrap = (
                     .append('tspan')
                     .attr('x', 0)
                     .attr('y', y)
+                    .attr('dx', isVertical ? 0 : -dx + 'px')
                     .attr('dy', ++lineNumber * lineHeight + dy + 'em')
                     .text(word)
             }

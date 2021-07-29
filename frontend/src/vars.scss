@@ -45,6 +45,9 @@ $lifecycle_dormant: #f86234;
 $funnel_default: $primary;
 $funnel_alt: $primary_alt;
 $funnel_background: #e7e8ee;
+$funnel_axis_zero: $bg_depth;
+$funnel_axis: $border_dark;
+$funnel_axis_label: $text_muted;
 
 .bg-mid {
     background-color: $bg_mid !important;
