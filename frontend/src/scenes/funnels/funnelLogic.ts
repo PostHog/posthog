@@ -184,7 +184,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         return EMPTY_FUNNEL_RESULTS
                     }
 
-                    const { apiParams, eventCount, actionCount, interval, histogramStep, filters } = values
+                    const { apiParams, eventCount, actionCount, interval, histogramStep, filters, binCount } = values
 
                     async function loadFunnelResults(): Promise<FunnelResult<FunnelStep[] | FunnelStep[][]>> {
                         try {
@@ -223,7 +223,7 @@ export const funnelLogic = kea<funnelLogicType>({
                                 ...(refresh ? { refresh } : {}),
                                 ...(!isAllSteps ? { funnel_from_step: histogramStep.from_step } : {}),
                                 ...(!isAllSteps ? { funnel_to_step: histogramStep.to_step } : {}),
-                                ...(filters.bin_count ? { bin_count: filters.bin_count } : {}),
+                                ...(binCount && binCount !== BinCountPresets.auto ? { bin_count: binCount } : {}),
                             })
                             return cleanBinResult(binsResult.result)
                         }
@@ -627,7 +627,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 funnelStep: stepNumber,
             })
         },
-        changeHistogramStep: () => {
+        changeHistogramStep: async (_, breakpoint) => {
+            await breakpoint(1000)
+            actions.loadResults()
+        },
+        setBinCount: async (_, breakpoint) => {
+            await breakpoint(1000)
             actions.loadResults()
         },
     }),
