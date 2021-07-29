@@ -71,7 +71,7 @@ PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) or 
     "4535-funnel-bar-viz",
 ]
 
-SELF_CAPTURE = False
+SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
 SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 
