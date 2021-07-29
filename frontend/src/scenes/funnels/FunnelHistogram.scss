@@ -15,7 +15,13 @@
         display: none;
     }
     .funnel-histogram-outer-container {
-        height: 100%;
+        height: calc(100% - 1em);
         width: 100%;
+    }
+}
+
+.funnel-histogram-outer-container {
+    &.scrollable {
+        overflow-x: auto;
     }
 }
