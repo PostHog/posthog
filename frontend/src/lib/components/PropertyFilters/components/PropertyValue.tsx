@@ -70,13 +70,6 @@ export function PropertyValue({
     useEffect(() => {
         if (!value) {
             setInput('')
-        } else if (value !== input) {
-            const valueObject = options[propertyKey]?.values?.find((v) => v.id === value)
-            if (valueObject) {
-                setInput(toString(valueObject.name))
-            } else {
-                setInput(toString(value))
-            }
         }
     }, [value])
 
@@ -120,6 +113,12 @@ export function PropertyValue({
         loadPropertyValues('')
     }, [propertyKey])
 
+    useEffect(() => {
+        if (input === '' && document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur()
+        }
+    }, [input])
+
     const displayOptions = (options[propertyKey]?.values || []).filter(
         (option) => input === '' || matchesLowerCase(input, toString(option?.name))
     )
@@ -142,7 +141,7 @@ export function PropertyValue({
         allowClear: Boolean(value),
         onKeyDown: (e: React.KeyboardEvent) => {
             if (e.key === 'Escape' && e.target instanceof HTMLElement) {
-                e.target.blur()
+                setInput('')
             }
             if (!isMultiSelect && e.key === 'Enter') {
                 // We have not explicitly selected a dropdown item by pressing the up/down keys; or the ref is unavailable
@@ -152,6 +151,16 @@ export function PropertyValue({
                 ) {
                     setValue(input)
                 }
+            }
+        },
+        handleBlur: () => {
+            if (input != '') {
+                if (Array.isArray(value) && !value.includes(input)) {
+                    setValue([...value, ...[input]])
+                } else if (!Array.isArray(value)) {
+                    setValue(input)
+                }
+                setInput('')
             }
         },
     }
