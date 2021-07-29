@@ -115,7 +115,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
                     {step_counts}
                 ) GROUP BY entrance_period_start {breakdown_clause}
             ) data
-            FULL OUTER JOIN (
+            RIGHT OUTER JOIN (
                 SELECT
                     {interval_method}(toDateTime('{self._filter.date_from.strftime(TIMESTAMP_FORMAT)}') + number * {seconds_in_interval}) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
