@@ -308,7 +308,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self.params.update({"step_num": abs(step_num) - 1})
             conditions.append("steps = %(step_num)s")
 
-        if self._filter.funnel_step_breakdown:
+        if self._filter.funnel_step_breakdown is not None:
             prop_vals = self._parse_breakdown_prop_value()
             self.params.update({"breakdown_prop_value": prop_vals})
             conditions.append("prop IN %(breakdown_prop_value)s")

@@ -606,7 +606,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                     )
 
             # no breakdown value for this guy
-            _create_person(distinct_ids=[f"person_null"], team_id=self.team.pk)
+            p_null = _create_person(distinct_ids=[f"person_null"], team_id=self.team.pk)
             _create_event(
                 team=self.team,
                 event="sign up",
@@ -634,6 +634,12 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
             breakdown_vals = sorted([res[0]["breakdown"] for res in result])
             self.assertEqual(["", "1", "2", "3", "4"], breakdown_vals)
             # included 1 and '' because the limit was 6.
+
+            for i in range(1, 5):
+                self.assertEqual(len(self._get_people_at_step(filter, 3, str(i))), i)
+
+            self.assertEqual([p_null.uuid], self._get_people_at_step(filter, 1, ""))
+            self.assertEqual([p_null.uuid], self._get_people_at_step(filter, 3, ""))
 
         def test_funnel_step_breakdown_event_single_person_multiple_breakdowns(self):
 
