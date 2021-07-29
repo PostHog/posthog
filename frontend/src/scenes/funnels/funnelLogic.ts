@@ -223,6 +223,7 @@ export const funnelLogic = kea<funnelLogicType>({
                                 ...(refresh ? { refresh } : {}),
                                 ...(!isAllSteps ? { funnel_from_step: histogramStep.from_step } : {}),
                                 ...(!isAllSteps ? { funnel_to_step: histogramStep.to_step } : {}),
+                                ...(filters.bin_count ? { bin_count: filters.bin_count } : {}),
                             })
                             return cleanBinResult(binsResult.result)
                         }
@@ -554,6 +555,15 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                 })
                 return flattenedSteps
+            },
+        ],
+        numericBinCount: [
+            () => [selectors.binCount, selectors.timeConversionBins],
+            (binCount, bins): number => {
+                if (binCount === BinCountPresets.auto) {
+                    return bins?.bins.length || 0
+                }
+                return binCount
             },
         ],
     }),

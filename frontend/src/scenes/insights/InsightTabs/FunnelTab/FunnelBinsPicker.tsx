@@ -1,99 +1,85 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { BinCountPresets } from 'lib/constants'
 import { InputNumber, Select } from 'antd'
 import { BinCountValues } from '~/types'
 import { BarChartOutlined } from '@ant-design/icons'
+import clsx from 'clsx'
+import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 
-const options = [
+interface BinOption {
+    key?: string
+    label: string
+    value: BinCountValues
+    display: boolean
+}
+
+const MIN = 0,
+    MAX = 90 // constraints defined by backend #4995
+const NUMBER_PRESETS = new Set([5, 10, 15, 25, 50, 90])
+const options: BinOption[] = [
     {
         label: 'Automatic',
         value: BinCountPresets.auto,
+        display: true,
     },
-    ...Array.from([5, 10, 15, 25, 50, 90], (v) => ({ label: `${v} bins`, value: v })),
+    ...Array.from(Array.from(Array(MAX + 1).keys()), (v) => ({
+        label: `${v} bins`,
+        value: v,
+        display: NUMBER_PRESETS.has(v),
+    })),
     {
         label: 'Custom',
         value: BinCountPresets.custom,
+        display: true,
     },
 ]
 
 export function FunnelBinsPicker(): JSX.Element {
-    const { binCount } = useValues(funnelLogic)
+    const { binCount, numericBinCount } = useValues(funnelLogic)
     const { setBinCount } = useActions(funnelLogic)
-    const [open, setOpen] = useState(false)
-    const [customPickerOpen, setCustomPickerOpen] = useState(false)
-
-    function onClickOutside(): void {
-        setOpen(false)
-        setCustomPickerOpen(false)
-    }
 
     return (
         <Select
             id="funnel-bin-filter"
+            dropdownClassName="funnel-bin-filter-dropdown"
             data-attr="funnel-bin-filter"
             defaultValue={BinCountPresets.auto}
-            value={binCount}
-            onChange={(count: BinCountValues) => {
-                if (count === BinCountPresets.custom) {
-                    if (open) {
-                        setOpen(false)
-                        setCustomPickerOpen(true)
-                    }
-                } else {
-                    setBinCount(count)
-                }
-            }}
-            onBlur={() => {
-                if (!customPickerOpen) {
-                    onClickOutside()
-                }
-            }}
-            onClick={() => {
-                if (!customPickerOpen) {
-                    setOpen(!open)
-                }
+            value={binCount || BinCountPresets.auto}
+            onSelect={(count) => setBinCount(count)}
+            dropdownRender={(menu) => {
+                return (
+                    <>
+                        {menu}
+                        <div>
+                            <InputNumber
+                                className="funnel-bins-custom-picker"
+                                size="middle"
+                                min={MIN}
+                                max={MAX}
+                                value={numericBinCount}
+                                onChange={(count) => setBinCount(count as BinCountValues)}
+                            />{' '}
+                            bins
+                        </div>
+                    </>
+                )
             }}
             listHeight={440}
-            open={open || customPickerOpen}
             bordered={false}
             dropdownMatchSelectWidth={false}
+            dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
             optionLabelProp="label"
-            dropdownRender={(menu: React.ReactElement) => {
-                if (customPickerOpen) {
-                    return (
-                        <div>
-                            <a
-                                style={{
-                                    margin: '0 1rem',
-                                    color: 'rgba(0, 0, 0, 0.2)',
-                                    fontWeight: 700,
-                                }}
-                                href="#"
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    setOpen(true)
-                                    setCustomPickerOpen(false)
-                                    document.getElementById('funnel-bin-filter')?.focus()
-                                }}
-                            >
-                                &lt;
-                            </a>
-                            <InputNumber />
-                        </div>
-                    )
-                }
-                return menu
-            }}
         >
             <Select.OptGroup label="Bin Count">
                 {options.map((option) => {
-                    // if (option.value === BinCountPresets.custom) {
-                    //     return null
-                    // }
+                    if (option.value === BinCountPresets.custom) {
+                        return null
+                    }
                     return (
                         <Select.Option
+                            className={clsx({ 'select-option-hidden': !option.display })}
                             key={option.value}
                             value={option.value}
                             label={
