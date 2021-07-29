@@ -111,10 +111,10 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                     <InsightLabel
                         seriesColor={colorList[index]}
                         action={item.action}
-                        fallbackName={item.label}
+                        fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                         hasMultipleSeries={indexedResults.length > 1}
                         showCountedByTag={showCountedByTag}
-                        breakdownValue={item.breakdown_value?.toString()}
+                        breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
                         hideBreakdown
                         hideIcon
                     />
@@ -205,7 +205,7 @@ export function formatBreakdownLabel(breakdown_value: string | number | undefine
     if (breakdown_value && typeof breakdown_value == 'number') {
         return cohorts.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
     } else if (typeof breakdown_value == 'string') {
-        return breakdown_value === 'nan' ? 'Other' : breakdown_value
+        return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value
     } else {
         return ''
     }

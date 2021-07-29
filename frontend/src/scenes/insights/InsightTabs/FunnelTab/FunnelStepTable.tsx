@@ -51,6 +51,8 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
         render: function RenderLabel({}, step: FlattenedFunnelStep): JSX.Element {
             const isBreakdownChild = !!filters.breakdown && !step.isBreakdownParent
             const color = getStepColor(step, !!filters.breakdown)
+            console.log(step)
+            console.log('brkdwn: ', step.breakdown)
             return (
                 <SeriesToggleWrapper id={step.order} style={{ display: 'flex', alignItems: 'center' }}>
                     <div style={{ flexGrow: 1, maxWidth: 270, wordBreak: 'break-word' }}>
@@ -58,7 +60,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                             seriesColor={color}
                             fallbackName={isBreakdownChild ? formatBreakdownLabel(step.breakdown, cohorts) : step.name}
                             hasMultipleSeries={steps.length > 1}
-                            breakdownValue={step.breakdown}
+                            breakdownValue={step.breakdown === '' ? 'None' : step.breakdown}
                             hideBreakdown
                             hideIcon={!isBreakdownChild}
                             allowWrap
