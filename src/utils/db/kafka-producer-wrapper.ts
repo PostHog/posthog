@@ -79,6 +79,10 @@ export class KafkaProducerWrapper {
                 await this.producer.sendBatch({
                     topicMessages: messages,
                 })
+            } catch (err) {
+                // :TODO: Implement some retrying, https://github.com/PostHog/plugin-server/issues/511
+                this.statsd?.increment('query.kafka_send.failure')
+                throw err
             } finally {
                 clearTimeout(timeout)
             }
