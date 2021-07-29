@@ -6,12 +6,6 @@ import { InputNumber, Select } from 'antd'
 import { BinCountValues } from '~/types'
 import { BarChartOutlined } from '@ant-design/icons'
 
-// export const binOptionsMapping: Record<string, number | 'auto' | 'custom'> = {
-//     custom: 'custom',
-//     auto: 'auto',
-//     ...Object.assign({}, ...Array.from([3, 5, 10, 25, 50, 75, 90], (v) => ({ [v]: v }))),
-// }
-
 const options = [
     {
         label: 'Automatic',
@@ -37,6 +31,8 @@ export function FunnelBinsPicker(): JSX.Element {
 
     return (
         <Select
+            id="funnel-bin-filter"
+            data-attr="funnel-bin-filter"
             defaultValue={BinCountPresets.auto}
             value={binCount}
             onChange={(count: BinCountValues) => {
@@ -63,7 +59,6 @@ export function FunnelBinsPicker(): JSX.Element {
             open={open || customPickerOpen}
             bordered={false}
             dropdownMatchSelectWidth={false}
-            data-attr="funnel-time-conversion-bin-selector"
             optionLabelProp="label"
             dropdownRender={(menu: React.ReactElement) => {
                 if (customPickerOpen) {
@@ -76,7 +71,12 @@ export function FunnelBinsPicker(): JSX.Element {
                                     fontWeight: 700,
                                 }}
                                 href="#"
-                                onClick={props.onClick}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    setOpen(true)
+                                    setCustomPickerOpen(false)
+                                    document.getElementById('funnel-bin-filter')?.focus()
+                                }}
                             >
                                 &lt;
                             </a>
