@@ -125,7 +125,7 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
                     <DropdownSelector
                         options={COHORT_TYPE_OPTIONS}
                         value={cohort.is_static ? COHORT_STATIC : COHORT_DYNAMIC}
-                        onValueChange={(_val) => _val && onTypeChange(_val)}
+                        onValueChange={onTypeChange}
                     />
                 </Col>
             </Row>

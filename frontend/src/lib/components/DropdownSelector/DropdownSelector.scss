@@ -7,4 +7,9 @@
     display: flex;
     align-items: center;
     cursor: pointer;
+
+    &.disabled {
+        color: $text_muted;
+        cursor: not-allowed;
+    }
 }

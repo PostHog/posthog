@@ -172,7 +172,7 @@ export function Cohorts(): JSX.Element {
         },
     ]
 
-    const COHORT_V2 = true || (featureFlags[FEATURE_FLAGS.ENGAGEMENT_COHORTS] && preflight?.is_clickhouse_enabled)
+    const COHORT_V2 = featureFlags[FEATURE_FLAGS.ENGAGEMENT_COHORTS] && preflight?.is_clickhouse_enabled
 
     return (
         <div>
