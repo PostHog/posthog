@@ -6,6 +6,7 @@ import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { Button } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { PlusCircleOutlined } from '@ant-design/icons'
 
 export interface TaxonomicBreakdownButtonProps {
     breakdown?: TaxonomicFilterValue
@@ -62,8 +63,8 @@ export function TaxonomicBreakdownButton({
         >
             {({ setRef }) => (
                 <Button
-                    shape="round"
-                    type={breakdown ? 'primary' : 'default'}
+                    type={breakdown ? 'primary' : 'link'}
+                    icon={!breakdown ? <PlusCircleOutlined /> : undefined}
                     data-attr="add-breakdown-button"
                     style={breakdown ? { color: '#fff' } : {}}
                     onClick={() => setOpen(!open)}
