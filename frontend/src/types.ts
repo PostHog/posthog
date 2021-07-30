@@ -8,7 +8,7 @@ import {
     RETENTION_FIRST_TIME,
     ENTITY_MATCH_TYPE,
     FunnelLayout,
-    BinCountPresets,
+    BinCountAuto,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
@@ -375,7 +375,7 @@ export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
 
-export type BinCountValues = number | BinCountPresets
+export type BinCountValue = number | BinCountAuto
 
 export enum PersonsTabType {
     EVENTS = 'events',

@@ -257,10 +257,7 @@ export enum FunnelLayout {
     vertical = 'vertical',
 }
 
-export enum BinCountPresets {
-    auto = 'auto',
-    custom = 'custom',
-}
+export const BinCountAuto = 'auto'
 
 export const ERROR_MESSAGES: Record<string, string> = {
     no_new_organizations:

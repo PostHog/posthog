@@ -1,9 +1,9 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { BinCountPresets } from 'lib/constants'
+import { BinCountAuto } from 'lib/constants'
 import { InputNumber, Select } from 'antd'
-import { BinCountValues } from '~/types'
+import { BinCountValue } from '~/types'
 import { BarChartOutlined } from '@ant-design/icons'
 import clsx from 'clsx'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
@@ -11,17 +11,17 @@ import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 interface BinOption {
     key?: string
     label: string
-    value: BinCountValues
+    value: BinCountValue
     display: boolean
 }
 
 const MIN = 0,
     MAX = 90 // constraints defined by backend #4995
-const NUMBER_PRESETS = new Set([5, 10, 15, 25, 50, 90])
+const NUMBER_PRESETS = new Set([5, 15, 25, 50, 90])
 const options: BinOption[] = [
     {
-        label: 'Automatic',
-        value: BinCountPresets.auto,
+        label: 'Auto bins',
+        value: BinCountAuto,
         display: true,
     },
     ...Array.from(Array.from(Array(MAX + 1).keys()), (v) => ({
@@ -31,7 +31,7 @@ const options: BinOption[] = [
     })),
     {
         label: 'Custom',
-        value: BinCountPresets.custom,
+        value: 'custom',
         display: true,
     },
 ]
@@ -45,8 +45,8 @@ export function FunnelBinsPicker(): JSX.Element {
             id="funnel-bin-filter"
             dropdownClassName="funnel-bin-filter-dropdown"
             data-attr="funnel-bin-filter"
-            defaultValue={BinCountPresets.auto}
-            value={binCount || BinCountPresets.auto}
+            defaultValue={BinCountAuto}
+            value={binCount || BinCountAuto}
             onSelect={(count) => setBinCount(count)}
             dropdownRender={(menu) => {
                 return (
@@ -59,7 +59,7 @@ export function FunnelBinsPicker(): JSX.Element {
                                 min={MIN}
                                 max={MAX}
                                 value={numericBinCount}
-                                onChange={(count) => setBinCount(count as BinCountValues)}
+                                onChange={(count) => setBinCount(count)}
                             />{' '}
                             bins
                         </div>
@@ -74,7 +74,7 @@ export function FunnelBinsPicker(): JSX.Element {
         >
             <Select.OptGroup label="Bin Count">
                 {options.map((option) => {
-                    if (option.value === BinCountPresets.custom) {
+                    if (option.value === 'custom') {
                         return null
                     }
                     return (

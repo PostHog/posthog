@@ -13,6 +13,7 @@ import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
+import { useValues } from 'kea'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -84,7 +85,9 @@ export function InsightDisplayConfig({
     annotationsToCreate,
     clearAnnotationsToCreate,
 }: InsightDisplayConfigProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
+    const showFunnelBarOptions = activeView === ViewType.FUNNELS && featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]
 
     return (
         <div className="display-config-inner">
@@ -107,14 +110,14 @@ export function InsightDisplayConfig({
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
 
-                {activeView === ViewType.FUNNELS && allFilters.funnel_viz_type === FunnelVizType.Steps && (
+                {showFunnelBarOptions && allFilters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <FunnelDisplayLayoutPicker />
                         <FunnelStepReferencePicker />
                     </>
                 )}
 
-                {activeView === ViewType.FUNNELS && allFilters.funnel_viz_type === FunnelVizType.TimeToConvert && (
+                {showFunnelBarOptions && allFilters.funnel_viz_type === FunnelVizType.TimeToConvert && (
                     <>
                         <FunnelBinsPicker />
                     </>
