@@ -11,7 +11,7 @@ import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 interface BinOption {
     key?: string
     label: string
-    value: BinCountValue
+    value: BinCountValue | 'custom'
     display: boolean
 }
 
@@ -59,7 +59,12 @@ export function FunnelBinsPicker(): JSX.Element {
                                 min={MIN}
                                 max={MAX}
                                 value={numericBinCount}
-                                onChange={(count) => setBinCount(count)}
+                                onChange={(count) => {
+                                    const parsedCount = typeof count === 'string' ? parseInt(count) : count
+                                    if (parsedCount) {
+                                        setBinCount(parsedCount)
+                                    }
+                                }}
                             />{' '}
                             bins
                         </div>
