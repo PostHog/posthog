@@ -63,13 +63,11 @@ export function Histogram({
         })
 
     // y-axis scale
-    const y = d3
-        .scaleLinear()
-        .domain([0, d3.max(data, (d: HistogramDatum) => d.count) as number])
-        .range(config.ranges.y)
-        .nice()
+    const yMax = d3.max(data, (d: HistogramDatum) => d.count) as number
+    const y = d3.scaleLinear().domain([0, yMax]).range(config.ranges.y).nice()
     const yAxis = config.axisFn
         .y(y)
+        .tickValues(y.ticks().filter((tick) => Number.isInteger(tick)))
         .tickSize(0)
         .tickFormat((v: number) => {
             const count = formatYTickLabel(v)

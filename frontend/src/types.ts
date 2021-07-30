@@ -10,6 +10,7 @@ import {
     FunnelLayout,
     COHORT_DYNAMIC,
     COHORT_STATIC,
+    BinCountAuto,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
@@ -377,6 +378,8 @@ export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
 
+export type BinCountValue = number | typeof BinCountAuto
+
 export enum PersonsTabType {
     EVENTS = 'events',
     SESSIONS = 'sessions',
@@ -646,6 +649,7 @@ export interface FilterType {
     funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
     compare?: boolean
+    bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
 }
 
 export interface SystemStatusSubrows {
