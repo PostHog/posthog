@@ -43,7 +43,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
         (!filters.insight || filters.insight === ViewType.TRENDS) &&
         featureFlags[FEATURE_FLAGS.FORMULAS] &&
         preflight?.is_clickhouse_enabled
-    const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
+    const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 0
 
     return (
         <>
@@ -152,7 +152,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                                                 <Tooltip
                                                     title={
                                                         !formulaEnabled
-                                                            ? 'Please add at least two graph series to use formulas'
+                                                            ? 'Please add at least one graph series to use formulas'
                                                             : undefined
                                                     }
                                                 >
