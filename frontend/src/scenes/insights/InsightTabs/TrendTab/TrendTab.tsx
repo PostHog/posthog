@@ -25,7 +25,7 @@ export interface TrendTabProps extends BaseTabProps {
 }
 
 export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
-    const { filters, filtersLoading, numberOfSeries } = useValues(trendsLogic({ dashboardItemId: null, view }))
+    const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
@@ -69,7 +69,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                             setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                             typeKey={'trends_' + view}
                             buttonCopy="Add graph series"
-                            showSeriesIndicator={numberOfSeries > 1}
+                            showSeriesIndicator
                             singleFilter={filters.insight === ViewType.LIFECYCLE}
                             hideMathSelector={filters.insight === ViewType.LIFECYCLE}
                             customRowPrefix={
@@ -126,7 +126,20 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                                     {formulaAvailable && (
                                         <>
                                             <hr />
-                                            <h4 className="secondary">Formula</h4>
+                                            <h4 className="secondary">
+                                                Formula{' '}
+                                                <Tooltip
+                                                    title={
+                                                        <>
+                                                            Apply math operations to your series. You can do operations
+                                                            among series (e.g. <code>A / B</code>) or simple arithmetic
+                                                            operations on a single series (e.g. <code>A / 100</code>)
+                                                        </>
+                                                    }
+                                                >
+                                                    <InfoCircleOutlined />
+                                                </Tooltip>
+                                            </h4>
                                             {isUsingFormulas ? (
                                                 <Row align="middle" gutter={4}>
                                                     <Col>
@@ -160,6 +173,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                                                         shape="round"
                                                         onClick={() => setIsUsingFormulas(true)}
                                                         disabled={!formulaEnabled}
+                                                        data-attr="btn-add-formula"
                                                     >
                                                         Add formula
                                                     </Button>
