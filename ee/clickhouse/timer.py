@@ -69,7 +69,7 @@ class SingleThreadedTimer(Thread):
         while True:
             job = None
             with self.lock:
-                sleep = self._sleep_time()
+                sleep = self._sleep_time_until_next_task()
                 if len(self.tasks) == 0:
                     # Wait until a task is scheduled
                     self.lock.wait()
@@ -86,7 +86,7 @@ class SingleThreadedTimer(Thread):
             return task_and_time
         return None
 
-    def _sleep_time(self) -> float:
+    def _sleep_time_until_next_task(self) -> float:
         "Return time until the next task should be executed, if any task is scheduled"
         next_task = self._next_task()
         if next_task is None:
