@@ -171,6 +171,7 @@ export const funnelLogic = kea<funnelLogicType>({
             EMPTY_FUNNEL_RESULTS as LoadedRawFunnelResults,
             {
                 loadResults: async (refresh = false, breakpoint): Promise<LoadedRawFunnelResults> => {
+                    await breakpoint(250)
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
                         // TODO: cache timeConversionResults? how does this cachedResults work?
                         return {
@@ -610,8 +611,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 actions.setFilters(filters, true)
             }
         },
-        loadConversionWindow: async ({ days }, breakpoint) => {
-            await breakpoint(250)
+        loadConversionWindow: async ({ days }) => {
             actions.setConversionWindowInDays(days)
             actions.loadResults()
         },
@@ -627,12 +627,10 @@ export const funnelLogic = kea<funnelLogicType>({
                 funnelStep: stepNumber,
             })
         },
-        changeHistogramStep: async (_, breakpoint) => {
-            await breakpoint(250)
+        changeHistogramStep: async () => {
             actions.loadResults()
         },
-        setBinCount: async (_, breakpoint) => {
-            await breakpoint(250)
+        setBinCount: async () => {
             actions.loadResults()
         },
     }),
