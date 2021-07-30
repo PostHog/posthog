@@ -39,6 +39,12 @@ class SingleThreadedTimer(Thread):
         self.tasks: OrderedDict = OrderedDict()
 
     def schedule(self, callback: Callable, *args, **kwargs) -> TimerTask:
+        """
+        Schedules a task to be called in `timeout_ms`. Returns a TimerTask instance,
+        which can be cancelled via `.cancel`
+
+        First call to this starts a background daemon thread.
+        """
         self.start()
 
         with self.lock:
@@ -53,6 +59,7 @@ class SingleThreadedTimer(Thread):
             del self.tasks[task.id]
             self.lock.notify()
 
+    # :TRICKY: We override start() to make it easy to start the thread when scheduling the first task
     def start(self):
         if not self.started:
             self.started = True
@@ -64,6 +71,7 @@ class SingleThreadedTimer(Thread):
             with self.lock:
                 sleep = self._sleep_time()
                 if len(self.tasks) == 0:
+                    # Wait until a task is scheduled
                     self.lock.wait()
                 elif sleep > 0:
                     self.lock.wait(sleep)
@@ -79,6 +87,7 @@ class SingleThreadedTimer(Thread):
         return None
 
     def _sleep_time(self) -> float:
+        "Return time until the next task should be executed, if any task is scheduled"
         next_task = self._next_task()
         if next_task is None:
             return 0
