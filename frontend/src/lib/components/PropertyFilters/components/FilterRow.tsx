@@ -14,6 +14,7 @@ import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { PlusCircleOutlined } from '@ant-design/icons'
 
 interface FilterRowProps {
     item: AnyPropertyFilter
@@ -118,9 +119,10 @@ export const FilterRow = React.memo(function FilterRow({
                                 <Button
                                     ref={setRef}
                                     onClick={() => setOpen(!open)}
-                                    type="default"
-                                    shape="round"
                                     data-attr={'new-prop-filter-' + pageKey}
+                                    type="link"
+                                    style={{ paddingLeft: 0 }}
+                                    icon={<PlusCircleOutlined />}
                                 >
                                     Add filter
                                 </Button>
@@ -164,7 +166,12 @@ export const FilterRow = React.memo(function FilterRow({
                         {isValidPropertyFilter(item) ? (
                             <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
                         ) : (
-                            <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
+                            <Button
+                                type="link"
+                                data-attr={'new-prop-filter-' + pageKey}
+                                style={{ paddingLeft: 0 }}
+                                icon={<PlusCircleOutlined />}
+                            >
                                 Add filter
                             </Button>
                         )}

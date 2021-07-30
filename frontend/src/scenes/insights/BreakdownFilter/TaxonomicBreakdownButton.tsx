@@ -66,7 +66,7 @@ export function TaxonomicBreakdownButton({
                     type={breakdown ? 'primary' : 'link'}
                     icon={!breakdown ? <PlusCircleOutlined /> : undefined}
                     data-attr="add-breakdown-button"
-                    style={breakdown ? { color: '#fff' } : {}}
+                    style={breakdown ? { color: '#fff' } : { paddingLeft: 0 }}
                     onClick={() => setOpen(!open)}
                     ref={setRef}
                 >
