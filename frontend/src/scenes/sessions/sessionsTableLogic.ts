@@ -63,7 +63,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
             properties,
             selectedDate,
         }),
-        setSessionRecordingId: (sessionRecordingId: SessionRecordingId) => ({ sessionRecordingId }),
+        setSessionRecordingId: (sessionRecordingId: SessionRecordingId | null) => ({ sessionRecordingId }),
         closeSessionPlayer: true,
         loadSessionEvents: (session: SessionType) => ({ session }),
         addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
@@ -290,8 +290,8 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                 actions.loadSessions(true)
             }
 
-            if (params.sessionRecordingId && params.sessionRecordingId !== values.sessionRecordingId) {
-                actions.setSessionRecordingId(params.sessionRecordingId)
+            if (params.sessionRecordingId !== values.sessionRecordingId) {
+                actions.setSessionRecordingId(params.sessionRecordingId ?? null)
             }
 
             if (JSON.stringify(params.filters || {}) !== JSON.stringify(values.filters)) {
