@@ -57,11 +57,6 @@ class InsightBasicSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
 
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        representation["filters"] = instance.dashboard_filters()
-        return representation
-
 
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()

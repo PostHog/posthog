@@ -79,7 +79,12 @@ def dashboard_saved(sender, instance: Dashboard, **kwargs):
 @receiver(pre_save, sender=DashboardItem)
 def dashboard_item_saved(sender, instance: DashboardItem, dashboard=None, **kwargs):
     if instance.filters and instance.filters != {}:
-        filter = get_filter(data=instance.dashboard_filters(dashboard=dashboard), team=instance.team)
-
+        #  priority to dashboard filters when saving Dashboard
+        # priority to dashboard item filters otherwise
+        if dashboard:
+            data = {**instance.filters, **instance.dashboard_filters(dashboard=dashboard)}
+        else:
+            data = {**instance.dashboard_filters(dashboard=dashboard), **instance.filters}
+        filter = get_filter(data=data, team=instance.team)
         instance.filters = filter.to_dict()
         instance.filters_hash = generate_cache_key("{}_{}".format(filter.toJSON(), instance.team_id))

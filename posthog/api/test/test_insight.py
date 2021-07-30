@@ -184,6 +184,103 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(objects[0].filters["layout"], "horizontal")
             self.assertEqual(len(objects[0].short_id), 8)
 
+        def test_update_funnel_in_dashboard(self):
+
+            dashboard = Dashboard.objects.create(name="My Dashboard", team=self.team, filters={"date_from": "-30d",})
+            item = DashboardItem.objects.create(
+                team=self.team,
+                dashboard=dashboard,
+                filters={
+                    "insight": "FUNNELS",
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "math": None,
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "properties": [],
+                            "math_property": None,
+                        },
+                        {
+                            "id": "$rageclick",
+                            "math": None,
+                            "name": "$rageclick",
+                            "type": "events",
+                            "order": 2,
+                            "properties": [],
+                            "math_property": None,
+                        },
+                    ],
+                    "display": "FunnelViz",
+                    "interval": "day",
+                    "date_from": "-30d",
+                },
+            )
+
+            response = self.client.patch(
+                f"/api/insight/{item.id}",
+                data={
+                    "filters": {
+                        "insight": "FUNNELS",
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "math": None,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [],
+                                "math_property": None,
+                            },
+                            {
+                                "id": "$rageclick",
+                                "math": None,
+                                "name": "$rageclick",
+                                "type": "events",
+                                "order": 2,
+                                "properties": [],
+                                "math_property": None,
+                            },
+                        ],
+                        "display": "FunnelViz",
+                        "interval": "day",
+                        "date_from": "-90d",  # updating dates in item
+                        "actions": [],
+                        "new_entity": [],
+                        "layout": "horizontal",
+                    },
+                    "name": "My Funnel One",
+                    "dashboard": dashboard.pk,
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            objects = DashboardItem.objects.all()
+            self.assertEqual(len(objects), 1)
+            self.assertEqual(objects[0].filters["events"][1]["id"], "$rageclick")
+            self.assertEqual(objects[0].filters["display"], "FunnelViz")
+            self.assertEqual(objects[0].filters["interval"], "day")
+            self.assertEqual(objects[0].filters["date_from"], "-90d")
+            self.assertEqual(objects[0].filters["layout"], "horizontal")
+            self.assertEqual(len(objects[0].short_id), 8)
+
+            response = self.client.get(f"/api/dashboard/{dashboard.id}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["name"], "My Dashboard")
+            self.assertEqual(response_data["filters"]["date_from"], "-30d")
+            self.assertEqual(response_data["items"][0]["filters"]["date_from"], "-90d")
+
+            response = self.client.patch(f"/api/dashboard/{dashboard.id}", {"filters": {"date_from": "-90d"}},)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["name"], "My Dashboard")
+            self.assertEqual(response_data["filters"]["date_from"], "-90d")
+            self.assertEqual(response_data["items"][0]["filters"]["date_from"], "-90d")
+
         # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
         def test_insight_trends_basic(self):
