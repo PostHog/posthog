@@ -611,7 +611,7 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
         loadConversionWindow: async ({ days }, breakpoint) => {
-            await breakpoint(1000)
+            await breakpoint(250)
             actions.setConversionWindowInDays(days)
             actions.loadResults()
         },
@@ -628,11 +628,11 @@ export const funnelLogic = kea<funnelLogicType>({
             })
         },
         changeHistogramStep: async (_, breakpoint) => {
-            await breakpoint(1000)
+            await breakpoint(250)
             actions.loadResults()
         },
         setBinCount: async (_, breakpoint) => {
-            await breakpoint(1000)
+            await breakpoint(250)
             actions.loadResults()
         },
     }),
