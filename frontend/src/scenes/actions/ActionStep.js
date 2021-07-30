@@ -4,9 +4,11 @@ import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Card, Col, Input, Radio, Typography, Space } from 'antd'
+import { Card, Col, Input, Radio, Typography, Space, Tooltip } from 'antd'
 const { Text } = Typography
-import { ExportOutlined } from '@ant-design/icons'
+import { ExportOutlined, InfoCircleOutlined } from '@ant-design/icons'
+
+const learnMoreLink = 'https://posthog.com/docs/user-guides/actions?utm_medium=in-product&utm_campaign=action-page'
 
 export class ActionStep extends Component {
     constructor(props) {
@@ -31,13 +33,19 @@ export class ActionStep extends Component {
                 </label>
                 {props.caption && <div className="action-step-caption">{props.caption}</div>}
                 {props.item === 'selector' ? (
-                    <Input.TextArea allowClear onChange={onChange} value={this.props.step[props.item] || ''} />
+                    <Input.TextArea
+                        allowClear
+                        onChange={onChange}
+                        value={this.props.step[props.item] || ''}
+                        placeholder={props.placeholder}
+                    />
                 ) : (
                     <Input
                         data-attr="edit-action-url-input"
                         allowClear
                         onChange={onChange}
                         value={this.props.step[props.item] || ''}
+                        placeholder={props.placeholder}
                     />
                 )}
             </div>
@@ -93,9 +101,9 @@ export class ActionStep extends Component {
                         Select element on site <ExportOutlined />
                     </AppEditorLink>
                     <a
-                        href="https://posthog.com/docs/features/actions"
+                        href={`${learnMoreLink}#autocapture-based-actions`}
                         target="_blank"
-                        rel="noopener noreferrer"
+                        rel="noopener"
                         style={{ marginLeft: 8 }}
                     >
                         See documentation.
@@ -116,17 +124,24 @@ export class ActionStep extends Component {
                 <AndC />
                 <this.Option
                     item="selector"
-                    label="HTML selector matches"
+                    label={
+                        <>
+                            HTML selector matches
+                            <Tooltip title="Click here to learn more about supported selectors">
+                                <a href={`${learnMoreLink}#matching-selectors`} target="_blank" rel="noopener">
+                                    <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                </a>
+                            </Tooltip>
+                        </>
+                    }
                     selector={step.selector}
+                    placeholder='button[data-attr="my-id"]'
                     caption={
                         <Space direction="vertical">
-                            <Text>
+                            <Text style={{ color: 'var(--muted)' }}>
                                 CSS selector or an HTML attribute that ideally uniquely identifies your element.
+                                Example: <Text code>[data-attr="signup"]</Text>
                             </Text>
-                            <Text>As an example, if the following was your HTML code:</Text>
-                            <Text code> {'<Button data-attr="signup"> Signup </Button>'}</Text>
-                            <Text>You'd use the following syntax to specify this element:</Text>
-                            <Text code>[data-attr="signup"]</Text>
                         </Space>
                     }
                 />
