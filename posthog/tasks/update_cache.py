@@ -11,12 +11,6 @@ from django.db.models import Prefetch, Q
 from django.db.models.expressions import F, Subquery
 from django.utils import timezone
 
-from ee.clickhouse.queries.funnels import (
-    ClickhouseFunnelBase,
-    ClickhouseFunnelStrict,
-    ClickhouseFunnelTimeToConvert,
-    ClickhouseFunnelUnordered,
-)
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
     INSIGHT_FUNNELS,
@@ -47,9 +41,14 @@ if is_clickhouse_enabled():
     from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
     from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
     from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
-    from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
-    from ee.clickhouse.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
-    from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
+    from ee.clickhouse.queries.funnels import (
+        ClickhouseFunnel,
+        ClickhouseFunnelBase,
+        ClickhouseFunnelStrict,
+        ClickhouseFunnelTimeToConvert,
+        ClickhouseFunnelTrends,
+        ClickhouseFunnelUnordered,
+    )
     from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
     from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 
