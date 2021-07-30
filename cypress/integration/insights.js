@@ -11,7 +11,7 @@ describe('Insights', () => {
         cy.get('[data-attr=trend-element-subject-0]').contains('Entered Free Trial').should('exist') // Funnel is properly loaded
         cy.get('[data-attr=trend-element-subject-1]').contains('Purchase').should('exist')
 
-        cy.get('[data-attr=funnel-viz]').should('exist')
+        cy.get('[data-attr=funnel-bar-graph]').should('exist')
     })
 
     it('Shows not found error with invalid short URL', () => {
