@@ -148,7 +148,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
             condition = (
                 f"if( {exclusion_time} > {from_time} AND {exclusion_time} < "
-                f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_interval} DAY, {to_time}), 1, 0)"
+                f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, {to_time}), 1, 0)"
             )
             conditions.append(condition)
 
