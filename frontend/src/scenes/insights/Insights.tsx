@@ -106,8 +106,8 @@ export function Insights(): JSX.Element {
         p: {
             action: () => handleHotkeyNavigation(ViewType.PATHS, 'p'),
         },
-        k: {
-            action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'k'),
+        i: {
+            action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'i'),
         },
         l: {
             action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
@@ -219,7 +219,7 @@ export function Insights(): JSX.Element {
                                 data-attr="insight-stickiness-tab"
                             >
                                 Stickiness
-                                <InsightHotkey hotkey="k" />
+                                <InsightHotkey hotkey="i" />
                             </Tooltip>
                         }
                         key={ViewType.STICKINESS}

@@ -15,6 +15,7 @@ import {
     EntityType,
     DashboardItemType,
     ViewType,
+    InsightType,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -131,6 +132,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         reportInsightsTabReset: true,
         reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
+        reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -450,6 +452,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         },
         reportInsightsTableCalcToggled: async (payload) => {
             posthog.capture('insights table calc toggled', payload)
+        },
+        reportInsightShortUrlVisited: (props) => {
+            posthog.capture('insight short url visited', props)
         },
     },
 })

@@ -4,6 +4,23 @@ describe('Insights', () => {
         cy.visit('/insights')
     })
 
+    it('Opens insight with short URL', () => {
+        cy.visit('/i/TEST1234') // Insight `TEST1234` is created in demo data (revenue_data_generator.py)
+        cy.location('pathname').should('eq', '/insights') // User is taken to the insights page
+
+        cy.get('[data-attr=trend-element-subject-0]').contains('Entered Free Trial').should('exist') // Funnel is properly loaded
+        cy.get('[data-attr=trend-element-subject-1]').contains('Purchase').should('exist')
+
+        cy.get('[data-attr=funnel-viz]').should('exist')
+    })
+
+    it('Shows not found error with invalid short URL', () => {
+        cy.visit('/i/i_dont_exist')
+        cy.location('pathname').should('eq', '/i/i_dont_exist')
+        cy.get('h1.page-title').contains('Insight not found').should('exist')
+        cy.get('.not-found-component').get('.graphic').should('exist')
+    })
+
     it('Stickiness graph', () => {
         cy.get('.ant-tabs-tab').contains('Stickiness').click()
         cy.get('[data-attr=add-action-event-button]').click()
