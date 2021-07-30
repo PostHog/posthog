@@ -3,7 +3,7 @@ import uuid
 from collections import OrderedDict
 from functools import partial
 from threading import Condition, Thread
-from time import time
+from time import perf_counter
 from typing import Callable, Dict, Optional, Tuple
 
 from django.conf import settings
@@ -43,7 +43,7 @@ class SingleThreadedTimer(Thread):
 
         with self.lock:
             task = TimerTask(callback, *args, **kwargs)
-            self.tasks[task.id] = (task, time())
+            self.tasks[task.id] = (task, perf_counter())
             self.lock.notify()
 
             return task
@@ -84,7 +84,7 @@ class SingleThreadedTimer(Thread):
             return 0
         else:
             _, start_time = next_task
-            return start_time + self.timeout_ms / 1000.0 - time()
+            return start_time + self.timeout_ms / 1000.0 - perf_counter()
 
 
 class TestSingleThreadedTimer(SingleThreadedTimer):

@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import json
 import re
-from time import time
+from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
 import sqlparse
@@ -129,7 +129,7 @@ else:
 
     def sync_execute(query, args=None, settings=None, with_column_types=False):
         with ch_pool.get_client() as client:
-            start_time = time()
+            start_time = perf_counter()
             tags = {}
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print()
@@ -147,7 +147,7 @@ else:
 
                 raise _wrap_api_error(err)
             finally:
-                execution_time = time() - start_time
+                execution_time = perf_counter() - start_time
 
                 if not timeout_task.done:
                     QUERY_TIMEOUT_THREAD.cancel(timeout_task)
