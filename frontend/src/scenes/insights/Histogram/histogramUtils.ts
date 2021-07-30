@@ -37,7 +37,7 @@ export const INITIAL_CONFIG = {
         xLabel: 8, // x-axis label xOffset in horizontal position
         labelLineHeight: 1.2, // line height of wrapped label text in em's,
         barLabelPadding: 8, // padding between bar and bar label,
-        minBarWidth: 95, // minimum bar width
+        minBarWidth: 90, // minimum bar width
     },
 }
 
