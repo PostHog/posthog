@@ -11,6 +11,12 @@ from django.db.models import Prefetch, Q
 from django.db.models.expressions import F, Subquery
 from django.utils import timezone
 
+from ee.clickhouse.queries.funnels import (
+    ClickhouseFunnelBase,
+    ClickhouseFunnelStrict,
+    ClickhouseFunnelTimeToConvert,
+    ClickhouseFunnelUnordered,
+)
 from posthog.celery import update_cache_item_task
 from posthog.constants import (
     INSIGHT_FUNNELS,
@@ -21,6 +27,7 @@ from posthog.constants import (
     INSIGHT_TRENDS,
     TRENDS_LINEAR,
     TRENDS_STICKINESS,
+    FunnelOrderType,
     FunnelVizType,
 )
 from posthog.decorators import CacheType
@@ -165,17 +172,25 @@ def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, 
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
     dashboard_items.update(refreshing=True)
 
-    insight_class: Union[Type[Funnel]]
-    if is_clickhouse_enabled():
-        if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            insight_class = ClickhouseFunnelTrends
-        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            insight_class = ClickhouseFunnelTimeToConvert
-        else:
-            insight_class = ClickhouseFunnel
-    else:
-        insight_class = Funnel
+    team = Team(pk=team_id)
 
-    result = insight_class(filter=filter, team=Team(pk=team_id)).run()
+    if is_clickhouse_enabled():
+        funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
+        if filter.funnel_order_type == FunnelOrderType.UNORDERED:
+            funnel_order_class = ClickhouseFunnelUnordered
+        elif filter.funnel_order_type == FunnelOrderType.STRICT:
+            funnel_order_class = ClickhouseFunnelStrict
+
+        if filter.funnel_viz_type == FunnelVizType.TRENDS:
+            result = ClickhouseFunnelTrends(team=team, filter=filter, funnel_order_class=funnel_order_class).run()
+        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
+            result = ClickhouseFunnelTimeToConvert(
+                team=team, filter=filter, funnel_order_class=funnel_order_class
+            ).run()
+        else:
+            result = funnel_order_class(team=team, filter=filter).run()
+    else:
+        result = Funnel(filter=filter, team=team).run()
+
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result
