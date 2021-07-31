@@ -40,9 +40,12 @@ function DashboardView(): JSX.Element {
         dashboardMode,
         lastRefreshed,
         autoRefresh,
+        refreshStatus,
     } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { setDashboardMode, addGraph, setDates, loadDashboardItems, setAutoRefresh } = useActions(dashboardLogic)
+    const { setDashboardMode, addGraph, setDates, refreshAllDashboardItems, setAutoRefresh } = useActions(
+        dashboardLogic
+    )
 
     useKeyboardHotkeys(
         dashboardMode === DashboardMode.Public || dashboardMode === DashboardMode.Internal
@@ -93,6 +96,8 @@ function DashboardView(): JSX.Element {
         return <NotFound object="dashboard" />
     }
 
+    console.log('REfresh status', refreshStatus, items)
+
     return (
         <div className="dashboard">
             {dashboardMode !== DashboardMode.Public && dashboardMode !== DashboardMode.Internal && <DashboardHeader />}
@@ -106,7 +111,7 @@ function DashboardView(): JSX.Element {
                                     <Button
                                         type="link"
                                         icon={<ReloadOutlined />}
-                                        onClick={() => loadDashboardItems({ refresh: true })}
+                                        onClick={() => refreshAllDashboardItems()}
                                     >
                                         Refresh
                                     </Button>

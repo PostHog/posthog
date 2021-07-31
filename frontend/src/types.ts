@@ -475,6 +475,12 @@ export interface DashboardType {
     tags: string[]
 }
 
+export interface DashboardRefreshStatusType {
+    error?: boolean
+    loading?: boolean
+    refreshed?: boolean
+}
+
 export interface OrganizationInviteType {
     id: string
     target_email: string

@@ -36,6 +36,8 @@ export const dashboardLogic = kea({
         deleteTag: (tag) => ({ tag }),
         saveNewTag: (tag) => ({ tag }),
         setAutoRefresh: (enabled) => ({ enabled }), // enabled: boolean
+        setRefreshStatus: (id, loading = false) => ({ id, loading }), // id represents dashboardItem id's
+        setRefreshError: (id) => ({ id }),
     }),
 
     loaders: ({ actions, props }) => ({
@@ -108,6 +110,20 @@ export const dashboardLogic = kea({
                 return { ...state, items: item.dashboard === parseInt(props.id) ? [...state.items, item] : state.items }
             },
         },
+        refreshStatus: [
+            {},
+            {
+                setRefreshStatus: (state, { id, loading }) => ({
+                    ...state,
+                    [id]: loading ? { loading: true } : { refreshed: true },
+                }),
+                setRefreshError: (state, { id }) => ({
+                    ...state,
+                    [id]: { error: true },
+                }),
+                refreshAllDashboardItems: () => ({}),
+            },
+        ],
         columns: [
             null,
             {
@@ -291,7 +307,7 @@ export const dashboardLogic = kea({
             }
         },
     }),
-    listeners: ({ actions, values, key, cache }) => ({
+    listeners: ({ actions, values, key, cache, props }) => ({
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-${key}` }).actions.prompt({
                 title: 'New dashboard',
@@ -331,9 +347,37 @@ export const dashboardLogic = kea({
             api.update(`api/insight/${id}`, { color })
         },
         refreshAllDashboardItems: async (_, breakpoint) => {
-            await breakpoint(100)
-            dashboardItemsModel.actions.refreshAllDashboardItems({})
+            breakpoint()
 
+            // Don't do anything if there's nothing to refresh
+            if (!values?.items || values?.items.length === 0) {
+                return
+            }
+
+            // Refreshing dashboard items from now on should be done without short-circuiting
+            const fetchItemPromises = values.items.map((dashboardItem) => async () => {
+                try {
+                    actions.setRefreshStatus(dashboardItem.id, true)
+                    const refreshedDashboardItem = await api.get(
+                        `api/dashboard_item/${dashboardItem.id}/?${toParams({
+                            share_token: props.shareToken,
+                            refresh: true,
+                        })}`
+                    )
+                    dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
+                    actions.setRefreshStatus(dashboardItem.id)
+                } catch (e) {
+                    console.log('ERROR', e)
+                    actions.setRefreshError(dashboardItem.id)
+                }
+                breakpoint()
+            })
+
+            fetchItemPromises.forEach((fetchItem) => {
+                fetchItem()
+            })
+
+            dashboardItemsModel.actions.refreshAllDashboardItems({})
             eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
@@ -416,7 +460,7 @@ export const dashboardLogic = kea({
             }
             if (enabled) {
                 cache.autoRefreshInterval = window.setInterval(() => {
-                    actions.loadDashboardItems({ refresh: true })
+                    actions.refreshAllDashboardItems()
                 }, AUTO_REFRESH_INTERVAL_MINS * 60 * 1000)
             }
         },
