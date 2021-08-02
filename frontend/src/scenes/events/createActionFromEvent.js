@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { eventToName } from 'lib/utils'
 import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/sceneLogic'
 
 export function recurseSelector(elements, parts, index) {
     let element = elements[index]
@@ -76,7 +77,7 @@ export async function createActionFromEvent(event, increment, recurse = createAc
         }
     }
     if (action.id) {
-        router.actions.push('/action/' + action.id)
+        router.actions.push(urls.action(action.id))
         toast(
             <span>
                 Action succesfully created.{' '}

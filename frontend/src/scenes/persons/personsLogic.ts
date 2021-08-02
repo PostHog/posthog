@@ -5,6 +5,7 @@ import { toast } from 'react-toastify'
 import { personsLogicType } from './personsLogicType'
 import { CohortType, PersonsTabType, PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/sceneLogic'
 
 interface PersonPaginatedResponse {
     next: string | null
@@ -58,7 +59,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         deletePersonSuccess: () => {
             toast('Person deleted successfully')
             actions.loadPersons()
-            router.actions.push('/persons')
+            router.actions.push(urls.persons())
         },
         editProperty: async ({ key, newValue }) => {
             const person = values.person
@@ -106,7 +107,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             }
         },
         navigateToCohort: ({ cohort }) => {
-            router.actions.push(`/cohorts/${cohort.id}`)
+            router.actions.push(urls.cohort(cohort.id))
         },
     }),
     loaders: ({ values, actions }) => ({
@@ -140,7 +141,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 loadPerson: async (id: string): Promise<PersonType | null> => {
                     const response = await api.get(`api/person/?distinct_id=${id}`)
                     if (!response.results.length) {
-                        router.actions.push('/404')
+                        router.actions.push(urls.notFound())
                     }
                     const person = response.results[0] as PersonType
                     person && actions.reportPersonDetailViewed(person)

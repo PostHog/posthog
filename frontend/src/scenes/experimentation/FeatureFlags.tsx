@@ -13,6 +13,7 @@ import { router } from 'kea-router'
 import { LinkButton } from 'lib/components/LinkButton'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
+import { urls } from 'scenes/sceneLogic'
 
 export function FeatureFlags(): JSX.Element {
     const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
@@ -163,7 +164,7 @@ export function FeatureFlags(): JSX.Element {
             <div className="mb text-right">
                 <LinkButton
                     type="primary"
-                    to={`/feature_flags/new${BackTo}`}
+                    to={[urls.featureFlag('new'), {}, BackTo]}
                     data-attr="new-feature-flag"
                     icon={<PlusOutlined />}
                 >
@@ -176,7 +177,7 @@ export function FeatureFlags(): JSX.Element {
                 loading={!featureFlags && featureFlagsLoading}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(featureFlag) => ({
-                    onClick: () => push(`/feature_flags/${featureFlag.id}${BackTo}`),
+                    onClick: () => featureFlag.id && push(urls.featureFlag(featureFlag.id), {}, BackTo),
                     style: !featureFlag.active ? { color: 'var(--muted)' } : {},
                 })}
                 size="small"

@@ -8,6 +8,7 @@ import { kea } from 'kea'
 import { Spin } from 'antd'
 import { EventsTable } from 'scenes/events'
 import dayjs from 'dayjs'
+import { urls } from 'scenes/sceneLogic'
 
 const actionLogic = kea({
     key: (props) => props.id || 'new',
@@ -80,7 +81,7 @@ export function Action({ id }) {
                     action={action}
                     onSave={(savedAction) => {
                         if (!id) {
-                            push(`/action/${savedAction.id}`)
+                            push(urls.action(savedAction.id))
                         }
                         loadAction()
                     }}

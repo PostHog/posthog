@@ -3,7 +3,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
-import { DashboardItemType } from '~/types'
+import { DashboardItemType, FilterType } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { dashboardItemsModelType } from './dashboardItemsModelType'
@@ -19,7 +19,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
             move,
         }),
         duplicateDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
-        refreshAllDashboardItems: (filters: Record<string, any>) => filters,
+        refreshAllDashboardItems: (filters: Partial<FilterType>) => filters,
     }),
     listeners: ({ actions }) => ({
         renameDashboardItem: async ({ item }) => {
@@ -51,7 +51,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
 
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
 
-            if (move) {
+            if (move && dashboard) {
                 const deletedItem = await api.update(`api/insight/${item.id}`, {
                     deleted: true,
                 })
@@ -60,11 +60,8 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                 const toastId = toast(
                     <div data-attr="success-toast">
                         Panel moved to{' '}
-                        <Link
-                            to={dashboard?.id ? urls.dashboard(dashboard.id) : '#'}
-                            onClick={() => toast.dismiss(toastId)}
-                        >
-                            {dashboard?.name || 'Untitled'}
+                        <Link to={urls.dashboard(dashboard.id)} onClick={() => toast.dismiss(toastId)}>
+                            {dashboard.name || 'Untitled'}
                         </Link>
                         .&nbsp;
                         <Link
@@ -86,16 +83,13 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                         </Link>
                     </div>
                 )
-            } else if (!move && dashboardId) {
+            } else if (!move && dashboardId && dashboard) {
                 // copy
                 const toastId = toast(
                     <div data-attr="success-toast">
                         Panel copied to{' '}
-                        <Link
-                            to={dashboard?.id ? urls.dashboard(dashboard.id) : '#'}
-                            onClick={() => toast.dismiss(toastId)}
-                        >
-                            {dashboard?.name || 'Untitled'}
+                        <Link to={urls.dashboard(dashboard.id)} onClick={() => toast.dismiss(toastId)}>
+                            {dashboard.name || 'Untitled'}
                         </Link>
                     </div>
                 )

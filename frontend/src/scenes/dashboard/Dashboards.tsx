@@ -13,6 +13,7 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { ColumnType } from 'antd/lib/table'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/sceneLogic'
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -48,7 +49,7 @@ export function Dashboards(): JSX.Element {
             key: 'name',
             render: function Render(name: string, { id }: { id: number }) {
                 return (
-                    <Link data-attr="dashboard-name" to={`/dashboard/${id}`}>
+                    <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
                         {name || 'Untitled'}
                     </Link>
                 )

@@ -7,6 +7,7 @@ import React from 'react'
 import { toast } from 'react-toastify'
 import { dashboardsModelType } from './dashboardsModelType'
 import { DashboardItemType, DashboardType } from '~/types'
+import { urls } from 'scenes/sceneLogic'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     actions: () => ({
@@ -52,7 +53,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                     use_template: useTemplate,
                 })) as DashboardType
                 if (show) {
-                    router.actions.push(`/dashboard/${result.id}`)
+                    router.actions.push(urls.dashboard(result.id))
                 }
                 return result
             },
@@ -158,7 +159,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
         restoreDashboardSuccess: ({ dashboard }) => {
             toast(`Dashboard "${dashboard.name}" restored!`)
             if (values.redirect) {
-                router.actions.push(`/dashboard/${dashboard.id}`)
+                router.actions.push(urls.dashboard(dashboard.id))
             }
         },
 
@@ -186,9 +187,9 @@ export const dashboardsModel = kea<dashboardsModelType>({
 
             if (values.redirect) {
                 if (nextDashboard) {
-                    router.actions.push(`/dashboard/${nextDashboard.id}`)
+                    router.actions.push(urls.dashboard(nextDashboard.id))
                 } else {
-                    router.actions.push('/dashboard')
+                    router.actions.push(urls.dashboards())
                 }
 
                 await delay(500)

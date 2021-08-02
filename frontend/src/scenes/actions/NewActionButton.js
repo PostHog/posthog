@@ -3,6 +3,7 @@ import { Modal, Button, Card, Row, Col } from 'antd'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 import { SearchOutlined, EditOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
+import { urls } from 'scenes/sceneLogic'
 
 export function NewActionButton() {
     let [visible, setVisible] = useState(false)
@@ -54,7 +55,7 @@ export function NewActionButton() {
                             <Card
                                 title="From event or pageview"
                                 onClick={() => {
-                                    router.actions.push('/action')
+                                    router.actions.push(urls.action())
                                 }}
                                 size="small"
                             >

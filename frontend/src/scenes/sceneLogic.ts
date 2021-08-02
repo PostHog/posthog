@@ -162,6 +162,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
     '/': '/insights',
+    '/dashboards': '/dashboard', // TODO: For consistency this should be the default, but we should make sure /dashboard keeps working
     '/plugins': '/project/plugins',
     '/actions': '/events/actions',
     '/organization/members': '/organization/settings',
@@ -169,11 +170,13 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
 
 export const urls = {
     default: () => '/',
+    notFound: () => '404',
     dashboards: () => '/dashboard',
     dashboard: (id: string | number) => `/dashboard/${id}`,
     dashboardInsight: (id: string | number) => `/dashboard_insight/${id}`,
+    createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
     action: (id: string | number) => `/action/${id}`,
-    actions: () => '/action',
+    actions: () => '/actions',
     insights: () => '/insights',
     insightView: (view: ViewType) => `/insights?insight=${view}`,
     insightRouter: (id: string) => `/i/${id}`,
@@ -211,7 +214,7 @@ export const routes: Record<string, Scene> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
     [urls.dashboardInsight(':id')]: Scene.DashboardInsight,
-    [urls.actions()]: Scene.Action,
+    [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
     [urls.insights()]: Scene.Insights,
     [urls.insightRouter(':id')]: Scene.InsightRouter,

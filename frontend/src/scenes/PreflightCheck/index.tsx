@@ -16,6 +16,7 @@ import { volcano, green, red, grey, blue } from '@ant-design/colors'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { urls } from 'scenes/sceneLogic'
 
 interface PreflightItemInterface {
     name: string
@@ -138,7 +139,7 @@ function PreflightCheck(): JSX.Element {
     ] as CheckInterface[]
 
     const handlePreflightFinished = (): void => {
-        router.actions.push('/signup')
+        router.actions.push(urls.signup())
     }
 
     return (

@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
 import { deleteWithUndo } from 'lib/utils'
+import { urls } from 'scenes/sceneLogic'
 
 const NEW_FLAG = {
     id: null,
@@ -111,7 +112,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 </div>,
                 {
                     onClick: () => {
-                        router.actions.push('/feature_flags')
+                        router.actions.push(urls.featureFlags())
                     },
                     closeOnClick: true,
                 }
@@ -122,7 +123,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 endpoint: 'feature_flag',
                 object: { name: featureFlag.name, id: featureFlag.id },
                 callback: () => {
-                    router.actions.push('/feature_flags')
+                    router.actions.push(urls.featureFlags())
                 },
             })
         },
