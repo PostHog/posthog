@@ -271,6 +271,15 @@ export function MainNavigation(): JSX.Element {
                         hotkey="i"
                         tooltip="Answers to all your analytics questions."
                     />
+                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                        <MenuItem
+                            title="Saved Insights"
+                            icon={<IconInsights />}
+                            identifier="saved-insights"
+                            to="/saved_insights"
+                            tooltip="All your saved and previous insights."
+                        />
+                    )}
                     <Popover
                         content={PinnedDashboards}
                         placement="right"

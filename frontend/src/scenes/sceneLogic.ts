@@ -36,6 +36,7 @@ export enum Scene {
     Annotations = 'annotations',
     Billing = 'billing',
     Plugins = 'plugins',
+    SavedInsights = 'savedInsights',
     // Onboarding / setup routes
     Login = 'login',
     PreflightCheck = 'preflightCheck',
@@ -102,6 +103,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
     [Scene.Login]: () => import(/* webpackChunkName: 'login' */ './authentication/Login'),
     [Scene.Home]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/Home'),
+    [Scene.SavedInsights]: () => import(/* webpackChunkName: 'savedInsights' */ './saved-insights/SavedInsights'),
 }
 
 interface SceneConfig {
@@ -203,6 +205,7 @@ export const routes: Record<string, Scene> = {
     '/ingestion/*': Scene.Ingestion,
     '/setup': Scene.OnboardingSetup,
     '/home': Scene.Home,
+    '/saved_insights': Scene.SavedInsights,
 }
 
 export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneConfig>>({
