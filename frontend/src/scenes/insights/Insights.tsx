@@ -18,7 +18,6 @@ import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './Insigh
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
-import { SavedFunnels } from './SavedCard'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
@@ -44,6 +43,7 @@ import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 import clsx from 'clsx'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
+import { FunnelSecondaryTabs } from './InsightTabs/FunnelTab/FunnelSecondaryTabs'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -311,14 +311,7 @@ export function Insights(): JSX.Element {
                                     }
                                 </div>
                             </Card>
-                            {activeView === ViewType.FUNNELS && (
-                                <Card
-                                    title={<Row align="middle">Funnels Saved in Project</Row>}
-                                    style={{ marginTop: 16 }}
-                                >
-                                    <SavedFunnels />
-                                </Card>
-                            )}
+                            <FunnelSecondaryTabs />
                         </Col>
                         <Col span={24} lg={verticalLayout ? 17 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}

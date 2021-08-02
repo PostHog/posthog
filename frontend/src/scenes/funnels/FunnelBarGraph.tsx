@@ -1,8 +1,8 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
 import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Button, ButtonProps, Popover } from 'antd'
-import { ArrowRightOutlined } from '@ant-design/icons'
+import { Button, ButtonProps, Popover, Tooltip } from 'antd'
+import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { ArrowBottomRightOutlined } from 'lib/components/icons'
@@ -39,6 +39,27 @@ interface BarProps {
 }
 
 type LabelPosition = 'inside' | 'outside'
+
+function DuplicateStepIndicator(): JSX.Element {
+    return (
+        <span style={{ marginLeft: 4 }}>
+            <Tooltip
+                title={
+                    <>
+                        <b>Sequential &amp; Repeated Events</b>
+                        <p>
+                            When an event is repeated across funnel steps, it is interpreted as a sequence. For example,
+                            a three-step funnel consisting of pageview events is interpretted as first pageview,
+                            followed by second pageview, followed by a third pageview.
+                        </p>
+                    </>
+                }
+            >
+                <InfoCircleOutlined />
+            </Tooltip>
+        </span>
+    )
+}
 
 function Bar({
     percentage,
@@ -310,8 +331,13 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                             <div className={`funnel-series-linebox ${showLineAfter ? 'after' : ''}`} />
                         </div>
                         <header>
-                            <div className="funnel-step-title">
-                                <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
+                            <div style={{ display: 'flex', maxWidth: '100%', flexGrow: 1 }}>
+                                <div className="funnel-step-title">
+                                    <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
+                                </div>
+                                {clickhouseFeaturesEnabled && i > 0 && step.action_id === steps[i - 1].action_id && (
+                                    <DuplicateStepIndicator />
+                                )}
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${layout}`}>
                                 {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (

@@ -5,7 +5,7 @@ import { ActionFilter } from '../../ActionFilter/ActionFilter'
 import { Tooltip, Row, Skeleton, Checkbox, Col, Button } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BreakdownType, FilterType, ViewType } from '~/types'
@@ -170,9 +170,11 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                                                     }
                                                 >
                                                     <Button
-                                                        shape="round"
                                                         onClick={() => setIsUsingFormulas(true)}
                                                         disabled={!formulaEnabled}
+                                                        type="link"
+                                                        style={{ paddingLeft: 0 }}
+                                                        icon={<PlusCircleOutlined />}
                                                         data-attr="btn-add-formula"
                                                     >
                                                         Add formula

@@ -194,9 +194,9 @@ export function FunnelEmptyState(): JSX.Element {
                 <div className="funnels-empty-state__help">
                     <a
                         data-attr="insight-funnels-emptystate-help"
-                        href="https://posthog.com/docs/user-guides/funnels"
+                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
-                        rel="noreferrer noopener"
+                        rel="noopener"
                     >
                         Learn more about funnels in our support documentation.
                     </a>
