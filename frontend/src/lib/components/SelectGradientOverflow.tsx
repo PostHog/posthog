@@ -54,8 +54,8 @@ export function SelectGradientOverflow({
     defaultOpen = false,
     delayBeforeAutoOpen,
     dropdownMatchSelectWidth = true,
+    handleBlur = () => {},
     placement,
-    handleBlur,
     ...props
 }: SelectGradientOverflowProps): JSX.Element {
     const selectRef: React.RefObject<RefSelectProps> | null = useRef(null)
@@ -91,7 +91,7 @@ export function SelectGradientOverflow({
     const onBlur = (): void => {
         if (isOpen) {
             setOpen(false)
-            handleBlur?.()
+            handleBlur()
         }
     }
 
