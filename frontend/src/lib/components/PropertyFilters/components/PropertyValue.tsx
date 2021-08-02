@@ -113,12 +113,6 @@ export function PropertyValue({
         loadPropertyValues('')
     }, [propertyKey])
 
-    useEffect(() => {
-        if (input === '' && document.activeElement instanceof HTMLElement) {
-            document.activeElement.blur()
-        }
-    }, [input])
-
     const displayOptions = (options[propertyKey]?.values || []).filter(
         (option) => input === '' || matchesLowerCase(input, toString(option?.name))
     )
@@ -142,6 +136,7 @@ export function PropertyValue({
         onKeyDown: (e: React.KeyboardEvent) => {
             if (e.key === 'Escape' && e.target instanceof HTMLElement) {
                 setInput('')
+                e.target.blur()
             }
             if (!isMultiSelect && e.key === 'Enter') {
                 // We have not explicitly selected a dropdown item by pressing the up/down keys; or the ref is unavailable
