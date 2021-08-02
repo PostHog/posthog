@@ -1,18 +1,19 @@
+import React from 'react'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
-import React from 'react'
 import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
-import { useValues } from 'kea'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
+import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
+import { useValues } from 'kea'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -113,6 +114,12 @@ export function InsightDisplayConfig({
                     <>
                         <FunnelDisplayLayoutPicker />
                         <FunnelStepReferencePicker />
+                    </>
+                )}
+
+                {showFunnelBarOptions && allFilters.funnel_viz_type === FunnelVizType.TimeToConvert && (
+                    <>
+                        <FunnelBinsPicker />
                     </>
                 )}
 

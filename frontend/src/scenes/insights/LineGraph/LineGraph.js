@@ -5,7 +5,7 @@ import Chart from '@posthog/chart.js'
 import 'chartjs-adapter-dayjs'
 import PropTypes from 'prop-types'
 import { compactNumber, lightenDarkenColor } from '~/lib/utils'
-import { getBarColorFromStatus, getChartColors } from 'lib/colors'
+import { getBarColorFromStatus, getChartColors, getGraphColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
@@ -22,6 +22,7 @@ Chart.defaults.global.elements.line.tension = 0
 //--Chart Style Options--//
 
 const noop = () => {}
+
 export function LineGraph({
     datasets,
     visibilityMap = null,
@@ -69,18 +70,7 @@ export function LineGraph({
         !inSharedMode &&
         datasets[0].labels?.[0] !== '1 day' // stickiness graphs
 
-    const isLightTheme = color === 'white'
-    const colors = {
-        axisLabel: isLightTheme ? '#333' : 'rgba(255,255,255,0.8)',
-        axisLine: isLightTheme ? '#ddd' : 'rgba(255,255,255,0.2)',
-        axis: isLightTheme ? '#999' : 'rgba(255,255,255,0.6)',
-        crosshair: 'rgba(0,0,0,0.2)',
-        tooltipBackground: '#1dc9b7',
-        tooltipTitle: '#fff',
-        tooltipBody: '#fff',
-        annotationColor: isLightTheme ? null : 'white',
-        annotationAccessoryColor: isLightTheme ? null : 'black',
-    }
+    const colors = getGraphColors(color === 'white')
 
     useEscapeKey(() => setFocused(false), [focused])
 

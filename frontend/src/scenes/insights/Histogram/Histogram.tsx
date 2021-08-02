@@ -2,7 +2,7 @@ import React, { useEffect } from 'react'
 import * as d3 from 'd3'
 import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'
 import { FunnelLayout } from 'lib/constants'
-import { createRoundedRectPath, getConfig, INITIAL_CONFIG } from './histogramUtils'
+import { createRoundedRectPath, getConfig, INITIAL_CONFIG, D3HistogramDatum } from './histogramUtils'
 import { getOrCreateEl, animate, wrap } from 'lib/utils/d3Utils'
 
 import './Histogram.scss'
@@ -14,15 +14,18 @@ export interface HistogramDatum {
     bin0: number
     bin1: number
     count: number
+    label: string | number
 }
 
 interface HistogramProps {
     data: HistogramDatum[]
     layout?: FunnelLayout
     isAnimated?: boolean
+    isDashboardItem?: boolean
     width?: number
     height?: number
     formatXTickLabel?: (value: number) => number | string
+    formatYTickLabel?: (value: number) => number
 }
 
 export function Histogram({
@@ -31,18 +34,17 @@ export function Histogram({
     width = INITIAL_CONFIG.width,
     height = INITIAL_CONFIG.height,
     isAnimated = false,
+    isDashboardItem = false,
     formatXTickLabel = (value: number) => value,
+    formatYTickLabel = (value: number) => value,
 }: HistogramProps): JSX.Element {
     const { config } = useValues(histogramLogic)
     const { setConfig } = useActions(histogramLogic)
     const isEmpty = data.length === 0 || d3.sum(data.map((d) => d.count)) === 0
 
-    // TODO: All D3 state outside of useD3 hook will be moved into separate kea histogramLogic
-
     // Initialize x-axis and y-axis scales
     const xMin = data?.[0]?.bin0 || 0
     const xMax = data?.[data.length - 1]?.bin1 || 1
-    const xSecond = data?.[0]?.bin1 || xMax
     const x = d3.scaleLinear().domain([xMin, xMax]).range(config.ranges.x).nice()
     const xAxis = config.axisFn
         .x(x)
@@ -61,23 +63,36 @@ export function Histogram({
         })
 
     // y-axis scale
-    const y = d3
-        .scaleLinear()
-        .domain([0, d3.max(data, (d: HistogramDatum) => d.count) as number])
-        .range(config.ranges.y)
-        .nice()
-    const yAxis = config.axisFn.y(y).tickSize(0)
+    const yMax = d3.max(data, (d: HistogramDatum) => d.count) as number
+    const y = d3.scaleLinear().domain([0, yMax]).range(config.ranges.y).nice()
+    const yAxis = config.axisFn
+        .y(y)
+        .tickValues(y.ticks().filter((tick) => Number.isInteger(tick)))
+        .tickSize(0)
+        .tickFormat((v: number) => {
+            const count = formatYTickLabel(v)
+            // SI-prefix with trailing zeroes trimmed off
+            return d3.format('~s')(count)
+        })
 
     // y-axis gridline scale
     const yAxisGrid = config.axisFn.y(y).tickSize(-config.gridlineTickSize).tickFormat('').ticks(y.ticks().length)
 
     // Update config to new values if dimensions change
     useEffect(() => {
-        setConfig(getConfig(layout, width, height))
-    }, [layout, width, height])
+        const minWidth = Math.max(
+            width,
+            data.length * (config.spacing.minBarWidth + config.spacing.btwnBins) +
+                config.margin.left +
+                config.margin.right
+        )
+        setConfig(getConfig(layout, isDashboardItem ? width : minWidth, height))
+    }, [data.length, layout, width, height])
 
     const ref = useD3(
         (container) => {
+            const isVertical = config.layout === FunnelLayout.vertical
+
             const renderCanvas = (parentNode: D3Selector): D3Selector => {
                 // Update config to reflect dimension changes
                 x.range(config.ranges.x)
@@ -91,15 +106,15 @@ export function Histogram({
                         .attr('viewBox', `0 0 ${config.inner.width} ${config.inner.height}`)
                         .attr('width', '100%')
                         .append('svg:g')
-                        .classed(layout, true)
+                        .classed(config.layout, true)
                 )
                 // update dimensions
                 parentNode.select('svg').attr('viewBox', `0 0 ${config.width} ${config.height}`)
 
                 // if class doesn't exist on svg>g, layout has changed. after we learn this, reset
                 // the layout
-                const layoutChanged = !_svg.classed(layout)
-                _svg.attr('class', null).classed(layout, true)
+                const layoutChanged = !_svg.classed(config.layout)
+                _svg.attr('class', null).classed(config.layout, true)
 
                 // if layout changes, redraw axes from scratch
                 if (layoutChanged) {
@@ -113,7 +128,16 @@ export function Histogram({
                 _xAxis.call(animate, !layoutChanged ? config.transitionDuration : 0, isAnimated, (it: D3Transition) =>
                     it.call(xAxis).attr('transform', config.transforms.x)
                 )
-                _xAxis.selectAll('.tick text').call(wrap, x(xSecond) - x(0), config.spacing.labelLineHeight)
+                const binWidth = x(data?.[0]?.bin1 || data?.[data.length - 1]?.bin1 || 1) - x(data?.[0]?.bin0 || 0)
+                _xAxis
+                    .selectAll('.tick text')
+                    .call(
+                        wrap,
+                        isVertical ? binWidth : config.margin.left,
+                        config.spacing.labelLineHeight,
+                        isVertical,
+                        config.spacing.xLabel
+                    )
 
                 // Don't draw y-axis or y-gridline if the data is empty
                 if (!isEmpty) {
@@ -129,7 +153,9 @@ export function Histogram({
                             it
                                 .call(yAxis)
                                 .attr('transform', config.transforms.y)
-                                .call((g) => g.selectAll('.tick text').attr('dy', `-${config.spacing.yLabel}`))
+                                .call((g) =>
+                                    g.selectAll('.tick text').attr('dx', isVertical ? `-${config.spacing.yLabel}` : 0)
+                                )
                     )
 
                     // y-gridlines
@@ -140,56 +166,93 @@ export function Histogram({
                         animate,
                         !layoutChanged ? config.transitionDuration : 0,
                         isAnimated,
-                        (it: D3Transition) =>
-                            it
-                                .call(yAxisGrid)
-                                .call((g) =>
-                                    g
-                                        .selectAll('.tick:not(:first-of-type) line')
-                                        .attr('stroke-opacity', 0.5)
-                                        .attr('stroke-dasharray', '2,2')
-                                )
-                                .attr('transform', config.transforms.yGrid)
+                        (it: D3Transition) => it.call(yAxisGrid).attr('transform', config.transforms.yGrid)
                     )
                 }
+
+                const d3Data = data as D3HistogramDatum[]
 
                 // bars
                 const _bars = getOrCreateEl(_svg, 'g#bars', () => _svg.append('svg:g').attr('id', 'bars'))
                 _bars
                     .selectAll('path')
-                    .data(data)
+                    .data(d3Data)
                     .join('path')
                     .call(animate, config.transitionDuration, isAnimated, (it: D3Transition) => {
                         return it.attr('d', (d: HistogramDatum) => {
-                            if (layout === FunnelLayout.vertical) {
+                            if (!isVertical) {
+                                // is horizontal
                                 return createRoundedRectPath(
+                                    y(0),
                                     x(d.bin0) + config.spacing.btwnBins / 2,
-                                    y(d.count),
+                                    y(d.count) - y(0),
                                     Math.max(0, x(d.bin1) - x(d.bin0) - config.spacing.btwnBins),
-                                    y(0) - y(d.count),
                                     config.borderRadius,
-                                    'top'
+                                    'right'
                                 )
                             }
-                            // is horizontal
                             return createRoundedRectPath(
-                                y(0),
                                 x(d.bin0) + config.spacing.btwnBins / 2,
-                                y(d.count) - y(0),
+                                y(d.count),
                                 Math.max(0, x(d.bin1) - x(d.bin0) - config.spacing.btwnBins),
+                                y(0) - y(d.count),
                                 config.borderRadius,
-                                'right'
+                                'top'
                             )
                         })
                     })
+
+                // text labels
+                if (!isDashboardItem) {
+                    const _labels = getOrCreateEl(_svg, 'g#labels', () => _svg.append('svg:g').attr('id', 'labels'))
+                    _labels
+                        .selectAll('text')
+                        .data(d3Data)
+                        .join('text')
+                        .text((d) => d.label)
+                        .classed('bar-label', true)
+                        .each(function (this: any, d) {
+                            const { width: labelWidth, height: labelHeight } = this.getBBox()
+                            d.labelWidth = labelWidth
+                            d.labelHeight = labelHeight
+                            d.shouldShowInBar = false
+                        })
+                        .attr('x', (d) => {
+                            if (!isVertical) {
+                                const labelWidth = (d.labelWidth || 0) + 2 * config.spacing.barLabelPadding
+                                const shouldShowInBar = labelWidth <= y(d.count) - y(0)
+                                const labelDx = shouldShowInBar
+                                    ? -(labelWidth - config.spacing.barLabelPadding)
+                                    : config.spacing.barLabelPadding
+                                d.shouldShowInBar = shouldShowInBar
+                                return y(d.count) + labelDx
+                            }
+                            // x + bin width + dx + dy
+                            return x(d.bin0) + binWidth / 2 - (d.labelWidth || 0) / 2
+                        })
+                        .attr('y', (d) => {
+                            if (!isVertical) {
+                                return x(d.bin0) + binWidth / 2
+                            }
+                            // determine if label should be in the bar or above it.
+                            const labelHeight = (d.labelHeight || 0) + 2 * config.spacing.barLabelPadding
+                            const shouldShowInBar = labelHeight <= y(0) - y(d.count)
+                            const labelDy = shouldShowInBar
+                                ? labelHeight - config.spacing.barLabelPadding
+                                : -config.spacing.barLabelPadding
+                            d.shouldShowInBar = shouldShowInBar
+                            return y(d.count) + labelDy
+                        })
+                        .classed('outside', (d) => !d.shouldShowInBar)
+                }
 
                 return _svg
             }
 
             renderCanvas(container)
         },
-        [data, layout, config]
+        [data, config]
     )
 
-    return <div className="histogram-container" ref={ref} />
+    return <div className="histogram-container" ref={ref} style={{ minWidth: config.width }} />
 }
