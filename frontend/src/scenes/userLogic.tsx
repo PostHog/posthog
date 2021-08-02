@@ -23,7 +23,8 @@ export const userLogic = kea<userLogicType>({
         ],
         hasDashboardCollaboration: [
             () => [selectors.user],
-            (user): boolean => !!user?.organization?.available_features?.includes('dashboard_collaboration'),
+            (user): boolean =>
+                !!user?.organization?.available_features?.includes('dashboard_collaboration'),
         ]
     }),
     loaders: ({ values, actions }) => ({

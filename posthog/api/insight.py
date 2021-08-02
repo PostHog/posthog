@@ -167,6 +167,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     queryset = queryset.filter(Q(saved=False))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
+            elif key == "favorited":
+                queryset = queryset.filter(Q(favorited=True))
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
 

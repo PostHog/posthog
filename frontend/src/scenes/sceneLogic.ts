@@ -275,7 +275,8 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
-                const redirect = path === '/' && featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? '/saved_insights' : redirects[path]
+                const redirect =
+                    path === '/' && featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? '/saved_insights' : redirects[path]
                 router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
