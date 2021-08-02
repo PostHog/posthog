@@ -385,10 +385,6 @@ code.code {
 
 // Card styles
 
-.ant-card {
-    border-radius: $button_radius !important;
-}
-
 .ant-card-body > :first-child {
     margin-top: 0;
 }
@@ -441,29 +437,6 @@ code.code {
 }
 
 // Button styles
-
-.ant-btn,
-.ant-input,
-.ant-select:not(.ant-select-customize-input) .ant-select-selector {
-    border-radius: $button_radius !important;
-}
-
-.ant-radio-button-wrapper {
-    &:first-child {
-        border-radius: $button_radius 0 0 $button_radius !important;
-    }
-    &:last-child {
-        border-radius: 0 $button_radius $button_radius 0 !important;
-    }
-}
-
-.ant-input-search .ant-input-group .ant-input-affix-wrapper:not(:last-child) {
-    border-radius: $button_radius 0 0 $button_radius !important;
-}
-
-.ant-input-search > .ant-input-group > .ant-input-group-addon:last-child .ant-input-search-button {
-    border-radius: 0 $button_radius $button_radius 0 !important;
-}
 
 .btn-close {
     color: $text_muted;
