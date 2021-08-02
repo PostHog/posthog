@@ -326,12 +326,10 @@ export function DashboardItem({
                                     trigger={['click']}
                                     overlay={
                                         <Menu data-attr={'dashboard-item-' + index + '-dropdown-menu'}>
-                                            <Menu.Item
-                                                data-attr={'dashboard-item-' + index + '-dropdown-view'}
-                                                icon={<Icon />}
-                                                onClick={() => router.actions.push(link)}
-                                            >
-                                                {viewText}
+                                            <Menu.Item data-attr={'dashboard-item-' + index + '-dropdown-view'}>
+                                                <a href={link}>
+                                                    <Icon /> {viewText}
+                                                </a>
                                             </Menu.Item>
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
