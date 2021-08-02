@@ -460,6 +460,7 @@ export interface DashboardItemType {
     is_sample: boolean
     dashboard: number
     result: any | null
+    updated_at: string
 }
 
 export interface DashboardType {

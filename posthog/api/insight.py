@@ -48,9 +48,11 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "filters",
             "dashboard",
             "color",
+            "description",
             "last_refresh",
             "refreshing",
             "saved",
+            "updated_at",
         ]
         read_only_fields = ("short_id",)
 
@@ -84,6 +86,10 @@ class InsightSerializer(InsightBasicSerializer):
             "refreshing",
             "result",
             "created_at",
+            "description",
+            "updated_at",
+            "tags",
+            "favorited",
             "saved",
             "created_by",
         ]

@@ -21,6 +21,10 @@ export const userLogic = kea<userLogicType>({
             (user): boolean =>
                 (user?.team?.is_demo && user?.organization?.teams && user.organization.teams.length == 1) || false,
         ],
+        hasDashboardCollaboration: [
+            () => [selectors.user],
+            (user): boolean => !!user?.organization?.available_features?.includes('dashboard_collaboration'),
+        ]
     }),
     loaders: ({ values, actions }) => ({
         user: [

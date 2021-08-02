@@ -9,6 +9,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { userLogic } from 'scenes/userLogic'
 import { afterLoginRedirect } from 'scenes/authentication/loginLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export enum Scene {
     Error404 = '404',
@@ -195,6 +197,7 @@ export const routes: Record<string, Scene> = {
     '/instance/status': Scene.SystemStatus,
     '/instance/status/:id': Scene.SystemStatus,
     '/me/settings': Scene.MySettings,
+    '/saved_insights': Scene.SavedInsights,
     // Onboarding / setup routes
     '/login': Scene.Login,
     '/preflight': Scene.PreflightCheck,
@@ -205,7 +208,6 @@ export const routes: Record<string, Scene> = {
     '/ingestion/*': Scene.Ingestion,
     '/setup': Scene.OnboardingSetup,
     '/home': Scene.Home,
-    '/saved_insights': Scene.SavedInsights,
 }
 
 export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneConfig>>({
@@ -269,10 +271,11 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
     },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}
+        const { featureFlags } = featureFlagLogic.values
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
-                const redirect = redirects[path]
+                const redirect = path === '/' && featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? '/saved_insights' : redirects[path]
                 router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
