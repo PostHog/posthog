@@ -37,8 +37,7 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
                     }}
                 />
                 <TestAccountFilter filters={filters} onChange={setFilters} />
-                {/* TODO */}
-                {(true || clickhouseFeaturesEnabled) && filters.funnel_viz_type === FunnelVizType.Steps && (
+                {clickhouseFeaturesEnabled && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <hr />
                         <h4 className="secondary">
