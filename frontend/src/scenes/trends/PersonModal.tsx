@@ -229,7 +229,7 @@ export function PersonRow({ person, people, filters }: PersonRowProps): JSX.Elem
             <Row style={{ justifyContent: 'space-between' }}>
                 <Row>
                     <ExpandIcon {...expandProps}>{undefined}</ExpandIcon>
-                    <Col>
+                    <Col style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         <span className="text-default">
                             <strong>{person.properties.email}</strong>
                         </span>
