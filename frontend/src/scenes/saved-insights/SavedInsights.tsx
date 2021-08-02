@@ -1,4 +1,4 @@
-import { Col, Table, Tabs } from 'antd'
+import { Button, Col, Table, Tabs } from 'antd'
 import { ColumnType } from 'antd/lib/table'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -9,11 +9,11 @@ import React, { useEffect, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { DashboardItemType } from '~/types'
 import { savedInsightsLogic } from './savedInsightsLogic'
-
+import { StarOutlined, StarFilled } from '@ant-design/icons'
 const { TabPane } = Tabs
 
 export function SavedInsights(): JSX.Element {
-    const { loadInsights } = useActions(savedInsightsLogic)
+    const { loadInsights, updateFavoritedInsight } = useActions(savedInsightsLogic)
     const { insights } = useValues(savedInsightsLogic)
     const { hasDashboardCollaboration } = useValues(userLogic)
     const [displayedColumns, setDisplayedColumns] = useState([] as ColumnType<DashboardItemType>[])
@@ -37,14 +37,23 @@ export function SavedInsights(): JSX.Element {
             key: 'name',
             render: function renderName(
                 name: string,
-                { short_id, id, description }: { short_id: string; id: number; description?: string }
+                {
+                    short_id,
+                    id,
+                    description,
+                    favorited,
+                }: { short_id: string; id: number; description?: string; favorited?: boolean }
             ) {
                 return (
                     <Col>
                         <div>
-                            <Link to={`/i/${short_id}`}>
+                            <Link to={`/i/${short_id}`} style={{ marginRight: 16 }}>
                                 <strong>{name || `Insight #${id}`}</strong>
                             </Link>
+                            <Button
+                                onClick={() => updateFavoritedInsight({ id, favorited: !favorited })}
+                                icon={favorited ? <StarFilled /> : <StarOutlined />}
+                            />
                         </div>
                         {hasDashboardCollaboration && (
                             <div className="text-muted-alt">{description || 'No description provided'}</div>

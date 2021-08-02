@@ -5,7 +5,7 @@ import { DashboardItemType } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 
 export const savedInsightsLogic = kea<savedInsightsLogicType>({
-    loaders: () => ({
+    loaders: ({ values }) => ({
         insights: {
             __default: [] as DashboardItemType[],
             loadInsights: async (key?: string) => {
@@ -19,6 +19,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                         })
                 )
                 return response.results
+            },
+            updateFavoritedInsight: async ({ id, favorited }) => {
+                const response = await api.update(`api/insight/${id}`, { favorited })
+                return values.insights.map((insight) => (insight.id === id ? response : insight))
             },
         },
     }),
