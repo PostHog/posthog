@@ -5,7 +5,7 @@ import { PersonalAPIKeyType } from '~/types'
 import { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 import { copyToClipboard } from 'lib/utils'
 
-export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyType>>({
+export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>({
     loaders: ({ values }) => ({
         keys: [
             [] as PersonalAPIKeyType[],

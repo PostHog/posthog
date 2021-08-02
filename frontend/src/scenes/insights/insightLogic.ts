@@ -7,24 +7,10 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FilterType } from '~/types'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { Entity, FilterType, FunnelVizType, PropertyFilter, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
-
-export enum ViewType {
-    TRENDS = 'TRENDS',
-    STICKINESS = 'STICKINESS',
-    LIFECYCLE = 'LIFECYCLE',
-    SESSIONS = 'SESSIONS',
-    FUNNELS = 'FUNNELS',
-    RETENTION = 'RETENTION',
-    PATHS = 'PATHS',
-    HISTORY = 'HISTORY',
-}
-
-type Timeout = NodeJS.Timeout
-
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
+import { Scene, sceneLogic } from 'scenes/sceneLogic'
 
 /*
 InsightLogic maintains state for changing between insight features
@@ -34,6 +20,16 @@ This includes handling the urls and view state
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 export const defaultFilterTestAccounts = (): boolean => {
     return localStorage.getItem('default_filter_test_accounts') === 'true' || false
+}
+
+interface UrlParams {
+    insight: string
+    properties: PropertyFilter[] | undefined
+    filter_test_accounts: boolean
+    funnel_viz_type?: string
+    display?: string
+    events?: Entity[]
+    actions?: Entity[]
 }
 
 export const logicFromInsight = (insight: string, logicProps: Record<string, any>): Logic & BuiltLogic => {
@@ -48,24 +44,30 @@ export const logicFromInsight = (insight: string, logicProps: Record<string, any
     }
 }
 
-export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>({
+export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
         setCachedUrl: (type: ViewType, url: string) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: (queryId: string) => ({ queryId }),
-        endQuery: (queryId: string, view: string, lastRefresh: string | null, exception?: Record<string, any>) => ({
+        endQuery: (queryId: string, view: ViewType, lastRefresh: string | null, exception?: Record<string, any>) => ({
             queryId,
             view,
             lastRefresh,
+            exception,
+        }),
+        abortQuery: (queryId: string, view: ViewType, scene: Scene | null, exception?: Record<string, any>) => ({
+            queryId,
+            view,
+            scene,
             exception,
         }),
         setMaybeShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
         setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
-        setTimeout: (timeout: Timeout | null) => ({ timeout }),
+        setTimeout: (timeout: number | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
         toggleControlsCollapsed: true,
@@ -77,14 +79,8 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>
             false,
             {
                 // Only show timeout message if timer is still running
-                setShowTimeoutMessage: (_, { showTimeoutMessage }: { showTimeoutMessage: boolean }) =>
-                    showTimeoutMessage,
-                endQuery: (_, { exception }) => {
-                    if (exception && exception.status !== 500) {
-                        return true
-                    }
-                    return false
-                },
+                setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage,
+                endQuery: (_, { exception }) => !!exception && exception.status !== 500,
                 startQuery: () => false,
                 setActiveView: () => false,
             },
@@ -110,7 +106,7 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>
                 updateActiveView: (_, { type }) => type,
             },
         ],
-        timeout: [null as Timeout | null, { setTimeout: (_, { timeout }) => timeout }],
+        timeout: [null as number | null, { setTimeout: (_, { timeout }) => timeout }],
         lastRefresh: [
             null as string | null,
             {
@@ -167,7 +163,7 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>
             values.timeout && clearTimeout(values.timeout || undefined)
             const view = values.activeView
             actions.setTimeout(
-                setTimeout(() => {
+                window.setTimeout(() => {
                     if (values && view == values.activeView) {
                         actions.setShowTimeoutMessage(true)
                         const tags = {
@@ -180,6 +176,18 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
             actions.setIsLoading(true)
+        },
+        abortQuery: ({ queryId, view, scene, exception }) => {
+            const duration = new Date().getTime() - values.queryStartTimes[queryId]
+            const tags = {
+                insight: view,
+                scene: scene,
+                success: !exception,
+                ...exception,
+            }
+
+            posthog.capture('insight aborted', { ...tags, duration })
+            captureInternalMetric({ method: 'timing', metric: 'insight_abort_time', value: duration, tags })
         },
         endQuery: ({ queryId, view, lastRefresh, exception }) => {
             if (values.timeout) {
@@ -218,7 +226,7 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>
         },
     }),
     actionToUrl: ({ actions, values }) => ({
-        setActiveView: ({ type }: { type: ViewType }) => {
+        setActiveView: ({ type }) => {
             const params = fromParams()
             const { properties, ...restParams } = params
 
@@ -230,10 +238,17 @@ export const insightLogic = kea<insightLogicType<ViewType, FilterType, Timeout>>
                 return cachedUrl + '&' + toParams({ properties })
             }
 
-            const urlParams = {
+            const urlParams: UrlParams = {
                 insight: type,
                 properties: values.allFilters.properties,
                 filter_test_accounts: defaultFilterTestAccounts(),
+                events: (values.allFilters.events || []) as Entity[],
+                actions: (values.allFilters.actions || []) as Entity[],
+            }
+
+            if (type === ViewType.FUNNELS) {
+                urlParams.funnel_viz_type = FunnelVizType.Steps
+                urlParams.display = 'FunnelViz'
             }
             return ['/insights', urlParams]
         },

@@ -113,11 +113,11 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 export const commandPaletteLogic = kea<
     commandPaletteLogicType<
         Command,
+        CommandFlow,
         CommandRegistrations,
         CommandResult,
-        CommandFlow,
-        RegExpCommandPairs,
-        CommandResultDisplayable
+        CommandResultDisplayable,
+        RegExpCommandPairs
     >
 >({
     connect: {
@@ -396,7 +396,9 @@ export const commandPaletteLogic = kea<
         commandSearchResultsGrouped: [
             (selectors) => [selectors.commandSearchResults, selectors.activeFlow],
             (commandSearchResults: CommandResult[], activeFlow: CommandFlow | null) => {
-                const resultsGrouped: { [scope: string]: CommandResult[] } = {}
+                const resultsGrouped: {
+                    [scope: string]: CommandResult[]
+                } = {}
                 if (activeFlow) {
                     resultsGrouped[activeFlow.scope ?? '?'] = []
                 }
@@ -715,7 +717,7 @@ export const commandPaletteLogic = kea<
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
-                                        dashboardsModel.actions.addDashboard({ name: argument, push: true })
+                                        dashboardsModel.actions.addDashboard({ name: argument, show: true })
                                     },
                                 }
                             }

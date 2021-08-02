@@ -10,4 +10,4 @@
 - [ ] Jest frontend tests
 - [ ] Cypress end-to-end tests
 - [ ] Migrations are safe to run at scale (e.g. PostHog Cloud) – present proof if not obvious
-- [ ] Frontend/CSS is usable at 320px (iPhone SE) and decent at 360px (most phones)
+- [ ] New/changed UI is decent on smartphones (viewport width around 360px)

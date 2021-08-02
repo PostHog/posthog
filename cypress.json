@@ -7,11 +7,6 @@
     "ignoreTestFiles": ["**/__snapshots__/*", "**/__image_snapshots__/*"],
     "viewportWidth": 1280,
     "viewportHeight": 720,
-    "env": {
-        "cypress-plugin-snapshots": {
-            "imageConfig": {
-                "threshold": 0.01
-            }
-        }
-    }
+    "retries": 2,
+    "env": {}
 }

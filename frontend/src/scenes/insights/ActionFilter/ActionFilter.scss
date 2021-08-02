@@ -6,7 +6,7 @@
 
     .action-filter-drag-handle {
         cursor: move;
-        padding-right: 2px;
+        padding: 4px 2px 0 0;
         color: $text_default;
         font-size: 1.2em;
         svg {
@@ -19,10 +19,8 @@
 }
 
 .add-action-event-button {
-    &.new-ui {
-        border-color: $border_dark;
-        color: $primary;
-        padding-left: $default_spacing * 2.5;
-        padding-right: $default_spacing * 2.5;
-    }
+    border-color: $border_dark;
+    color: $primary;
+    padding-left: $default_spacing * 2.5;
+    padding-right: $default_spacing * 2.5;
 }

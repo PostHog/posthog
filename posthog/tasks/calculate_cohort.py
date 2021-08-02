@@ -48,7 +48,7 @@ def calculate_cohort(cohort_id: int) -> None:
 @shared_task(ignore_result=True, max_retries=2)
 def calculate_cohort_ch(cohort_id: int) -> None:
     if is_clickhouse_enabled():
-        cohort = Cohort.objects.get(pk=cohort_id)
+        cohort: Cohort = Cohort.objects.get(pk=cohort_id)
         cohort.calculate_people_ch()
 
 

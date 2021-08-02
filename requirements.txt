@@ -10,7 +10,7 @@ amqp==2.5.2
     # via
     #   -r requirements.in
     #   kombu
-asgiref==3.3.1
+asgiref==3.3.2
     # via
     #   -r requirements.in
     #   django
@@ -32,12 +32,12 @@ cffi==1.14.5
     # via cryptography
 chardet==3.0.4
     # via requests
-clickhouse-driver==0.2.0
+clickhouse-driver==0.2.1
     # via
     #   -r requirements.in
     #   aioch
     #   clickhouse-pool
-clickhouse-pool==0.4.3
+clickhouse-pool==0.5.3
     # via -r requirements.in
 cryptography==3.4.7
     # via
@@ -74,7 +74,7 @@ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
     # via -r requirements.in
 django-statsd==2.5.2
     # via -r requirements.in
-django==3.1.12
+django==3.2.5
     # via
     #   -r requirements.in
     #   django-axes
@@ -101,7 +101,7 @@ future==0.18.2
     # via lzstring
 grpcio==1.33.1
     # via -r requirements.in
-gunicorn==20.0.4
+gunicorn==20.1.0
     # via -r requirements.in
 idna==2.8
     # via
@@ -109,7 +109,7 @@ idna==2.8
     #   requests
 importlib-metadata==1.6.0
     # via -r requirements.in
-infi.clickhouse-orm==2.1.0
+git+git://github.com/PostHog/infi.clickhouse_orm@f6f4838a75513773696737c9ac37a164af9be632
     # via -r requirements.in
 iso8601==0.1.12
     # via infi.clickhouse-orm

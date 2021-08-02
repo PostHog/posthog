@@ -1,6 +1,6 @@
 import 'react-toastify/dist/ReactToastify.css'
-import '~/toolbar/styles.scss'
 import '~/styles'
+import '~/toolbar/styles.scss'
 
 import React from 'react'
 import ReactDOM from 'react-dom'

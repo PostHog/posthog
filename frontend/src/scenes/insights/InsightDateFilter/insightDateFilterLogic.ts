@@ -1,17 +1,15 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import dayjs from 'dayjs'
+import { Dayjs } from 'dayjs'
 import { objectsEqual } from 'lib/utils'
 import { insightDateFilterLogicType } from './insightDateFilterLogicType'
-
-type Dayjs = dayjs.Dayjs
 
 interface UrlParams {
     date_from?: string
     date_to?: string
 }
 
-export const insightDateFilterLogic = kea<insightDateFilterLogicType<UrlParams, Dayjs>>({
+export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
     actions: () => ({
         setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({
             dateFrom,
@@ -57,7 +55,7 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType<UrlParams, 
                 (pathname === '/insights' && !objectsEqual(date_from, values.dates.dateFrom)) ||
                 !objectsEqual(date_to, values.dates.dateTo)
             ) {
-                router.actions.push(pathname, searchParams)
+                router.actions.replace(pathname, searchParams)
             }
         },
         dateAutomaticallyChanged: async (_, breakpoint) => {

@@ -4,7 +4,7 @@ import { encodeParams } from 'kea-router'
 import { actionsLogicType } from './actionsLogicType'
 import { ActionType } from '~/types'
 
-export const actionsLogic = kea<actionsLogicType<ActionType>>({
+export const actionsLogic = kea<actionsLogicType>({
     loaders: ({ values }) => ({
         allActions: [
             [] as ActionType[],

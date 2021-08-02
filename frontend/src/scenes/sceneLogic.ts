@@ -246,7 +246,7 @@ export const routes: Record<string, Scene> = {
     [urls.home()]: Scene.Home,
 }
 
-export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneConfig>>({
+export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneConfig>>({
     actions: {
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
@@ -337,7 +337,16 @@ export const sceneLogic = kea<sceneLogicType<Scene, Params, LoadedScene, SceneCo
             posthog.capture('$pageview')
             document.title = values.scene ? `${identifierToHuman(values.scene)} • PostHog` : 'PostHog'
         },
-        loadScene: async ({ scene, params = {} }: { scene: Scene; params: Params }, breakpoint) => {
+        loadScene: async (
+            {
+                scene,
+                params = {},
+            }: {
+                scene: Scene
+                params: Params
+            },
+            breakpoint
+        ) => {
             if (values.scene === scene) {
                 actions.setScene(scene, params)
                 return

@@ -4,11 +4,13 @@ from typing import Any, Dict, List, Optional, Union, cast
 import posthoganalytics
 from django.core.cache import cache
 from django.db.models import Count, Exists, OuterRef, Prefetch, QuerySet
+from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
 from rest_framework import authentication, request, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -39,7 +41,7 @@ from posthog.models.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import base, retention, stickiness, trends
 from posthog.tasks.calculate_action import calculate_action
-from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.utils import generate_cache_key, get_safe_cache, should_refresh
 
 from .person import PersonSerializer, paginated_result
 
@@ -72,7 +74,6 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
 
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
     steps = ActionStepSerializer(many=True, required=False)
-    count = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -85,18 +86,12 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             "steps",
             "created_at",
             "deleted",
-            "count",
             "is_calculating",
             "last_calculated_at",
             "created_by",
             "team_id",
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
-
-    def get_count(self, action: Action) -> Optional[int]:
-        if hasattr(action, "count"):
-            return action.count  # type: ignore
-        return None
 
     def _calculate_action(self, action: Action) -> None:
         calculate_action.delay(action_id=action.pk)
@@ -231,7 +226,12 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         team = self.team
         properties = request.GET.get("properties", "{}")
 
-        data = {"properties": json.loads(properties)}
+        try:
+            properties = json.loads(properties)
+        except json.decoder.JSONDecodeError:
+            raise ValidationError("Properties are unparsable!")
+
+        data: Dict[str, Any] = {"properties": properties}
         start_entity_data = request.GET.get("start_entity", None)
         if start_entity_data:
             entity_data = json.loads(start_entity_data)
@@ -246,7 +246,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
-        refresh = request.GET.get("refresh", None)
+        refresh = should_refresh(request)
         dashboard_id = request.GET.get("from_dashboard", None)
 
         filter = Filter(request=request)
@@ -286,20 +286,21 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         entity = get_target_entity(request)
 
         events = filter_by_type(entity=entity, team=team, filter=filter)
-        people = calculate_people(team=team, events=events, filter=filter)
+        people = calculate_people(team=team, events=events, filter=filter, request=request)
         serialized_people = PersonSerializer(people, context={"request": request}, many=True).data
 
         current_url = request.get_full_path()
         next_url = paginated_result(serialized_people, request, filter.offset)
 
         if request.accepted_renderer.format == "csv":
-            csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name"]
+            csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
             content = [
                 {
                     "Name": person.get("properties", {}).get("name"),
                     "Distinct ID": person.get("distinct_ids", [""])[0],
                     "Internal ID": person["uuid"],
                     "Email": person.get("properties", {}).get("email"),
+                    "Properties": person.get("properties", {}),
                 }
                 for person in serialized_people
             ]
@@ -310,6 +311,11 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             "next": next_url,
             "previous": current_url[1:],
         }
+
+    @action(methods=["GET"], detail=True)
+    def count(self, request: request.Request, **kwargs) -> Response:
+        count = self.get_queryset().first().count
+        return Response({"count": count})
 
 
 def filter_by_type(entity: Entity, team: Team, filter: Filter) -> QuerySet:
@@ -359,17 +365,18 @@ def _filter_event_prop_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
     return events
 
 
-def calculate_people(team: Team, events: QuerySet, filter: Filter, use_offset: bool = True) -> QuerySet:
+def calculate_people(
+    team: Team, events: QuerySet, filter: Filter, request: request.Request, use_offset: bool = True
+) -> QuerySet:
     events = events.values("person_id").distinct()
     events = _filter_cohort_breakdown(events, filter)
     events = _filter_person_prop_breakdown(events, filter)
     events = _filter_event_prop_breakdown(events, filter)
-
     people = Person.objects.filter(
         team=team,
         id__in=[p["person_id"] for p in (events[filter.offset : filter.offset + 100] if use_offset else events)],
     )
-
+    people = base.filter_persons(team.id, request, people)  # type: ignore
     people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return people
 

@@ -24,8 +24,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["name"], "enterprise event")
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["tags"], ["deprecated"])
-        self.assertEqual(response_data["owner"]["distinct_id"], self.user.distinct_id)
-        self.assertEqual(response_data["owner"]["first_name"], self.user.first_name)
+        self.assertEqual(response_data["owner"]["id"], self.user.id)
 
     def test_retrieve_create_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -39,6 +38,42 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(enterprise_event.eventdefinition_ptr_id, event.id)  # type: ignore
         self.assertEqual(enterprise_event.name, event.name)  # type: ignore
         self.assertEqual(enterprise_event.team.id, event.team.id)  # type: ignore
+
+    def test_search_event_definition(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        EnterpriseEventDefinition.objects.create(
+            team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
+        )
+        EnterpriseEventDefinition.objects.create(
+            team=self.team, name="regular event", owner=self.user, tags=["deprecated"]
+        )
+
+        response = self.client.get(f"/api/projects/@current/event_definitions/?search=enter")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
+
+        self.assertEqual(response_data["results"][0]["name"], "enterprise event")
+        self.assertEqual(response_data["results"][0]["description"], "")
+        self.assertEqual(response_data["results"][0]["tags"], ["deprecated"])
+        self.assertEqual(response_data["results"][0]["owner"]["id"], self.user.id)
+
+        response = self.client.get(f"/api/projects/@current/event_definitions/?search=enterprise")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
+
+        response = self.client.get(f"/api/projects/@current/event_definitions/?search=e ev")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 2)
+
+        response = self.client.get(f"/api/projects/@current/event_definitions/?search=bust")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 0)
 
     def test_update_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

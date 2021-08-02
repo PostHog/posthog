@@ -1,4 +1,4 @@
-import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag, Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -13,6 +13,7 @@ import {
     InfoCircleOutlined,
     DownOutlined,
     GlobalOutlined,
+    LineChartOutlined,
 } from '@ant-design/icons'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
@@ -24,16 +25,19 @@ import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
 import { endWithPunctation } from '../../../lib/utils'
 import { canInstallPlugins } from '../access'
-import { LinkButton } from '../../../lib/components/LinkButton'
+import { LinkButton } from 'lib/components/LinkButton'
 import { PluginUpdateButton } from './PluginUpdateButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-export function ExtraPluginButtons({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
+export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
         <Space>
-            <LinkButton to={url} target="_blank" rel="noopener noreferrer" disabled={disabled}>
-                <InfoCircleOutlined />
-                <span className="show-over-500">About</span>
-            </LinkButton>
+            <Tooltip title="About">
+                <LinkButton to={url} target="_blank" rel="noopener noreferrer" disabled={disabled}>
+                    <InfoCircleOutlined />
+                </LinkButton>
+            </Tooltip>
         </Space>
     )
 }
@@ -48,6 +52,7 @@ interface PluginCardProps {
     maxOrder?: number
     rearranging?: boolean
     DragColumn?: React.ComponentClass | React.FC
+    unorderedPlugin?: boolean
 }
 
 export function PluginCard({
@@ -59,6 +64,7 @@ export function PluginCard({
     maxOrder,
     rearranging,
     DragColumn = ({ children }) => <Col className="order-handle">{children}</Col>,
+    unorderedPlugin = false,
 }: PluginCardProps): JSX.Element {
     const {
         name,
@@ -76,11 +82,19 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } = useActions(
-        pluginsLogic
-    )
+    const {
+        editPlugin,
+        toggleEnabled,
+        installPlugin,
+        resetPluginConfigError,
+        rearrange,
+        showPluginLogs,
+        showPluginMetrics,
+    } = useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <Col
@@ -105,6 +119,13 @@ export function PluginCard({
                             </div>
                         </DragColumn>
                     ) : null}
+                    {unorderedPlugin ? (
+                        <Tooltip title="This plugin does not do any processing in order." placement="topRight">
+                            <Col>
+                                <Tag color="#555">-</Tag>
+                            </Col>
+                        </Tooltip>
+                    ) : null}
                     {pluginConfig && (
                         <Col>
                             <Popconfirm
@@ -121,11 +142,7 @@ export function PluginCard({
                                 cancelText="No"
                                 disabled={rearranging}
                             >
-                                <Switch
-                                    checked={pluginConfig.enabled ?? false}
-                                    onClick={() => console.log(pluginConfig.enabled)}
-                                    disabled={rearranging}
-                                />
+                                <Switch checked={pluginConfig.enabled ?? false} disabled={rearranging} />
                             </Popconfirm>
                         </Col>
                     )}
@@ -180,7 +197,7 @@ export function PluginCard({
                     </Col>
                     <Col>
                         <Space>
-                            {url && <ExtraPluginButtons url={url} disabled={rearranging} />}
+                            {url && <PluginAboutButton url={url} disabled={rearranging} />}
                             {showUpdateButton && pluginId ? (
                                 <PluginUpdateButton
                                     updateStatus={updateStatus}
@@ -189,25 +206,43 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
-                                    <Button
-                                        className="padding-under-500"
-                                        disabled={rearranging}
-                                        onClick={() => showPluginLogs(pluginId)}
-                                        data-attr="plugin-logs"
+                                    {featureFlags[FEATURE_FLAGS.PLUGIN_METRICS] &&
+                                    Object.keys(plugin.metrics || {}).length > 0 ? (
+                                        <Space>
+                                            <Tooltip title="Metrics">
+                                                <Button onClick={() => showPluginMetrics(pluginId)}>
+                                                    <LineChartOutlined />
+                                                </Button>
+                                            </Tooltip>
+                                        </Space>
+                                    ) : null}
+                                    <Tooltip
+                                        title={
+                                            pluginConfig?.id
+                                                ? 'Logs'
+                                                : 'Logs – enable the plugin for the first time to view them'
+                                        }
                                     >
-                                        <UnorderedListOutlined />
-                                        <span className="show-over-500">Logs</span>
-                                    </Button>
-                                    <Button
-                                        type="primary"
-                                        className="padding-under-500"
-                                        disabled={rearranging}
-                                        onClick={() => editPlugin(pluginId)}
-                                        data-attr="plugin-configure"
-                                    >
-                                        <SettingOutlined />
-                                        <span className="show-over-500">Configure</span>
-                                    </Button>
+                                        <Button
+                                            className="padding-under-500"
+                                            disabled={rearranging || !pluginConfig?.id}
+                                            onClick={() => showPluginLogs(pluginId)}
+                                            data-attr="plugin-logs"
+                                        >
+                                            <UnorderedListOutlined />
+                                        </Button>
+                                    </Tooltip>
+                                    <Tooltip title="Configure">
+                                        <Button
+                                            type="primary"
+                                            className="padding-under-500"
+                                            disabled={rearranging}
+                                            onClick={() => editPlugin(pluginId)}
+                                            data-attr="plugin-configure"
+                                        >
+                                            <SettingOutlined />
+                                        </Button>
+                                    </Tooltip>
                                 </>
                             ) : !pluginId ? (
                                 <Button

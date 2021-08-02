@@ -7,7 +7,7 @@ import { toast } from 'react-toastify'
 import React from 'react'
 import { identifierToHuman, resolveWebhookService } from 'lib/utils'
 
-export const teamLogic = kea<teamLogicType<TeamType>>({
+export const teamLogic = kea<teamLogicType>({
     actions: {
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
@@ -58,8 +58,12 @@ export const teamLogic = kea<teamLogicType<TeamType>>({
                     toast.success(
                         <div>
                             <h1>
-                                {updatedAttribute ? identifierToHuman(updatedAttribute) : 'Project'} updated
-                                successfully!
+                                {updatedAttribute
+                                    ? updatedAttribute === 'slack_incoming_webhook'
+                                        ? 'Webhook'
+                                        : identifierToHuman(updatedAttribute)
+                                    : 'Project'}{' '}
+                                updated successfully!
                             </h1>
                             <p>{description}</p>
                         </div>,

@@ -1,16 +1,49 @@
-$text_value_padding: 0.3rem;
+@import '~/vars';
+
+$inter_items_padding: 0.3rem;
 
 .insights-label {
     margin-bottom: 0.1rem;
+    max-width: 100%;
+
     .property-key-info {
         display: inline;
     }
-    .value {
-        padding-left: $text_value_padding;
-        font-weight: 600;
+
+    .protect-width {
+        @extend .text-ellipsis;
     }
+
+    .value {
+        margin-left: $inter_items_padding;
+        font-size: 1.176em;
+        font-weight: bold;
+        padding-right: 4px;
+    }
+
     .ant-tag {
         margin-right: 0;
-        margin-left: $text_value_padding;
+        margin-left: $inter_items_padding;
+        background-color: $border_light;
+        border: 0;
+        color: $primary_alt;
+    }
+
+    .graph-series-glyph {
+        padding: 0 6px;
+        margin-right: 4px;
+        margin-left: 2px;
+    }
+
+    .color-icon {
+        width: 14px;
+        height: 14px;
+        min-width: 14px; // To make sure point doesn't get distorted
+        min-height: 14px;
+        border-radius: 50%;
+        margin-left: 2px;
+        margin-right: 4px;
+        border: 2px solid #ffffff;
+        box-sizing: border-box;
     }
 }

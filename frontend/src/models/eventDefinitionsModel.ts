@@ -3,8 +3,9 @@ import api from 'lib/api'
 import { posthogEvents } from 'lib/utils'
 import { EventDefinition, SelectOption } from '~/types'
 import { eventDefinitionsModelType } from './eventDefinitionsModelType'
+import { propertyDefinitionsModel } from './propertyDefinitionsModel'
 
-interface EventDefinitionStorage {
+export interface EventDefinitionStorage {
     count: number
     next: null | string
     results: EventDefinition[]
@@ -15,12 +16,10 @@ interface EventsGroupedInterface {
     options: SelectOption[]
 }
 
-export const eventDefinitionsModel = kea<
-    eventDefinitionsModelType<EventDefinitionStorage, EventDefinition, EventsGroupedInterface>
->({
+export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefinitionStorage, EventsGroupedInterface>>({
     actions: () => ({
-        updateEventDefinition: (id: string, description: string | null) => ({ id, description }),
-        setEventDefinitions: (event) => ({ event }),
+        updateDescription: (id: string, description: string | null, type: string) => ({ id, description, type }),
+        updateEventDefinition: (eventDefinition: EventDefinition) => ({ eventDefinition }),
     }),
     loaders: ({ values }) => ({
         eventStorage: [
@@ -40,14 +39,18 @@ export const eventDefinitionsModel = kea<
                         next: eventStorage.next,
                     }
                 },
-                setEventDefinitions: ({ event }) => {
-                    const updatedDefinitions = values.eventDefinitions.map((e) => (event.id === e.id ? event : e))
-                    return {
-                        count: values.eventStorage.count,
-                        results: updatedDefinitions,
-                        next: values.eventStorage.next,
-                    }
-                },
+            },
+        ],
+    }),
+    reducers: () => ({
+        eventStorage: [
+            { results: [], next: null, count: 0 } as EventDefinitionStorage,
+            {
+                updateEventDefinition: (state, { eventDefinition }) => ({
+                    count: state.count,
+                    results: state.results.map((p) => (eventDefinition.id === p.id ? eventDefinition : p)),
+                    next: state.next,
+                }),
             },
         ],
     }),
@@ -57,9 +60,13 @@ export const eventDefinitionsModel = kea<
                 actions.loadEventDefinitions()
             }
         },
-        updateEventDefinition: async ({ id, description }) => {
-            const response = await api.update(`api/projects/@current/event_definitions/${id}`, { description })
-            actions.setEventDefinitions(response)
+        updateDescription: async ({ id, description, type }) => {
+            const response = await api.update(`api/projects/@current/${type}_definitions/${id}`, { description })
+            if (type === 'event') {
+                actions.updateEventDefinition(response)
+            } else {
+                propertyDefinitionsModel.actions.updatePropertyDefinition(response)
+            }
         },
     }),
     events: ({ actions }) => ({

@@ -11,7 +11,7 @@ from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
-from .utils import UUIDClassicModel, generate_random_token, sane_repr
+from .utils import UUIDClassicModel, generate_random_token_project, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
@@ -44,7 +44,7 @@ class TeamManager(models.Manager):
             generic_emails = GenericEmails()
             example_emails = [email.email for email in example_emails if not generic_emails.is_generic(email.email)]
             if len(example_emails) > 0:
-                example_email = re.search("@[\w.]+", example_emails[0])
+                example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
                     return [
                         {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
@@ -87,7 +87,7 @@ class Team(UUIDClassicModel):
     api_token: models.CharField = models.CharField(
         max_length=200,
         unique=True,
-        default=generate_random_token,
+        default=generate_random_token_project,
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)

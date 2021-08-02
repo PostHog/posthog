@@ -1,0 +1,15 @@
+@import '~/vars';
+
+.dropdown-selector {
+    padding: $default_spacing / 2;
+    border: 1px solid $border_light;
+    border-radius: $radius;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+
+    &.disabled {
+        color: $text_muted;
+        cursor: not-allowed;
+    }
+}

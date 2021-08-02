@@ -12,6 +12,7 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from posthog.api.utils import get_token
 from posthog.celery import app as celery_app
 from posthog.constants import ENVIRONMENT_TEST
 from posthog.ee import is_clickhouse_enabled
@@ -78,33 +79,6 @@ def _get_sent_at(data, request) -> Optional[datetime]:
     return parser.isoparse(sent_at)
 
 
-def _get_token(data, request) -> Optional[str]:
-    if request.POST.get("api_key"):
-        return request.POST["api_key"]
-    if request.POST.get("token"):
-        return request.POST["token"]
-    if data:
-        if isinstance(data, list):
-            data = data[0]  # Mixpanel Swift SDK
-        if isinstance(data, dict):
-            if data.get("$token"):
-                return data["$token"]  # JS identify call
-            if data.get("token"):
-                return data["token"]  # JS reloadFeatures call
-            if data.get("api_key"):
-                return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
-            if data.get("properties") and data["properties"].get("token"):
-                return data["properties"]["token"]  # JS capture call
-    return None
-
-
-# Support test_[apiKey] for users with multiple environments
-def _clean_token(token):
-    is_test_environment = token.startswith("test_")
-    token = token[5:] if is_test_environment else token
-    return token, is_test_environment
-
-
 def _get_project_id(data, request) -> Optional[int]:
     if request.GET.get("project_id"):
         return int(request.POST["project_id"])
@@ -133,7 +107,7 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 
 def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, distinct_id: str):
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
-    if event["properties"].get("$lib") == "web" and not event["properties"].get("$active_feature_flags"):
+    if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
         event["properties"]["$active_feature_flags"] = get_active_feature_flags(team, distinct_id)
 
 
@@ -160,7 +134,7 @@ def get_event(request):
 
     sent_at = _get_sent_at(data, request)
 
-    token = _get_token(data, request)
+    token, is_test_environment = get_token(data, request)
 
     if not token:
         return cors_response(
@@ -173,9 +147,6 @@ def get_event(request):
                 status_code=status.HTTP_401_UNAUTHORIZED,
             ),
         )
-
-    token, is_test_environment = _clean_token(token)
-    assert token is not None
 
     team = Team.objects.get_team_from_token(token)
 
@@ -280,7 +251,9 @@ def get_event(request):
         capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk)
 
     timer.stop()
-    statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",})
+    statsd.incr(
+        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
+    )
     return cors_response(request, JsonResponse({"status": 1}))
 
 

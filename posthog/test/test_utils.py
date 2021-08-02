@@ -1,7 +1,14 @@
 from django.test import TestCase
 from freezegun import freeze_time
 
-from posthog.utils import get_available_timezones_with_offsets, mask_email_address, relative_date_parse
+from posthog.models import EventDefinition
+from posthog.test.base import BaseTest
+from posthog.utils import (
+    get_available_timezones_with_offsets,
+    get_default_event_name,
+    mask_email_address,
+    relative_date_parse,
+)
 
 
 class TestGeneralUtils(TestCase):
@@ -57,3 +64,17 @@ class TestRelativeDateParse(TestCase):
     @freeze_time("2020-01-31")
     def test_normal_date(self):
         self.assertEqual(relative_date_parse("2019-12-31").strftime("%Y-%m-%d"), "2019-12-31")
+
+
+class TestDefaultEventName(BaseTest):
+    def test_no_events(self):
+        self.assertEqual(get_default_event_name(), "$pageview")
+
+    def test_take_screen(self):
+        EventDefinition.objects.create(name="$screen", team=self.team)
+        self.assertEqual(get_default_event_name(), "$screen")
+
+    def test_prefer_pageview(self):
+        EventDefinition.objects.create(name="$pageview", team=self.team)
+        EventDefinition.objects.create(name="$screen", team=self.team)
+        self.assertEqual(get_default_event_name(), "$pageview")

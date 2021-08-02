@@ -5,9 +5,9 @@ import { CohortType } from '~/types'
 
 const POLL_TIMEOUT = 5000
 
-export const cohortsModel = kea<cohortsModelType<CohortType>>({
+export const cohortsModel = kea<cohortsModelType>({
     actions: () => ({
-        setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
+        setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),
         createCohort: (cohort: CohortType) => ({ cohort }),
     }),
@@ -22,9 +22,9 @@ export const cohortsModel = kea<cohortsModelType<CohortType>>({
         },
     }),
 
-    reducers: () => ({
+    reducers: {
         pollTimeout: [
-            null,
+            null as number | null,
             {
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
@@ -44,13 +44,17 @@ export const cohortsModel = kea<cohortsModelType<CohortType>>({
             },
             deleteCohort: (state, cohort) => {
                 if (!cohort) {
-                    return null
+                    return state
                 }
                 return [...state].filter((flag) => flag.id !== cohort.id)
             },
             deleteCohortSuccess: (state) => state,
         },
-    }),
+    },
+
+    selectors: {
+        cohortsWithAllUsers: [(s) => [s.cohorts], (cohorts) => [{ id: 'all', name: 'All Users*' }, ...cohorts]],
+    },
 
     listeners: ({ actions }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CohortType[] }) => {
@@ -58,7 +62,7 @@ export const cohortsModel = kea<cohortsModelType<CohortType>>({
             if (!is_calculating) {
                 return
             }
-            actions.setPollTimeout(setTimeout(actions.loadCohorts, POLL_TIMEOUT))
+            actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
         },
     }),
 

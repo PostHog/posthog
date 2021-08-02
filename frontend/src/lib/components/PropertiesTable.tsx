@@ -224,6 +224,7 @@ export function PropertiesTable({
                 pagination={false}
                 dataSource={objectProperties}
                 className={className}
+                locale={{ emptyText: 'This property contains an empty object.' }}
             />
         )
     }

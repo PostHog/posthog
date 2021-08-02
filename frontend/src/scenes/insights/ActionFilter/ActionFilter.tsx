@@ -5,12 +5,9 @@ import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
-import { alphabet } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ActionFilter as ActionFilterType, FilterType, Optional } from '~/types'
 import { SortableContainer, SortableActionFilterRow } from './Sortable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -22,11 +19,13 @@ export interface ActionFilterProps {
     disabled?: boolean // Whether the full control is enabled or not
     singleFilter?: boolean // Whether it's allowed to add multiple event/action series (e.g. lifecycle only accepts one event)
     sortable?: boolean // Whether actions/events can be sorted (used mainly for funnel step reordering)
-    showLetters?: boolean // Whether to show a letter indicator identifying each graph
+    showSeriesIndicator?: boolean // Whether to show an indicator identifying each graph
+    seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     showOr?: boolean // Whether to show the "OR" label after each filter
     customRowPrefix?: string | JSX.Element // Custom prefix element to show in each ActionFilterRow
     customActions?: JSX.Element // Custom actions to be added next to the add series button
     horizontalUI?: boolean
+    fullWidth?: boolean
 }
 
 export function ActionFilter({
@@ -39,15 +38,15 @@ export function ActionFilter({
     disabled = false,
     singleFilter = false,
     sortable = false,
-    showLetters = false,
+    showSeriesIndicator = false,
+    seriesIndicatorType = 'alpha',
     showOr = false,
     horizontalUI = false,
+    fullWidth = false,
     customRowPrefix,
     customActions,
 }: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { localFilters } = useValues(logic)
     const { addFilter, setLocalFilters } = useActions(logic)
@@ -70,6 +69,17 @@ export function ActionFilter({
         }
     }
 
+    const commonProps = {
+        logic: logic as any,
+        showSeriesIndicator,
+        seriesIndicatorType,
+        hideMathSelector,
+        hidePropertySelector,
+        customRowPrefix,
+        hasBreakdown: !!filters.breakdown,
+        fullWidth,
+    }
+
     return (
         <div>
             {localFilters ? (
@@ -78,32 +88,25 @@ export function ActionFilter({
                         {localFilters.map((filter, index) => (
                             <SortableActionFilterRow
                                 key={index}
-                                logic={logic as any}
                                 filter={filter as ActionFilterType}
                                 index={index}
                                 filterIndex={index}
-                                hideMathSelector={hideMathSelector}
-                                hidePropertySelector={hidePropertySelector}
                                 filterCount={localFilters.length}
-                                customRowPrefix={customRowPrefix}
+                                {...commonProps}
                             />
                         ))}
                     </SortableContainer>
                 ) : (
                     localFilters.map((filter, index) => (
                         <ActionFilterRow
-                            logic={logic as any}
                             filter={filter as ActionFilterType}
                             index={index}
                             key={index}
-                            letter={(showLetters && (alphabet[index] || '-')) || null}
-                            hideMathSelector={hideMathSelector}
-                            hidePropertySelector={hidePropertySelector}
                             singleFilter={singleFilter}
                             showOr={showOr}
                             horizontalUI={horizontalUI}
                             filterCount={localFilters.length}
-                            customRowPrefix={customRowPrefix}
+                            {...commonProps}
                         />
                     ))
                 )
@@ -112,14 +115,12 @@ export function ActionFilter({
                 <div className="mt" style={{ display: 'flex', alignItems: 'center' }}>
                     {!singleFilter && (
                         <Button
-                            type={featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? 'dashed' : 'primary'}
+                            type="dashed"
                             onClick={() => addFilter()}
                             data-attr="add-action-event-button"
                             icon={<PlusCircleOutlined />}
                             disabled={disabled}
-                            className={`add-action-event-button${
-                                featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? ' new-ui' : ''
-                            }`}
+                            className="add-action-event-button"
                         >
                             {buttonCopy || 'Action or event'}
                         </Button>

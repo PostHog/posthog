@@ -47,12 +47,7 @@ def django_db_setup(django_db_setup, django_db_keepdb):
 
 @pytest.fixture
 def db(db):
-    from ee.clickhouse.sql.events import (
-        DROP_EVENTS_TABLE_SQL,
-        DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL,
-        EVENTS_TABLE_SQL,
-        EVENTS_WITH_PROPS_TABLE_SQL,
-    )
+    from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
     from ee.clickhouse.sql.person import (
         DROP_PERSON_DISTINCT_ID_TABLE_SQL,
         DROP_PERSON_STATIC_COHORT_TABLE_SQL,
@@ -70,7 +65,6 @@ def db(db):
 
     try:
         sync_execute(DROP_EVENTS_TABLE_SQL)
-        sync_execute(DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL)
         sync_execute(DROP_PERSON_TABLE_SQL)
         sync_execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
         sync_execute(DROP_PERSON_STATIC_COHORT_TABLE_SQL)
@@ -78,7 +72,6 @@ def db(db):
         sync_execute(DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL)
 
         sync_execute(EVENTS_TABLE_SQL)
-        sync_execute(EVENTS_WITH_PROPS_TABLE_SQL)
         sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL)
         sync_execute(PERSONS_TABLE_SQL)
         sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)

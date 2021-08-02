@@ -6,8 +6,7 @@ import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForE
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { elementsLogicType } from './elementsLogicType'
-import { ActionStepType, ActionType } from '~/types'
-import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
+import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { posthog } from '~/toolbar/posthog'
@@ -16,17 +15,7 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
-export const elementsLogic = kea<
-    elementsLogicType<
-        ActionStepType,
-        ActionForm,
-        ActionType,
-        ElementWithMetadata,
-        ActionElementWithMetadata,
-        ActionElementMap,
-        ElementMap
-    >
->({
+export const elementsLogic = kea<elementsLogicType<ActionElementMap, ElementMap>>({
     actions: {
         enableInspect: true,
         disableInspect: true,

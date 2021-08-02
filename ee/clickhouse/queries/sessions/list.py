@@ -6,7 +6,7 @@ from ee.clickhouse.models.action import format_entity_filter
 from ee.clickhouse.models.event import ClickhouseEventSerializer
 from ee.clickhouse.models.person import get_persons_by_distinct_ids
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.clickhouse_session_recording import filter_sessions_by_recordings
+from ee.clickhouse.queries.clickhouse_session_recording import join_with_session_recordings
 from ee.clickhouse.queries.sessions.clickhouse_sessions import set_default_dates
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.sessions.list import SESSION_SQL, SESSIONS_DISTINCT_ID_SQL
@@ -61,7 +61,7 @@ class ClickhouseSessionsList(SessionsList):
 
         self._add_person_properties(result)
 
-        return filter_sessions_by_recordings(self.team, result, self.filter), pagination
+        return join_with_session_recordings(self.team, result, self.filter), pagination
 
     def fetch_distinct_ids(
         self, action_filters: ActionFiltersSQL, date_from: str, date_to: str, limit: int, distinct_id_offset: int
@@ -107,38 +107,19 @@ class ClickhouseSessionsList(SessionsList):
                 session["email"] = distinct_to_person[session["distinct_id"]].properties.get("email")
 
     def _parse_list_results(self, results: List[Tuple]):
-        final = []
-        for result in results:
-            events = []
-            for i in range(len(result[4])):
-                event = [
-                    result[4][i],  # uuid
-                    result[5][i],  # event
-                    result[6][i],  # properties
-                    result[7][i],  # timestamp
-                    None,  # team_id,
-                    result[0],  # distinct_id
-                    result[8][i],  # elements_chain
-                    None,  # properties keys
-                    None,  # properties values
-                ]
-                events.append(ClickhouseEventSerializer(event, many=False).data)
-
-            final.append(
-                {
-                    "distinct_id": result[0],
-                    "global_session_id": result[1],
-                    "length": result[2],
-                    "start_time": result[3],
-                    "end_time": result[9],
-                    "event_count": len(result[4]),
-                    "events": list(events),
-                    "properties": {},
-                    "matching_events": list(sorted(set(flatten(result[10:])))),
-                }
-            )
-
-        return final
+        return [
+            {
+                "distinct_id": result[0],
+                "global_session_id": result[1],
+                "length": result[2],
+                "start_time": result[3],
+                "end_time": result[4],
+                "start_url": _process_url(result[5]),
+                "end_url": _process_url(result[6]),
+                "matching_events": list(sorted(set(flatten(result[7:])))),
+            }
+            for result in results
+        ]
 
 
 def format_action_filters(filter: SessionsFilter) -> ActionFiltersSQL:
@@ -178,3 +159,11 @@ def format_action_filter_aggregate(entity: Entity, prepend: str):
         params = {**params, **filter_params}
 
     return filter_sql, params
+
+
+def _process_url(url: Optional[str]) -> Optional[str]:
+    if url is not None:
+        url = url.strip('"')
+    if url == "":
+        url = None
+    return url

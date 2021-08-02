@@ -32,7 +32,7 @@ export function useEventListener(
             element.addEventListener(eventName, eventListener)
             // Remove event listener on cleanup
             return () => {
-                element.removeEventListener(eventName, eventListener)
+                element?.removeEventListener(eventName, eventListener)
             }
         },
         [eventName, element, ...(deps || [])] // Re-run if eventName or element changes

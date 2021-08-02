@@ -8,9 +8,10 @@ import { userLogic } from './userLogic'
 interface OrganizationUpdatePayload {
     name?: string
     personalization?: PersonalizationData
+    domain_whitelist?: string[]
 }
 
-export const organizationLogic = kea<organizationLogicType<OrganizationType, PersonalizationData>>({
+export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePayload>>({
     actions: {
         deleteOrganization: (organization: OrganizationType) => ({ organization }),
         deleteOrganizationSuccess: true,
@@ -63,6 +64,9 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType, Per
         },
         renameCurrentOrganizationSuccess: () => {
             toast.success('Organization has been renamed')
+        },
+        updateOrganizationSuccess: () => {
+            toast.success('Your configuration has been saved!')
         },
         deleteOrganization: async ({ organization }) => {
             try {

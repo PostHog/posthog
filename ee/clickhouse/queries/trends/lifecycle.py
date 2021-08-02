@@ -3,16 +3,18 @@ from typing import Any, Callable, Dict, List, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query import Prefetch
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.person import get_persons_by_distinct_ids, get_persons_by_uuids
+from ee.clickhouse.models.person import get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import parse_response
 from ee.clickhouse.queries.util import get_earliest_timestamp, get_time_diff, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.lifecycle import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.queries.lifecycle import LifecycleTrend
@@ -31,7 +33,7 @@ class ClickhouseLifecycle(LifecycleTrend):
         elif interval == "month":
             return relativedelta(months=1), "1 MONTH", "1 DAY"
         else:
-            raise ValueError("{interval} not supported")
+            raise ValidationError("{interval} not supported")
 
     def _format_lifecycle_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
         date_from = filter.date_from
@@ -55,7 +57,7 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
-                action = Action.objects.get(pk=entity.id)
+                action = entity.get_action()
                 event_query, event_params = format_action_filter(action)
             except:
                 return "", {}, self._parse_result(filter, entity)
@@ -70,6 +72,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 event_query=event_query,
                 filters=prop_filters,
                 sub_interval=sub_interval_string,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
             {
                 "team_id": team_id,
@@ -101,7 +104,13 @@ class ClickhouseLifecycle(LifecycleTrend):
         return _parse
 
     def get_people(
-        self, filter: Filter, team_id: int, target_date: datetime, lifecycle_type: str, limit: int = 100,
+        self,
+        filter: Filter,
+        team_id: int,
+        target_date: datetime,
+        lifecycle_type: str,
+        request: Request,
+        limit: int = 100,
     ):
         entity = filter.entities[0]
         date_from = filter.date_from
@@ -122,7 +131,7 @@ class ClickhouseLifecycle(LifecycleTrend):
 
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             try:
-                action = Action.objects.get(pk=entity.id)
+                action = entity.get_action()
                 event_query, event_params = format_action_filter(action)
             except:
                 return []
@@ -142,6 +151,7 @@ class ClickhouseLifecycle(LifecycleTrend):
                 event_query=event_query,
                 filters=prop_filters,
                 sub_interval=sub_interval_string,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
             {
                 "team_id": team_id,

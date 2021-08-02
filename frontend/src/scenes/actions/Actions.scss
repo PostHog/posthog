@@ -63,6 +63,12 @@
     margin-bottom: 0;
     height: 100%;
 
+    .action-step-caption {
+        font-size: 0.8em;
+        color: $text_muted;
+        padding-bottom: $default_spacing;
+    }
+
     .remove-wrapper {
         position: absolute;
         right: 0;

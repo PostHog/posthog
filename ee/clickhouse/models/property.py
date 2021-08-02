@@ -38,12 +38,16 @@ def parse_prop_clauses(
 
     for idx, prop in enumerate(filters):
         if prop.type == "cohort":
-            cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
-            person_id_query, cohort_filter_params = format_filter_query(cohort)
-            params = {**params, **cohort_filter_params}
-            final.append(
-                "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
-            )
+            try:
+                cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
+            except Cohort.DoesNotExist:
+                final.append("AND 0 = 1")  # If cohort doesn't exist, nothing can match
+            else:
+                person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
+                params = {**params, **cohort_filter_params}
+                final.append(
+                    "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
+                )
         elif prop.type == "person":
             filter_query, filter_params = prop_filter_json_extract(
                 prop, idx, "{}person".format(prepend), allow_denormalized_props=allow_denormalized_props

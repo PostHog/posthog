@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, Optional
 
-from django.http import HttpRequest
+from rest_framework import request
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES
@@ -20,12 +20,23 @@ from posthog.models.filters.mixins.common import (
     FormulaMixin,
     InsightMixin,
     IntervalMixin,
+    LimitMixin,
     OffsetMixin,
     SelectorMixin,
     SessionMixin,
     ShownAsMixin,
 )
-from posthog.models.filters.mixins.funnel_window_days import FunnelWindowDaysMixin
+from posthog.models.filters.mixins.funnel import (
+    FunnelFromToStepsMixin,
+    FunnelLayoutMixin,
+    FunnelPersonsStepBreakdownMixin,
+    FunnelPersonsStepMixin,
+    FunnelTrendsPersonsMixin,
+    FunnelTypeMixin,
+    FunnelWindowDaysMixin,
+    FunnelWindowMixin,
+    HistogramMixin,
+)
 from posthog.models.filters.mixins.property import PropertyMixin
 
 
@@ -46,10 +57,19 @@ class Filter(
     InsightMixin,
     SessionMixin,
     OffsetMixin,
+    LimitMixin,
     DateMixin,
-    BaseFilter,
     FormulaMixin,
     FunnelWindowDaysMixin,
+    FunnelWindowMixin,
+    FunnelFromToStepsMixin,
+    FunnelPersonsStepMixin,
+    FunnelTrendsPersonsMixin,
+    FunnelPersonsStepBreakdownMixin,
+    FunnelLayoutMixin,
+    FunnelTypeMixin,
+    HistogramMixin,
+    BaseFilter,
 ):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.
@@ -60,7 +80,9 @@ class Filter(
     funnel_id: Optional[int] = None
     _data: Dict
 
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
+    def __init__(
+        self, data: Optional[Dict[str, Any]] = None, request: Optional[request.Request] = None, **kwargs
+    ) -> None:
         if request:
             properties = {}
             if request.GET.get(PROPERTIES):
@@ -68,8 +90,12 @@ class Filter(
                     properties = json.loads(request.GET[PROPERTIES])
                 except json.decoder.JSONDecodeError:
                     raise ValidationError("Properties are unparsable!")
+            elif request.data and request.data.get(PROPERTIES):
+                properties = request.data[PROPERTIES]
+
             data = {
                 **request.GET.dict(),
+                **request.data,
                 **(data if data else {}),
                 **({PROPERTIES: properties}),
             }

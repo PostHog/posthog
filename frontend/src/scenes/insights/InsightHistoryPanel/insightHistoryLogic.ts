@@ -8,7 +8,13 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 const updateInsightState = (
     state: DashboardItemType[],
-    { item, insight }: { item?: DashboardItemType; insight?: DashboardItemType },
+    {
+        item,
+        insight,
+    }: {
+        item?: DashboardItemType
+        insight?: DashboardItemType
+    },
     isSaved?: boolean
 ): DashboardItemType[] => {
     item = item || insight
@@ -31,7 +37,7 @@ const updateInsightState = (
 }
 
 /* insightHistoryLogic - Handles all logic for saved insights and recent history */
-export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType>>({
+export const insightHistoryLogic = kea<insightHistoryLogicType>({
     loaders: ({ actions }) => ({
         insights: {
             __default: [] as DashboardItemType[],

@@ -110,8 +110,7 @@ class SessionListBuilder:
         self.running_sessions[distinct_id] = {
             "distinct_id": distinct_id,
             "end_time": timestamp,
-            "event_count": 0,
-            "start_url": current_url,
+            "end_url": current_url,
             "email": self.emails.get(distinct_id),
             "matching_events": [[] for _ in range(self.action_filter_count)],
         }
@@ -120,8 +119,7 @@ class SessionListBuilder:
     def _session_update(self, event: EventWithCurrentUrl):
         distinct_id, timestamp, id, current_url, *action_filter_matches = event
         self.running_sessions[distinct_id]["start_time"] = timestamp
-        self.running_sessions[distinct_id]["event_count"] += 1
-        self.running_sessions[distinct_id]["end_url"] = current_url
+        self.running_sessions[distinct_id]["start_url"] = current_url
 
         for index, is_match in enumerate(action_filter_matches):
             if is_match:

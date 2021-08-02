@@ -8,10 +8,11 @@ import React from 'react'
 import { clearDOMTextSelection, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Button } from 'antd'
-import { DashboardMode } from '../../types'
+import { DashboardMode, ViewType } from '~/types'
+
+export const AUTO_REFRESH_INTERVAL_MINS = 5
 
 export const dashboardLogic = kea({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
@@ -34,16 +35,17 @@ export const dashboardLogic = kea({
         addGraph: true, // takes the user to insights to add a graph
         deleteTag: (tag) => ({ tag }),
         saveNewTag: (tag) => ({ tag }),
+        setAutoRefresh: (enabled) => ({ enabled }), // enabled: boolean
     }),
 
     loaders: ({ actions, props }) => ({
         allItems: [
             {},
             {
-                loadDashboardItems: async () => {
+                loadDashboardItems: async ({ refresh = undefined } = {}) => {
                     try {
                         const dashboard = await api.get(
-                            `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken })}`
+                            `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken, refresh })}`
                         )
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
@@ -128,6 +130,12 @@ export const dashboardLogic = kea({
             null,
             {
                 setDashboardMode: (_, { source }) => source, // used to determine what input to focus on edit mode
+            },
+        ],
+        autoRefresh: [
+            false,
+            {
+                setAutoRefresh: (_, { enabled }) => enabled,
             },
         ],
     }),
@@ -262,7 +270,7 @@ export const dashboardLogic = kea({
     }),
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
-            actions.loadDashboardItems()
+            actions.loadDashboardItems({ refresh: props.internal })
             if (props.shareToken) {
                 actions.setDashboardMode(
                     props.internal ? DashboardMode.Internal : DashboardMode.Public,
@@ -275,6 +283,11 @@ export const dashboardLogic = kea({
             if (cache.draggingToastId) {
                 toast.dismiss(cache.draggingToastId)
                 cache.draggingToastId = null
+            }
+
+            if (cache.autoRefreshInterval) {
+                window.clearInterval(cache.autoRefreshInterval)
+                cache.autoRefreshInterval = null
             }
         },
     }),
@@ -395,6 +408,17 @@ export const dashboardLogic = kea({
         deleteTag: async ({ tag }, breakpoint) => {
             await breakpoint(100)
             actions.triggerDashboardUpdate({ tags: values.dashboard.tags.filter((_tag) => _tag !== tag) })
+        },
+        setAutoRefresh: ({ enabled }) => {
+            if (cache.autoRefreshInterval) {
+                window.clearInterval(cache.autoRefreshInterval)
+                cache.autoRefreshInterval = null
+            }
+            if (enabled) {
+                cache.autoRefreshInterval = window.setInterval(() => {
+                    actions.loadDashboardItems({ refresh: true })
+                }, AUTO_REFRESH_INTERVAL_MINS * 60 * 1000)
+            }
         },
     }),
 })

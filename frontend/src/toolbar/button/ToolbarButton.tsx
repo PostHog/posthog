@@ -65,19 +65,10 @@ export function ToolbarButton(): JSX.Element {
                 const y = rect.top + rect.height / 2
                 const distance = Math.sqrt((e.clientX - x) * (e.clientX - x) + (e.clientY - y) * (e.clientY - y))
 
-                const startDistance = isAuthenticated ? 230 : 130
-                const endDistance = isAuthenticated ? 160 : 60
+                const maxDistance = isAuthenticated ? 300 : 100
 
-                if (distance >= startDistance) {
-                    if (toolbarButtonLogic.values.extensionPercentage !== 0) {
-                        setExtensionPercentage(0)
-                    }
-                } else if (distance >= endDistance && distance < startDistance) {
-                    setExtensionPercentage((startDistance - distance) / (startDistance - endDistance))
-                } else if (distance < endDistance) {
-                    if (toolbarButtonLogic.values.extensionPercentage !== 1) {
-                        setExtensionPercentage(1)
-                    }
+                if (distance >= maxDistance && toolbarButtonLogic.values.extensionPercentage !== 0) {
+                    setExtensionPercentage(0)
                 }
             }
         }
@@ -114,17 +105,8 @@ export function ToolbarButton(): JSX.Element {
             width={62}
             className="floating-toolbar-button"
             content={<HogLogo style={{ width: 45, cursor: 'pointer' }} />}
-            label={
-                isAuthenticated ? null : (
-                    <div style={{ lineHeight: '22px', paddingTop: 15 }}>
-                        Click here to
-                        <br />
-                        authenticate
-                    </div>
-                )
-            }
-            labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0, marginTop: 16 }}
             {...clickEvents}
+            onMouseOver={isAuthenticated ? undefined : () => setExtensionPercentage(1)}
             style={{ borderRadius: 10, height: 46, marginTop: -23 }}
             zIndex={3}
         >

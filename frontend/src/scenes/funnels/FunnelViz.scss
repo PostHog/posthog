@@ -1,5 +1,31 @@
+// DEPRECATED: This file has been deprecated in favor of FunnelBarGraph.scss
 @import '~/vars';
 @import 'node_modules/funnel-graph-js/src/scss/main';
+
+.funnels-empty-state {
+    text-align: center;
+    h2.funnels-empty-state__title {
+        font-weight: 600;
+        font-size: 1.5rem;
+        line-height: 1.6rem;
+    }
+
+    .funnels-empty-state__description {
+        font-weight: 500;
+        font-size: 1rem;
+        line-height: 1.7rem;
+        color: $text_muted;
+    }
+
+    button.add-action-event-button {
+        height: 50px;
+    }
+
+    .funnels-empty-state__help {
+        font-size: 0.9rem;
+        margin-top: 1rem;
+    }
+}
 
 .svg-funnel-js {
     .svg-funnel-js__container {
@@ -82,6 +108,47 @@
                 border-radius: 50%;
                 margin: 2px 8px 2px 0;
             }
+        }
+    }
+}
+
+.funnel-bin-filter-dropdown {
+    .funnel-bins-custom-picker {
+        width: 43px; // enough to hold two characters
+        margin: 5px 0 5px 13px; // margin left comes from 24px (padding left select option) - 11px (padding inside input)
+
+        .ant-input-number-handler-wrap {
+            display: none;
+        }
+    }
+
+    .select-option-hidden {
+        display: none;
+    }
+}
+
+.funnel-tab {
+    .property-filter-wrapper {
+        //margin-left: 49px; // 30px draggable icon width + 4px margin-left + 15px button padding-left
+        display: flex;
+        flex-direction: row;
+
+        .arrow {
+            color: #c4c4c4;
+            font-size: 18px;
+            min-width: 30px;
+            height: 48px;
+            box-sizing: border-box;
+            align-items: center;
+            padding-left: 4px;
+            padding-right: 4px;
+            position: relative;
+            top: 6px;
+            user-select: none;
+        }
+
+        .new-prop-filter {
+            padding-left: 16px !important;
         }
     }
 }

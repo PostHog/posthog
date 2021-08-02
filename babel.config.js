@@ -6,5 +6,14 @@ module.exports = {
         '@babel/plugin-proposal-class-properties',
         ['babel-plugin-kea', { path: './frontend/src' }],
     ],
-    presets: ['@babel/preset-env', '@babel/typescript'],
+    presets: [
+        [
+            '@babel/preset-env',
+            {
+                useBuiltIns: 'usage',
+                corejs: 3,
+            },
+        ],
+        '@babel/typescript',
+    ],
 }

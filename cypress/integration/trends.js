@@ -3,6 +3,15 @@ describe('Trends', () => {
         cy.visit('/insights')
     })
 
+    it('Can load a graph from a URL directly', () => {
+        // regression test, the graph wouldn't load when going directly to a URL
+        cy.visit(
+            '/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B"id"%3A"%24pageview"%2C"name"%3A"%24pageview"%2C"type"%3A"events"%2C"order"%3A0%7D%5D&filter_test_accounts=false&breakdown=%24referrer&breakdown_type=event&properties=%5B%7B"key"%3A"%24current_url"%2C"value"%3A"http%3A%2F%2Fhogflix.com"%2C"operator"%3A"icontains"%2C"type"%3A"event"%7D%5D'
+        )
+
+        cy.get('[data-attr=trend-line-graph]').should('exist')
+    })
+
     it('Insight History Panel Rendered', () => {
         cy.get('.insights-page').should('exist')
         cy.wait(500)
@@ -14,6 +23,7 @@ describe('Trends', () => {
         // when
         cy.contains('Add graph series').click()
         cy.get('[data-attr=trend-element-subject-1]').click()
+        cy.get('[data-attr=taxonomic-tab-actions]').click()
         cy.contains('HogFlix homepage view').click()
 
         // then
@@ -40,24 +50,13 @@ describe('Trends', () => {
 
     it('Apply specific filter on default pageview event', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.get('div.property-key-info').contains('Pageview').click()
+        cy.get('.property-key-info').contains('Pageview').click() // Tooltip is shown with description
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
-        cy.get('[data-attr=show-prop-filter-0]').click()
-        cy.get('[data-attr="new-prop-filter-0-$pageview-filter"]').click()
-        cy.get('[data-attr=property-filter-dropdown]').click()
-        cy.get('[data-attr=prop-filter-event-1]').click({ force: true })
-        cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
-        cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
-    })
 
-    it('Apply specific filter on custom action', () => {
-        cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.get('li.ant-list-item').contains('Watched Movie').click()
+        // Apply a property filter
         cy.get('[data-attr=show-prop-filter-0]').click()
-        cy.get('[data-attr=property-filter-0]').contains('Add filter').click()
-        cy.get('[data-attr=property-filter-dropdown]').click()
-        cy.get('.ant-select-item-option-content').contains('is_first_movie').click({ force: true })
+        cy.get('[data-attr=property-select-toggle-0]').click()
+        cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
         cy.get('[data-attr=trend-line-graph]', { timeout: 8000 }).should('exist')
@@ -65,11 +64,11 @@ describe('Trends', () => {
 
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=trend-element-subject-0]').click()
-        cy.get('div.property-key-info').contains('Pageview').click()
+        cy.get('.property-key-info').contains('Pageview').click()
         cy.get('[data-attr=trend-element-subject-0]').should('have.text', 'Pageview')
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
-        cy.get('[data-attr=property-filter-dropdown]').click()
-        cy.get('[data-attr=prop-filter-event-1]').click({ force: true })
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+        cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
 
@@ -94,7 +93,14 @@ describe('Trends', () => {
         cy.get('[data-attr=chart-filter]').click()
         cy.contains('Table').click()
 
-        cy.get('[data-attr=trend-table-graph]').should('exist')
+        cy.get('[data-attr=insights-table-graph]').should('exist')
+
+        // Select Total Count math property
+        cy.get('[data-attr=math-selector-0]').click()
+        cy.get('[data-attr=math-total-0]').click()
+
+        // Should contain more than label column
+        cy.get('[data-attr=insights-table-graph]').find('.ant-table-cell').its('length').should('be.gte', 1)
     })
 
     it('Apply date filter', () => {
@@ -106,18 +112,14 @@ describe('Trends', () => {
 
     it('Apply property breakdown', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
-        cy.get('[data-attr=prop-breakdown-select]').click()
-        cy.get('[data-attr=prop-breakdown-3]').click()
-
+        cy.get('[data-attr=prop-filter-event_properties-2]').click()
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
     it('Apply all users cohort breakdown', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
-        cy.get('[data-attr=breakdown-filter-content]').contains('Cohort').click()
-        cy.get('[data-attr=cohort-breakdown-select]').click()
-        cy.get('[data-attr=cohort-breakdown-all-users]').click()
-
+        cy.get('[data-attr=taxonomic-tab-cohorts_with_all]').click()
+        cy.contains('All Users*').click()
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 

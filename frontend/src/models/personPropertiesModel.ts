@@ -3,7 +3,7 @@ import { personPropertiesModelType } from './personPropertiesModelType'
 import api from 'lib/api'
 import { PersonProperty } from '~/types'
 
-export const personPropertiesModel = kea<personPropertiesModelType<PersonProperty>>({
+export const personPropertiesModel = kea<personPropertiesModelType>({
     loaders: {
         personProperties: [
             [] as Array<PersonProperty>,

@@ -1,28 +1,34 @@
 {% if debug %}
 <div id="bottom-notice" class="tricolor click-close" style="display: none">
     <div>
-        <span>Current branch: </span
-        ><b><code style="background: 0; color: white">{{ git_branch|default:"unknown" }}</code></b
-        ><span>.</span>
+        <span>
+            <span>Current branch: </span
+            ><b><code style="background: 0; color: white">{{ git_branch|default:"unknown" }}</code></b
+            ><span>.</span>
+        </span>
     </div>
     <div>
-        <span>PostHog running in </span><b><code style="background: 0; color: white">DEBUG</code></b> mode!
+        <span
+            ><span>PostHog running in </span><b><code style="background: 0; color: white">DEBUG</code></b> mode!</span
+        >
     </div>
     <div>
-        <span>Current revision: </span
-        ><b><code style="background: 0; color: white">{{ git_rev|default:"unknown" }}</code></b
-        ><span>.</span>
+        <span
+            ><span>Current revision: </span
+            ><b><code style="background: 0; color: white">{{ git_rev|default:"unknown" }}</code></b
+            ><span>.</span></span
+        >
     </div>
     <button title="Close debug bar">
         <code style="background: 0; color: white">×</code>
     </button>
 </div>
 <script>
-    document.getElementById('bottom-notice').addEventListener("click", function (e) {
-        if (e.target.tagName !== 'CODE') {
+    document.getElementById('bottom-notice').addEventListener('click', function (e) {
+        if (e.target.tagName !== 'SPAN') {
             document.getElementById('bottom-notice').remove()
         }
-    });
+    })
 </script>
 {% else %}
 <script>

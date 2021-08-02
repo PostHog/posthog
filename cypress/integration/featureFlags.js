@@ -17,9 +17,10 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=new-prop-filter-feature-flag-null-0-1').click()
 
         // select the first property
-        cy.get('[data-attr=property-filter-dropdown]').click()
-        cy.get('[data-attr=property-filter-dropdown]').type('is_demo')
-        cy.get('[data-attr=prop-filter-person-0]').click({ force: true })
+        cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').type('is_demo')
+        cy.get('[data-attr=taxonomic-tab-person_properties]').click()
+        cy.get('[data-attr=prop-filter-person_properties-0]').click({ force: true })
 
         // selects the first value
         cy.get('[data-attr=prop-val]').click()
@@ -31,7 +32,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-table]').should('not.contain', '%') // By default it's released to everyone, if a % is not specified
         cy.get('[data-attr=feature-flag-table]').should('contain', 'is_demo')
 
-        cy.get('[data-attr=feature-flag-table] tr:first-child td:nth-child(2)').click()
+        cy.get(`[data-row-key=${name}]`).click()
         cy.get('[data-attr=feature-flag-key]')
             .type('-updated')
             .should('have.value', name + '-updated')
@@ -39,7 +40,7 @@ describe('Feature Flags', () => {
         cy.get('.Toastify__toast-body').click() // clicking the toast gets you back to the list
         cy.get('[data-attr=feature-flag-table]').should('contain', name + '-updated')
 
-        cy.get('[data-attr=feature-flag-table] tr:first-child [data-attr=usage]').click()
+        cy.get(`[data-row-key=${name}-updated] [data-attr=usage]`).click()
         cy.location().should((loc) => {
             expect(loc.pathname.toString()).to.contain('/insight')
         })

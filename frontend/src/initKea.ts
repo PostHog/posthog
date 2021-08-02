@@ -1,9 +1,10 @@
 import { resetContext } from 'kea'
-import localStoragePlugin from 'kea-localstorage'
+import { localStoragePlugin } from 'kea-localstorage'
 import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
 import { windowValuesPlugin } from 'kea-window-values'
 import { errorToast, identifierToHuman } from 'lib/utils'
+import { waitForPlugin } from 'kea-waitfor'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -47,6 +48,7 @@ export function initKea(): void {
                     ;(window as any).Sentry?.captureException(error)
                 },
             }),
+            waitForPlugin,
         ],
     })
 }

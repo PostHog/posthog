@@ -1,11 +1,14 @@
 from uuid import uuid4
 
+from django.conf import settings
+from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.constants import TRENDS_BAR_VALUE
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
@@ -27,7 +30,7 @@ def _create_cohort(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     groups = kwargs.pop("groups")
-    cohort = Cohort.objects.create(team=team, name=name, groups=groups)
+    cohort = Cohort.objects.create(team=team, name=name, groups=groups, last_calculation=timezone.now())
     return cohort
 
 
@@ -38,6 +41,9 @@ def _create_event(**kwargs):
 
 # override tests from test facotry if intervals are different
 class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTrends, _create_event, Person.objects.create, _create_action, _create_cohort)):  # type: ignore
+
+    maxDiff = None
+
     def test_breakdown_with_filter(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -101,7 +107,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             )
 
         self.assertListEqual(
-            [res["breakdown_value"] for res in event_response], ["none", "person1", "person2", "person3"]
+            sorted([res["breakdown_value"] for res in event_response]),
+            sorted(["none", "person1", "person2", "person3"]),
         )
 
         for response in event_response:
@@ -254,14 +261,19 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 self.team,
             )
 
-        self.assertEqual(response[1]["label"], "sign up - second url")
-        self.assertEqual(response[2]["label"], "sign up - first url")
+        response = sorted(response, key=lambda x: x["label"])
+        self.assertEqual(response[0]["label"], "sign up - first url")
+        self.assertEqual(response[1]["label"], "sign up - none")
+        self.assertEqual(response[2]["label"], "sign up - second url")
 
-        self.assertEqual(sum(response[1]["data"]), 1)
-        self.assertEqual(response[1]["breakdown_value"], "second url")
+        self.assertEqual(sum(response[0]["data"]), 1)
+        self.assertEqual(response[0]["breakdown_value"], "first url")
+
+        self.assertEqual(sum(response[1]["data"]), 0)
+        self.assertEqual(response[1]["breakdown_value"], "none")
 
         self.assertEqual(sum(response[2]["data"]), 1)
-        self.assertEqual(response[2]["breakdown_value"], "first url")
+        self.assertEqual(response[2]["breakdown_value"], "second url")
 
     def test_dau_with_breakdown_filtering(self):
         sign_up_action, _ = self._create_events()
@@ -566,3 +578,141 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(result[0]["count"], 2)
         result = ClickhouseTrends().run(filter_3, self.team,)
         self.assertEqual(result[1]["count"], 1)
+
+    def test_breakdown_filtering_bar_chart_by_value(self):
+        self._create_events()
+
+        # test breakdown filtering
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-7d",
+                        "breakdown": "$some_property",
+                        "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,},],
+                        "display": TRENDS_BAR_VALUE,
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["aggregated_value"], 1)
+        self.assertEqual(response[1]["aggregated_value"], 1)
+        self.assertEqual(
+            response[0]["days"],
+            [
+                "2019-12-28",
+                "2019-12-29",
+                "2019-12-30",
+                "2019-12-31",
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+            ],
+        )
+
+    def test_breakdown_multiple_cohorts(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        cohort1 = _create_cohort(team=self.team, name="cohort_1", groups=[{"properties": {"key": "value"}}])
+        cohort2 = _create_cohort(team=self.team, name="cohort_2", groups=[{"properties": {"key_2": "value_2"}}])
+
+        cohort1.calculate_people()
+        cohort1.calculate_people_ch()
+
+        cohort2.calculate_people()
+        cohort2.calculate_people_ch()
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
+            with freeze_time("2020-01-04T13:01:01Z"):
+                res = ClickhouseTrends().run(
+                    Filter(
+                        data={
+                            "date_from": "-7d",
+                            "events": [{"id": "$pageview"}],
+                            "properties": [],
+                            "breakdown": [cohort1.pk, cohort2.pk],
+                            "breakdown_type": "cohort",
+                        }
+                    ),
+                    self.team,
+                )
+
+        self.assertEqual(res[0]["count"], 1)
+        self.assertEqual(res[1]["count"], 2)
+
+    def test_breakdown_single_cohort(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        cohort1 = _create_cohort(team=self.team, name="cohort_1", groups=[{"properties": {"key": "value"}}])
+
+        cohort1.calculate_people()
+        cohort1.calculate_people_ch()
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
+            with freeze_time("2020-01-04T13:01:01Z"):
+                res = ClickhouseTrends().run(
+                    Filter(
+                        data={
+                            "date_from": "-7d",
+                            "events": [{"id": "$pageview"}],
+                            "properties": [],
+                            "breakdown": cohort1.pk,
+                            "breakdown_type": "cohort",
+                        }
+                    ),
+                    self.team,
+                )
+
+        self.assertEqual(res[0]["count"], 1)

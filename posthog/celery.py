@@ -82,7 +82,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
         sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
         sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
-    else:
+    elif settings.PLUGIN_SERVER_ACTION_MATCHING >= 2:
         sender.add_periodic_task(
             ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
             calculate_event_action_mappings.s(),
@@ -124,14 +124,15 @@ def redis_heartbeat():
 
 CLICKHOUSE_TABLES = [
     "events",
-    "sharded_events",
     "person",
-    "sharded_person",
     "person_distinct_id",
-    "sharded_person_distinct_id",
     "session_recording_events",
-    "sharded_session_recording_events",
 ]
+
+if settings.CLICKHOUSE_REPLICATION:
+    CLICKHOUSE_TABLES.extend(
+        ["sharded_events", "sharded_person", "sharded_person_distinct_id", "sharded_session_recording_events",]
+    )
 
 
 @app.task(ignore_result=True)
@@ -202,6 +203,7 @@ def clickhouse_mutation_count():
                 table,
                 count(1) AS freq
             FROM system.mutations
+            WHERE is_done = 0 
             GROUP BY table
             ORDER BY freq DESC
         """

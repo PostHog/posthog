@@ -1,7 +1,7 @@
 import datetime
 import json
-from typing import Any, Dict, List, Optional
-from uuid import UUID, uuid4
+from typing import Dict, List, Optional
+from uuid import UUID
 
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
@@ -10,24 +10,18 @@ from django.utils.timezone import now
 from rest_framework import serializers
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
     DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
     DELETE_PERSON_EVENTS_BY_ID,
-    GET_PERSON_BY_DISTINCT_ID,
-    GET_PERSON_IDS_BY_FILTER,
     INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_SQL,
-    UPDATE_PERSON_PROPERTIES,
 )
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog import settings
 from posthog.ee import is_clickhouse_enabled
-from posthog.models.filters import Filter
 from posthog.models.person import Person, PersonDistinctId
-from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 
 if settings.EE_AVAILABLE and is_clickhouse_enabled():
@@ -48,6 +42,10 @@ if settings.EE_AVAILABLE and is_clickhouse_enabled():
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
         delete_person(instance.uuid, instance.properties, instance.is_identified, team_id=instance.team_id)
+
+    @receiver(post_delete, sender=PersonDistinctId)
+    def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
+        delete_person_distinct_id(instance)
 
 
 def create_person(
@@ -78,10 +76,6 @@ def create_person(
     return uuid
 
 
-def update_person_properties(team_id: int, id: str, properties: Dict) -> None:
-    sync_execute(UPDATE_PERSON_PROPERTIES, {"team_id": team_id, "id": id, "properties": json.dumps(properties)})
-
-
 def create_person_distinct_id(id: int, team_id: int, distinct_id: str, person_id: str) -> None:
     data = {"id": id, "distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
     p = ClickhouseProducer()
@@ -108,7 +102,7 @@ def delete_person(
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
-        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -119,7 +113,18 @@ def delete_person(
         pass  # cannot delete if the table is distributed
 
     sync_execute(DELETE_PERSON_BY_ID, data)
-    sync_execute(DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID, {"id": person_id,})
+
+
+def delete_person_distinct_id(person_distinct_id: PersonDistinctId):
+    sync_execute(
+        DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
+        {
+            "id": person_distinct_id.id,
+            "distinct_id": person_distinct_id.distinct_id,
+            "person_id": person_distinct_id.person.uuid,
+            "team_id": person_distinct_id.team_id,
+        },
+    )
 
 
 class ClickhousePersonSerializer(serializers.Serializer):

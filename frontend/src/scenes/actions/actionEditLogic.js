@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { uuid } from 'lib/utils'
 import { toast } from 'react-toastify'
+import { actionsModel } from '~/models/actionsModel'
 
 export const actionEditLogic = kea({
     key: (props) => props.id || 'new',
@@ -34,6 +35,14 @@ export const actionEditLogic = kea({
         ],
     }),
 
+    loaders: ({ props }) => ({
+        actionCount: {
+            loadActionCount: async () => {
+                return (await api.get('api/action/' + props.id + '/count')).count
+            },
+        },
+    }),
+
     listeners: ({ values, props, actions }) => ({
         saveAction: async () => {
             let action = { ...values.action }
@@ -57,12 +66,15 @@ export const actionEditLogic = kea({
             }
             toast('Action saved')
             props.onSave(action, values.createNew)
+            actionsModel.actions.loadActions() // reload actions so they are immediately available
         },
     }),
 
     events: ({ actions, props }) => ({
         afterMount: async () => {
-            if (!props.id) {
+            if (props.id) {
+                actions.loadActionCount()
+            } else {
                 actions.setAction({ name: '', steps: [{ isNew: uuid() }] })
             }
         },

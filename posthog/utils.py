@@ -36,6 +36,7 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
+from rest_framework.request import Request
 from sentry_sdk import push_scope
 
 from posthog.exceptions import RequestParsingError
@@ -55,10 +56,10 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 
 
 def format_label_date(date: datetime.datetime, interval: str) -> str:
-    labels_format = "%a. {day} %B"
+    labels_format = "%-d-%b-%Y"
     if interval == "hour" or interval == "minute":
-        labels_format += ", %H:%M"
-    return date.strftime(labels_format.format(day=date.day))
+        labels_format += " %H:%M"
+    return date.strftime(labels_format)
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -216,8 +217,44 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
 
+    # Set the frontend app context
+    if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.user import UserSerializer
+        from posthog.models import EventDefinition
+        from posthog.views import preflight_check
+
+        posthog_app_context: Dict = {
+            "current_user": None,
+            "preflight": json.loads(preflight_check(request).getvalue()),
+            "default_event_name": get_default_event_name(),
+            "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        }
+
+        if request.user.pk:
+            user = UserSerializer(request.user, context={"request": request}, many=False)
+            posthog_app_context["current_user"] = user.data
+
+        context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
+    else:
+        context["posthog_app_context"] = "null"
+
     html = template.render(context, request=request)
     return HttpResponse(html)
+
+
+def get_default_event_name():
+    from posthog.models import EventDefinition
+
+    if EventDefinition.objects.filter(name="$pageview").exists():
+        return "$pageview"
+    elif EventDefinition.objects.filter(name="$screen").exists():
+        return "$screen"
+    return "$pageview"
+
+
+def json_uuid_convert(o):
+    if isinstance(o, uuid.UUID):
+        return str(o)
 
 
 def friendly_time(seconds: float):
@@ -515,6 +552,39 @@ def get_instance_realm() -> str:
         return "hosted"
 
 
+def get_can_create_org() -> bool:
+    """Returns whether a new organization can be created in the current instance.
+
+    Organizations can be created only in the following cases:
+    - if on PostHog Cloud
+    - if running end-to-end tests
+    - if there's no organization yet
+    - if an appropriate license is active and MULTI_ORG_ENABLED is True
+    """
+    from posthog.models.organization import Organization
+
+    if (
+        settings.MULTI_TENANCY
+        or settings.E2E_TESTING
+        or not Organization.objects.filter(for_internal_metrics=False).exists()
+    ):
+        return True
+
+    if settings.MULTI_ORG_ENABLED:
+        try:
+            from ee.models.license import License
+        except ImportError:
+            pass
+        else:
+            license = License.objects.first_valid()
+            if license is not None and "organizations_projects" in license.available_features:
+                return True
+            else:
+                print_warning(["You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!"])
+
+    return False
+
+
 def get_available_social_auth_providers() -> Dict[str, bool]:
     github: bool = bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET)
     gitlab: bool = bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET)
@@ -526,7 +596,6 @@ def get_available_social_auth_providers() -> Dict[str, bool]:
         if settings.MULTI_TENANCY:
             google = True
         else:
-
             try:
                 from ee.models.license import License
             except ImportError:
@@ -663,6 +732,11 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
         offset_hours = int(offset.total_seconds()) / 3600
         result[tz] = offset_hours
     return result
+
+
+def should_refresh(request: Request) -> bool:
+    key = "refresh"
+    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true"
 
 
 def str_to_bool(value: Any) -> bool:

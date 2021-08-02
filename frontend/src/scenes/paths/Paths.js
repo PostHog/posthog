@@ -6,8 +6,12 @@ import { Modal, Button, Spin } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
-import { AUTOCAPTURE, PAGEVIEW, pathsLogic } from 'scenes/paths/pathsLogic'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+
+// TODO: Replace with PathType enums when moving to TypeScript
+const PAGEVIEW = '$pageview'
+const AUTOCAPTURE = '$autocapture'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval

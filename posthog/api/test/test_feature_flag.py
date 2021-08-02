@@ -214,6 +214,23 @@ class TestFeatureFlag(APIBaseTest):
 
         mock_capture.assert_not_called()
 
+    def test_get_flags_with_specified_token(self):
+        _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
+        self.client.force_login(user)
+        assert user.team is not None
+        assert self.team is not None
+        self.assertNotEqual(user.team.id, self.team.id)
+
+        response_team_1 = self.client.get(f"/api/feature_flag")
+        response_team_1_token = self.client.get(f"/api/feature_flag?token={user.team.api_token}")
+        response_team_2 = self.client.get(f"/api/feature_flag?token={self.team.api_token}")
+
+        self.assertEqual(response_team_1.json(), response_team_1_token.json())
+        self.assertNotEqual(response_team_1.json(), response_team_2.json())
+
+        response_invalid_token = self.client.get(f"/api/feature_flag?token=invalid")
+        self.assertEqual(response_invalid_token.status_code, 401)
+
     def test_creating_a_feature_flag_with_same_team_and_key_after_deleting(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature", deleted=True)
 
@@ -231,3 +248,30 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         instance.refresh_from_db()
         self.assertEqual(instance.key, "alpha-feature")
+
+    @patch("posthoganalytics.capture")
+    def test_for_user(self, mock_capture):
+        self.client.post(
+            "/api/feature_flag/",
+            {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 20}]}},
+            format="json",
+        )
+
+        # alpha-feature is set for "distinct_id"
+        response = self.client.get("/api/feature_flag/for_user?distinct_id=distinct_id")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["distinct_id"], "distinct_id")
+        self.assertEqual(sorted(response.json()["flags_enabled"]), ["alpha-feature", "red_button"])
+
+        # alpha-feature is not set for "distinct_id_0"
+        response = self.client.get("/api/feature_flag/for_user?distinct_id=distinct_id_0")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["distinct_id"], "distinct_id_0")
+        self.assertEqual(sorted(response.json()["flags_enabled"]), ["red_button"])
+
+        # error if no distinct_id
+        response = self.client.get("/api/feature_flag/for_user?distinct_id=")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["code"], "invalid_input")
+        self.assertEqual(response.json()["detail"], "Please provide a distinct_id to continue.")

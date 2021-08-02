@@ -7,6 +7,7 @@ import { getChartColors } from 'lib/colors'
 import { useValues, useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { ChartParams, TrendResultWithAggregate } from '~/types'
+import { personsModalLogic } from '../personsModalLogic'
 
 export function ActionsPie({
     dashboardItemId,
@@ -19,7 +20,7 @@ export function ActionsPie({
     const [data, setData] = useState<Record<string, any>[] | null>(null)
     const [total, setTotal] = useState(0)
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
-    const { loadPeople } = useActions(logic)
+    const { loadPeople } = useActions(personsModalLogic)
     const { results, resultsLoading } = useValues(logic)
 
     function updateData(): void {
@@ -70,7 +71,7 @@ export function ActionsPie({
                             const label = dataset.labels[point.index]
                             const date_from = dataset.days[0]
                             const date_to = dataset.days[dataset.days.length - 1]
-                            loadPeople(action, label, date_from, date_to, null)
+                            loadPeople({ action, label, date_from, date_to, filters: filtersParam })
                         }}
                     />
                 </div>

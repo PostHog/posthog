@@ -27,19 +27,20 @@ async function getJSONOrThrow(response) {
 }
 
 class Api {
-    async get(url) {
+    async get(url, signal = undefined) {
         // TODO: how to put behind a feature flag
         url = maybeAddEnvironmentProperty(url)
 
         let response
+        const startTime = new Date().getTime()
         try {
-            response = await fetch(url)
+            response = await fetch(url, { signal })
         } catch (e) {
             throw { status: 0, message: e }
         }
 
         if (!response.ok) {
-            posthog.capture('client_request_failure', { url, method: 'GET', status: response.status })
+            reportError('GET', url, response, startTime)
             const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
         }
@@ -50,6 +51,7 @@ class Api {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
         const isFormData = data instanceof FormData
+        const startTime = new Date().getTime()
         const response = await fetch(url, {
             method: 'PATCH',
             headers: {
@@ -59,7 +61,7 @@ class Api {
             body: isFormData ? data : JSON.stringify(data),
         })
         if (!response.ok) {
-            posthog.capture('client_request_failure', { url, method: 'PATCH', status: response.status })
+            reportError('PATCH', url, response, startTime)
             const jsonData = await getJSONOrThrow(response)
             if (Array.isArray(jsonData)) {
                 throw jsonData
@@ -73,6 +75,7 @@ class Api {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
         const isFormData = data instanceof FormData
+        const startTime = new Date().getTime()
         const response = await fetch(url, {
             method: 'POST',
             headers: {
@@ -82,7 +85,7 @@ class Api {
             body: isFormData ? data : JSON.stringify(data),
         })
         if (!response.ok) {
-            posthog.capture('client_request_failure', { url, method: 'POST', status: response.status })
+            reportError('POST', url, response, startTime)
             const jsonData = await getJSONOrThrow(response)
             if (Array.isArray(jsonData)) {
                 throw jsonData
@@ -95,6 +98,7 @@ class Api {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
         }
+        const startTime = new Date().getTime()
         const response = await fetch(url, {
             method: 'DELETE',
             headers: {
@@ -103,7 +107,7 @@ class Api {
             },
         })
         if (!response.ok) {
-            posthog.capture('client_request_failure', { url, method: 'DELETE', status: response.status })
+            reportError('DELETE', url, response, startTime)
             const data = await getJSONOrThrow(response)
             throw { status: response.status, ...data }
         }
@@ -158,6 +162,12 @@ function maybeAddEnvironmentProperty(url) {
     } else {
         return url
     }
+}
+
+function reportError(method, url, response, startTime) {
+    const duration = new Date().getTime() - startTime
+    const pathname = new URL(url, location.origin).pathname
+    posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
 }
 
 let api = new Api()

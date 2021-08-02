@@ -6,12 +6,12 @@ import { getNextKey } from 'lib/components/Annotations/utils'
 import { annotationsModelType } from './annotationsModelType'
 import { AnnotationScope, AnnotationType } from '~/types'
 
-export const annotationsModel = kea<annotationsModelType<AnnotationType, Dayjs>>({
+export const annotationsModel = kea<annotationsModelType>({
     actions: {
         createGlobalAnnotation: (content: string, date_marker: string, dashboard_item?: number) => ({
             content,
             date_marker,
-            created_at: dayjs(),
+            created_at: dayjs() as Dayjs,
             dashboard_item,
         }),
         deleteGlobalAnnotation: (id) => ({ id }),

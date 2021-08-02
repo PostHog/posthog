@@ -1,6 +1,6 @@
 describe('Persons', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-persons]').click()
+        cy.clickNavMenu('persons')
     })
 
     it('People loaded', () => {

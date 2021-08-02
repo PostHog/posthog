@@ -17,14 +17,14 @@ from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
 from ee.clickhouse.queries.sessions.list import ClickhouseSessionsList
 from ee.clickhouse.sql.events import (
     GET_CUSTOM_EVENTS,
-    SELECT_EVENT_WITH_ARRAY_PROPS_SQL,
-    SELECT_EVENT_WITH_PROP_SQL,
+    SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
+    SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
     SELECT_ONE_EVENT_SQL,
 )
 from posthog.api.event import EventViewSet
 from posthog.models import Filter, Person, Team
 from posthog.models.action import Action
-from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.utils import UUIDT
 from posthog.utils import convert_property_value, flatten
@@ -46,7 +46,8 @@ class ClickhouseEventsViewSet(EventViewSet):
     def _query_events_list(
         self, filter: Filter, team: Team, request: Request, long_date_from: bool = False, limit: int = 100
     ) -> List:
-        limit_sql = f"LIMIT {limit + 1}"
+        limit += 1
+        limit_sql = "LIMIT %(limit)s"
         conditions, condition_params = determine_event_conditions(
             team,
             {
@@ -71,18 +72,25 @@ class ClickhouseEventsViewSet(EventViewSet):
 
         if prop_filters != "":
             return sync_execute(
-                SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit_sql, filters=prop_filters),
-                {"team_id": team.pk, **condition_params, **prop_filter_params},
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
+                    conditions=conditions, limit=limit_sql, filters=prop_filters
+                ),
+                {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             )
         else:
             return sync_execute(
-                SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit_sql),
-                {"team_id": team.pk, **condition_params},
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql),
+                {"team_id": team.pk, "limit": limit, **condition_params},
             )
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
-        limit = self.CSV_EXPORT_LIMIT if is_csv_request else 100
+        if is_csv_request:
+            limit = self.CSV_EXPORT_LIMIT
+        elif self.request.GET.get("limit", None):
+            limit = int(self.request.GET.get("limit"))  # type: ignore
+        else:
+            limit = 100
 
         team = self.team
         filter = Filter(request=request)
@@ -146,6 +154,13 @@ class ClickhouseEventsViewSet(EventViewSet):
 
         sessions, pagination = ClickhouseSessionsList.run(team=self.team, filter=filter)
         return Response({"result": sessions, "pagination": pagination})
+
+    @action(methods=["GET"], detail=False)
+    def session_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        from ee.clickhouse.queries.sessions.events import SessionsListEvents
+
+        filter = SessionEventsFilter(request=request)
+        return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************
     # /event/session_recording

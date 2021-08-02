@@ -2,36 +2,33 @@ import { kea } from 'kea'
 import { toParams, objectsEqual, uuid } from 'lib/utils'
 import api from 'lib/api'
 import { router } from 'kea-router'
-import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { FilterType, PropertyFilter } from '~/types'
+import { FilterType, PathType, PropertyFilter, ViewType } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-
-export const PAGEVIEW = '$pageview'
-export const SCREEN = '$screen'
-export const AUTOCAPTURE = '$autocapture'
-export const CUSTOM_EVENT = 'custom_event'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const pathOptionsToLabels = {
-    [`${PAGEVIEW}`]: 'Page views (Web)',
-    [`${SCREEN}`]: 'Screen views (Mobile)',
-    [`${AUTOCAPTURE}`]: 'Autocaptured events',
-    [`${CUSTOM_EVENT}`]: 'Custom events',
+    [PathType.PageView]: 'Page views (Web)',
+    [PathType.Screen]: 'Screen views (Mobile)',
+    [PathType.AutoCapture]: 'Autocaptured events',
+    [PathType.CustomEvent]: 'Custom events',
 }
 
 export const pathOptionsToProperty = {
-    [`${PAGEVIEW}`]: '$current_url',
-    [`${SCREEN}`]: '$screen_name',
-    [`${AUTOCAPTURE}`]: 'autocaptured_event',
-    [`${CUSTOM_EVENT}`]: 'custom_event',
+    [PathType.PageView]: '$current_url',
+    [PathType.Screen]: '$screen_name',
+    [PathType.AutoCapture]: 'autocaptured_event',
+    [PathType.CustomEvent]: 'custom_event',
 }
 
 function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
     return {
         start_point: filters.start_point,
-        path_type: filters.path_type || '$pageview',
+        path_type: filters.path_type || PathType.PageView,
         date_from: filters.date_from,
         date_to: filters.date_to,
         insight: ViewType.PATHS,
@@ -55,7 +52,7 @@ interface PathNode {
     value: number
 }
 
-export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterType, PathNode>>({
+export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     key: (props) => {
         return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
     },
@@ -77,6 +74,7 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
                 try {
                     paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                 } catch (e) {
+                    breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
                     return { paths: [], filter, error: true }
                 }
@@ -180,16 +178,16 @@ export const pathsLogic = kea<pathsLogicType<PathResult, PropertyFilter, FilterT
             },
         ],
         filtersLoading: [
-            () => [propertyDefinitionsModel.selectors.loaded],
-            (propertiesLoaded): boolean => !propertiesLoaded,
+            () => [featureFlagLogic.selectors.featureFlags, propertyDefinitionsModel.selectors.loaded],
+            (featureFlags, loaded) => !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && !loaded,
         ],
     },
     actionToUrl: ({ values }) => ({
         setProperties: () => {
-            return ['/insights', values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
         },
         setFilter: () => {
-            return ['/insights', values.propertiesForUrl]
+            return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
         },
     }),
     urlToAction: ({ actions, values, key }) => ({

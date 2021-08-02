@@ -26,7 +26,7 @@ def entity_query_conditions(filter: Filter, team: Team) -> Tuple[List[str], Dict
     params: Dict[str, Any] = {}
     for index, entity in enumerate(filter.entities):
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = Action.objects.get(pk=entity.id)
+            action = entity.get_action()
             action_query, action_params = format_action_filter(action, prepend=f"action_{index}")
             entity_conditions.append(action_query)
             params = {**params, **action_params}

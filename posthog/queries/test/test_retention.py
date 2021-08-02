@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 
 import pytz
+from rest_framework import status
 
 from posthog.constants import (
     FILTER_TEST_ACCOUNTS,
@@ -460,6 +461,14 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             second_result = self.client.get(result["next"]).json()
             self.assertEqual(len(second_result["result"]), 50)
+
+        def test_retention_invalid_properties(self):
+            response = self.client.get("/api/person/retention", data={"properties": "invalid_json"})
+
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertDictEqual(
+                response.json(), self.validation_error_response("Properties are unparsable!", "invalid_input")
+            )
 
         def test_retention_people_in_period(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1", "alias1"])

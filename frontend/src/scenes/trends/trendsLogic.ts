@@ -1,28 +1,29 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { autocorrectInterval, errorToast, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
+import { autocorrectInterval, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
-import {
-    ACTIONS_LINE_GRAPH_CUMULATIVE,
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_TABLE,
-    PAGEVIEW,
-    SCREEN,
-    EVENT_TYPE,
-    ACTION_TYPE,
-    ShownAsValue,
-} from 'lib/constants'
-import { ViewType, insightLogic, defaultFilterTestAccounts, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
+import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
-import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
-import { ActionFilter, ActionType, FilterType, PersonType, PropertyFilter, TrendResult, EntityTypes } from '~/types'
-import { cohortLogic } from 'scenes/persons/cohortLogic'
+import {
+    ActionFilter,
+    ChartDisplayType,
+    EntityTypes,
+    FilterType,
+    PersonType,
+    PropertyFilter,
+    TrendResult,
+    ViewType,
+} from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
 
 interface TrendResponse {
     result: TrendResult[]
@@ -33,36 +34,37 @@ export interface IndexedTrendResult extends TrendResult {
     id: number
 }
 
-interface TrendPeople {
+export interface TrendPeople {
     people: PersonType[]
-    breakdown_value?: string
     count: number
     day: string | number
-    next?: string
     label: string
-    action: ActionFilter
+    action: ActionFilter | 'session'
+    breakdown_value?: string
+    next?: string
     loadingMore?: boolean
+    funnelStep?: number
 }
 
 interface PeopleParamType {
-    action: ActionFilter
+    action: ActionFilter | 'session'
     label: string
     date_to?: string | number
     date_from?: string | number
     breakdown_value?: string
-    target_date?: number
+    target_date?: number | string
     lifecycle_type?: string
 }
 
-function cleanFilters(filters: Partial<FilterType>): Record<string, any> {
+function cleanFilters(filters: Partial<FilterType>): Partial<FilterType> {
     return {
         insight: ViewType.TRENDS,
         ...filters,
         interval: autocorrectInterval(filters),
         display:
             filters.session && filters.session === 'dist'
-                ? ACTIONS_TABLE
-                : filters.display || ACTIONS_LINE_GRAPH_LINEAR,
+                ? ChartDisplayType.ActionsTable
+                : filters.display || ChartDisplayType.ActionsLineGraphLinear,
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
         properties: filters.properties || [],
@@ -81,13 +83,13 @@ function filterClientSideParams(filters: Partial<FilterType>): Partial<FilterTyp
     return newFilters
 }
 
-function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
+export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
     const { action, date_from, date_to, breakdown_value, ...restParams } = peopleParams
     const params = filterClientSideParams({
         ...filters,
-        entity_id: action.id || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
-        entity_type: action.type || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
-        entity_math: action.math || undefined,
+        entity_id: (action !== 'session' && action.id) || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
+        entity_type: (action !== 'session' && action.type) || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
+        entity_math: (action !== 'session' && action.math) || undefined,
         breakdown_value,
     })
 
@@ -112,19 +114,16 @@ function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<Filte
             { key: params.breakdown, value: breakdown_value, type: 'event' } as PropertyFilter,
         ]
     }
-    if (action.properties) {
+    if (action !== 'session' && action.properties) {
         params.properties = [...(params.properties || []), ...action.properties]
     }
 
     return toAPIParams({ ...params, ...restParams })
 }
 
-function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: string[]): Partial<FilterType> {
-    /* Opening /insights without any params, will set $pageview as the default event (or
-    the first random event). We load this default events when `currentTeam` is loaded (because that's when
-    `eventNames` become available) and on every view change (through the urlToAction map) */
-    if (!currentFilters.actions?.length && !currentFilters.events?.length && eventNames.length) {
-        const event = eventNames.includes(PAGEVIEW) ? PAGEVIEW : eventNames.includes(SCREEN) ? SCREEN : eventNames[0]
+function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterType> {
+    if (!currentFilters.actions?.length && !currentFilters.events?.length) {
+        const event = getDefaultEventName()
 
         const defaultFilters = {
             [EntityTypes.EVENTS]: [
@@ -144,9 +143,7 @@ function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: stri
 // props:
 // - dashboardItemId
 // - filters
-export const trendsLogic = kea<
-    trendsLogicType<TrendResponse, IndexedTrendResult, TrendResult, FilterType, ActionType, TrendPeople, PropertyFilter>
->({
+export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse>>({
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
@@ -155,38 +152,70 @@ export const trendsLogic = kea<
         values: [actionsModel, ['actions']],
     },
 
-    loaders: ({ values, props }) => ({
+    loaders: ({ cache, values, props }) => ({
         _results: {
             __default: {} as TrendResponse,
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return { result: props.cachedResults } as TrendResponse
                 }
+
+                // fetch this now, as it might be different when we report below
+                const { scene } = sceneLogic.values
+
+                // If a query is in progress, debounce before making the second query
+                if (cache.abortController) {
+                    await breakpoint(300)
+                    cache.abortController.abort()
+                }
+                cache.abortController = new AbortController()
+
                 const queryId = uuid()
                 insightLogic.actions.startQuery(queryId)
+
                 let response
                 try {
                     if (values.filters?.insight === ViewType.SESSIONS || values.filters?.session) {
                         response = await api.get(
                             'api/insight/session/?' +
                                 (refresh ? 'refresh=true&' : '') +
-                                toAPIParams(filterClientSideParams(values.filters))
+                                toAPIParams(filterClientSideParams(values.filters)),
+                            cache.abortController.signal
                         )
                     } else {
                         response = await api.get(
                             'api/insight/trend/?' +
                                 (refresh ? 'refresh=true&' : '') +
-                                toAPIParams(filterClientSideParams(values.filters))
+                                toAPIParams(filterClientSideParams(values.filters)),
+                            cache.abortController.signal
                         )
                     }
                 } catch (e) {
-                    console.error(e)
+                    if (e.name === 'AbortError') {
+                        insightLogic.actions.abortQuery(
+                            queryId,
+                            (values.filters.insight as ViewType) || ViewType.TRENDS,
+                            scene,
+                            e
+                        )
+                    }
                     breakpoint()
-                    insightLogic.actions.endQuery(queryId, values.filters.insight || ViewType.TRENDS, null, e)
+                    cache.abortController = null
+                    insightLogic.actions.endQuery(
+                        queryId,
+                        (values.filters.insight as ViewType) || ViewType.TRENDS,
+                        null,
+                        e
+                    )
                     return []
                 }
                 breakpoint()
-                insightLogic.actions.endQuery(queryId, values.filters.insight || ViewType.TRENDS, response.last_refresh)
+                cache.abortController = null
+                insightLogic.actions.endQuery(
+                    queryId,
+                    (values.filters.insight as ViewType) || ViewType.TRENDS,
+                    response.last_refresh
+                )
 
                 return response
             },
@@ -196,28 +225,6 @@ export const trendsLogic = kea<
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
-
-        loadPeople: (action, label, date_from, date_to, breakdown_value) => ({
-            action,
-            label,
-            date_from,
-            date_to,
-            breakdown_value,
-        }),
-        saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
-        loadMorePeople: true,
-        refreshCohort: true,
-        setLoadingMorePeople: (status) => ({ status }),
-        setShowingPeople: (isShowing) => ({ isShowing }),
-        setPeople: (people, count, action, label, day, breakdown_value, next) => ({
-            people,
-            count,
-            action,
-            label,
-            day,
-            breakdown_value,
-            next,
-        }),
         setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
         toggleVisibility: (index: number) => ({ index }),
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
@@ -243,26 +250,6 @@ export const trendsLogic = kea<
                 },
             },
         ],
-        people: [
-            null as TrendPeople | null,
-            {
-                setFilters: () => null,
-                setPeople: (_, people) => people,
-            },
-        ],
-        loadingMorePeople: [
-            false,
-            {
-                setLoadingMorePeople: (_, { status }) => status,
-            },
-        ],
-        showingPeople: [
-            false,
-            {
-                loadPeople: () => true,
-                setShowingPeople: ({}, { isShowing }) => isShowing,
-            },
-        ],
         indexedResults: [
             [] as IndexedTrendResult[],
             {
@@ -284,11 +271,25 @@ export const trendsLogic = kea<
         visibilityMap: [
             {} as Record<number, any>,
             {
-                setVisibilityById: (state: Record<number, any>, { entry }: { entry: Record<number, any> }) => ({
+                setVisibilityById: (
+                    state: Record<number, any>,
+                    {
+                        entry,
+                    }: {
+                        entry: Record<number, any>
+                    }
+                ) => ({
                     ...state,
                     ...entry,
                 }),
-                toggleVisibility: (state: Record<number, any>, { index }: { index: number }) => ({
+                toggleVisibility: (
+                    state: Record<number, any>,
+                    {
+                        index,
+                    }: {
+                        index: number
+                    }
+                ) => ({
                     ...state,
                     [`${index}`]: !state[index],
                 }),
@@ -304,57 +305,20 @@ export const trendsLogic = kea<
 
     selectors: () => ({
         filtersLoading: [
-            () => [eventDefinitionsModel.selectors.loaded, propertyDefinitionsModel.selectors.loaded],
-            (eventsLoaded, propertiesLoaded): boolean => !eventsLoaded || !propertiesLoaded,
+            () => [
+                featureFlagLogic.selectors.featureFlags,
+                eventDefinitionsModel.selectors.loaded,
+                propertyDefinitionsModel.selectors.loaded,
+            ],
+            (featureFlags, eventsLoaded, propertiesLoaded) =>
+                !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && (!eventsLoaded || !propertiesLoaded),
         ],
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
         loadMoreBreakdownUrl: [(selectors) => [selectors._results], (response) => response.next],
-        sessionsPageParams: [
-            (selectors) => [selectors.filters, selectors.people],
-            (filters, people) => {
-                if (!people) {
-                    return {}
-                }
-
-                const { action, day, breakdown_value } = people
-                const properties = [...(filters.properties || []), ...(action.properties || [])]
-                if (filters.breakdown && filters.breakdown_type && breakdown_value) {
-                    properties.push({
-                        key: filters.breakdown,
-                        value: breakdown_value,
-                        type: filters.breakdown_type,
-                        operator: null,
-                    })
-                }
-
-                const eventProperties = properties.filter(({ type }) => type === 'event')
-                const personProperties = properties.filter(({ type }) => type === 'person' || type === 'cohort')
-
-                return {
-                    date: day,
-                    filters: [
-                        {
-                            type: action.type === 'actions' ? ACTION_TYPE : EVENT_TYPE,
-                            key: 'id',
-                            value: action.id,
-                            properties: eventProperties,
-                            label: action.name,
-                        },
-                        ...personProperties,
-                    ],
-                }
-            },
-        ],
-        peopleModalURL: [
-            (selectors) => [selectors.sessionsPageParams],
-            (params) => ({
-                sessions: `/sessions?${toAPIParams(params)}`,
-                recordings: `/sessions?${toAPIParams({
-                    ...params,
-                    filters: [...(params.filters || []), SESSIONS_WITH_RECORDINGS_FILTER],
-                })}`,
-            }),
+        numberOfSeries: [
+            (selectors) => [selectors.filters],
+            (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
     }),
 
@@ -367,91 +331,6 @@ export const trendsLogic = kea<
                 .filter((result) => values.toggledLifecycles.includes(String(result.status)))
                 .map((result, idx) => ({ ...result, id: idx }))
             actions.setIndexedResults(toggledResults)
-        },
-        refreshCohort: () => {
-            cohortLogic({
-                cohort: {
-                    id: 'new',
-                    groups: [],
-                },
-            }).actions.setCohort({
-                id: 'new',
-                groups: [],
-            })
-        },
-        saveCohortWithFilters: ({ cohortName }) => {
-            if (values.people) {
-                const { label, action, day, breakdown_value } = values.people
-                const filterParams = parsePeopleParams(
-                    { label, action, date_from: day, date_to: day, breakdown_value },
-                    values.filters
-                )
-                const cohortParams = {
-                    is_static: true,
-                    name: cohortName,
-                }
-                cohortLogic({
-                    cohort: {
-                        id: 'new',
-                        groups: [],
-                    },
-                }).actions.saveCohort(cohortParams, filterParams)
-            } else {
-                errorToast(undefined, "We couldn't create your cohort:")
-            }
-        },
-        loadPeople: async ({ label, action, date_from, date_to, breakdown_value }, breakpoint) => {
-            let people = []
-            if (values.filters.insight === ViewType.LIFECYCLE) {
-                const filterParams = parsePeopleParams(
-                    { label, action, target_date: date_from, lifecycle_type: breakdown_value },
-                    values.filters
-                )
-                actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
-                people = await api.get(`api/person/lifecycle/?${filterParams}`)
-            } else if (values.filters.insight === ViewType.STICKINESS) {
-                const filterParams = parsePeopleParams(
-                    { label, action, date_from, date_to, breakdown_value },
-                    values.filters
-                )
-                actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
-                people = await api.get(`api/person/stickiness/?${filterParams}`)
-            } else {
-                const filterParams = parsePeopleParams(
-                    { label, action, date_from, date_to, breakdown_value },
-                    values.filters
-                )
-                actions.setPeople(null, null, action, label, date_from, breakdown_value, null)
-                people = await api.get(`api/action/people/?${filterParams}`)
-            }
-            breakpoint()
-            actions.setPeople(
-                people.results[0]?.people,
-                people.results[0]?.count,
-                action,
-                label,
-                date_from,
-                breakdown_value,
-                people.next
-            )
-        },
-        loadMorePeople: async ({}, breakpoint) => {
-            if (values.people) {
-                const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
-                actions.setLoadingMorePeople(true)
-                const people = await api.get(next)
-                actions.setLoadingMorePeople(false)
-                breakpoint()
-                actions.setPeople(
-                    [...currPeople, ...people.results[0]?.people],
-                    count + people.results[0]?.count,
-                    action,
-                    label,
-                    day,
-                    breakdown_value,
-                    people.next
-                )
-            }
         },
         setFilters: async () => {
             insightLogic.actions.setAllFilters(values.filters)
@@ -500,7 +379,7 @@ export const trendsLogic = kea<
             actions.setBreakdownValuesLoading(false)
         },
         [eventDefinitionsModel.actionTypes.loadEventDefinitionsSuccess]: async () => {
-            const newFilter = getDefaultFilters(values.filters, eventDefinitionsModel.values.eventNames)
+            const newFilter = getDefaultFilters(values.filters)
             const mergedFilter: Partial<FilterType> = {
                 ...values.filters,
                 ...newFilter,
@@ -511,12 +390,15 @@ export const trendsLogic = kea<
         },
     }),
 
-    events: ({ actions, props }) => ({
+    events: ({ actions, cache, props }) => ({
         afterMount: () => {
             if (props.dashboardItemId) {
                 // loadResults gets called in urlToAction for non-dashboard insights
                 actions.loadResults()
             }
+        },
+        beforeUnmount: () => {
+            cache.abortController?.abort()
         },
     }),
 
@@ -525,7 +407,7 @@ export const trendsLogic = kea<
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.filters, router.values.hashParams]
+            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
         },
     }),
 
@@ -565,10 +447,7 @@ export const trendsLogic = kea<
                     cleanSearchParams['compare'] = false
                 }
 
-                Object.assign(
-                    cleanSearchParams,
-                    getDefaultFilters(cleanSearchParams, eventDefinitionsModel.values.eventNames)
-                )
+                Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams))
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)

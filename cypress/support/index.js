@@ -15,7 +15,7 @@ beforeEach(() => {
         cy.clock(1578225600000, ['Date'])
     } else {
         if (Cypress.spec.name.includes('Premium')) {
-            cy.visit('/login')
+            cy.visit('/login?next=/?no-preloaded-app-context=true')
             cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
             cy.login()
         } else {
@@ -43,6 +43,10 @@ afterEach(() => {
     }
 })
 
-Cypress.on('uncaught:exception', () => {
-    return false
+const resizeObserverLoopErrRe = /^[^(ResizeObserver loop limit exceeded)]/
+Cypress.on('uncaught:exception', (err) => {
+    /* returning false here prevents Cypress from failing the test */
+    if (resizeObserverLoopErrRe.test(err.message)) {
+        return false
+    }
 })

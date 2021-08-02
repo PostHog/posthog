@@ -2,10 +2,12 @@ from datetime import datetime
 from uuid import uuid4
 
 import pytest
+import sqlparse
+from django.utils import timezone
 from freezegun import freeze_time
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.cohort import get_person_ids_by_cohort_id, recalculate_cohortpeople
+from ee.clickhouse.models.cohort import format_filter_query, get_person_ids_by_cohort_id, recalculate_cohortpeople
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person, create_person_distinct_id
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -108,6 +110,53 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         result = sync_execute(final_query, {**params, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
+
+    def test_prop_cohort_basic_event_days(self):
+
+        _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+
+        _create_person(
+            distinct_ids=["some_id"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="some_id",
+            properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 9, 12, 0, 1),
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="some_other_id",
+            properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 5, 12, 0, 1),
+        )
+
+        with freeze_time("2020-01-10"):
+            cohort1 = Cohort.objects.create(
+                team=self.team, groups=[{"event_id": "$pageview", "days": 1}], name="cohort1",
+            )
+
+            filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
+            query, params = parse_prop_clauses(filter.properties, self.team.pk)
+            final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+            result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+            self.assertEqual(len(result), 1)
+
+            cohort2 = Cohort.objects.create(
+                team=self.team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort2",
+            )
+
+            filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],})
+            query, params = parse_prop_clauses(filter.properties, self.team.pk)
+            final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+            result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+            self.assertEqual(len(result), 2)
 
     def test_prop_cohort_basic_action_days(self):
 
@@ -321,6 +370,151 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(results), 2)
 
+    def test_cohortpeople_timestamp(self):
+        action = _create_action(team=self.team, name="$pageview")
+        p1 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="1",
+            properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 9, 12, 0, 1),
+        )
+
+        p2 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["2"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="2",
+            properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 7, 12, 0, 1),
+        )
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"action_id": action.pk, "start_date": datetime(2020, 1, 8, 12, 0, 1)}],
+            name="cohort1",
+        )
+        with freeze_time("2020-01-10"):
+            cohort1.calculate_people_ch()
+
+        results = sync_execute("SELECT person_id FROM cohortpeople")
+        self.assertEqual(len(results), 1)
+
+    def _setup_actions_with_different_counts(self):
+        action = _create_action(team=self.team, name="$pageview")
+        p1 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="1",
+            properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 8, 12, 0, 1),
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="1",
+            properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 9, 12, 0, 1),
+        )
+
+        p2 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["2"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="2",
+            properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 8, 12, 0, 1),
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="2",
+            properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 9, 12, 0, 1),
+        )
+
+        p3 = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["3"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="3",
+            properties={"attr": "some_val"},
+            timestamp=datetime(2020, 1, 9, 12, 0, 1),
+        )
+        return action
+
+    def test_cohortpeople_action_count(self):
+
+        action = self._setup_actions_with_different_counts()
+
+        # test operators
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"action_id": action.pk, "days": 3, "count": 2, "count_operator": "gte"}],
+            name="cohort1",
+        )
+        with freeze_time("2020-01-10"):
+            cohort1.calculate_people_ch()
+
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
+        )
+        self.assertEqual(len(results), 2)
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"action_id": action.pk, "days": 3, "count": 1, "count_operator": "lte"}],
+            name="cohort2",
+        )
+        with freeze_time("2020-01-10"):
+            cohort2.calculate_people_ch()
+
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort2.pk}
+        )
+        self.assertEqual(len(results), 1)
+
+        cohort3 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"action_id": action.pk, "days": 3, "count": 1, "count_operator": "eq"}],
+            name="cohort3",
+        )
+        with freeze_time("2020-01-10"):
+            cohort3.calculate_people_ch()
+
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort3.pk}
+        )
+        self.assertEqual(len(results), 1)
+
     def test_cohortpeople_deleted_person(self):
         p1 = Person.objects.create(
             team_id=self.team.pk,
@@ -415,3 +609,48 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][0], p2.uuid)
+
+    def test_static_cohort_precalculated(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["123"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"])
+        # Team leakage
+        team2 = Team.objects.create(organization=self.organization)
+        Person.objects.create(team=team2, distinct_ids=["1"])
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now(),)
+        cohort.insert_users_by_list(["1", "123"])
+
+        with freeze_time("2020-01-10"):
+            cohort.calculate_people_ch()
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            sql, _ = format_filter_query(cohort)
+            self.assertEqual(
+                sqlparse.format(sql, reindent=True),
+                sqlparse.format(
+                    """
+                SELECT distinct_id
+                FROM
+                (SELECT distinct_id,
+                        argMax(person_id, _timestamp) as person_id
+                FROM
+                    (SELECT distinct_id,
+                            person_id,
+                            max(_timestamp) as _timestamp
+                    FROM person_distinct_id
+                    WHERE team_id = %(team_id)s
+                    GROUP BY person_id,
+                            distinct_id,
+                            team_id
+                    HAVING max(is_deleted) = 0)
+                GROUP BY distinct_id)
+                where person_id IN
+                    (SELECT person_id
+                    FROM person_static_cohort
+                    WHERE cohort_id = %(cohort_id_0)s
+                    AND team_id = %(team_id)s)
+                """,
+                    reindent=True,
+                ),
+            )

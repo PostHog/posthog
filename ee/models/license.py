@@ -52,7 +52,6 @@ class License(models.Model):
     max_users: models.IntegerField = models.IntegerField(default=None, null=True)  # None = no restriction
 
     ENTERPRISE_PLAN = "enterprise"
-    FREE_CLICKHOUSE_PLAN = "free_clickhouse"
     ENTERPRISE_FEATURES = [
         "zapier",
         "organizations_projects",
@@ -62,7 +61,6 @@ class License(models.Model):
     ]  # Base premium features
     PLANS = {
         ENTERPRISE_PLAN: ENTERPRISE_FEATURES + ["clickhouse"],
-        FREE_CLICKHOUSE_PLAN: ["clickhouse"],
     }
 
     @property

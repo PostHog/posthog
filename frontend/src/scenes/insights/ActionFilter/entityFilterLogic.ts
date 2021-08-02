@@ -1,21 +1,14 @@
 import { kea } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
-import {
-    EntityTypes,
-    FilterType,
-    Entity,
-    EntityType,
-    ActionFilter,
-    EntityFilter,
-    PropertyFilter,
-    ActionType,
-} from '~/types'
+import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
 import { entityFilterLogicType } from './entityFilterLogicType'
-import { ActionFilterProps } from './ActionFilter'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-export type LocalFilter = EntityFilter & { order: number; properties?: PropertyFilter[] }
+export type LocalFilter = EntityFilter & {
+    order: number
+    properties?: AnyPropertyFilter[]
+}
 export type BareEntity = Pick<Entity, 'id' | 'name'>
 
 export function toLocalFilters(filters: FilterType): LocalFilter[] {
@@ -41,46 +34,60 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
     } as FilterType
 }
 
+export interface EntityFilterProps {
+    setFilters: (filters: FilterType) => void
+    filters: Record<string, any>
+    typeKey: string
+    singleMode?: boolean
+}
+
 // required props:
 // - filters
 // - setFilters
 // - typeKey
-export const entityFilterLogic = kea<
-    entityFilterLogicType<
-        FilterType,
-        ActionType,
-        EntityFilter,
-        PropertyFilter,
-        ActionFilter,
-        EntityType,
-        BareEntity,
-        LocalFilter
-    >
->({
+export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>({
+    props: {} as EntityFilterProps,
     key: (props) => props.typeKey,
     connect: {
         values: [actionsModel, ['actions']],
     },
     actions: () => ({
         selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
-        updateFilterMath: (filter: Partial<ActionFilter> & { index: number }) => ({
-            type: filter.type,
+        updateFilterMath: (
+            filter: Partial<ActionFilter> & {
+                index: number
+            }
+        ) => ({
+            type: filter.type as EntityType,
             math: filter.math,
             math_property: filter.math_property,
             index: filter.index,
         }),
-        updateFilter: (filter: EntityFilter & { index: number }) => ({
+        updateFilter: (
+            filter: EntityFilter & {
+                index: number
+            }
+        ) => ({
             type: filter.type,
             index: filter.index,
             id: filter.id,
             name: filter.name,
         }),
-        removeLocalFilter: (filter: Partial<EntityFilter> & { index: number }) => ({
+        removeLocalFilter: (
+            filter: Partial<EntityFilter> & {
+                index: number
+            }
+        ) => ({
             type: filter.type,
             index: filter.index,
         }),
         addFilter: true,
-        updateFilterProperty: (filter: Partial<EntityFilter> & { index?: number; properties: PropertyFilter[] }) => ({
+        updateFilterProperty: (
+            filter: Partial<EntityFilter> & {
+                index?: number
+                properties: AnyPropertyFilter[]
+            }
+        ) => ({
             properties: filter.properties,
             index: filter.index,
         }),
@@ -97,7 +104,7 @@ export const entityFilterLogic = kea<
             },
         ],
         localFilters: [
-            toLocalFilters(((props as any) as ActionFilterProps).filters),
+            toLocalFilters(props.filters) as LocalFilter[],
             {
                 setLocalFilters: (_, { filters }) => toLocalFilters(filters),
             },
@@ -116,7 +123,12 @@ export const entityFilterLogic = kea<
     selectors: {
         entities: [
             (s) => [eventDefinitionsModel.selectors.eventNames, s.actions],
-            (events, actions): { [x: string]: ActionFilter[] | BareEntity[] } => ({
+            (
+                events,
+                actions
+            ): {
+                [x: string]: ActionFilter[] | BareEntity[]
+            } => ({
                 [EntityTypes.ACTIONS]: actions,
                 [EntityTypes.EVENTS]: events.map((event) => ({ id: event, name: event })),
             }),
@@ -144,7 +156,9 @@ export const entityFilterLogic = kea<
         },
         removeLocalFilter: async ({ index }) => {
             eventUsageLogic.actions.reportInsightFilterRemoved(index)
-            actions.setFilters(values.localFilters.filter((_, i) => i !== index))
+            const newFilters = values.localFilters.filter((_, i) => i !== index)
+            actions.setFilters(newFilters)
+            actions.setLocalFilters(toFilters(newFilters))
         },
         addFilter: async () => {
             const previousLength = values.localFilters.length

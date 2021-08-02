@@ -2,53 +2,62 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { SessionFilter } from 'lib/components/SessionsFilter'
-import { ViewType } from '../insightLogic'
 import { trendsLogic } from '../../trends/trendsLogic'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
-import { FilterType } from '~/types'
-import { Tooltip } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { FilterType, ViewType } from '~/types'
+import { Col, Row, Skeleton } from 'antd'
 import { TestAccountFilter } from '../TestAccountFilter'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { SessionTabHorizontal } from './SessionTabHorizontal'
-import { FEATURE_FLAGS } from 'lib/constants'
+import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { BaseTabProps } from '../Insights'
+import { InsightTitle } from './InsightTitle'
+import { InsightActionBar } from './InsightActionBar'
+import { GlobalFiltersTitle } from '../common'
 
-export function SessionTab(props: BaseTabProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags[FEATURE_FLAGS.QUERY_UX_V2] ? <SessionTabHorizontal {...props} /> : <DefaultSessionTab />
-}
-
-function DefaultSessionTab(): JSX.Element {
-    const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
+export function SessionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
+    const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
 
+    const screens = useBreakpoint()
+    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
+
     return (
-        <>
-            <h4 className="secondary">
-                Sessions Defined By
-                <Tooltip
-                    placement="right"
-                    title="Select the actions and events that will be considered when determining sessions. If none are selected, the query will attempt to take all events into consideration."
-                >
-                    <InfoCircleOutlined className="info-indicator" />
-                </Tooltip>
-            </h4>
-            <ActionFilter
-                filters={filters}
-                setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
-                typeKey={'sessions' + ViewType.SESSIONS}
-                hideMathSelector={true}
-                buttonCopy="Add action or event"
-                showOr={true}
-            />
-            <hr />
-            <h4 className="secondary">{'Type'}</h4>
-            <SessionFilter value={filters.session} onChange={(v: string): void => setFilters({ session: v })} />
-            <hr />
-            <h4 className="secondary">Filters</h4>
-            <PropertyFilters pageKey="trends-sessions" />
-            <TestAccountFilter filters={filters} onChange={setFilters} />
-        </>
+        <Row gutter={16}>
+            <Col md={16} xs={24}>
+                <InsightTitle
+                    actionBar={
+                        <InsightActionBar filters={filters} annotations={annotationsToCreate} insight="SESSIONS" />
+                    }
+                />
+                <Row gutter={8} align="middle" className="mb">
+                    <Col>Showing</Col>
+                    <Col>
+                        <SessionFilter value={filters.session} onChange={(v: string) => setFilters({ session: v })} />
+                    </Col>
+                    <Col>where a user did any of the following:</Col>
+                    <Col />
+                </Row>
+                <ActionFilter
+                    filters={filters}
+                    setFilters={(payload: Partial<FilterType>) => setFilters(payload)}
+                    typeKey={'sessions' + ViewType.SESSIONS}
+                    hideMathSelector={true}
+                    buttonCopy="Add action or event"
+                    showOr={true}
+                    horizontalUI
+                    customRowPrefix=""
+                />
+            </Col>
+            <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
+                <GlobalFiltersTitle unit="actions/events" />
+                {filtersLoading ? (
+                    <Skeleton active paragraph={{ rows: 1 }} />
+                ) : (
+                    <>
+                        <PropertyFilters pageKey="insight-retention" />
+                        <TestAccountFilter filters={filters} onChange={setFilters} />
+                    </>
+                )}
+            </Col>
+        </Row>
     )
 }

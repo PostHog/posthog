@@ -140,7 +140,7 @@ class TestDashboard(APIBaseTest):
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
@@ -164,6 +164,52 @@ class TestDashboard(APIBaseTest):
 
         self.assertEqual(response["items"][0]["result"], None)
         self.assertEqual(response["items"][0]["last_refresh"], None)
+
+    def test_refresh_cache(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+
+        with freeze_time("2020-01-04T13:00:01Z"):
+            # Pretend we cached something a while ago, but we won't have anything in the redis cache
+            item_default: DashboardItem = DashboardItem.objects.create(
+                dashboard=dashboard,
+                filters=Filter(
+                    data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
+                ).to_dict(),
+                team=self.team,
+                last_refresh=now(),
+            )
+            item_sessions: DashboardItem = DashboardItem.objects.create(
+                dashboard=dashboard,
+                filters=Filter(
+                    data={
+                        "display": "ActionsLineGraph",
+                        "events": [{"id": "$pageview", "type": "events", "order": 0, "properties": []}],
+                        "filters": [],
+                        "insight": "SESSIONS",
+                        "interval": "day",
+                        "pagination": {},
+                        "session": "avg",
+                    }
+                ).to_dict(),
+                team=self.team,
+                last_refresh=now(),
+            )
+
+        with freeze_time("2020-01-20T13:00:01Z"):
+            response = self.client.get("/api/dashboard/%s?refresh=true" % dashboard.pk)
+
+            self.assertEqual(response.status_code, 200)
+
+            response_data = response.json()
+            self.assertIsNotNone(response_data["items"][0]["result"])
+            self.assertIsNotNone(response_data["items"][0]["last_refresh"])
+            self.assertEqual(response_data["items"][0]["result"][0]["count"], 0)
+
+            item_default.refresh_from_db()
+            item_sessions.refresh_from_db()
+
+            self.assertAlmostEqual(item_default.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+            self.assertAlmostEqual(item_sessions.last_refresh, now(), delta=timezone.timedelta(seconds=5))
 
     def test_dashboard_endpoints(self):
         # create

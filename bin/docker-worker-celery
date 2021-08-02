@@ -64,6 +64,7 @@ if [ "$with_scheduler" == "true" ]; then
 fi
 
 FLAGS=()
+FLAGS+=("-Ofair")
 [ "$with_gossip" == "false" ]    && FLAGS+=("--without-gossip")
 [ "$with_mingle" == "false" ]    && FLAGS+=("--without-mingle")
 [ "$with_heartbeat" == "false" ] && FLAGS+=("--without-heartbeat")
@@ -75,7 +76,6 @@ FLAGS=()
 echo
 echo "celery -A posthog worker ${FLAGS[*]}"
 echo
-# Warning: Changing the command below affects posthog-cloud. Please check ./bin/pull_main for details
 celery -A posthog worker ${FLAGS[*]}
 
 # Stop the beat!

@@ -1,5 +1,7 @@
 from datetime import timedelta
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
@@ -46,7 +48,7 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     ]
     labels = [
         item.strftime(
-            "%a. %-d %B{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
+            "%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
         )
         for item in stats[0]
     ]
@@ -79,7 +81,7 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict
         try:
             earliest_date = get_earliest_timestamp(team_id)
         except IndexError:
-            raise ValueError("Active User queries require a lower date bound")
+            raise ValidationError("Active User queries require a lower date bound")
         else:
             params.update(
                 {
@@ -93,15 +95,31 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict
 def populate_entity_params(entity: Entity) -> Tuple[Dict, Dict]:
     params, content_sql_params = {}, {}
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        try:
-            action = Action.objects.get(pk=entity.id)
-            action_query, action_params = format_action_filter(action)
-            params = {**action_params}
-            content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}
-        except:
-            raise ValueError("Action does not exist")
+        action = entity.get_action()
+        action_query, action_params = format_action_filter(action)
+        params = {**action_params}
+        content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}
     else:
         content_sql_params = {"entity_query": "AND event = %(event)s"}
         params = {"event": entity.id}
 
     return params, content_sql_params
+
+
+def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
+    date_from = filter.date_from
+    date_to = filter.date_to
+    delta = timedelta(seconds=seconds_in_interval)
+    time_range: List[str] = []
+
+    if not date_from or not date_to:
+        return time_range
+
+    while date_from <= date_to:
+        time_range.append(
+            date_from.strftime(
+                "%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" or filter.interval == "minute" else "")
+            )
+        )
+        date_from += delta
+    return time_range

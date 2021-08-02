@@ -1,13 +1,13 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Popconfirm, Space, Switch, Tooltip } from 'antd'
+import { Button, Form, Popconfirm, Space, Switch, Tag, Tooltip } from 'antd'
 import { DeleteOutlined, CodeOutlined, LockFilled, GlobalOutlined, RollbackOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
-import { defaultConfigForPlugin, getConfigSchemaArray } from 'scenes/plugins/utils'
+import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
 import Markdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
 import { PluginSource } from './PluginSource'
@@ -15,8 +15,9 @@ import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { endWithPunctation } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
-import { ExtraPluginButtons } from '../plugin/PluginCard'
+import { PluginAboutButton } from '../plugin/PluginCard'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { capabilitiesInfo } from './CapabilitiesInfo'
 
 function EnabledDisabledSwitch({
     value,
@@ -58,6 +59,9 @@ export function PluginDrawer(): JSX.Element {
     } = useActions(pluginsLogic)
     const [form] = Form.useForm()
 
+    const [invisibleFields, setInvisibleFields] = useState<string[]>([])
+    const [requiredFields, setRequiredFields] = useState<string[]>([])
+
     useEffect(() => {
         if (editingPlugin) {
             form.setFieldsValue({
@@ -69,7 +73,49 @@ export function PluginDrawer(): JSX.Element {
         } else {
             form.resetFields()
         }
-    }, [editingPlugin?.id])
+        updateInvisibleAndRequiredFields()
+    }, [editingPlugin?.id, editingPlugin?.config_schema])
+
+    const updateInvisibleAndRequiredFields = (): void => {
+        determineAndSetInvisibleFields()
+        determineAndSetRequiredFields()
+    }
+
+    const determineAndSetInvisibleFields = (): void => {
+        const fieldsToSetAsInvisible = []
+        for (const field of Object.values(getConfigSchemaArray(editingPlugin?.config_schema || {}))) {
+            if (!field.visible_if || !field.key) {
+                continue
+            }
+            const shouldBeVisible = field.visible_if.every(
+                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
+                    doFieldRequirementsMatch(form, targetFieldName, targetFieldValue)
+            )
+
+            if (!shouldBeVisible) {
+                fieldsToSetAsInvisible.push(field.key)
+            }
+        }
+        setInvisibleFields(fieldsToSetAsInvisible)
+    }
+
+    const determineAndSetRequiredFields = (): void => {
+        const fieldsToSetAsRequired = []
+        for (const field of Object.values(getConfigSchemaArray(editingPlugin?.config_schema || {}))) {
+            if (!field.required_if || !Array.isArray(field.required_if) || !field.key) {
+                continue
+            }
+            const shouldBeRequired = field.required_if.every(
+                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
+                    doFieldRequirementsMatch(form, targetFieldName, targetFieldValue)
+            )
+            if (shouldBeRequired) {
+                fieldsToSetAsRequired.push(field.key)
+            }
+        }
+
+        setRequiredFields(fieldsToSetAsRequired)
+    }
 
     const isValidChoiceConfig = (fieldConfig: PluginConfigChoice): boolean => {
         return (
@@ -190,7 +236,7 @@ export function PluginDrawer(): JSX.Element {
                                         ) : editingPlugin.plugin_type === 'source' ? (
                                             <SourcePluginTag />
                                         ) : null}
-                                        {editingPlugin.url && <ExtraPluginButtons url={editingPlugin.url} />}
+                                        {editingPlugin.url && <PluginAboutButton url={editingPlugin.url} />}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', marginTop: 5 }}>
                                         <Form.Item
@@ -218,6 +264,34 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                             ) : null}
 
+                            {editingPlugin.capabilities && Object.keys(editingPlugin.capabilities).length > 0 ? (
+                                <>
+                                    <h3 className="l3" style={{ marginTop: 32 }}>
+                                        Capabilities
+                                    </h3>
+
+                                    <div style={{ marginTop: 5 }}>
+                                        {[
+                                            ...editingPlugin.capabilities.methods,
+                                            ...editingPlugin.capabilities.scheduled_tasks,
+                                        ]
+                                            .filter(
+                                                (capability) => !['setupPlugin', 'teardownPlugin'].includes(capability)
+                                            )
+                                            .map((capability) => (
+                                                <Tooltip title={capabilitiesInfo[capability] || ''} key={capability}>
+                                                    <Tag className="plugin-capabilities-tag">{capability}</Tag>
+                                                </Tooltip>
+                                            ))}
+                                        {editingPlugin.capabilities.jobs.map((jobName) => (
+                                            <Tooltip title="Custom job" key={jobName}>
+                                                <Tag className="plugin-capabilities-tag">{jobName}</Tag>
+                                            </Tooltip>
+                                        ))}
+                                    </div>
+                                </>
+                            ) : null}
+
                             <h3 className="l3" style={{ marginTop: 32 }}>
                                 Configuration
                             </h3>
@@ -231,6 +305,7 @@ export function PluginDrawer(): JSX.Element {
                                     )}
                                     {fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
+                                            hidden={!!fieldConfig.key && invisibleFields.includes(fieldConfig.key)}
                                             label={
                                                 <>
                                                     {fieldConfig.secret && <SecretFieldIcon />}
@@ -243,15 +318,23 @@ export function PluginDrawer(): JSX.Element {
                                                 )
                                             }
                                             name={fieldConfig.key}
-                                            required={fieldConfig.required}
+                                            required={
+                                                fieldConfig.required ||
+                                                (!!fieldConfig.key && requiredFields.includes(fieldConfig.key))
+                                            }
                                             rules={[
                                                 {
-                                                    required: fieldConfig.required,
+                                                    required:
+                                                        fieldConfig.required ||
+                                                        (!!fieldConfig.key && requiredFields.includes(fieldConfig.key)),
                                                     message: 'Please enter a value!',
                                                 },
                                             ]}
                                         >
-                                            <PluginField fieldConfig={fieldConfig} />
+                                            <PluginField
+                                                fieldConfig={fieldConfig}
+                                                onChange={updateInvisibleAndRequiredFields}
+                                            />
                                         </Form.Item>
                                     ) : (
                                         <>

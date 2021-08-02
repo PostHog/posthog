@@ -8,14 +8,18 @@ import { DashboardInsightHeader } from './DashboardInsightHeader'
 import { Paths } from 'scenes/paths/Paths'
 import { ActionsBarValueGraph, ActionsLineGraph, ActionsPie, ActionsTable } from 'scenes/trends/viz'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-import { ViewType } from 'scenes/insights/insightLogic'
+import { ViewType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Funnel } from 'scenes/funnels/Funnel'
 
-export function DashboardInsight(): JSX.Element {
+export function DashboardInsight(): JSX.Element | null {
     const { dashboardInsight } = useValues(dashboardInsightLogic)
     const { dashboard } = useValues(dashboardLogic({ id: 5 }))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const mapping: Record<string, any> = {
-        FunnelViz: FunnelViz,
+        FunnelViz: featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? Funnel : FunnelViz,
         PathsViz: Paths,
         ActionsLineGraph: ActionsLineGraph,
         ActionsBarValue: ActionsBarValueGraph,

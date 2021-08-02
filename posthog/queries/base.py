@@ -1,9 +1,11 @@
-import copy
-from datetime import timedelta
+import json
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models.query import Prefetch
+from rest_framework import request
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.entity import Entity
@@ -32,7 +34,7 @@ def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> Q
 
 def determine_compared_filter(filter) -> Filter:
     if not filter.date_to or not filter.date_from:
-        raise ValueError("You need date_from and date_to to compare")
+        raise ValidationError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
     return filter.with_data({"date_from": date_from.date().isoformat(), "date_to": date_to.date().isoformat()})
 
@@ -192,6 +194,37 @@ def entity_to_Q(entity: Entity, team_id: int) -> Q:
     if entity.properties:
         result &= properties_to_Q(entity.properties, team_id)
     return result
+
+
+def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -> QuerySet:
+    if request.GET.get("id"):
+        ids = request.GET["id"].split(",")
+        queryset = queryset.filter(id__in=ids)
+    if request.GET.get("uuid"):
+        uuids = request.GET["uuid"].split(",")
+        queryset = queryset.filter(uuid__in=uuids)
+    if request.GET.get("search"):
+        parts = request.GET["search"].split(" ")
+        contains = []
+        for part in parts:
+            if ":" in part:
+                matcher, key = part.split(":")
+                if matcher == "has":
+                    # Matches for example has:email or has:name
+                    queryset = queryset.filter(properties__has_key=key)
+            else:
+                contains.append(part)
+        queryset = queryset.filter(
+            Q(properties__icontains=" ".join(contains)) | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
+        ).distinct("id")
+    if request.GET.get("cohort"):
+        queryset = queryset.filter(cohort__id=request.GET["cohort"])
+    if request.GET.get("properties"):
+        filter = Filter(data={"properties": json.loads(request.GET["properties"])})
+        queryset = queryset.filter(properties_to_Q(filter.properties, team_id=team_id))
+
+    queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+    return queryset
 
 
 class BaseQuery:

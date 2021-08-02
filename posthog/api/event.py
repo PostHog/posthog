@@ -8,6 +8,8 @@ from django.utils import timezone
 from django.utils.timezone import now
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -94,16 +96,15 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Event.objects.all()
     serializer_class = EventSerializer
+    pagination_class = LimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     CSV_EXPORT_LIMIT = 100_000  # Return at most this number of events in CSV export
 
     def get_queryset(self):
         queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
-
         if self.action == "list" or self.action == "sessions" or self.action == "actions":
             queryset = self._filter_request(self.request, queryset)
-
         order_by_param = self.request.GET.get("orderBy")
         order_by = ["-timestamp"] if not order_by_param else list(json.loads(order_by_param))
         return queryset.order_by(*order_by)
@@ -127,7 +128,12 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif key == "action_id":
                 queryset = queryset.filter_by_action(Action.objects.get(pk=value))  # type: ignore
             elif key == "properties":
-                filter = Filter(data={"properties": json.loads(value)})
+                try:
+                    properties = json.loads(value)
+                except json.decoder.JSONDecodeError:
+                    raise ValidationError("Properties are unparsable!")
+
+                filter = Filter(data={"properties": properties})
                 queryset = queryset.filter(properties_to_Q(filter.properties, team_id=self.team_id))
         return queryset
 
@@ -194,7 +200,7 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                         events[99].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                     )
                 )
-            events = events[:100]
+            events = self.paginator.paginate_queryset(events, request, view=self)  # type: ignore
 
         prefetched_events = self._prefetch_events(list(events))
 

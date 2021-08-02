@@ -3,11 +3,12 @@ import { kea, useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { NotFound } from 'lib/components/NotFound'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { DashboardItemType } from '~/types'
 import { insightRouterLogicType } from './InsightRouterType'
 
-const insightRouterLogic = kea<insightRouterLogicType<DashboardItemType>>({
+const insightRouterLogic = kea<insightRouterLogicType>({
     actions: {
         loadInsight: (id: string) => ({ id }),
         setError: true,
@@ -25,6 +26,7 @@ const insightRouterLogic = kea<insightRouterLogicType<DashboardItemType>>({
             const response = await api.get(`api/insight/?short_id=${id}`)
             if (response.results.length) {
                 const item = response.results[0] as DashboardItemType
+                eventUsageLogic.actions.reportInsightShortUrlVisited(true, item.filters.insight)
                 router.actions.push(
                     combineUrl('/insights', item.filters, {
                         fromItem: item.id,
@@ -34,13 +36,16 @@ const insightRouterLogic = kea<insightRouterLogicType<DashboardItemType>>({
                     }).url
                 )
             } else {
+                eventUsageLogic.actions.reportInsightShortUrlVisited(false, null)
                 actions.setError()
             }
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/i/:id': ({ id }: { id: string }) => {
-            actions.loadInsight(id)
+        '/i/:id': ({ id }) => {
+            if (id) {
+                actions.loadInsight(id)
+            }
         },
     }),
 })

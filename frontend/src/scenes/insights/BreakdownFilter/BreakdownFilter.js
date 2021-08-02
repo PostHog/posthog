@@ -5,8 +5,11 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ViewType } from '../insightLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { ViewType } from '~/types'
+import { TaxonomicBreakdownFilter } from 'scenes/insights/BreakdownFilter/TaxonomicBreakdownFilter'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const { TabPane } = Tabs
 
@@ -23,7 +26,7 @@ function PropertyFilter({ breakdown, onChange }) {
             style={{ width: '100%' }}
             placeholder={'Break down by'}
             value={breakdown ? breakdown : undefined}
-            onChange={(_, item) => onChange(item.value.replace(/event_|person_/gi, ''), item.type)}
+            onChange={(_, item) => onChange(item.value, item.type)}
             filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
             data-attr="prop-breakdown-select"
         >
@@ -32,7 +35,7 @@ function PropertyFilter({ breakdown, onChange }) {
                     {Object.entries(eventProperties).map(([key, item], index) => (
                         <Select.Option
                             key={'event_' + key}
-                            value={'event_' + item.value}
+                            value={item.value}
                             type="event"
                             data-attr={'prop-breakdown-' + index}
                         >
@@ -46,7 +49,7 @@ function PropertyFilter({ breakdown, onChange }) {
                     {Object.entries(personProperties).map(([key, item], index) => (
                         <Select.Option
                             key={'person_' + key}
-                            value={'person_' + item.name}
+                            value={item.name}
                             type="person"
                             data-attr={'prop-filter-person-' + (eventProperties.length + index)}
                         >
@@ -125,7 +128,7 @@ function Content({ breakdown, breakdown_type, onChange }) {
     )
 }
 
-export function BreakdownFilter({ filters, onChange }) {
+export function OriginalBreakdownFilter({ filters, onChange }) {
     const { cohorts } = useValues(cohortsModel)
     const { breakdown, breakdown_type, insight } = filters
     let [open, setOpen] = useState(false)
@@ -176,4 +179,13 @@ export function BreakdownFilter({ filters, onChange }) {
             </Tooltip>
         </Popover>
     )
+}
+
+export function BreakdownFilter(props) {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER]) {
+        return <TaxonomicBreakdownFilter {...props} />
+    } else {
+        return <OriginalBreakdownFilter {...props} />
+    }
 }

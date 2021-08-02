@@ -6,11 +6,10 @@ import { actionEditLogic } from './actionEditLogic'
 import './Actions.scss'
 import { ActionStep } from './ActionStep'
 import { Button, Col, Input, Row } from 'antd'
-import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined, LoadingOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { actionsModel } from '~/models/actionsModel'
-import { AsyncActionMappingNotice } from 'scenes/project/Settings/WebhookIntegration'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import dayjs from 'dayjs'
 import { compactNumber } from 'lib/utils'
@@ -24,7 +23,7 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, tem
         onSave: (action, createNew) => onSave(action, !actionId, createNew),
         temporaryToken,
     })
-    const { action, errorActionId } = useValues(logic)
+    const { action, errorActionId, actionCount, actionCountLoading } = useValues(logic)
     const { setAction, saveAction } = useActions(logic)
     const { loadActions } = useActions(actionsModel)
     const { preflight } = useValues(preflightLogic)
@@ -86,20 +85,25 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, tem
                         data-attr="edit-action-input"
                         id="actionName"
                     />
-                    {action.count > -1 && (
+                    {actionId && (
                         <div>
                             <span className="text-muted mb-05">
-                                This action matches <b>{compactNumber(action.count)}</b> events
-                                {preflight.db_backend !== 'clickhouse' && (
+                                {actionCountLoading && <LoadingOutlined />}
+                                {actionCount !== null && actionCount > -1 && (
                                     <>
-                                        {' '}
-                                        (last calculated{' '}
-                                        {action.last_calculated_at ? (
-                                            <b>{dayjs(action.last_calculated_at).fromNow()}</b>
-                                        ) : (
-                                            'a while ago'
+                                        This action matches <b>{compactNumber(actionCount)}</b> events
+                                        {preflight.db_backend !== 'clickhouse' && (
+                                            <>
+                                                {' '}
+                                                (last calculated{' '}
+                                                {action.last_calculated_at ? (
+                                                    <b>{dayjs(action.last_calculated_at).fromNow()}</b>
+                                                ) : (
+                                                    'a while ago'
+                                                )}
+                                                )
+                                            </>
                                         )}
-                                        )
                                     </>
                                 )}
                             </span>
@@ -183,7 +187,6 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, tem
                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                             </Link>
                         </p>
-                        {!preflight?.is_clickhouse_enabled && <AsyncActionMappingNotice />}
                         {action.post_to_slack && (
                             <>
                                 <Input

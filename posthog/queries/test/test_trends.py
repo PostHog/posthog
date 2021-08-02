@@ -119,9 +119,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(data={"date_from": "-7d", "events": [{"id": "sign up"}, {"id": "no events"}],}), self.team,
                 )
             self.assertEqual(response[0]["label"], "sign up")
-            self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
             self.assertEqual(response[0]["data"][4], 3.0)
-            self.assertEqual(response[0]["labels"][5], "Thu. 2 January")
+            self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 1.0)
 
         # just make sure this doesn't error
@@ -156,7 +156,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
 
             self.assertEqual(response[0]["data"][1], 1.0)
-            self.assertEqual(response[0]["labels"][1], "Thu. 2 January")
+            self.assertEqual(response[0]["labels"][1], "2-Jan-2020")
 
         def test_trends_per_day_cumulative(self):
             self._create_events()
@@ -174,9 +174,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
 
             self.assertEqual(response[0]["label"], "sign up")
-            self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
             self.assertEqual(response[0]["data"][4], 3.0)
-            self.assertEqual(response[0]["labels"][5], "Thu. 2 January")
+            self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 4.0)
 
         def test_trends_single_aggregate_dau(self):
@@ -541,9 +541,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
 
             self.assertEqual(no_compare_response[0]["label"], "sign up")
-            self.assertEqual(no_compare_response[0]["labels"][4], "Wed. 1 January")
+            self.assertEqual(no_compare_response[0]["labels"][4], "1-Jan-2020")
             self.assertEqual(no_compare_response[0]["data"][4], 3.0)
-            self.assertEqual(no_compare_response[0]["labels"][5], "Thu. 2 January")
+            self.assertEqual(no_compare_response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(no_compare_response[0]["data"][5], 1.0)
 
         def _test_events_with_dates(self, dates: List[str], result, query_time=None, **filter_params):
@@ -584,17 +584,17 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "count": 3.0,
                         "data": [1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                         "labels": [
-                            "Sun. 1 November, 10:20",
-                            "Sun. 1 November, 10:21",
-                            "Sun. 1 November, 10:22",
-                            "Sun. 1 November, 10:23",
-                            "Sun. 1 November, 10:24",
-                            "Sun. 1 November, 10:25",
-                            "Sun. 1 November, 10:26",
-                            "Sun. 1 November, 10:27",
-                            "Sun. 1 November, 10:28",
-                            "Sun. 1 November, 10:29",
-                            "Sun. 1 November, 10:30",
+                            "1-Nov-2020 10:20",
+                            "1-Nov-2020 10:21",
+                            "1-Nov-2020 10:22",
+                            "1-Nov-2020 10:23",
+                            "1-Nov-2020 10:24",
+                            "1-Nov-2020 10:25",
+                            "1-Nov-2020 10:26",
+                            "1-Nov-2020 10:27",
+                            "1-Nov-2020 10:28",
+                            "1-Nov-2020 10:29",
+                            "1-Nov-2020 10:30",
                         ],
                         "days": [
                             "2020-11-01 10:20:00",
@@ -634,13 +634,13 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "count": 3.0,
                         "data": [0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0],
                         "labels": [
-                            "Sun. 1 November, 12:00",
-                            "Sun. 1 November, 13:00",
-                            "Sun. 1 November, 14:00",
-                            "Sun. 1 November, 15:00",
-                            "Sun. 1 November, 16:00",
-                            "Sun. 1 November, 17:00",
-                            "Sun. 1 November, 18:00",
+                            "1-Nov-2020 12:00",
+                            "1-Nov-2020 13:00",
+                            "1-Nov-2020 14:00",
+                            "1-Nov-2020 15:00",
+                            "1-Nov-2020 16:00",
+                            "1-Nov-2020 17:00",
+                            "1-Nov-2020 18:00",
                         ],
                         "days": [
                             "2020-11-01 12:00:00",
@@ -676,13 +676,13 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "count": 4.0,
                         "data": [1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
                         "labels": [
-                            "Sun. 1 November",
-                            "Mon. 2 November",
-                            "Tue. 3 November",
-                            "Wed. 4 November",
-                            "Thu. 5 November",
-                            "Fri. 6 November",
-                            "Sat. 7 November",
+                            "1-Nov-2020",
+                            "2-Nov-2020",
+                            "3-Nov-2020",
+                            "4-Nov-2020",
+                            "5-Nov-2020",
+                            "6-Nov-2020",
+                            "7-Nov-2020",
                         ],
                         "days": [
                             "2020-11-01",
@@ -717,13 +717,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 4.0,
                         "data": [0.0, 1.0, 2.0, 1.0, 0.0],
-                        "labels": [
-                            "Sun. 25 October",
-                            "Sun. 1 November",
-                            "Sun. 8 November",
-                            "Sun. 15 November",
-                            "Sun. 22 November",
-                        ],
+                        "labels": ["25-Oct-2020", "1-Nov-2020", "8-Nov-2020", "15-Nov-2020", "22-Nov-2020",],
                         "days": ["2020-10-25", "2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22"],
                     }
                 ],
@@ -749,14 +743,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 3.0,
                         "data": [0.0, 2.0, 0.0, 0.0, 1.0, 0.0],
-                        "labels": [
-                            "Mon. 1 June",
-                            "Wed. 1 July",
-                            "Sat. 1 August",
-                            "Tue. 1 September",
-                            "Thu. 1 October",
-                            "Sun. 1 November",
-                        ],
+                        "labels": ["1-Jun-2020", "1-Jul-2020", "1-Aug-2020", "1-Sep-2020", "1-Oct-2020", "1-Nov-2020"],
                         "days": ["2020-06-01", "2020-07-01", "2020-08-01", "2020-09-01", "2020-10-01", "2020-11-01"],
                     }
                 ],
@@ -782,7 +769,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 4.0,
                         "data": [1.0, 2.0, 1.0, 0.0],
-                        "labels": ["Sun. 1 November", "Sun. 8 November", "Sun. 15 November", "Sun. 22 November"],
+                        "labels": ["1-Nov-2020", "8-Nov-2020", "15-Nov-2020", "22-Nov-2020"],
                         "days": ["2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22"],
                     }
                 ],
@@ -808,7 +795,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 2.0,
                         "data": [1.0, 1.0,],
-                        "labels": ["Mon. 1 June", "Wed. 1 July",],
+                        "labels": ["1-Jun-2020", "1-Jul-2020"],
                         "days": ["2020-06-01", "2020-07-01",],
                     }
                 ],
@@ -833,7 +820,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 3,
                         "data": [3],
-                        "labels": ["Sun. 1 November"],
+                        "labels": ["1-Nov-2020"],
                         "days": ["2020-11-01"],
                     }
                 ],
@@ -859,7 +846,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 3.0,
                         "data": [3.0, 0.0],
-                        "labels": ["Sun. 1 November", "Mon. 2 November"],
+                        "labels": ["1-Nov-2020", "2-Nov-2020"],
                         "days": ["2020-11-01", "2020-11-02"],
                     }
                 ],
@@ -884,7 +871,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 3,
                         "data": [2, 1],
-                        "labels": ["Sun. 1 November", "Mon. 2 November"],
+                        "labels": ["1-Nov-2020", "2-Nov-2020"],
                         "days": ["2020-11-01", "2020-11-02"],
                     }
                 ],
@@ -909,7 +896,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 4.0,
                         "data": [0.0, 3.0, 1.0],
-                        "labels": ["Sat. 31 October", "Sun. 1 November", "Mon. 2 November"],
+                        "labels": ["31-Oct-2020", "1-Nov-2020", "2-Nov-2020"],
                         "days": ["2020-10-31", "2020-11-01", "2020-11-02"],
                     }
                 ],
@@ -935,14 +922,14 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "count": 4.0,
                         "data": [0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0],
                         "labels": [
-                            "Sat. 31 October",
-                            "Sun. 1 November",
-                            "Mon. 2 November",
-                            "Tue. 3 November",
-                            "Wed. 4 November",
-                            "Thu. 5 November",
-                            "Fri. 6 November",
-                            "Sat. 7 November",
+                            "31-Oct-2020",
+                            "1-Nov-2020",
+                            "2-Nov-2020",
+                            "3-Nov-2020",
+                            "4-Nov-2020",
+                            "5-Nov-2020",
+                            "6-Nov-2020",
+                            "7-Nov-2020",
                         ],
                         "days": [
                             "2020-10-31",
@@ -985,21 +972,21 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "count": 6.0,
                         "data": [0.0, 1.0, 1.0, 0.0, 1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
                         "labels": [
-                            "Sat. 31 October",
-                            "Sun. 1 November",
-                            "Mon. 2 November",
-                            "Tue. 3 November",
-                            "Wed. 4 November",
-                            "Thu. 5 November",
-                            "Fri. 6 November",
-                            "Sat. 7 November",
-                            "Sun. 8 November",
-                            "Mon. 9 November",
-                            "Tue. 10 November",
-                            "Wed. 11 November",
-                            "Thu. 12 November",
-                            "Fri. 13 November",
-                            "Sat. 14 November",
+                            "31-Oct-2020",
+                            "1-Nov-2020",
+                            "2-Nov-2020",
+                            "3-Nov-2020",
+                            "4-Nov-2020",
+                            "5-Nov-2020",
+                            "6-Nov-2020",
+                            "7-Nov-2020",
+                            "8-Nov-2020",
+                            "9-Nov-2020",
+                            "10-Nov-2020",
+                            "11-Nov-2020",
+                            "12-Nov-2020",
+                            "13-Nov-2020",
+                            "14-Nov-2020",
                         ],
                         "days": [
                             "2020-10-31",
@@ -1050,12 +1037,12 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "count": 6.0,
                         "data": [0.0, 3.0, 2.0, 0.0, 1.0, 0.0],
                         "labels": [
-                            "Sun. 25 October",
-                            "Sun. 1 November",
-                            "Sun. 8 November",
-                            "Sun. 15 November",
-                            "Sun. 22 November",
-                            "Sun. 29 November",
+                            "25-Oct-2020",
+                            "1-Nov-2020",
+                            "8-Nov-2020",
+                            "15-Nov-2020",
+                            "22-Nov-2020",
+                            "29-Nov-2020",
                         ],
                         "days": ["2020-10-25", "2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22", "2020-11-29"],
                     }
@@ -1092,7 +1079,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 9,
                         "data": [1, 2, 6],
-                        "labels": ["Tue. 1 September", "Thu. 1 October", "Sun. 1 November"],
+                        "labels": ["1-Sep-2020", "1-Oct-2020", "1-Nov-2020"],
                         "days": ["2020-09-01", "2020-10-01", "2020-11-01"],
                     }
                 ],
@@ -1125,7 +1112,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 6,
                         "data": [6],
-                        "labels": ["Sun. 1 November"],
+                        "labels": ["1-Nov-2020"],
                         "days": ["2020-11-01"],
                     }
                 ],
@@ -1159,7 +1146,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 6,
                         "data": [6],
-                        "labels": ["Sun. 1 November"],
+                        "labels": ["1-Nov-2020"],
                         "days": ["2020-11-01"],
                     }
                 ],
@@ -1192,7 +1179,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 5.0,
                         "data": [2.0, 2.0, 1.0, 0.0],
-                        "labels": ["Wed. 1 January", "Sat. 1 February", "Sun. 1 March", "Wed. 1 April"],
+                        "labels": ["1-Jan-2020", "1-Feb-2020", "1-Mar-2020", "1-Apr-2020"],
                         "days": ["2020-01-01", "2020-02-01", "2020-03-01", "2020-04-01"],
                     }
                 ],
@@ -1224,7 +1211,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 5.0,
                         "data": [2.0, 2.0, 1.0, 0.0],
-                        "labels": ["Wed. 1 January", "Sat. 1 February", "Sun. 1 March", "Wed. 1 April"],
+                        "labels": ["1-Jan-2020", "1-Feb-2020", "1-Mar-2020", "1-Apr-2020"],
                         "days": ["2020-01-01", "2020-02-01", "2020-03-01", "2020-04-01"],
                     }
                 ],
@@ -1255,14 +1242,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                         "label": "event_name",
                         "count": 3.0,
                         "data": [2.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-                        "labels": [
-                            "Sun. 5 January",
-                            "Mon. 6 January",
-                            "Tue. 7 January",
-                            "Wed. 8 January",
-                            "Thu. 9 January",
-                            "Fri. 10 January",
-                        ],
+                        "labels": ["5-Jan-2020", "6-Jan-2020", "7-Jan-2020", "8-Jan-2020", "9-Jan-2020", "10-Jan-2020"],
                         "days": ["2020-01-05", "2020-01-06", "2020-01-07", "2020-01-08", "2020-01-09", "2020-01-10"],
                     }
                 ],
@@ -1280,9 +1260,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
             self.assertEqual(response[0]["data"][4], 1.0)
-            self.assertEqual(response[0]["labels"][5], "Thu. 2 January")
+            self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 0)
 
         def test_filter_events_by_cohort(self):
@@ -1328,7 +1308,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(data={"date_from": "2020-01-01", "interval": "minute", "events": [{"id": "sign up"}]}),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][6], "Wed. 1 January, 00:06")
+            self.assertEqual(response[0]["labels"][6], "1-Jan-2020 00:06")
             self.assertEqual(response[0]["data"][6], 3.0)
 
             # test hour
@@ -1337,7 +1317,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(data={"date_from": "2019-12-24", "interval": "hour", "events": [{"id": "sign up"}]}),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][3], "Tue. 24 December, 03:00")
+            self.assertEqual(response[0]["labels"][3], "24-Dec-2019 03:00")
             self.assertEqual(response[0]["data"][3], 1.0)
             # 217 - 24 - 1
             self.assertEqual(response[0]["data"][192], 3.0)
@@ -1348,9 +1328,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(data={"date_from": "2019-11-24", "interval": "week", "events": [{"id": "sign up"}]}),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][5], "Sun. 22 December")
+            self.assertEqual(response[0]["labels"][5], "22-Dec-2019")
             self.assertEqual(response[0]["data"][5], 1.0)
-            self.assertEqual(response[0]["labels"][6], "Sun. 29 December")
+            self.assertEqual(response[0]["labels"][6], "29-Dec-2019")
             self.assertEqual(response[0]["data"][6], 4.0)
 
             # test month
@@ -1359,11 +1339,11 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     Filter(data={"date_from": "2019-9-24", "interval": "month", "events": [{"id": "sign up"}]}),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][0], "Sun. 1 September")
+            self.assertEqual(response[0]["labels"][0], "1-Sep-2019")
             self.assertEqual(response[0]["data"][0], 0)
-            self.assertEqual(response[0]["labels"][3], "Sun. 1 December")
+            self.assertEqual(response[0]["labels"][3], "1-Dec-2019")
             self.assertEqual(response[0]["data"][3], 1.0)
-            self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
             self.assertEqual(response[0]["data"][4], 4.0)
 
             with freeze_time("2020-01-02 23:30"):
@@ -1374,7 +1354,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 response = trends().run(
                     Filter(data={"date_from": "dStart", "interval": "hour", "events": [{"id": "sign up"}]}), self.team
                 )
-            self.assertEqual(response[0]["labels"][23], "Thu. 2 January, 23:00")
+            self.assertEqual(response[0]["labels"][23], "2-Jan-2020 23:00")
             self.assertEqual(response[0]["data"][23], 1.0)
 
         def test_breakdown_label(self):
@@ -1681,10 +1661,10 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     self.team,
                 )
 
-            self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
             self.assertEqual(response[0]["data"][4], 1)
             self.assertEqual(response[0]["count"], 1)
-            self.assertEqual(response[1]["labels"][5], "Thu. 2 January")
+            self.assertEqual(response[1]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[1]["data"][5], 1)
             self.assertEqual(response[1]["count"], 1)
 
@@ -1736,9 +1716,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
             self.assertEqual(response[0]["data"][4], 1.0)
-            self.assertEqual(response[0]["labels"][5], "Thu. 2 January")
+            self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 0)
 
         def test_breakdown_by_empty_cohort(self):
@@ -1798,22 +1778,23 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(event_response[0]["label"], "watched movie - cohort1")
-            self.assertEqual(event_response[1]["label"], "watched movie - cohort2")
-            self.assertEqual(event_response[2]["label"], "watched movie - cohort3")
-            self.assertEqual(event_response[3]["label"], "watched movie - all users")
 
-            self.assertEqual(sum(event_response[0]["data"]), 1)
-            self.assertEqual(event_response[0]["breakdown_value"], cohort.pk)
+            counts = {}
+            break_val = {}
+            for res in event_response:
+                counts[res["label"]] = sum(res["data"])
+                break_val[res["label"]] = res["breakdown_value"]
 
-            self.assertEqual(sum(event_response[1]["data"]), 3)
-            self.assertEqual(event_response[1]["breakdown_value"], cohort2.pk)
+            self.assertEqual(counts["watched movie - cohort1"], 1)
+            self.assertEqual(counts["watched movie - cohort2"], 3)
+            self.assertEqual(counts["watched movie - cohort3"], 4)
+            self.assertEqual(counts["watched movie - all users"], 7)
 
-            self.assertEqual(sum(event_response[2]["data"]), 4)
-            self.assertEqual(event_response[2]["breakdown_value"], cohort3.pk)
+            self.assertEqual(break_val["watched movie - cohort1"], cohort.pk)
+            self.assertEqual(break_val["watched movie - cohort2"], cohort2.pk)
+            self.assertEqual(break_val["watched movie - cohort3"], cohort3.pk)
+            self.assertEqual(break_val["watched movie - all users"], "all")
 
-            self.assertEqual(sum(event_response[3]["data"]), 7)
-            self.assertEqual(event_response[3]["breakdown_value"], "all")
             self.assertEntityResponseEqual(
                 event_response, action_response,
             )
@@ -1837,7 +1818,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     self.team,
                 )
 
-            self.assertEqual(response[0]["labels"][6], "Wed. 1 January, 00:06")
+            self.assertEqual(response[0]["labels"][6], "1-Jan-2020 00:06")
             self.assertEqual(response[0]["data"][6], 3.0)
 
             # test hour
@@ -1854,7 +1835,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][3], "Tue. 24 December, 03:00")
+            self.assertEqual(response[0]["labels"][3], "24-Dec-2019 03:00")
             self.assertEqual(response[0]["data"][3], 1.0)
             # 217 - 24 - 1
             self.assertEqual(response[0]["data"][192], 3.0)
@@ -1873,9 +1854,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][5], "Sun. 22 December")
+            self.assertEqual(response[0]["labels"][5], "22-Dec-2019")
             self.assertEqual(response[0]["data"][5], 1.0)
-            self.assertEqual(response[0]["labels"][6], "Sun. 29 December")
+            self.assertEqual(response[0]["labels"][6], "29-Dec-2019")
             self.assertEqual(response[0]["data"][6], 4.0)
 
             # test month
@@ -1892,9 +1873,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][3], "Sun. 1 December")
+            self.assertEqual(response[0]["labels"][3], "1-Dec-2019")
             self.assertEqual(response[0]["data"][3], 1.0)
-            self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
             self.assertEqual(response[0]["data"][4], 4.0)
 
             with freeze_time("2020-01-02 23:30"):
@@ -1914,7 +1895,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
-            self.assertEqual(response[0]["labels"][23], "Thu. 2 January, 23:00")
+            self.assertEqual(response[0]["labels"][23], "2-Jan-2020 23:00")
             self.assertEqual(response[0]["data"][23], 1.0)
 
         def test_breakdown_by_person_property(self):
@@ -1988,6 +1969,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     ),
                     self.team,
                 )
+                event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
                 self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
                 self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
                 self.assertDictContainsSubset({"breakdown_value": "person3", "aggregated_value": 1}, event_response[2])
@@ -2045,6 +2027,42 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 )
             self.assertEqual(response[0]["aggregated_value"], 4)
             self.assertEqual(response[1]["aggregated_value"], 1)
+            self.assertEqual(
+                response[0]["days"],
+                [
+                    "2019-12-28",
+                    "2019-12-29",
+                    "2019-12-30",
+                    "2019-12-31",
+                    "2020-01-01",
+                    "2020-01-02",
+                    "2020-01-03",
+                    "2020-01-04",
+                ],
+            )
+
+        def test_breakdown_filtering_bar_chart_by_value(self):
+            self._create_events()
+
+            # test breakdown filtering
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-7d",
+                            "breakdown": "$some_property",
+                            "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,},],
+                            "display": TRENDS_BAR_VALUE,
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(
+                response[0]["count"], 2
+            )  # postgres returns none for display by value TODO: update clickhouse query to return this also
+            self.assertEqual(response[1]["aggregated_value"], 1)
+            self.assertEqual(response[2]["aggregated_value"], 1)
             self.assertEqual(
                 response[0]["days"],
                 [

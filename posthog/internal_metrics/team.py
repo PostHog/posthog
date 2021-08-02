@@ -157,6 +157,29 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
         {
+            "name": "Clickhouse: query time total breakdown (ms)",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$clickhouse_sync_execution_time",
+                        "math": "sum",
+                        "name": "$$clickhouse_sync_execution_time",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": "value",
+                    },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "breakdown": "table",
+                "breakdown_type": "event",
+                "properties": [],
+            },
+        },
+        {
             "name": "Clickhouse mutations count",
             "filters": {
                 "events": [

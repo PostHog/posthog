@@ -1,10 +1,11 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { VolumeTable, UsageDisabledWarning } from './EventsVolumeTable'
 import { Alert, Skeleton } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PageHeader } from 'lib/components/PageHeader'
+import { UsageDisabledWarning } from './UsageDisabledWarning'
+import { VolumeTable } from './VolumeTable'
 
 export function PropertiesVolumeTable(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -23,14 +24,15 @@ export function PropertiesVolumeTable(): JSX.Element | null {
                     {preflight && !preflight?.is_event_property_usage_enabled ? (
                         <UsageDisabledWarning tab="Properties Stats" />
                     ) : (
-                        propertyDefinitions[0].volume_30_day === null && (
+                        propertyDefinitions.length === 0 ||
+                        (propertyDefinitions[0].volume_30_day === null && (
                             <>
                                 <Alert
                                     type="warning"
                                     message="We haven't been able to get usage and volume data yet. Please check back later."
                                 />
                             </>
-                        )
+                        ))
                     )}
                     <VolumeTable data={propertyDefinitions} type="property" />
                 </>

@@ -7,7 +7,6 @@ import { DeleteOutlined, SaveOutlined, PlusOutlined, ApiFilled } from '@ant-desi
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PropertyFilter } from '~/types'
 import './FeatureFlag.scss'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { IconExternalLink, IconJavascript, IconPython } from 'lib/components/icons'
@@ -329,9 +328,7 @@ export function FeatureFlag(): JSX.Element {
                                         <PropertyFilters
                                             pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length}`}
                                             propertyFilters={group?.properties}
-                                            onChange={(properties: PropertyFilter[]) =>
-                                                updateMatchGroup(index, undefined, properties)
-                                            }
+                                            onChange={(properties) => updateMatchGroup(index, undefined, properties)}
                                             endpoint="person"
                                             showConditionBadge
                                         />

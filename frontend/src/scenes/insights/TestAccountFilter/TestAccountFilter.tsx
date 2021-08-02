@@ -18,7 +18,7 @@ export function TestAccountFilter({
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     //const { featureFlags } = useValues(featureFlagLogic)
 
-    //return featureFlags['test-environment-3149'] ? null : (
+    //return featureFlags[FEATURE_FLAGS.TEST_ENVIRONMENT] ? null : (
     return (
         <Tooltip
             title={
