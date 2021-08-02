@@ -65,13 +65,13 @@ class RevenueDataGenerator(DataGenerator):
                 "actions": [
                     {
                         "id": free_trial_action.id,
-                        "name": "Installed App",
+                        "name": "Entered Free Trial",
                         "order": 0,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                     },
                     {
                         "id": purchase_action.id,
-                        "name": "Rated App",
+                        "name": "Purchase",
                         "order": 1,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                         "properties": {"plan": "premium"},
@@ -80,4 +80,5 @@ class RevenueDataGenerator(DataGenerator):
                 "insight": "FUNNELS",
                 "date_from": "all",
             },
+            short_id="TEST1234",
         )

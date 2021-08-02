@@ -64,7 +64,7 @@ function DashboardView(): JSX.Element {
                           ),
                       disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Fullscreen,
                   },
-                  s: {
+                  k: {
                       action: () =>
                           setDashboardMode(
                               dashboardMode === DashboardMode.Sharing ? null : DashboardMode.Sharing,
