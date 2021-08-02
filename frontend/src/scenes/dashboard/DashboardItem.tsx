@@ -141,7 +141,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'retention',
         element: RetentionContainer,
         icon: TableOutlined,
-        viewText: 'View retention',
+        viewText: 'View graph',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
