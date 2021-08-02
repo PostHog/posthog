@@ -119,6 +119,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 <Button
                                     ref={setRef}
                                     onClick={() => setOpen(!open)}
+                                    className="new-prop-filter"
                                     data-attr={'new-prop-filter-' + pageKey}
                                     type="link"
                                     style={{ paddingLeft: 0 }}

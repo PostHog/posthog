@@ -29,7 +29,7 @@ export function FunnelTab(): JSX.Element {
     }
 
     return (
-        <div data-attr="funnel-tab">
+        <div data-attr="funnel-tab" className="funnel-tab">
             <InsightTitle
                 actionBar={
                     clickhouseFeaturesEnabled ? (
