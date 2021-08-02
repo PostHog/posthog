@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* global require, module, process, __dirname */
 const path = require('path')
+const webpack = require('webpack')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 const AntdDayjsWebpackPlugin = require('antd-dayjs-webpack-plugin')
@@ -41,13 +42,21 @@ function createEntry(entry) {
 
     return {
         name: entry,
+        cache: {
+            type: "filesystem"
+        },
         mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+        target: 'web',
+        optimization: {
+            // runtimeChunk: 'single'
+            runtimeChunk: true
+        },
         devtool:
             process.env.GENERATE_SOURCEMAP === 'false'
                 ? false
                 : process.env.NODE_ENV === 'production'
                 ? 'source-map'
-                : 'inline-source-map',
+                : 'eval-cheap-module-source-map',
         entry: {
             [entry]:
                 entry === 'main' || entry === 'cypress'
@@ -63,6 +72,7 @@ function createEntry(entry) {
         },
         output: {
             path: path.resolve(__dirname, 'frontend', 'dist'),
+            pathinfo: false,
             filename: '[name].js',
             chunkFilename: '[name].[contenthash].js',
             publicPath: process.env.JS_URL
@@ -80,6 +90,10 @@ function createEntry(entry) {
                 types: path.resolve(__dirname, 'frontend', 'types'),
                 public: path.resolve(__dirname, 'frontend', 'public'),
                 cypress: path.resolve(__dirname, 'cypress'),
+                // 'react-dom': '@hot-loader/react-dom',
+            },
+            fallback: { 
+                path: require.resolve("path-browserify"),
             },
         },
         module: {
@@ -87,9 +101,9 @@ function createEntry(entry) {
                 {
                     test: /\.[jt]sx?$/,
                     exclude: /(node_modules)/,
-                    use: {
+                    use: [{
                         loader: 'babel-loader',
-                    },
+                    }],
                 },
                 {
                     // Apply rule for .sass, .scss or .css files
@@ -194,8 +208,11 @@ function createEntry(entry) {
             : {}),
         plugins: [
             new AntdDayjsWebpackPlugin(),
+            // new webpack.HotModuleReplacementPlugin(),
+            // this.mode === 'development' && new ReactRefreshWebpackPlugin(),
+            // new webpack.debug.ProfilingPlugin(),
             // common plugins for all entrypoints
-        ].concat(
+        ].filter(Boolean).concat(
             entry === 'main'
                 ? [
                       // we need these only once per build
