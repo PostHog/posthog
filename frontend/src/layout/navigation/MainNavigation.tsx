@@ -31,7 +31,7 @@ import {
 import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardType, HotKeys } from '~/types'
+import { DashboardType, HotKeys, ViewType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { canViewPlugins } from 'scenes/plugins/access'
@@ -40,7 +40,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ViewType } from 'scenes/insights/insightLogic'
 
 // to show the right page in the sidebar
 const sceneOverride: Partial<Record<Scene, string>> = {

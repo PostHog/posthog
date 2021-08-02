@@ -6,9 +6,9 @@ import { toast } from 'react-toastify'
 import { DashboardItemType } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
-import { dashboardItemsModelType } from '~/models/dashboardItemsModelType'
-
 import { dashboardItemsModelType } from './dashboardItemsModelType'
+import { urls } from 'scenes/sceneLogic'
+
 export const dashboardItemsModel = kea<dashboardItemsModelType>({
     actions: () => ({
         renameDashboardItem: (item: DashboardItemType) => ({ item }),
@@ -60,8 +60,11 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                 const toastId = toast(
                     <div data-attr="success-toast">
                         Panel moved to{' '}
-                        <Link to={`/dashboard/${dashboard.id}`} onClick={() => toast.dismiss(toastId)}>
-                            {dashboard.name || 'Untitled'}
+                        <Link
+                            to={dashboard?.id ? urls.dashboard(dashboard.id) : '#'}
+                            onClick={() => toast.dismiss(toastId)}
+                        >
+                            {dashboard?.name || 'Untitled'}
                         </Link>
                         .&nbsp;
                         <Link
@@ -88,8 +91,11 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                 const toastId = toast(
                     <div data-attr="success-toast">
                         Panel copied to{' '}
-                        <Link to={`/dashboard/${dashboard.id}`} onClick={() => toast.dismiss(toastId)}>
-                            {dashboard.name || 'Untitled'}
+                        <Link
+                            to={dashboard?.id ? urls.dashboard(dashboard.id) : '#'}
+                            onClick={() => toast.dismiss(toastId)}
+                        >
+                            {dashboard?.name || 'Untitled'}
                         </Link>
                     </div>
                 )
