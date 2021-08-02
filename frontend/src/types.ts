@@ -893,6 +893,11 @@ export enum DashboardItemMode {
     Edit = 'edit',
 }
 
+export interface DashboardAutoRefresh {
+    enabled: boolean
+    interval?: number // interval in seconds
+}
+
 // Reserved hotkeys globally available
 export type GlobalHotKeys = 'g'
 

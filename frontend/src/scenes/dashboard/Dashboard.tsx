@@ -1,13 +1,12 @@
 import React from 'react'
-import dayjs from 'dayjs'
 import { SceneLoading } from 'lib/utils'
 import { BindLogic, useActions, useValues } from 'kea'
-import { AUTO_REFRESH_INTERVAL_MINS, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CalendarOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
 import { DashboardMode } from '../../types'
@@ -15,7 +14,7 @@ import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
-import { Button, Row, Switch, Tooltip } from 'antd'
+import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 
 interface Props {
     id: string
@@ -34,18 +33,15 @@ export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
 function DashboardView(): JSX.Element {
     const {
         dashboard,
-        itemsLoading,
+        allItemsLoading: loadingFirstTime,
         items,
         filters: dashboardFilters,
         dashboardMode,
-        lastRefreshed,
         autoRefresh,
-        refreshStatus,
+        refreshMetrics,
     } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { setDashboardMode, addGraph, setDates, refreshAllDashboardItems, setAutoRefresh } = useActions(
-        dashboardLogic
-    )
+    const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
 
     useKeyboardHotkeys(
         dashboardMode === DashboardMode.Public || dashboardMode === DashboardMode.Internal
@@ -88,7 +84,7 @@ function DashboardView(): JSX.Element {
         [setDashboardMode, dashboardMode]
     )
 
-    if (dashboardsLoading || itemsLoading) {
+    if (dashboardsLoading || loadingFirstTime) {
         return <SceneLoading />
     }
 
@@ -96,7 +92,7 @@ function DashboardView(): JSX.Element {
         return <NotFound object="dashboard" />
     }
 
-    console.log('REfresh status', refreshStatus, items)
+    console.log('REfresh status', autoRefresh, refreshMetrics)
 
     return (
         <div className="dashboard">
@@ -105,44 +101,12 @@ function DashboardView(): JSX.Element {
                 <div>
                     <div className="dashboard-items-actions">
                         <div className="left-item">
-                            Last updated <b>{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</b>
-                            {dashboardMode !== DashboardMode.Public && (
-                                <>
-                                    <Button
-                                        type="link"
-                                        icon={<ReloadOutlined />}
-                                        onClick={() => refreshAllDashboardItems()}
-                                    >
-                                        Refresh
-                                    </Button>
-                                    <Tooltip
-                                        title={`Refresh dashboard automatically every ${AUTO_REFRESH_INTERVAL_MINS} minutes`}
-                                        placement="bottomLeft"
-                                    >
-                                        <Row style={{ alignItems: 'center', flexWrap: 'nowrap' }}>
-                                            <Switch
-                                                // @ts-expect-error `id` prop is valid on switch
-                                                id="auto-refresh"
-                                                onChange={setAutoRefresh}
-                                                checked={autoRefresh}
-                                                size="small"
-                                            />
-                                            <label
-                                                style={{
-                                                    marginLeft: 10,
-                                                }}
-                                                htmlFor="auto-refresh"
-                                            >
-                                                Auto refresh
-                                            </label>
-                                        </Row>
-                                    </Tooltip>
-                                </>
-                            )}
+                            {dashboardMode === DashboardMode.Public ? <LastRefreshText /> : <DashboardReloadAction />}
                         </div>
 
                         {dashboardMode !== DashboardMode.Public && (
                             <div
+                                className="right-item"
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',

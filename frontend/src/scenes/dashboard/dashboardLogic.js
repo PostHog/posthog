@@ -12,7 +12,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { Button } from 'antd'
 import { DashboardMode, ViewType } from '~/types'
 
-export const AUTO_REFRESH_INTERVAL_MINS = 5
+export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
 export const dashboardLogic = kea({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
@@ -35,7 +35,7 @@ export const dashboardLogic = kea({
         addGraph: true, // takes the user to insights to add a graph
         deleteTag: (tag) => ({ tag }),
         saveNewTag: (tag) => ({ tag }),
-        setAutoRefresh: (enabled) => ({ enabled }), // enabled: boolean
+        setAutoRefresh: (enabled, interval) => ({ enabled, interval }), // see type `DashboardAutoRefresh`
         setRefreshStatus: (id, loading = false) => ({ id, loading }), // id represents dashboardItem id's
         setRefreshError: (id) => ({ id }),
     }),
@@ -149,15 +149,23 @@ export const dashboardLogic = kea({
             },
         ],
         autoRefresh: [
-            false,
             {
-                setAutoRefresh: (_, { enabled }) => enabled,
+                interval: AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
+                enabled: false,
+            },
+            {
+                setAutoRefresh: (state, { enabled, interval }) => ({ ...state, enabled, interval }),
             },
         ],
     }),
     selectors: ({ props, selectors }) => ({
         items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
-        itemsLoading: [() => [selectors.allItemsLoading], (allItemsLoading) => allItemsLoading],
+        itemsLoading: [
+            () => [selectors.allItemsLoading, selectors.refreshStatus],
+            (allItemsLoading, refreshStatus) => {
+                return allItemsLoading || Object.values(refreshStatus).some((s) => s.loading)
+            },
+        ],
         lastRefreshed: [
             () => [selectors.items],
             (items) => {
@@ -281,6 +289,16 @@ export const dashboardLogic = kea({
                     }
                 }
                 return layoutForItem
+            },
+        ],
+        refreshMetrics: [
+            (s) => [s.refreshStatus, s.items],
+            (refreshStatus, items) => {
+                const total = items?.length ?? 0
+                return {
+                    completed: total - (Object.values(refreshStatus).filter((s) => s.loading).length ?? 0),
+                    total,
+                }
             },
         ],
     }),
@@ -453,15 +471,20 @@ export const dashboardLogic = kea({
             await breakpoint(100)
             actions.triggerDashboardUpdate({ tags: values.dashboard.tags.filter((_tag) => _tag !== tag) })
         },
-        setAutoRefresh: ({ enabled }) => {
+        setAutoRefresh: ({ enabled, interval }) => {
             if (cache.autoRefreshInterval) {
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
             }
             if (enabled) {
+                // Refresh immediately upon toggle on
+                // actions.refreshAllDashboardItems()
+
+                console.log('HELLLP', interval, values.autoRefresh, interval ?? values.autoRefresh.interval)
+
                 cache.autoRefreshInterval = window.setInterval(() => {
                     actions.refreshAllDashboardItems()
-                }, AUTO_REFRESH_INTERVAL_MINS * 60 * 1000)
+                }, values.autoRefresh.interval * 1000)
             }
         },
     }),

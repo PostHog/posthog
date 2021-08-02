@@ -11,10 +11,16 @@ $dashboard-title-size: 32px;
 
         .left-item {
             flex-grow: 1;
+
+            .dashboard-items-action-icon {
+                margin-right: 6px;
+            }
         }
 
-        .ant-btn {
-            padding-left: 4px !important;
+        .right-item {
+            .ant-btn {
+                padding-left: 4px !important;
+            }
         }
     }
 

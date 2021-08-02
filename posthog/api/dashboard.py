@@ -142,7 +142,6 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         dashboard.last_accessed_at = now()
         dashboard.save()
         serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
-        print("HELLO", serializer)
         return response.Response(serializer.data)
 
     def get_parents_query_dict(self) -> Dict[str, Any]:  # to be moved to a separate Legacy*ViewSet Class
