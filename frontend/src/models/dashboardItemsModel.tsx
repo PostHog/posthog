@@ -3,11 +3,12 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
-import { DashboardItemType, FilterType } from '~/types'
+import { DashboardItemType } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
-import { dashboardItemsModelType } from './dashboardItemsModelType'
+import { dashboardItemsModelType } from '~/models/dashboardItemsModelType'
 
+import { dashboardItemsModelType } from './dashboardItemsModelType'
 export const dashboardItemsModel = kea<dashboardItemsModelType>({
     actions: () => ({
         renameDashboardItem: (item: DashboardItemType) => ({ item }),
@@ -18,7 +19,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
             move,
         }),
         duplicateDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
-        refreshAllDashboardItems: (filters: Partial<FilterType>) => filters,
+        refreshAllDashboardItems: (filters: Record<string, any>) => filters,
     }),
     listeners: ({ actions }) => ({
         renameDashboardItem: async ({ item }) => {
@@ -50,7 +51,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
 
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
 
-            if (dashboard && move) {
+            if (move) {
                 const deletedItem = await api.update(`api/insight/${item.id}`, {
                     deleted: true,
                 })
@@ -82,7 +83,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                         </Link>
                     </div>
                 )
-            } else if (!move && dashboardId && dashboard) {
+            } else if (!move && dashboardId) {
                 // copy
                 const toastId = toast(
                     <div data-attr="success-toast">
