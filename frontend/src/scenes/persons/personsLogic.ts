@@ -201,10 +201,13 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 actions.loadPersons()
             }
         },
-        '/person/*': ({ _: person }, _searchParams, { activeTab }) => {
-            if (activeTab && values.activeTab !== activeTab) {
+        '/person/*': ({ _: person }, { sessionRecordingId }, { activeTab }) => {
+            if (sessionRecordingId) {
+                actions.navigateToTab(PersonsTabType.SESSIONS)
+            } else if (activeTab && values.activeTab !== activeTab) {
                 actions.navigateToTab(activeTab as PersonsTabType)
             }
+
             if (person) {
                 actions.loadPerson(person) // underscore contains the wildcard
             }
