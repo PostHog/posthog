@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from ee.clickhouse.queries.funnels import funnel
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, INSIGHT_STICKINESS
 from posthog.decorators import CacheType
 from posthog.models import Dashboard, DashboardItem, Event, Filter
