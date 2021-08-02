@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Input, Radio, Table } from 'antd'
-import { QuestionCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined } from '@ant-design/icons'
+import { QuestionCircleOutlined, DeleteOutlined, EditOutlined, ExportOutlined, CheckOutlined } from '@ant-design/icons'
 import { DeleteWithUndo, stripHTTP, toParams } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
@@ -16,6 +16,8 @@ import { userLogic } from 'scenes/userLogic'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { PageHeader } from 'lib/components/PageHeader'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { ColumnType } from 'antd/lib/table'
+import { teamLogic } from '../teamLogic'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -27,6 +29,7 @@ const searchActions = (sources: ActionType[], search: string): ActionType[] => {
 }
 
 export function ActionsTable(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
     const [searchTerm, setSearchTerm] = useState('')
@@ -34,13 +37,12 @@ export function ActionsTable(): JSX.Element {
     const { user } = useValues(userLogic)
     const tableScrollBreakpoint = getBreakpoint('lg')
 
-    const columns = [
+    const columns: ColumnType<ActionType>[] = [
         {
             title: 'Name',
-            dataIndex: 'name',
             key: 'name',
             sorter: (a: ActionType, b: ActionType) => ('' + a.name).localeCompare(b.name),
-            render: function RenderName(_: null, action: ActionType, index: number) {
+            render: function RenderName(action: ActionType, index: number): JSX.Element {
                 return (
                     <Link
                         data-attr={'action-link-' + index}
@@ -55,7 +57,7 @@ export function ActionsTable(): JSX.Element {
             ? [
                   {
                       title: 'Volume',
-                      render: function RenderVolume(_: null, action: ActionType) {
+                      render: function RenderVolume(action: ActionType): JSX.Element {
                           return <span>{action.count}</span>
                       },
                       sorter: (a: ActionType, b: ActionType) => (a.count || 0) - (b.count || 0),
@@ -64,7 +66,7 @@ export function ActionsTable(): JSX.Element {
             : []),
         {
             title: 'Type',
-            render: function RenderType(_: null, action: ActionType) {
+            render: function RenderType(action: ActionType): JSX.Element {
                 return (
                     <span>
                         {action.steps?.map((step) => (
@@ -112,9 +114,21 @@ export function ActionsTable(): JSX.Element {
         },
         createdAtColumn(),
         createdByColumn(actions),
+        ...(currentTeam?.slack_incoming_webhook
+            ? [
+                  {
+                      title: 'Webhook',
+                      key: 'post_to_slack',
+                      sorter: (a: ActionType, b: ActionType) => Number(a.post_to_slack) - Number(b.post_to_slack),
+                      render: function RenderActions(action: ActionType): JSX.Element | null {
+                          return action.post_to_slack ? <CheckOutlined /> : null
+                      },
+                  },
+              ]
+            : []),
         {
             title: '',
-            render: function RenderActions(action: ActionType) {
+            render: function RenderActions(action: ActionType): JSX.Element {
                 const params = {
                     insight: ViewType.TRENDS,
                     interval: 'day',
