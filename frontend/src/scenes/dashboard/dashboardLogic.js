@@ -385,7 +385,6 @@ export const dashboardLogic = kea({
                     dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
                     actions.setRefreshStatus(dashboardItem.id)
                 } catch (e) {
-                    console.log('ERROR', e)
                     actions.setRefreshError(dashboardItem.id)
                 }
                 breakpoint()
@@ -478,13 +477,11 @@ export const dashboardLogic = kea({
             }
             if (enabled) {
                 // Refresh immediately upon toggle on
-                // actions.refreshAllDashboardItems()
-
-                console.log('HELLLP', interval, values.autoRefresh, interval ?? values.autoRefresh.interval)
+                actions.refreshAllDashboardItems()
 
                 cache.autoRefreshInterval = window.setInterval(() => {
                     actions.refreshAllDashboardItems()
-                }, values.autoRefresh.interval * 1000)
+                }, (interval ?? values.autoRefresh.interval) * 1000)
             }
         },
     }),

@@ -32,29 +32,21 @@ export function DashboardReloadAction(): JSX.Element {
         <>
             <Dropdown.Button
                 overlay={
-                    <Menu
-                        data-attr="auto-refresh-picker"
-                        id="auto-refresh-picker"
-                        onSelect={({ key, domEvent }) => {
-                            if (key === 'auto-refresh-check') {
-                                domEvent.stopPropagation()
+                    <Menu data-attr="auto-refresh-picker" id="auto-refresh-picker">
+                        <div
+                            id="auto-refresh-check"
+                            key="auto-refresh-check"
+                            onClick={(e) => {
+                                e.stopPropagation()
                                 setOpen(true)
                                 setAutoRefresh(!autoRefresh.enabled, autoRefresh.interval)
-                            }
-                        }}
-                    >
-                        <Menu.Item key="auto-refresh-check">
-                            <Tooltip
-                                title={`Refresh dashboard automatically every ${humanFriendlyDuration(
-                                    autoRefresh.interval
-                                )}`}
-                                placement="bottomLeft"
-                            >
+                            }}
+                        >
+                            <Tooltip title={`Refresh dashboard automatically`} placement="bottomLeft">
                                 <Checkbox
-                                    id="auto-refresh"
                                     onChange={(e) => {
                                         e.stopPropagation()
-                                        setAutoRefresh(e.target.checked, autoRefresh.interval)
+                                        e.preventDefault()
                                     }}
                                     checked={autoRefresh.enabled}
                                 />
@@ -63,12 +55,11 @@ export function DashboardReloadAction(): JSX.Element {
                                         marginLeft: 10,
                                         cursor: 'pointer',
                                     }}
-                                    htmlFor="auto-refresh"
                                 >
                                     Auto refresh
                                 </label>
                             </Tooltip>
-                        </Menu.Item>
+                        </div>
                         <Menu.Divider />
                         <Menu.ItemGroup title="Refresh interval">
                             <Radio.Group

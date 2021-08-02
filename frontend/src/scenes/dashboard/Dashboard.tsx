@@ -31,15 +31,9 @@ export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
 }
 
 function DashboardView(): JSX.Element {
-    const {
-        dashboard,
-        allItemsLoading: loadingFirstTime,
-        items,
-        filters: dashboardFilters,
-        dashboardMode,
-        autoRefresh,
-        refreshMetrics,
-    } = useValues(dashboardLogic)
+    const { dashboard, allItemsLoading: loadingFirstTime, items, filters: dashboardFilters, dashboardMode } = useValues(
+        dashboardLogic
+    )
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
 
@@ -91,8 +85,6 @@ function DashboardView(): JSX.Element {
     if (!dashboard) {
         return <NotFound object="dashboard" />
     }
-
-    console.log('REfresh status', autoRefresh, refreshMetrics)
 
     return (
         <div className="dashboard">
