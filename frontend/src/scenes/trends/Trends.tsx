@@ -17,6 +17,7 @@ import { ViewType } from '~/types'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface Props {
     view: ViewType
@@ -31,6 +32,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, view, filters: null }))
     const { showingPeople } = useValues(personsModalLogic)
     const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
+    const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const renderViz = (): JSX.Element | undefined => {
         if (
             !_filters.display ||
@@ -109,6 +111,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 onOk={(title: string) => {
                     saveCohortWithFilters(title, _filters)
                     setCohortModalVisible(false)
+                    reportCohortCreatedFromPersonModal(_filters)
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />

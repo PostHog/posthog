@@ -93,7 +93,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                         {people && people.count > 0 && showModalActions && (
                             <>
                                 <div style={{ paddingRight: 8 }}>
-                                    <Button onClick={onSaveCohort}>
+                                    <Button onClick={onSaveCohort} data-attr="person-modal-save-as-cohort">
                                         <UsergroupAddOutlined />
                                         Save as cohort
                                     </Button>

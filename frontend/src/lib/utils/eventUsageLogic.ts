@@ -36,6 +36,39 @@ export enum DashboardEventSource {
     DashboardsList = 'dashboards_list',
 }
 
+/*
+    Takes a full list of filters for an insight and sanitizes any potentially sensitive info to report usage
+*/
+function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any> {
+    const {
+        display,
+        interval,
+        date_from,
+        date_to,
+        filter_test_accounts,
+        formula,
+        insight,
+        funnel_viz_type,
+        funnel_from_step,
+        funnel_to_step,
+    } = filters
+    return {
+        insight,
+        display,
+        interval,
+        date_from,
+        date_to,
+        filter_test_accounts,
+        formula,
+        filters_count: filters.properties?.length || 0,
+        events_count: filters.events?.length || 0,
+        actions_count: filters.actions?.length || 0,
+        funnel_viz_type,
+        funnel_from_step,
+        funnel_to_step,
+    }
+}
+
 export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
     connect: [preflightLogic],
     actions: {
@@ -51,6 +84,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             count,
             hasNext,
         }),
+        reportCohortCreatedFromPersonModal: (filters: Partial<FilterType>) => ({ filters }),
         reportBookmarkletDragged: true,
         reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
@@ -203,21 +237,11 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard }, breakpoint) => {
             await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
 
-            // Reports `insight viewed` event
-            const { display, interval, date_from, date_to, filter_test_accounts, formula, insight } = filters
+            const { insight } = filters
 
             const properties: Record<string, any> = {
+                ...sanitizeFilterParams(filters),
                 is_first_component_load: isFirstLoad,
-                insight,
-                display,
-                interval,
-                date_from,
-                date_to,
-                filter_test_accounts,
-                formula,
-                filters_count: filters.properties?.length || 0,
-                events_count: filters.events?.length || 0,
-                actions_count: filters.actions?.length || 0,
                 from_dashboard: fromDashboard, // Whether the insight is on a dashboard
             }
 
@@ -266,10 +290,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         reportPersonModalViewed: async ({ params, count, hasNext }) => {
             const { funnelStep, filters, breakdown_value, saveOriginal, searchTerm, date_from, date_to } = params
             const properties = {
-                insight: filters.insight,
-                display: filters.display,
-                funnel_viz_type: filters.funnel_viz_type,
-                interval: filters.interval,
+                ...sanitizeFilterParams(filters),
                 date_from,
                 date_to,
                 funnel_step: funnelStep,
@@ -280,6 +301,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
                 has_next: hasNext, // Whether there are other persons to be loaded (pagination)
             }
             posthog.capture('insight person modal viewed', properties)
+        },
+        reportCohortCreatedFromPersonModal: async ({ filters }) => {
+            posthog.capture('person modal cohort created', sanitizeFilterParams(filters))
         },
         reportDashboardViewed: async ({ dashboard, hasShareToken }, breakpoint) => {
             await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
