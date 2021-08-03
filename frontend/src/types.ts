@@ -481,12 +481,6 @@ export interface DashboardType {
     tags: string[]
 }
 
-export interface DashboardRefreshStatusType {
-    error?: boolean
-    loading?: boolean
-    refreshed?: boolean
-}
-
 export interface OrganizationInviteType {
     id: string
     target_email: string
@@ -894,11 +888,6 @@ export enum DashboardMode { // Default mode is null
 
 export enum DashboardItemMode {
     Edit = 'edit',
-}
-
-export interface DashboardAutoRefresh {
-    enabled: boolean
-    interval?: number // interval in seconds
 }
 
 // Reserved hotkeys globally available

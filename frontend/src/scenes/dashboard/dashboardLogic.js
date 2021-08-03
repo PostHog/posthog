@@ -30,12 +30,14 @@ export const dashboardLogic = kea({
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
         refreshAllDashboardItems: true,
+        refreshAllDashboardItemsManual: true,
+        resetInterval: true,
         updateAndRefreshDashboard: true,
         setDates: (dateFrom, dateTo, reloadDashboard = true) => ({ dateFrom, dateTo, reloadDashboard }),
         addGraph: true, // takes the user to insights to add a graph
         deleteTag: (tag) => ({ tag }),
         saveNewTag: (tag) => ({ tag }),
-        setAutoRefresh: (enabled, interval) => ({ enabled, interval }), // see type `DashboardAutoRefresh`
+        setAutoRefresh: (enabled, interval) => ({ enabled, interval }),
         setRefreshStatus: (id, loading = false) => ({ id, loading }), // id represents dashboardItem id's
         setRefreshError: (id) => ({ id }),
     }),
@@ -154,7 +156,7 @@ export const dashboardLogic = kea({
                 enabled: false,
             },
             {
-                setAutoRefresh: (state, { enabled, interval }) => ({ ...state, enabled, interval }),
+                setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
         ],
     }),
@@ -364,13 +366,19 @@ export const dashboardLogic = kea({
         updateItemColor: ({ id, color }) => {
             api.update(`api/insight/${id}`, { color })
         },
-        refreshAllDashboardItems: async (_, breakpoint) => {
-            breakpoint()
+        refreshAllDashboardItemsManual: async (_, breakpoint) => {
+            // reset auto refresh interval
+            actions.resetInterval()
+            await breakpoint(100)
 
+            actions.refreshAllDashboardItems()
+        },
+        refreshAllDashboardItems: async (_, breakpoint) => {
             // Don't do anything if there's nothing to refresh
             if (!values?.items || values?.items.length === 0) {
                 return
             }
+            await breakpoint(100)
 
             // Refreshing dashboard items from now on should be done without short-circuiting
             const fetchItemPromises = values.items.map((dashboardItem) => async () => {
@@ -470,18 +478,19 @@ export const dashboardLogic = kea({
             await breakpoint(100)
             actions.triggerDashboardUpdate({ tags: values.dashboard.tags.filter((_tag) => _tag !== tag) })
         },
-        setAutoRefresh: ({ enabled, interval }) => {
+        setAutoRefresh: () => {
+            actions.resetInterval()
+        },
+        resetInterval: () => {
             if (cache.autoRefreshInterval) {
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
             }
-            if (enabled) {
-                // Refresh immediately upon toggle on
-                actions.refreshAllDashboardItems()
 
+            if (values.autoRefresh.enabled) {
                 cache.autoRefreshInterval = window.setInterval(() => {
                     actions.refreshAllDashboardItems()
-                }, (interval ?? values.autoRefresh.interval) * 1000)
+                }, values.autoRefresh.interval * 1000)
             }
         },
     }),

@@ -1,10 +1,11 @@
 import React, { useState } from 'react'
 import { Checkbox, Dropdown, Menu, Radio, Space, Tooltip } from 'antd'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { LoadingOutlined, ReloadOutlined } from '@ant-design/icons'
+import { DownOutlined, LoadingOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
+import clsx from 'clsx'
 
 export const LastRefreshText = (): JSX.Element => {
     const { lastRefreshed } = useValues(dashboardLogic)
@@ -17,7 +18,7 @@ export const LastRefreshText = (): JSX.Element => {
 
 // in seconds
 const intervalOptions = [
-    ...Array.from([10, 60, 120, 300, 900], (v) => ({
+    ...Array.from([60, 120, 300, 900], (v) => ({
         label: humanFriendlyDuration(v),
         value: v,
     })),
@@ -25,7 +26,7 @@ const intervalOptions = [
 
 export function DashboardReloadAction(): JSX.Element {
     const { itemsLoading, autoRefresh, refreshMetrics } = useValues(dashboardLogic)
-    const { refreshAllDashboardItems, setAutoRefresh } = useActions(dashboardLogic)
+    const { refreshAllDashboardItemsManual, setAutoRefresh } = useActions(dashboardLogic)
     const [open, setOpen] = useState(false)
 
     return (
@@ -81,7 +82,8 @@ export function DashboardReloadAction(): JSX.Element {
                     </Menu>
                 }
                 trigger={['click']}
-                onClick={() => refreshAllDashboardItems()}
+                onClick={() => refreshAllDashboardItemsManual()}
+                icon={<DownOutlined />}
                 disabled={itemsLoading}
                 buttonsRender={([leftButton, rightButton]) => [
                     React.cloneElement(leftButton as React.ReactElement, { style: { paddingLeft: 10 } }),
@@ -93,13 +95,12 @@ export function DashboardReloadAction(): JSX.Element {
                 <span className="dashboard-items-action-icon">
                     {itemsLoading ? <LoadingOutlined /> : <ReloadOutlined />}
                 </span>
-                {itemsLoading ? (
-                    <>
-                        Refreshed {refreshMetrics.completed} out of {refreshMetrics.total}
-                    </>
-                ) : (
+                <span className={clsx('dashboard-items-action-refresh-text', { hidden: itemsLoading })}>
                     <LastRefreshText />
-                )}
+                </span>
+                <span className={clsx('dashboard-items-action-refresh-text', 'completed', { hidden: !itemsLoading })}>
+                    Refreshed {refreshMetrics.completed} out of {refreshMetrics.total}
+                </span>
             </Dropdown.Button>
         </>
     )

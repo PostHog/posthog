@@ -359,3 +359,8 @@
         border-radius: 0;
     }
 }
+
+// All dropdowns must be below top navigation
+.ant-dropdown {
+    z-index: 700;
+}
