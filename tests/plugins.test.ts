@@ -4,7 +4,7 @@ import { mocked } from 'ts-jest/utils'
 import { Hub, LogLevel, PluginTaskType } from '../src/types'
 import { clearError, processError } from '../src/utils/db/error'
 import { createHub } from '../src/utils/db/hub'
-import { IllegalOperationError } from '../src/utils/utils'
+import { delay, IllegalOperationError } from '../src/utils/utils'
 import { loadPlugin } from '../src/worker/plugins/loadPlugin'
 import { runProcessEvent } from '../src/worker/plugins/run'
 import { loadSchedule, setupPlugins } from '../src/worker/plugins/setup'
@@ -64,10 +64,8 @@ test('setupPlugins and runProcessEvent', async () => {
     expect(pluginConfig.config).toEqual(pluginConfig39.config)
     expect(pluginConfig.error).toEqual(pluginConfig39.error)
 
-    expect(pluginConfig.plugin).toEqual({
-        ...plugin60,
-        capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
-    })
+    expect(pluginConfig.plugin).toEqual(plugin60)
+
     expect(pluginConfig.attachments).toEqual({
         maxmindMmdb: {
             content_type: pluginAttachment1.content_type,
@@ -178,7 +176,9 @@ test('archive plugin with broken index.js does not do much', async () => {
     const { pluginConfigs } = hub
 
     const pluginConfig = pluginConfigs.get(39)!
-    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+    pluginConfig.vm!.totalInitAttemptsCounter = 20 // prevent more retries
+    await delay(4000) // processError is called at end of retries
+    expect(await pluginConfig.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -203,7 +203,9 @@ test('local plugin with broken index.js does not do much', async () => {
     const { pluginConfigs } = hub
 
     const pluginConfig = pluginConfigs.get(39)!
-    expect(await pluginConfigs.get(39)!.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
+    pluginConfig.vm!.totalInitAttemptsCounter = 20 // prevent more retries
+    await delay(4000) // processError is called at end of retries
+    expect(await pluginConfig.vm!.getTasks(PluginTaskType.Schedule)).toEqual({})
 
     const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
     const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -806,7 +808,11 @@ test('metrics API works as expected', async () => {
     await pluginConfig.vm?.resolveInternalVm
     await runProcessEvent(hub, testEvent)
 
-    expect(hub.pluginMetricsManager.metricsPerPlugin[39].metrics).toEqual({ metric1: 100, metric2: 10, metric3: 1 })
+    expect(hub.pluginMetricsManager.metricsPerPluginConfig[39].metrics).toEqual({
+        metric1: 100,
+        metric2: 10,
+        metric3: 1,
+    })
 })
 
 test('metrics method will fail for wrongly specified metric type', async () => {
