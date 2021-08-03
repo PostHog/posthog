@@ -13,6 +13,8 @@ export function ToolbarSettings(): JSX.Element {
             <Row style={{ flexFlow: 'row' }}>
                 <Col>
                     <Switch
+                        // @ts-expect-error - id works just fine despite not being in CompoundedComponent
+                        id="posthog-toolbar-switch"
                         onChange={() => {
                             updateUser({
                                 toolbar_mode: user?.toolbar_mode === 'disabled' ? 'toolbar' : 'disabled',
@@ -28,9 +30,10 @@ export function ToolbarSettings(): JSX.Element {
                         style={{
                             marginLeft: '10px',
                         }}
+                        htmlFor="posthog-toolbar-switch"
                     >
-                        Enable the PostHog Toolbar, which gives access to heatmaps, stats and allows you to create
-                        actions, without ever leaving your own website or app!
+                        Enable PostHog Toolbar, which gives access to heatmaps, stats and allows you to create actions,
+                        right there on your website!
                     </label>
                 </Col>
             </Row>
