@@ -1315,15 +1315,15 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.5.tgz#596539ea69df21f07640a2ce0a335c7ead940b06"
   integrity sha512-EuRoYM17vYI1m2SmXpYe7LC9hFPWsRnN6rAi6q3unFIW26pT40sV/TYSWnBEihZXIWdVShwiGXORQMHjpnJOig==
 
-"@posthog/react-rrweb-player@^1.1.1":
-  version "1.1.1"
-  resolved "https://registry.yarnpkg.com/@posthog/react-rrweb-player/-/react-rrweb-player-1.1.1.tgz#4020ad1413efef0d574fb4043303f0a6154989b0"
-  integrity sha512-z3OXhisr1UJKOYnOc8ebZ7dBvR33y4R6u4fK8negKfv0T5DE3nrg264D0FDwsN7Lke+ZLo2k8so1pD4SQQ6tYA==
+"@posthog/react-rrweb-player@^1.1.2":
+  version "1.1.2"
+  resolved "https://registry.yarnpkg.com/@posthog/react-rrweb-player/-/react-rrweb-player-1.1.2.tgz#65c6fcc9b6736baba5494855ed9676e26a0971b2"
+  integrity sha512-mQH9+wkZWa+ey9AJ0n74rJDLA5krjTFoSs2smEg8Rj85uuyI7C35Dr4ANafvIYbHZzDyuHGScEXaQNy/RTj1AA==
   dependencies:
     rc-slider "^9.6.2"
     rc-tooltip "^5.0.1"
     react-transition-group "^4.4.1"
-    rrweb "^0.9.14"
+    rrweb "^1.0.2"
     screenfull "^5.0.2"
     use-debounce "^5.2.1"
     use-local-storage-state "^6.0.0"
@@ -9992,26 +9992,10 @@ ripemd160@^2.0.0, ripemd160@^2.0.1:
     hash-base "^3.0.0"
     inherits "^2.0.1"
 
-rrweb-snapshot@^1.0.3:
-  version "1.1.6"
-  resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.6.tgz#e598510e387b9b2c62ce0cfc586a37c89549b228"
-  integrity sha512-twvqV1WRuFwodO5UV0tzS4Q2w+ZYi5kwOx/uwbRkplfazcnbphDLFvy8x9IwMOZFhyRg1jDJjbnlC8wy4xq5bQ==
-
 rrweb-snapshot@^1.1.7:
   version "1.1.7"
   resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.7.tgz#92a3b47b1112a1b566c2fae2edb02fa48a6f6653"
   integrity sha512-+f2kCCvIQ1hbEeCWnV7mPVPDEdWEExqwcYqMd/r1nfK52QE7qU52jefUOyTe85Vy67rZGqWnfK/B25e/OTSgYg==
-
-rrweb@^0.9.14:
-  version "0.9.14"
-  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-0.9.14.tgz#09bec604fc44c74801e4fe910606e5a6cde008ec"
-  integrity sha512-nm2rrVNoyWFPrbGQmcvTTlA7XjbbgPIgO7qsW0Zyr5iOURIFJDGPHFmOVLRyLpWiriVtEoXh6a+x+D1sj+qwWg==
-  dependencies:
-    "@types/css-font-loading-module" "0.0.4"
-    "@xstate/fsm" "^1.4.0"
-    fflate "^0.4.4"
-    mitt "^1.1.3"
-    rrweb-snapshot "^1.0.3"
 
 rrweb@^1.0.2:
   version "1.0.2"
