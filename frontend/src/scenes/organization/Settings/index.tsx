@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Button, Card, Input, Divider, Select, Skeleton } from 'antd'
+import { Button, Card, Input, Divider, Select, Skeleton, Switch } from 'antd'
 import { UserType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Invites } from './Invites'
@@ -103,6 +103,39 @@ function DomainWhitelist({ isRestricted }: RestrictedComponentProps): JSX.Elemen
     )
 }
 
+function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Element {
+    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const { updateOrganization } = useActions(organizationLogic)
+
+    return (
+        <div>
+            <h2 id="name" className="subtitle">
+                Emailing Preferences
+            </h2>
+            <div>
+                <Switch
+                    // @ts-expect-error - id works just fine despite not being in CompoundedComponent
+                    id="is-member-joined-email-enabled"
+                    onChange={(checked) => {
+                        updateOrganization({ is_member_join_email_enabled: checked })
+                    }}
+                    checked={currentOrganization?.is_member_join_email_enabled}
+                    loading={currentOrganizationLoading}
+                    disabled={isRestricted || !currentOrganization}
+                />
+                <label
+                    style={{
+                        marginLeft: '10px',
+                    }}
+                    htmlFor="is-member-joined-email-enabled"
+                >
+                    Notify all members when a new member joins
+                </label>
+            </div>
+        </div>
+    )
+}
+
 export function OrganizationSettings({ user }: { user: UserType }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     return (
@@ -126,6 +159,8 @@ export function OrganizationSettings({ user }: { user: UserType }): JSX.Element 
                 <Invites />
                 <Divider />
                 <Members user={user} />
+                <Divider />
+                <RestrictedArea Component={EmailPreferences} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
                 <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Owner} />
             </Card>
