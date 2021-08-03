@@ -141,7 +141,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'retention',
         element: RetentionContainer,
         icon: TableOutlined,
-        viewText: 'View retention',
+        viewText: 'View graph',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
@@ -326,12 +326,10 @@ export function DashboardItem({
                                     trigger={['click']}
                                     overlay={
                                         <Menu data-attr={'dashboard-item-' + index + '-dropdown-menu'}>
-                                            <Menu.Item
-                                                data-attr={'dashboard-item-' + index + '-dropdown-view'}
-                                                icon={<Icon />}
-                                                onClick={() => router.actions.push(link)}
-                                            >
-                                                {viewText}
+                                            <Menu.Item data-attr={'dashboard-item-' + index + '-dropdown-view'}>
+                                                <Link to={link}>
+                                                    <Icon /> {viewText}
+                                                </Link>
                                             </Menu.Item>
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
