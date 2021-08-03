@@ -134,23 +134,8 @@ New functions called here are:
 
 2. `createTaskRunner` – Creates a Piscina task runner that allows to operate on plugin VMs.
 
-### Worker lifecycle
-
-TODO
-
-### VMs
-
-TODO
-
-#### How VM Extensions Work
-
-TODO
-
-### Plugins vs. plugin configs
-
-### End Notes
-
-An `organization_id` is tied to a _company_ and its _installed plugins_, a `team_id` is tied to a _project_ and its _plugin configs_ (enabled/disabled+extra config).
+> Note:
+> An `organization_id` is tied to a _company_ and its _installed plugins_, a `team_id` is tied to a _project_ and its _plugin configs_ (enabled/disabled+extra config).
 
 ## Questions?
 
