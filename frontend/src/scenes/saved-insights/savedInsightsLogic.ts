@@ -12,10 +12,6 @@ interface InsightsResult {
 }
 
 export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
-    actions: () => ({
-        setInsightsCount: (count: number) => ({ count }),
-        setInsightsOffset: (offset: number) => ({ offset }),
-    }),
     loaders: ({ values }) => ({
         insights: {
             __default: null as InsightsResult | null,

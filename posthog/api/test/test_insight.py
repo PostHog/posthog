@@ -66,6 +66,30 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(response.json()["results"]), 1)
             self.assertEqual(len(response.json()["results"][0]["short_id"]), 8)
 
+        def test_get_favorited_insight_items(self):
+            filter_dict = {
+                "events": [{"id": "$pageview"}],
+                "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            }
+
+            DashboardItem.objects.create(
+                filters=Filter(data=filter_dict).to_dict(), favorited=True, team=self.team, created_by=self.user,
+            )
+
+            # create without favorited
+            DashboardItem.objects.create(
+                filters=Filter(data=filter_dict).to_dict(), team=self.team, created_by=self.user,
+            )
+
+            # create without user
+            DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+
+            response = self.client.get("/api/insight/", data={"favorited": "true", "user": "true"})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(len(response.json()["results"]), 1)
+            self.assertEqual(len(response.json()["results"][0]["short_id"]), 8)
+
         def test_get_insight_by_short_id(self):
             filter_dict = {
                 "events": [{"id": "$pageview"}],
