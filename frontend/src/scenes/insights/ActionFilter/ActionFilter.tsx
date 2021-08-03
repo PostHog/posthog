@@ -81,7 +81,6 @@ export function ActionFilter({
         hasBreakdown: !!filters.breakdown,
         fullWidth,
     }
-    console.log('hello', showNestedArrow)
 
     return (
         <div>

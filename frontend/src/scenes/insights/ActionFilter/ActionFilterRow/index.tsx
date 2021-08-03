@@ -127,8 +127,6 @@ export function ActionFilterRow({
 
     const orLabel = <div className="stateful-badge or width-locked">OR</div>
 
-    console.log('ACTIONFILTERTROW', showNestedArrow)
-
     return (
         <div className={`${horizontalUI ? 'action-row-striped' : 'action-row'} ${fullWidth ? 'full-width' : ''}`}>
             {!horizontalUI && index > 0 && showOr && (

@@ -70,8 +70,6 @@ export const FilterRow = React.memo(function FilterRow({
         ? 'unified'
         : 'tabs'
 
-    console.log('BTSA', showNestedArrow)
-
     return (
         <Row
             align="middle"

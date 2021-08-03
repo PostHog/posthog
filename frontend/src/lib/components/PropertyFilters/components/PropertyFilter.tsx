@@ -19,7 +19,6 @@ export interface PropertyFilterProps extends PropertyFilterInternalProps {
 }
 
 export function PropertyFilter({ variant = 'tabs', ...props }: PropertyFilterProps): JSX.Element {
-    console.log('variant', variant)
     switch (variant) {
         case 'tabs':
             return <TabbedPropertyFilter {...props} />
