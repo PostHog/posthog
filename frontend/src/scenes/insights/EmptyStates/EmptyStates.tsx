@@ -208,8 +208,16 @@ export function FunnelInvalidFiltersEmptyState(): JSX.Element {
 
 export function FunnelEmptyState(): JSX.Element {
     return (
-        <p style={{ textAlign: 'center', paddingTop: '2rem' }}>
-            We couldn't find any matching events. Try changing dates or pick another action, event, or breakdown.
-        </p>
+        <div className="insight-empty-state funnels-empty-state timeout-message">
+            <div className="insight-empty-state__wrapper">
+                <div className="illustration-main">
+                    <IllustrationDanger />
+                </div>
+                <h2 className="funnels-empty-state__title">There are no matching events for this query.</h2>
+                <p className="funnels-empty-state__description">
+                    Try changing dates or pick another action, event, or breakdown.
+                </p>
+            </div>
+        </div>
     )
 }
