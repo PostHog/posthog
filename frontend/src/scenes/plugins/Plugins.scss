@@ -1,9 +1,16 @@
 .plugins-scene {
     padding-bottom: 60px;
 }
-.plugins-installed-tab-section-header:hover {
+
+.plugins-installed-tab-section-header:hover,
+.plugins-repository-tab-section-header:hover {
     cursor: pointer;
 }
+
+.plugins-repository-tab-section-header {
+    margin-left: 5px;
+}
+
 .plugin-capabilities-tag {
     cursor: default;
 }
