@@ -642,6 +642,26 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(len(mail.outbox), 1)
         self.assertListEqual(mail.outbox[0].to, [initial_user.email])
 
+    @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
+    def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
+        self.organization.is_member_join_email_enabled = False
+        self.organization.save()
+
+        initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+100@posthog.com", organization=self.organization,
+        )
+
+        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+            response = self.client.post(
+                f"/api/signup/{invite.id}/", {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(len(mail.outbox), 0)
+
     @patch("posthoganalytics.identify")
     @patch("posthoganalytics.capture")
     @patch("posthog.api.organization.settings.EE_AVAILABLE", False)
