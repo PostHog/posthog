@@ -17,6 +17,7 @@ interface PropertyFiltersProps {
     popoverPlacement?: TooltipPlacement | null
     style?: CSSProperties
     groupTypes?: TaxonomicFilterGroupType[]
+    showNestedArrow?: boolean
 }
 
 export function PropertyFilters({
@@ -28,6 +29,7 @@ export function PropertyFilters({
     popoverPlacement = null,
     groupTypes,
     style = {},
+    showNestedArrow = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filters } = useValues(propertyFilterLogic(logicProps))
@@ -49,6 +51,7 @@ export function PropertyFilters({
                                 disablePopover={disablePopover}
                                 popoverPlacement={popoverPlacement}
                                 groupTypes={groupTypes}
+                                showNestedArrow={showNestedArrow}
                             />
                         )
                     })}

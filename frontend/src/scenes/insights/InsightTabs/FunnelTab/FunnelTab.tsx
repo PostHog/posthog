@@ -61,6 +61,7 @@ export function FunnelTab(): JSX.Element {
                     seriesIndicatorType="numeric"
                     fullWidth={featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
                     sortable
+                    showNestedArrow={true}
                 />
 
                 {!clickhouseFeaturesEnabled && (

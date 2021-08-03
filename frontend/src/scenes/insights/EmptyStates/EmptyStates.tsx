@@ -164,7 +164,7 @@ export function ErrorMessage(): JSX.Element {
     )
 }
 
-export function FunnelEmptyState(): JSX.Element {
+export function FunnelInvalidFiltersEmptyState(): JSX.Element {
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { setFilters } = useActions(funnelLogic)
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
@@ -203,5 +203,13 @@ export function FunnelEmptyState(): JSX.Element {
                 </div>
             </div>
         </div>
+    )
+}
+
+export function FunnelEmptyState(): JSX.Element {
+    return (
+        <p style={{ textAlign: 'center', paddingTop: '2rem' }}>
+            We couldn't find any matching events. Try changing dates or pick another action, event, or breakdown.
+        </p>
     )
 }

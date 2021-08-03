@@ -9,7 +9,7 @@ import { router } from 'kea-router'
 import { InputNumber, Row } from 'antd'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { ChartParams, FunnelVizType } from '~/types'
-import { FunnelEmptyState } from 'scenes/insights/EmptyStates'
+import { FunnelInvalidFiltersEmptyState } from 'scenes/insights/EmptyStates'
 
 import './FunnelViz.scss'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -99,7 +99,7 @@ export function FunnelViz({
     if (!areFiltersValid) {
         return (
             <BindLogic logic={funnelLogic} props={{ dashboardItemId, cachedResults, filters: defaultFilters }}>
-                <FunnelEmptyState />
+                <FunnelInvalidFiltersEmptyState />
             </BindLogic>
         )
     }

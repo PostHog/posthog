@@ -6,7 +6,6 @@ import { useActions, useValues } from 'kea'
 import { Popover, Row } from 'antd'
 import { CloseButton } from 'lib/components/CloseButton'
 import PropertyFilterButton from './PropertyFilterButton'
-import 'scenes/actions/Actions.scss'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TooltipPlacement } from 'antd/lib/tooltip'
@@ -15,6 +14,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PlusCircleOutlined } from '@ant-design/icons'
+import 'scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
+import './FilterRow.scss'
 
 interface FilterRowProps {
     item: AnyPropertyFilter
@@ -26,6 +27,7 @@ interface FilterRowProps {
     disablePopover?: boolean
     popoverPlacement?: TooltipPlacement | null
     groupTypes?: TaxonomicFilterGroupType[]
+    showNestedArrow?: boolean
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -38,6 +40,7 @@ export const FilterRow = React.memo(function FilterRow({
     disablePopover = false, // use bare PropertyFilter without popover
     popoverPlacement,
     groupTypes,
+    showNestedArrow = false,
 }: FilterRowProps) {
     const { remove } = useActions(propertyFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -70,7 +73,7 @@ export const FilterRow = React.memo(function FilterRow({
     return (
         <Row
             align="middle"
-            className="mt-05 mb-05"
+            className="property-filter-row mt-05 mb-05"
             data-attr={'property-filter-' + index}
             style={{
                 width: '100%',
@@ -112,23 +115,36 @@ export const FilterRow = React.memo(function FilterRow({
                             />
                         }
                     >
-                        {({ setRef }) =>
-                            isValidPropertyFilter(item) ? (
-                                <PropertyFilterButton onClick={() => setOpen(!open)} item={item} setRef={setRef} />
-                            ) : (
-                                <Button
-                                    ref={setRef}
-                                    onClick={() => setOpen(!open)}
-                                    className="new-prop-filter"
-                                    data-attr={'new-prop-filter-' + pageKey}
-                                    type="link"
-                                    style={{ paddingLeft: 0 }}
-                                    icon={<PlusCircleOutlined />}
-                                >
-                                    Add filter
-                                </Button>
+                        {({ setRef }) => {
+                            return (
+                                <>
+                                    {showNestedArrow && (
+                                        <div className="property-filter-button-spacing">
+                                            {index === 0 ? <>&#8627;</> : ''}
+                                        </div>
+                                    )}
+                                    {isValidPropertyFilter(item) ? (
+                                        <PropertyFilterButton
+                                            onClick={() => setOpen(!open)}
+                                            item={item}
+                                            setRef={setRef}
+                                        />
+                                    ) : (
+                                        <Button
+                                            ref={setRef}
+                                            onClick={() => setOpen(!open)}
+                                            className="new-prop-filter"
+                                            data-attr={'new-prop-filter-' + pageKey}
+                                            type="link"
+                                            style={{ paddingLeft: 0 }}
+                                            icon={<PlusCircleOutlined />}
+                                        >
+                                            Add filter
+                                        </Button>
+                                    )}
+                                </>
                             )
-                        }
+                        }}
                     </Popup>
                     {!!Object.keys(filters[index]).length && (
                         <CloseButton
