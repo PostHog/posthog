@@ -67,10 +67,11 @@ export function DashboardReloadAction(): JSX.Element {
                                     setAutoRefresh(true, e.target.value)
                                 }}
                                 value={autoRefresh.interval}
+                                style={{ width: '100%' }}
                             >
-                                <Space direction="vertical">
+                                <Space direction="vertical" style={{ width: '100%' }}>
                                     {intervalOptions.map(({ label, value }) => (
-                                        <Radio key={value} value={value}>
+                                        <Radio key={value} value={value} style={{ width: '100%' }}>
                                             {label}
                                         </Radio>
                                     ))}
