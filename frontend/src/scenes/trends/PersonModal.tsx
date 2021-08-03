@@ -66,7 +66,8 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                         Persons who {(people?.funnelStep ?? 0) >= 0 ? 'completed' : 'dropped off at'} step #
                         {Math.abs(people?.funnelStep ?? 0)} -{' '}
                         <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
-                        {people?.breakdown_value && `- ${people.breakdown_value}`}
+                        {people?.breakdown_value !== undefined &&
+                            `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
                     </strong>
                 </span>
             ) : (

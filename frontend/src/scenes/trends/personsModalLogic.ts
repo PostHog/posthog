@@ -147,7 +147,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                         params = {
                             ...filters,
                             funnel_step: funnelStep,
-                            ...(breakdown_value && { funnel_step_breakdown: breakdown_value }),
+                            ...(breakdown_value !== undefined && { funnel_step_breakdown: breakdown_value }),
                         }
                     }
                     const cleanedParams = cleanFunnelParams(params)

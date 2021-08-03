@@ -377,7 +377,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                         <div style={{ wordWrap: 'break-word' }}>
                                                             <PropertyKeyInfo value={step.name} />
                                                             {' • '}
-                                                            {breakdown.breakdown}
+                                                            {breakdown.breakdown || 'None'}
                                                         </div>
                                                     }
                                                     popoverMetrics={[

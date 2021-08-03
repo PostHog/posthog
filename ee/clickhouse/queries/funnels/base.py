@@ -233,8 +233,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 extra_join = self._get_cohort_breakdown_join()
             else:
                 breakdown_conditions = self._get_breakdown_conditions()
-                extra_conditions = "AND prop != ''" if select_prop else ""
-                extra_conditions += f"AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
+                extra_conditions = f" AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
 
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
@@ -309,7 +308,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self.params.update({"step_num": abs(step_num) - 1})
             conditions.append("steps = %(step_num)s")
 
-        if self._filter.funnel_step_breakdown:
+        if self._filter.funnel_step_breakdown is not None:
             prop_vals = self._parse_breakdown_prop_value()
             self.params.update({"breakdown_prop_value": prop_vals})
             conditions.append("prop IN %(breakdown_prop_value)s")
@@ -402,7 +401,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             if self._filter.funnel_step_breakdown:
                 values = self._parse_breakdown_prop_value()
             else:
-                limit = 5
+                limit = self._filter.breakdown_limit or 5
                 first_entity = next(x for x in self._filter.entities if x.order == 0)
                 if not first_entity:
                     ValidationError("An entity with order 0 was not provided")
